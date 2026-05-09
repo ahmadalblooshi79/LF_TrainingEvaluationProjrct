@@ -1,0 +1,226 @@
+{% extends "admin_shell.html" %}
+{% block title %}إنشاء تمرين جديد — إدارة النظام{% endblock %}
+{% block admin_workspace %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-file-circle-plus fa-icon-title" aria-hidden="true"></i> إنشاء تمرين جديد</h1>
+</div>
+{% if error %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ error }}</p>
+{% endif %}
+<form method="post" action="/admin/exercises/create" id="form-create-exercise">
+  <section class="card exercise-create-card">
+    <h2 class="h2-in-card"><i class="fa-solid fa-file-circle-plus fa-icon-title" aria-hidden="true"></i> بيانات التمرين</h2>
+    <div class="exercise-create-cols">
+      <div class="exercise-create-cols__col">
+        <div class="form-group">
+          <label for="trained_unit"><i class="fa-solid fa-people-group fa-icon-label" aria-hidden="true"></i> اسم الوحدة المتدربة</label>
+          <select id="trained_unit" name="trained_unit" required>
+            <option value="" disabled {% if not form_prefill.trained_unit %}selected{% endif %}>— اختر —</option>
+            {% for x in trained_units %}<option value="{{ x }}" {% if form_prefill.trained_unit == x %}selected{% endif %}>{{ x }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="location_label"><i class="fa-solid fa-location-dot fa-icon-label" aria-hidden="true"></i> مكان التمرين</label>
+          <select id="location_label" name="location_label" required>
+            <option value="" disabled {% if not form_prefill.location_label %}selected{% endif %}>— اختر —</option>
+            {% for x in exercise_locations %}<option value="{{ x }}" {% if form_prefill.location_label == x %}selected{% endif %}>{{ x }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label><i class="fa-solid fa-clock fa-icon-label" aria-hidden="true"></i> الفترة الزمنية للتمرين</label>
+          <div class="form-row-inline">
+            <div style="flex: 1 1 220px;">
+              <label class="muted" for="planned_start">بداية</label>
+              <input id="planned_start" name="planned_start" type="datetime-local" value="{{ form_prefill.planned_start }}">
+            </div>
+            <div style="flex: 1 1 220px;">
+              <label class="muted" for="planned_end">نهاية</label>
+              <input id="planned_end" name="planned_end" type="datetime-local" value="{{ form_prefill.planned_end }}">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="exercise-create-cols__col">
+        <div class="form-group">
+          <label for="exercise_name"><i class="fa-solid fa-heading fa-icon-label" aria-hidden="true"></i> اسم التمرين</label>
+          <select id="exercise_name" name="exercise_name" required>
+            <option value="" disabled {% if not form_prefill.exercise_name %}selected{% endif %}>— اختر —</option>
+            {% for x in exercise_names %}<option value="{{ x }}" {% if form_prefill.exercise_name == x %}selected{% endif %}>{{ x }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="exercise_type"><i class="fa-solid fa-tags fa-icon-label" aria-hidden="true"></i> نوع التمرين</label>
+          <select id="exercise_type" name="exercise_type" required>
+            <option value="" disabled {% if not form_prefill.exercise_type %}selected{% endif %}>— اختر —</option>
+            {% for x in exercise_types %}<option value="{{ x }}" {% if form_prefill.exercise_type == x %}selected{% endif %}>{{ x }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="exercise_level"><i class="fa-solid fa-layer-group fa-icon-label" aria-hidden="true"></i> مستوى التمرين</label>
+          <select id="exercise_level" name="exercise_level" required>
+            <option value="" disabled {% if not form_prefill.exercise_level %}selected{% endif %}>— اختر —</option>
+            {% for x in exercise_levels %}<option value="{{ x }}" {% if form_prefill.exercise_level == x %}selected{% endif %}>{{ x }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="mission"><i class="fa-solid fa-bullseye fa-icon-label" aria-hidden="true"></i> المهمة</label>
+          <select id="mission" name="mission" required>
+            <option value="" disabled {% if not form_prefill.mission %}selected{% endif %}>— اختر —</option>
+            {% for x in missions %}<option value="{{ x }}" {% if form_prefill.mission == x %}selected{% endif %}>{{ x }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="exercise-create-cols__actions">
+        <div class="btn-group exercise-create-actions-bar">
+          <button class="btn" type="submit"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ التمرين</button>
+          <button type="button" class="btn btn-ghost" id="btn-open-exercise-json" title="فتح مجلد التصدير ثم اختيار ملف JSON">
+            <i class="fa-solid fa-folder-open" aria-hidden="true"></i> فتح تمرين
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+</form>
+
+<form id="form-import-exercise-json" method="post" action="/admin/exercises/import-full-json" enctype="multipart/form-data" class="exercise-import-json-form">
+  <input type="file" name="json_file" id="import-exercise-json-file" class="sr-only" accept=".json,application/json" tabindex="-1" aria-label="اختيار ملف JSON للتمرين">
+</form>
+
+<div id="import-password-overlay" class="import-password-overlay" role="dialog" aria-modal="true" aria-labelledby="import-password-title" aria-hidden="true">
+  <div class="import-password-dialog card">
+    <h2 id="import-password-title" class="h2-in-card" style="margin-top:0;"><i class="fa-solid fa-user-shield fa-icon-title" aria-hidden="true"></i> تأكيد كلمة مرور إدارة النظام</h2>
+    <p class="muted" id="import-password-desc">أدخل كلمة مرور حسابك (صلاحية إدارة النظام) للمتابعة باستبدال التمرين الحالي بالملف المختار.</p>
+    <div class="form-group">
+      <label for="import-system-admin-password-input">كلمة المرور</label>
+      <input type="password" id="import-system-admin-password-input" autocomplete="current-password" class="import-password-field">
+    </div>
+    <div class="btn-group" style="margin-top:1rem;justify-content:flex-start;">
+      <button type="button" class="btn" id="import-password-confirm"><i class="fa-solid fa-check" aria-hidden="true"></i> تأكيد الاستيراد</button>
+      <button type="button" class="btn btn-ghost" id="import-password-cancel">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const btn = document.getElementById("btn-open-exercise-json");
+  const fileInput = document.getElementById("import-exercise-json-file");
+  const importForm = document.getElementById("form-import-exercise-json");
+  const HAS_CURRENT_EXERCISE = {{ has_current_exercise | tojson }};
+  const overlay = document.getElementById("import-password-overlay");
+  const pwdInput = document.getElementById("import-system-admin-password-input");
+  const pwdConfirm = document.getElementById("import-password-confirm");
+  const pwdCancel = document.getElementById("import-password-cancel");
+  if (!btn || !fileInput || !importForm) return;
+
+  let pendingFile = null;
+
+  function clearPendingFile() {
+    pendingFile = null;
+    fileInput.value = "";
+  }
+
+  function openPasswordOverlay() {
+    if (!overlay || !pwdInput) return;
+    pwdInput.value = "";
+    overlay.classList.add("is-open");
+    overlay.setAttribute("aria-hidden", "false");
+    pwdInput.focus();
+  }
+
+  function closePasswordOverlay() {
+    if (!overlay || !pwdInput) return;
+    overlay.classList.remove("is-open");
+    overlay.setAttribute("aria-hidden", "true");
+    pwdInput.value = "";
+  }
+
+  if (pwdCancel) pwdCancel.addEventListener("click", () => {
+    closePasswordOverlay();
+    clearPendingFile();
+  });
+  if (overlay) overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) {
+      closePasswordOverlay();
+      clearPendingFile();
+    }
+  });
+
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    try {
+      const r = await fetch("/admin/exercises/open-export-dir", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+      });
+      await r.json().catch(() => ({}));
+    } catch (_) {
+      /* يُكمّل فتح نافذة اختيار الملف حتى لو تعذر فتح المجلد */
+    } finally {
+      btn.disabled = false;
+    }
+    fileInput.value = "";
+    fileInput.click();
+  });
+
+  const MSG_REPLACE = "يوجد تمرين حالي في التطبيق.\n\nاستيراد ملف JSON (حتى لو كان نفس ملف التمرين الحالي) سيحذف التمرين الحالي وكل ما يتصل به داخل النظام ويستبدله بالتمرين المستورد.\n\nيُنصح بالتأكد من وجود نسخة احتياطية أو ملف تصدير محدث.\n\nهل تريد المتابعة؟";
+
+  async function submitImportWithPassword(file, password) {
+    const fd = new FormData();
+    fd.append("json_file", file);
+    fd.append("system_admin_password", password);
+    const r = await fetch("/admin/exercises/import-full-json", {
+      method: "POST",
+      body: fd,
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    let body = {};
+    try { body = await r.json(); } catch (_) {}
+    if (r.ok && body.ok && body.redirect) {
+      window.location.href = body.redirect;
+      return;
+    }
+    const err = (body && body.error) ? body.error : "تعذر استيراد التمرين.";
+    window.alert(err);
+    closePasswordOverlay();
+    clearPendingFile();
+  }
+
+  if (pwdConfirm && pwdInput) pwdConfirm.addEventListener("click", async () => {
+    const pw = (pwdInput.value || "").trim();
+    if (!pw) {
+      window.alert("يرجى إدخال كلمة المرور.");
+      pwdInput.focus();
+      return;
+    }
+    if (!pendingFile) {
+      closePasswordOverlay();
+      return;
+    }
+    pwdConfirm.disabled = true;
+    try {
+      await submitImportWithPassword(pendingFile, pw);
+    } finally {
+      pwdConfirm.disabled = false;
+    }
+  });
+
+  fileInput.addEventListener("change", () => {
+    if (!fileInput.files || !fileInput.files.length) return;
+    const f = fileInput.files[0];
+    if (!HAS_CURRENT_EXERCISE) {
+      importForm.requestSubmit();
+      return;
+    }
+    if (!window.confirm(MSG_REPLACE)) {
+      clearPendingFile();
+      return;
+    }
+    pendingFile = f;
+    openPasswordOverlay();
+  });
+})();
+</script>
+{% endblock %}

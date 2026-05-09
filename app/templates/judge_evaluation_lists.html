@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}قوائم التقييم — {{ unit.label }}{% endblock %}
+{% block content %}
+<style>
+  .judge-eval-lists-table th,
+  .judge-eval-lists-table td {
+    text-align: center;
+    vertical-align: middle;
+  }
+</style>
+<div class="page-header">
+  <h1><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> قوائم التقييم — {{ unit.label }}</h1>
+  <p class="mt-tight">
+    <a class="btn btn-ghost" href="{{ eval_lists_parent_href | default(url_for('views.judge_evaluation_lists_home')) }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى مستويات الوحدات</a>
+  </p>
+</div>
+
+<section class="card">
+  {% if evaluation_lists_rows %}
+  <div class="table-wrap">
+    <table class="judge-eval-lists-table" dir="rtl" aria-label="قوائم التقييم">
+      <thead>
+        <tr>
+          <th scope="col">التاريخ والوقت</th>
+          <th scope="col">نوع التمرين</th>
+          <th scope="col">الوحدة المقيمة</th>
+          <th scope="col">قائمة التقييم</th>
+          <th scope="col">توقيت التسليم</th>
+          <th scope="col">الموقف</th>
+          <th scope="col">التقدير العام</th>
+          <th scope="col">فتح</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in evaluation_lists_rows %}
+        <tr>
+          <td>{% if r.dt %}{{ r.dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td>{{ r.exercise_type or "—" }}</td>
+          <td>{{ r.trained_unit or "—" }}</td>
+          <td>{{ r.item_title }}</td>
+          <td>{% if r.delivery_dt %}{{ r.delivery_dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td>{% if r.status_done %}<span class="badge badge--done">ينجز</span>{% else %}<span class="badge badge--not-done">لم ينجز</span>{% endif %}</td>
+          <td>{{ r.grade_label or "—" }}</td>
+          <td><a href="{{ r.open_href }}">فتح التقييم</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted" dir="rtl" style="margin:0;">لا توجد قوائم تقييم مرفوعة لهذا المستوى ضمن التمرين الحالي.</p>
+  {% endif %}
+</section>
+{% endblock %}
+

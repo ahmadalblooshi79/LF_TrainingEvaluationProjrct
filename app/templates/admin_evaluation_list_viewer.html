@@ -1,0 +1,298 @@
+{% extends "admin_shell.html" %}
+{% block title %}معاينة تقييم — قوائم التقييم{% endblock %}
+{% block admin_workspace %}
+<div class="dilemma-viewer-page">
+  <div class="dilemma-viewer-toolbar card">
+    <div class="dilemma-viewer-toolbar__titles">
+      <h1 class="dilemma-viewer-title"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ item_title }}</h1>
+    </div>
+    <div class="dilemma-viewer-toolbar__actions">
+      <a class="btn btn-ghost dilemma-viewer-close-btn" href="{{ close_href or url_for('views.admin_evaluation_lists', unit_key=unit_key) }}"><i class="fa-solid fa-xmark" aria-hidden="true"></i> {{ close_label or "إغلاق والعودة" }}</a>
+    </div>
+  </div>
+
+  <div class="eval-top-messages" dir="ltr">
+    {% if saved_is_approved %}
+    <p class="form-ok-banner" role="status" style="display:inline-block;margin:0 0 0.5rem;">
+      <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+      تم اعتماد التقييم{% if saved_approved_at %} بتاريخ {{ saved_approved_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}.
+    </p>
+    {% endif %}
+    {% if saved_updated_at %}
+    <p class="form-ok-banner" role="status" style="display:inline-block;margin:0 0 0.5rem;">
+      <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i>
+      آخر حفظ: {{ saved_updated_at.strftime('%Y-%m-%d %H:%M') }}
+    </p>
+    {% endif %}
+  </div>
+
+  {% if preview_error %}
+  <p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ preview_error }}</p>
+  {% endif %}
+
+  {% if header_row %}
+  <section class="card eval-info-card" dir="rtl" style="margin:0 0 0.75rem;">
+    <div class="eval-meta-grid" style="max-width:none;grid-template-columns: 10rem 1fr;">
+      <div class="eval-level-label">مسمى الوحدة</div>
+      <div><strong>{{ unit_label }}</strong></div>
+      <div class="eval-level-label">التاريخ</div>
+      <div>{% if shown_date %}{{ shown_date.strftime('%Y-%m-%d') }}{% else %}—{% endif %}</div>
+      <div class="eval-level-label">قائد الوحدة</div>
+      <div>{{ commander_name }}</div>
+      <div class="eval-level-label">المحكم</div>
+      <div>{{ judge_name }}</div>
+    </div>
+  </section>
+  {% if sheet_title %}
+  <p class="eval-preview-sheet-title muted" dir="rtl"><strong>{{ sheet_title }}</strong></p>
+  {% endif %}
+
+  {% if eval_structured %}
+  {% if eval_column_source == 'named' %}
+  {# تم حذف الفقرة حسب الطلب #}
+  {% else %}
+  {# تم حذف الفقرة حسب الطلب #}
+  {% endif %}
+  <div class="eval-preview-shell" dir="rtl">
+    <div class="eval-preview-scroll">
+      <table class="eval-preview-table eval-structured" role="table" aria-label="جدول التقييم" id="eval-structured-table">
+        <thead>
+          <tr>
+            <th scope="col" class="eval-preview-th eval-preview-th--index"><span class="sr-only">ترقيم الصفوف</span></th>
+            <th scope="col" class="eval-preview-th eval-th--col">عناصر التقييم</th>
+            <th scope="col" class="eval-preview-th eval-th--col">القصوى</th>
+            <th scope="col" class="eval-preview-th eval-th--col">المكتسبة</th>
+            <th scope="col" class="eval-preview-th eval-th--col">النسبة</th>
+            <th scope="col" class="eval-preview-th eval-th--col">النتيجة</th>
+            <th scope="col" class="eval-preview-th eval-th--col">ملاحظات</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set saved_rows = (saved_payload.get('rows') or []) if saved_payload else [] %}
+          {% for row in eval_rows %}
+          {% set saved_row = saved_rows[loop.index0] if saved_rows and (loop.index0 < (saved_rows|length)) else {} %}
+          <tr class="eval-structured-row">
+            <th scope="row" class="eval-preview-rowhead">{{ loop.index }}</th>
+            <td class="eval-preview-td eval-col--element">{{ row.element }}</td>
+            <td class="eval-preview-td eval-col--max eval-td-readonly">{{ row.max_val }}</td>
+            <td class="eval-preview-td eval-col--acq">
+              <label class="sr-only">المكتسبة — الصف {{ loop.index }}</label>
+              <select class="eval-preview-acquired-select" name="acquired_{{ loop.index0 }}" autocomplete="off" dir="rtl" {% if not can_edit %}disabled{% endif %}>
+                {% for val, label in acquired_options %}
+                {% set selv = (saved_row.get('acquired') if saved_row else none) %}
+                <option value="{{ val }}"{% if selv is not none and val == selv %} selected{% elif selv is none and val == row.acquired_initial %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td class="eval-preview-td eval-col--pct eval-td-readonly"><span class="eval-pct-out" data-pct-out aria-live="polite">—</span></td>
+            <td class="eval-preview-td eval-col--grade eval-td-readonly"><span class="eval-grade-out" data-grade-out aria-live="polite">—</span></td>
+            <td class="eval-preview-td eval-col--notes">
+              <textarea class="eval-notes-textarea" name="notes_{{ loop.index0 }}" rows="2" placeholder="ملاحظات" spellcheck="true" dir="rtl" {% if not can_edit %}disabled{% endif %}>{{ (saved_row.get('notes') or '') if saved_row else '' }}</textarea>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td class="eval-preview-td eval-preview-empty-row" colspan="7">لا توجد صفوف بيانات بعد صف العناوين.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="eval-sticky-footer" dir="rtl">
+        <div class="eval-sticky-footer__left">
+          <div class="muted">مجموع النسبة المئوية</div>
+          <div class="eval-sticky-total"><span id="eval-total-pct">—</span> <span class="muted" style="margin-inline-start:0.35rem;" id="eval-total-grade"></span></div>
+        </div>
+        <div class="eval-sticky-footer__right">
+          {% if can_edit %}
+          <form method="post" action="{{ eval_save_url }}" id="eval-save-form" style="margin:0;">
+            <input type="hidden" name="payload_json" id="eval-save-payload" value="">
+            <input type="hidden" name="saved_id" value="{{ saved_row_id or '' }}">
+            <button type="submit" class="btn" id="eval-save-btn"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ نتائج التقييم</button>
+          </form>
+          {% else %}
+          <span class="muted">عرض فقط</span>
+          {% endif %}
+          {% if show_eval_approve and not saved_is_approved and has_saved_rows %}
+          <form method="post" action="{{ eval_approve_url }}" style="margin:0;">
+            <button type="submit" class="btn btn-danger"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> اعتماد</button>
+          </form>
+          {% endif %}
+          <span class="muted" id="eval-save-hint" aria-live="polite"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+  (function () {
+    var table = document.getElementById('eval-structured-table');
+    if (!table) return;
+    var form = document.getElementById('eval-save-form');
+    var payloadEl = document.getElementById('eval-save-payload');
+    var hintEl = document.getElementById('eval-save-hint');
+    function buildPayload() {
+      var out = { rows: [] };
+      table.querySelectorAll('.eval-structured-row').forEach(function (tr) {
+        var el = tr.querySelector('.eval-col--element');
+        var mx = tr.querySelector('.eval-col--max');
+        var sel = tr.querySelector('.eval-preview-acquired-select');
+        var notes = tr.querySelector('.eval-notes-textarea');
+        out.rows.push({
+          element: el ? (el.textContent || '').trim() : '',
+          max_val: mx ? (mx.textContent || '').trim() : '',
+          acquired: sel ? sel.value : '',
+          notes: notes ? (notes.value || '') : '',
+        });
+      });
+      return out;
+    }
+    if (form && payloadEl) {
+      form.addEventListener('submit', function () {
+        var payload = buildPayload();
+        var s = JSON.stringify(payload);
+        payloadEl.value = s;
+        if (hintEl) hintEl.textContent = 'جاري الحفظ...';
+      });
+    }
+
+    function gradeFromPct(p) {
+      if (p === null || typeof p !== 'number' || isNaN(p)) return 'غير محسوب';
+      if (p < 50) return 'راسب';
+      if (p < 65) return 'مقبول';
+      if (p < 75) return 'جيد';
+      if (p < 90) return 'جيد جدا';
+      return 'ممتاز';
+    }
+    var GRADE_CELL_BG = {
+      na: '#ffffff',
+      fail: '#fecaca',
+      accept: '#fed7aa',
+      good: '#fef08a',
+      vgood: '#bbf7d0',
+      excellent: '#bae6fd',
+    };
+    function setResultCellBackground(gradeTd, pct) {
+      if (!gradeTd) return;
+      var bg;
+      if (pct === null || typeof pct !== 'number' || isNaN(pct)) {
+        bg = GRADE_CELL_BG.na;
+      } else if (pct < 50) {
+        bg = GRADE_CELL_BG.fail;
+      } else if (pct < 65) {
+        bg = GRADE_CELL_BG.accept;
+      } else if (pct < 75) {
+        bg = GRADE_CELL_BG.good;
+      } else if (pct < 90) {
+        bg = GRADE_CELL_BG.vgood;
+      } else {
+        bg = GRADE_CELL_BG.excellent;
+      }
+      gradeTd.style.backgroundColor = bg;
+    }
+    function updateRow(tr) {
+      var sel = tr.querySelector('.eval-preview-acquired-select');
+      var pctEl = tr.querySelector('[data-pct-out]');
+      var grEl = tr.querySelector('[data-grade-out]');
+      var gradeTd = tr.querySelector('td.eval-col--grade');
+      if (!sel || !pctEl || !grEl) return;
+      var v = sel.value;
+      if (v === '' || v === 'na') {
+        pctEl.textContent = '—';
+        grEl.textContent = 'غير محسوب';
+        setResultCellBackground(gradeTd, null);
+        return;
+      }
+      var n = parseFloat(String(v).replace(',', '.'));
+      if (isNaN(n)) {
+        pctEl.textContent = '—';
+        grEl.textContent = 'غير محسوب';
+        setResultCellBackground(gradeTd, null);
+        return;
+      }
+      var pct = (n / 5) * 100;
+      pctEl.textContent = Math.round(pct * 100) / 100 + '%';
+      grEl.textContent = gradeFromPct(pct);
+      setResultCellBackground(gradeTd, pct);
+    }
+    table.querySelectorAll('.eval-structured-row').forEach(function (tr) {
+      var sel = tr.querySelector('.eval-preview-acquired-select');
+      if (sel) {
+        sel.addEventListener('change', function () { updateRow(tr); });
+      }
+      updateRow(tr);
+    });
+
+    function updateTotal() {
+      var totalEl = document.getElementById('eval-total-pct');
+      var gradeEl = document.getElementById('eval-total-grade');
+      if (!totalEl) return;
+      var totalPoints = 0;
+      var nScored = 0;
+      table.querySelectorAll('.eval-structured-row').forEach(function (tr) {
+        var sel = tr.querySelector('.eval-preview-acquired-select');
+        if (!sel || sel.disabled) return;
+        var v = sel.value;
+        if (v === '' || v === 'na') return;
+        var n = parseFloat(String(v).replace(',', '.'));
+        if (isNaN(n)) return;
+        if (n < 0) n = 0;
+        if (n > 5) n = 5;
+        totalPoints += n;
+        nScored += 1;
+      });
+      if (nScored <= 0) {
+        totalEl.textContent = '—';
+        if (gradeEl) gradeEl.textContent = '';
+        return;
+      }
+      var pct = (totalPoints / (nScored * 5.0)) * 100.0;
+      var pct2 = Math.round(pct * 100) / 100;
+      totalEl.textContent = String(pct2) + '%';
+      if (gradeEl) gradeEl.textContent = gradeFromPct(pct);
+    }
+    table.querySelectorAll('.eval-structured-row').forEach(function (tr) {
+      var sel = tr.querySelector('.eval-preview-acquired-select');
+      if (sel) sel.addEventListener('change', updateTotal);
+    });
+    updateTotal();
+  })();
+  </script>
+  {% elif not eval_structured %}
+  <p class="muted eval-preview-hint" dir="rtl">لعرض الجدول التفاعلي يلزم أن يحتوي الصف الأول على <strong>ثلاثة أعمدة على الأقل</strong> (يُفضّل تسميتها: عناصر التقييم، القصوى، المكتسبة).</p>
+  <div class="eval-preview-shell" dir="rtl">
+    <div class="eval-preview-scroll">
+      <table class="eval-preview-table eval-preview-table--raw" role="table" aria-label="جدول التقييم">
+        <thead>
+          <tr>
+            <th scope="col" class="eval-preview-th eval-preview-th--index"><span class="sr-only">ترقيم الصفوف</span></th>
+            {% for h in header_row %}
+            <th scope="col" class="eval-preview-th">{{ h }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        {% if body_rows %}
+        <tbody>
+          {% for row in body_rows %}
+          <tr>
+            <th scope="row" class="eval-preview-rowhead">{{ loop.index }}</th>
+            {% for cell in row %}
+            <td class="eval-preview-td">{{ cell }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if not eval_structured and not body_rows and not preview_error %}
+  <p class="muted eval-preview-empty" dir="rtl">لا توجد صفوف بيانات بعد صف العناوين.</p>
+  {% endif %}
+  {% elif not preview_error %}
+  <section class="card" style="padding: 1.25rem;">
+    <p class="muted" style="margin: 0;">لا توجد بيانات لعرضها في هذه الورقة.</p>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

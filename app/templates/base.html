@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <title>{% block title %}نظام إدارة التمارين{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="{% block body_class %}{% endblock %}">
+<div class="layout">
+  <header>
+    <div class="header-main">
+    <div class="header-brand-row">
+    <div class="brand">
+      <i class="fa-solid fa-clipboard-list fa-icon-brand" aria-hidden="true"></i>
+      <span>نظام إدارة التمارين</span>
+    </div>
+    {% if user and workspace_exercise %}
+    <div class="header-workspace-exercise" role="status" title="{{ workspace_exercise.code }} — {{ workspace_exercise.title }}">
+      <span class="header-workspace-exercise__tag">التمرين الحالي</span>
+      <a class="header-workspace-exercise__title" href="/exercises/{{ workspace_exercise.id }}">{{ workspace_exercise.title }}</a>
+    </div>
+    {% endif %}
+    </div>
+    <nav>
+      {% if user %}
+        <a href="/dashboard" title="الصفحة الرئيسية"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
+        {% if user.role_key == 'system_admin' %}
+        <div class="nav-dd" tabindex="0">
+          <button type="button" class="nav-dd__toggle" aria-haspopup="true" aria-label="إدارة النظام">
+            <i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i> إدارة النظام
+            <i class="fa-solid fa-chevron-down nav-dd__chev" aria-hidden="true"></i>
+          </button>
+          <div class="nav-dd__menu" role="menu">
+            <a role="menuitem" href="/admin/exercises/create"><i class="fa-solid fa-file-circle-plus" aria-hidden="true"></i> إنشاء تمرين جديد</a>
+            <a role="menuitem" href="/admin/exercises/objectives"><i class="fa-solid fa-bullseye" aria-hidden="true"></i> الأهداف التدريبية</a>
+            <a role="menuitem" href="/admin/exercises/judge-unit-roster"><i class="fa-solid fa-gavel" aria-hidden="true"></i> قائمة المحكمين</a>
+            <a role="menuitem" href="/admin/exercises/trainee-unit-roster"><i class="fa-solid fa-users" aria-hidden="true"></i> قائمة الوحدة المتدربة</a>
+            <a role="menuitem" href="/admin/dilemmas"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> قائمة المعاضل</a>
+            <a role="menuitem" href="/admin/evaluation-lists"><i class="fa-solid fa-file-excel" aria-hidden="true"></i> قوائم التقييم</a>
+            <a role="menuitem" href="/admin/dilemmas-evaluation-unit-report"><i class="fa-solid fa-link" aria-hidden="true"></i> ربط المعاضل والتقييم</a>
+            <a role="menuitem" href="/admin/battle-organization"><i class="fa-solid fa-sitemap" aria-hidden="true"></i> تنظيم المعركة</a>
+            <a role="menuitem" href="/admin/users"><i class="fa-solid fa-users-gear" aria-hidden="true"></i> إدارة المستخدمين</a>
+            <a role="menuitem" href="/admin/chat-rooms"><i class="fa-solid fa-comments" aria-hidden="true"></i> غرف المحادثة</a>
+            <a role="menuitem" href="/admin/system-checklist"><i class="fa-solid fa-list-check" aria-hidden="true"></i> Checklist محتويات النظام</a>
+          </div>
+        </div>
+        {% endif %}
+        {% for hub in nav_role_hub_links %}
+        <a href="{{ hub.href }}" class="nav-hub-link" title="{{ hub.title }}"><i class="fa-solid {{ hub.icon }}" aria-hidden="true"></i> {{ hub.label }}</a>
+        {% endfor %}
+        {% if notifications_log_url %}
+        <a href="{{ notifications_log_url }}" class="btn-icon-nav header-notif-bell" id="header-notif-link" title="سجل الإشعارات" aria-label="سجل الإشعارات">
+          <i class="fa-solid fa-bell" aria-hidden="true"></i>
+          {% if notification_unread_count > 0 %}
+          <span class="header-notif-bell__badge" id="header-notif-badge">{{ notification_unread_count }}</span>
+          {% else %}
+          <span class="header-notif-bell__badge header-notif-bell__badge--hidden" id="header-notif-badge" hidden></span>
+          {% endif %}
+        </a>
+        {% endif %}
+        <a href="/library" title="المكتبة"><i class="fa-solid fa-book-open" aria-hidden="true"></i> المكتبة</a>
+        <a class="btn btn-ghost btn-nav-logout" href="/logout"><i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i> خروج</a>
+      {% endif %}
+    </nav>
+    </div>
+    {% if judge_welcome_name %}
+    <div class="header-sub header-sub--welcome" role="status" style="background:linear-gradient(90deg, #f0f9ff 0%, #fff 100%);border-bottom:1px solid #e0f2fe;">
+      <i class="fa-solid fa-hand-sparkles header-sub__icon" aria-hidden="true"></i>
+      <span>مرحباً، <strong>{{ judge_welcome_name }}</strong></span>
+    </div>
+    {% endif %}
+    {% if header_exercise %}
+    <div class="header-sub" role="status">
+      <i class="fa-solid fa-dumbbell header-sub__icon" aria-hidden="true"></i>
+      <span class="header-sub__label">التمرين:</span>
+      <a class="header-sub__title" href="/exercises/{{ header_exercise.id }}">{{ header_exercise.title }}</a>
+      <span class="header-sub__code"><code>{{ header_exercise.code }}</code></span>
+    </div>
+    {% endif %}
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <footer><i class="fa-solid fa-mobile-screen-button fa-icon-foot" aria-hidden="true"></i> واجهة ويب — Windows و iOS و Android</footer>
+</div>
+{% if notifications_log_url %}
+<div id="notif-toast-host" class="notif-toast-host" aria-live="polite" aria-atomic="true"></div>
+<script>
+(function () {
+  var pollUrl = "/api/notifications/summary";
+  var logUrl = {{ notifications_log_url | tojson }};
+  var badge = document.getElementById("header-notif-badge");
+  var pollMs = 45000;
+  var lastToastId = 0;
+  try {
+    var raw = sessionStorage.getItem("notif_last_toast_id");
+    if (raw) lastToastId = parseInt(raw, 10) || 0;
+  } catch (e) {}
+
+  function setBadge(n) {
+    if (!badge) return;
+    if (n > 0) {
+      badge.textContent = String(n);
+      badge.hidden = false;
+      badge.classList.remove("header-notif-bell__badge--hidden");
+    } else {
+      badge.textContent = "";
+      badge.hidden = true;
+      badge.classList.add("header-notif-bell__badge--hidden");
+    }
+  }
+
+  function showToast(title, actionUrl) {
+    var host = document.getElementById("notif-toast-host");
+    if (!host) return;
+    var el = document.createElement("div");
+    el.className = "notif-toast";
+    el.setAttribute("role", "status");
+    var t = document.createElement("div");
+    t.className = "notif-toast__title";
+    t.textContent = title || "إشعار جديد";
+    el.appendChild(t);
+    if (actionUrl) {
+      var a = document.createElement("a");
+      a.className = "notif-toast__link";
+      a.href = actionUrl;
+      a.textContent = "فتح السجل";
+      el.appendChild(a);
+    }
+    host.appendChild(el);
+    setTimeout(function () {
+      el.classList.add("notif-toast--out");
+      setTimeout(function () { el.remove(); }, 320);
+    }, 7000);
+  }
+
+  function poll() {
+    fetch(pollUrl, { credentials: "same-origin" })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.ok) return;
+        setBadge(data.unread_count || 0);
+        var latest = data.latest || [];
+        try {
+          if (!sessionStorage.getItem("notif_boot_done")) {
+            sessionStorage.setItem("notif_boot_done", "1");
+            var maxId = 0;
+            for (var j = 0; j < latest.length; j++) {
+              if (latest[j] && latest[j].id > maxId) maxId = latest[j].id;
+            }
+            lastToastId = maxId;
+            sessionStorage.setItem("notif_last_toast_id", String(lastToastId));
+            return;
+          }
+        } catch (e) {}
+        for (var i = 0; i < latest.length; i++) {
+          var it = latest[i];
+          if (!it || !it.id || it.is_read) continue;
+          if (it.id > lastToastId) {
+            lastToastId = it.id;
+            try { sessionStorage.setItem("notif_last_toast_id", String(lastToastId)); } catch (e) {}
+            showToast(it.title, it.action_url || logUrl);
+            break;
+          }
+        }
+      })
+      .catch(function () {});
+  }
+
+  setTimeout(poll, 4000);
+  setInterval(poll, pollMs);
+})();
+</script>
+{% endif %}
+</body>
+</html>

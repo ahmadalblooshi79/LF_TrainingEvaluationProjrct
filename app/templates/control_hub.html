@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}مساحة السيطرة{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-eye fa-icon-title" aria-hidden="true"></i> مساحة السيطرة</h1>
+  <p class="muted">اختر أداة للمتابعة</p>
+  <p class="mt-tight">
+    <a class="btn btn-ghost" href="/dashboard"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى الصفحة الرئيسية</a>
+  </p>
+</div>
+
+<aside class="card role-hub-menu" role="navigation" aria-label="أدوات السيطرة">
+  <h2 class="h2-in-card"><i class="fa-solid fa-table-columns fa-icon-title" aria-hidden="true"></i> أوامر السيطرة</h2>
+  {% for item in hub_items %}
+  <a class="admin-action-btn" href="{{ url_for('views.control_hub_section', slug=item.slug) }}">
+    <i class="fa-solid {{ item.icon }}" aria-hidden="true"></i>
+    <span>{{ item.title_ar }}</span>
+  </a>
+  {% endfor %}
+</aside>
+{% endblock %}

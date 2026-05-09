@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ section_title }} — المحكمين{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-scale-balanced fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+  <p class="muted">هذا القسم قيد الإعداد وسيُربط بالوظائف لاحقاً.</p>
+  <p class="mt-tight">
+    <a class="btn btn-ghost" href="/judge"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى مساحة المحكمين</a>
+    <a class="btn btn-ghost" href="/dashboard"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
+  </p>
+</div>
+{% endblock %}

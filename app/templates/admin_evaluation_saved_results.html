@@ -1,0 +1,59 @@
+{% extends "admin_shell.html" %}
+{% block title %}إدارة تقييمات الوحدات{% endblock %}
+{% block admin_workspace %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-square-poll-vertical fa-icon-title" aria-hidden="true"></i> إدارة تقييمات الوحدات</h1>
+  <p class="muted">عرض جميع تقييمات الوحدات المحفوظة (لكل المحكمين) مع إمكانية فتحها للتعديل أو حذفها.</p>
+</div>
+
+{% if not has_exercise %}
+<section class="card">
+  <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل لهذا المستخدم. افتح/أنشئ تمريناً أولاً.</p>
+</section>
+{% else %}
+<section class="card">
+  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">التمرين الحالي: <strong>{{ exercise.title }}</strong> — <code>{{ exercise.code }}</code></p>
+  {% if saved_display %}
+  <div class="table-wrap">
+    <table dir="rtl" aria-label="نتائج التقييم المحفوظة">
+      <thead>
+        <tr>
+          <th scope="col">مستوى الوحدة</th>
+          <th scope="col">مرحلة</th>
+          <th scope="col">النسبة</th>
+          <th scope="col">التقدير</th>
+          <th scope="col">محفوظ بواسطة (ID)</th>
+          <th scope="col">اعتماد</th>
+          <th scope="col">آخر تحديث</th>
+          <th scope="col">إجراءات</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sd in saved_display %}
+        {% set r = sd.row %}
+        <tr>
+          <td>{{ sd.unit_label or r.unit_level_key or "—" }}</td>
+          <td>{% if r.exercise_phase == 'reorg' %}إعادة التنظيم{% else %}التمرين الرئيسي{% endif %}</td>
+          <td>{% if r.total_pct is not none %}{{ (r.total_pct | round(2)) }}%{% else %}—{% endif %}</td>
+          <td>{{ r.grade_label or "—" }}</td>
+          <td><code>{{ r.saved_by_id or "—" }}</code></td>
+          <td>{% if r.is_approved %}معتمد{% else %}غير معتمد{% endif %}</td>
+          <td>{% if r.updated_at %}{{ r.updated_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td>
+            <a href="{{ url_for('views.admin_evaluation_list_file_viewer', unit_key=r.unit_level_key, item_id=r.evaluation_item_id, saved_id=r.id) }}">فتح للتعديل</a>
+            <form method="post" action="{{ url_for('views.admin_evaluation_saved_results_delete', saved_id=r.id) }}" style="display:inline-block;margin:0 0.25rem;" onsubmit="return confirm('حذف التقييم المحفوظ؟');">
+              <button type="submit" class="btn btn-danger btn-sm">حذف</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted" dir="rtl" style="margin:0;">لا توجد تقييمات محفوظة بعد.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}
+

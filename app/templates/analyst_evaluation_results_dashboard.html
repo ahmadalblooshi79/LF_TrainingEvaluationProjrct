@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% block title %}{{ section_title }} — المحللين{% endblock %}
+{% block body_class %}aerd-page{% endblock %}
+{% block content %}
+<div class="aerd" dir="rtl">
+  <header class="aerd-top">
+    <div class="aerd-top__titles">
+      <h1 class="aerd-title"><i class="fa-solid fa-table-cells-large fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+    </div>
+    <p class="aerd-back"><a class="btn btn-ghost" href="{{ url_for('views.analyst_hub') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى مساحة المحللين</a></p>
+  </header>
+
+  {% if not has_exercise %}
+  <section class="card aerd-empty">
+    <p class="muted" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل. افتح أو أنشئ تمريناً لعرض المصفوفة.</p>
+  </section>
+  {% else %}
+
+  <div class="aerd-filter-bar" role="region" aria-label="مرشحات العرض">
+    <div class="aerd-filter-bar__inner">
+      <span class="aerd-filter-label">عرض بيانات</span>
+      <span class="aerd-filter-chip"><strong>{{ exercise.title }}</strong> <code class="aerd-code">{{ exercise.code }}</code></span>
+      <span class="aerd-filter-sep">·</span>
+      <span class="aerd-filter-chip muted">قوائم التقييم: <strong>{{ n_eval_lists }}</strong></span>
+      <span class="aerd-filter-sep">·</span>
+      <span class="aerd-filter-chip muted">المحفوظة: <strong>{{ n_saved_eval_lists }}</strong></span>
+      <span class="aerd-filter-sep">·</span>
+      <span class="aerd-filter-chip muted">أعمدة المصفوفة: <strong>{{ n_objectives }}</strong> قائمة تقييم</span>
+      {% if since_dt %}
+      <span class="aerd-filter-sep">·</span>
+      <span class="aerd-filter-chip muted">منذ <time datetime="{{ since_dt.isoformat() }}">{{ since_dt.strftime('%Y-%m-%d') }}</time></span>
+      {% endif %}
+    </div>
+    <div class="aerd-filter-actions">
+      <span class="aerd-pill aerd-pill--observe">مراقبة</span>
+      <span class="aerd-pill aerd-pill--assess">تقييم</span>
+    </div>
+  </div>
+
+  <div class="aerd-layout">
+    <main class="aerd-main card">
+      <div class="aerd-tabs" role="tablist" aria-label="تبويبات اللوحة">
+        <button type="button" class="aerd-tab is-active" data-aerd-tab="status" role="tab" aria-selected="true">الحالة الحالية</button>
+        <button type="button" class="aerd-tab" data-aerd-tab="notes" role="tab" aria-selected="false">ملاحظات</button>
+        <button type="button" class="aerd-tab" data-aerd-tab="lists" role="tab" aria-selected="false">قوائم غير محفوظة</button>
+      </div>
+
+      <div class="aerd-tabpanes">
+        <div class="aerd-tabpane is-active" data-aerd-pane="status" role="tabpanel">
+          <h2 class="aerd-panel-title">حالة نتائج قوائم التقييم حسب مستوى الوحدة</h2>
+          <div class="aerd-matrix-scroll" role="region" aria-label="مصفوفة الحالة" tabindex="0">
+            <table class="aerd-matrix">
+              <thead>
+                <tr>
+                  <th scope="col" class="aerd-matrix__corner">الوحدة / التسلسل</th>
+                  {% for col in matrix_columns %}
+                  <th scope="col" class="aerd-matrix__colhead" title="{{ col.full_text or col.text }}">
+                    <span class="aerd-matrix__code">{{ col.code }}</span>
+                    <span class="aerd-matrix__headtext">{{ col.text }}</span>
+                  </th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in matrix_rows %}
+                <tr>
+                  <th scope="row" class="aerd-matrix__rowhead">
+                    <span class="aerd-matrix__hi">{{ '%02d'|format(row.hierarchy_idx) }}</span>
+                    <span class="aerd-matrix__unit">{{ row.unit_label }}</span>
+                    <span class="aerd-matrix__sub muted">{{ row.row_sub }}</span>
+                  </th>
+                  {% for cell in row.cells %}
+                  <td class="aerd-cell aerd-cell--{{ cell.band }}" title="{% if cell.pct is not none %}{{ (cell.pct|round(1)) }}%{% else %}غير محسوب{% endif %}{% if cell.updated_at %} — آخر تحديث {{ cell.updated_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}">
+                    <div class="aerd-cell__inner" aria-hidden="true">
+                      <div class="aerd-bars">
+                        <div class="aerd-bar aerd-bar--fill" style="height: {{ cell.bar_fill_px }}px;"></div>
+                        <div class="aerd-bar aerd-bar--rest" style="height: {{ cell.bar_rest_px }}px;"></div>
+                      </div>
+                      {% if cell.is_flagged and cell.pct is not none %}
+                      <span class="aerd-flag" title="بانتظار الاعتماد"><i class="fa-solid fa-flag" aria-hidden="true"></i></span>
+                      {% endif %}
+                    </div>
+                  </td>
+                  {% endfor %}
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="aerd-tabpane" data-aerd-pane="notes" role="tabpanel" hidden>
+          <h2 class="aerd-panel-title">ملاحظات</h2>
+          <p class="muted">يمكن لاحقاً ربط هذا القسم بسجل الملاحظات الميدانية. حالياً تُعرض قراءة عامة من المصفوفة فقط.</p>
+          <ul class="aerd-bullets">
+            <li>تظهر في هذه اللوحة نتائج قوائم التقييم بعد الحفظ، سواء كانت معتمدة أو بانتظار الاعتماد.</li>
+            <li>تظهر علامة العلم على النتائج المحفوظة التي لم تُعتمد بعد.</li>
+          </ul>
+        </div>
+
+        <div class="aerd-tabpane" data-aerd-pane="lists" role="tabpanel" hidden>
+          <h2 class="aerd-panel-title">قوائم التقييم غير المحفوظة (ملخص)</h2>
+          {% if not_assessed %}
+          <div class="table-wrap">
+            <table class="aerd-side-table">
+              <thead>
+                <tr>
+                  <th>قائمة التقييم</th>
+                  <th>الوحدة</th>
+                  <th>النشاط</th>
+                  <th>فتح</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for na in not_assessed %}
+                <tr>
+                  <td>{{ na.objective }}</td>
+                  <td>{{ na.entities }}</td>
+                  <td>{{ na.activity }}</td>
+                  <td><a href="{{ na.open_href }}">عرض</a></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <p class="form-ok-banner" role="status"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> لا توجد قوائم تقييم غير محفوظة ضمن التمرين الحالي (أو لا توجد ملفات مرفوعة).</p>
+          {% endif %}
+        </div>
+      </div>
+    </main>
+
+    <aside class="aerd-aside" aria-label="لوحات جانبية">
+      <section class="card aerd-sidecard aerd-sidecard--accent">
+        <h2 class="aerd-side-title"><i class="fa-solid fa-clipboard-question fa-icon-title" aria-hidden="true"></i> لم تُحفظ بعد</h2>
+        <p class="muted aerd-side-desc">قوائم تقييم بلا نتيجة محفوظة أو بلا درجات قابلة للتحليل.</p>
+        {% if not_assessed %}
+        <div class="table-wrap">
+          <table class="aerd-side-table">
+            <thead>
+              <tr>
+                <th>الوحدة</th>
+                <th>النشاط</th>
+                <th>فتح</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for na in not_assessed[:20] %}
+              <tr>
+                <td>{{ na.entities }}</td>
+                <td>{{ na.activity }}</td>
+                <td><a href="{{ na.open_href }}">فتح القائمة</a></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if not_assessed|length > 20 %}
+        <p class="muted" style="margin:0.5rem 0 0;">و {{ not_assessed|length - 20 }} قائمة إضافية… (انظر تبويب «قوائم غير محفوظة»)</p>
+        {% endif %}
+        {% else %}
+        <p class="muted" style="margin:0;">—</p>
+        {% endif %}
+      </section>
+    </aside>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  var root = document.querySelector('.aerd');
+  if (!root) return;
+  root.querySelectorAll('[data-aerd-tab]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var key = btn.getAttribute('data-aerd-tab');
+      root.querySelectorAll('[data-aerd-tab]').forEach(function (b) {
+        b.classList.toggle('is-active', b === btn);
+        b.setAttribute('aria-selected', b === btn ? 'true' : 'false');
+      });
+      root.querySelectorAll('[data-aerd-pane]').forEach(function (pane) {
+        var on = pane.getAttribute('data-aerd-pane') === key;
+        pane.classList.toggle('is-active', on);
+        if (on) pane.removeAttribute('hidden'); else pane.setAttribute('hidden', 'hidden');
+      });
+    });
+  });
+})();
+</script>
+{% endblock %}

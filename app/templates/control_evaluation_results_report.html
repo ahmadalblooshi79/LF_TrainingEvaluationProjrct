@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}{{ section_title }} — السيطرة{% endblock %}
+{% block body_class %}control-report-page{% endblock %}
+{% block content %}
+<div class="control-report" dir="rtl">
+  <section class="control-report__head">
+    <div>
+      <p class="control-report__crumb">{{ report.crumb }}</p>
+      <h1>{{ report.report_title }}</h1>
+      <p class="control-report__meta">
+        <span>{{ report.exercise_label }} - {{ report.exercise_code }}</span>
+        {% for item in report.meta %}
+        <span>{{ item }}</span>
+        {% endfor %}
+      </p>
+    </div>
+    <div class="control-report__actions">
+      <button type="button" class="btn btn-ghost control-report__export" onclick="window.print()">
+        <i class="fa-solid fa-download" aria-hidden="true"></i> تصدير التقرير
+      </button>
+      <a class="btn btn-ghost control-report__export" href="{{ url_for('views.control_hub') }}">
+        <i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة
+      </a>
+    </div>
+  </section>
+
+  <section class="control-report__kpis" aria-label="مؤشرات الأداء">
+    {% for kpi in report.kpis %}
+    <article class="control-kpi control-kpi--{{ kpi.tone }}">
+      <span class="control-kpi__icon"><i class="fa-solid {{ kpi.icon }}" aria-hidden="true"></i></span>
+      <span class="control-kpi__label">{{ kpi.label }}</span>
+      <strong>{{ kpi.value }}</strong>
+      <span class="control-kpi__hint">{{ kpi.hint }}</span>
+    </article>
+    {% endfor %}
+  </section>
+
+  <section class="control-report__grid control-report__grid--top">
+    <article class="control-panel">
+      <h2>أداء الوحدات حسب المحاور الرئيسية</h2>
+      <div class="control-radar">
+        <svg viewBox="0 0 400 250" role="img" aria-label="مخطط راداري لأداء الوحدات">
+          <g class="control-radar__grid">
+            <polygon points="200,35 285,80 285,170 200,220 115,170 115,80"></polygon>
+            <polygon points="200,72 253,100 253,155 200,187 147,155 147,100"></polygon>
+            <polygon points="200,108 225,119 225,143 200,156 175,143 175,119"></polygon>
+            <line x1="200" y1="35" x2="200" y2="220"></line>
+            <line x1="115" y1="80" x2="285" y2="170"></line>
+            <line x1="285" y1="80" x2="115" y2="170"></line>
+          </g>
+          <text x="200" y="24">القيادة والسيطرة</text>
+          <text x="304" y="83">التخطيط</text>
+          <text x="312" y="174">جمع المعلومات</text>
+          <text x="200" y="242">العمليات</text>
+          <text x="58" y="177">الاستطلاع</text>
+          <text x="65" y="84">الأمن والدفاع</text>
+          {% for series in report.radar_series %}
+          <polygon class="control-radar__series" points="{{ series.points }}" style="--series: {{ series.color }}"></polygon>
+          {% endfor %}
+        </svg>
+      </div>
+      <div class="control-legend">
+        {% for series in report.radar_series %}
+        <span><i style="background: {{ series.color }}"></i>{{ series.label }}</span>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="control-panel">
+      <h2>المتوسط العام حسب المحاور</h2>
+      <div class="control-bars control-bars--horizontal">
+        {% for item in report.axis_scores %}
+        <div class="control-hbar">
+          <span>{{ item.label }}</span>
+          <div><i style="width: {{ item.value }}%; background: {{ item.color }}"></i></div>
+          <strong>{{ item.value }}%</strong>
+        </div>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="control-panel">
+      <h2>أداء المجموعات (متوسط النسبة العامة)</h2>
+      <div class="control-columns">
+        {% for item in report.group_scores %}
+        <div class="control-column">
+          <strong>{{ item.value }}%</strong>
+          <i style="height: {{ item.value }}%; background: linear-gradient(180deg, {{ item.color }}, rgba(14, 165, 233, 0.45));"></i>
+          <span>{{ item.label }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </article>
+  </section>
+
+  <section class="control-report__grid control-report__grid--bottom">
+    <article class="control-panel control-panel--wide">
+      <h2>أداء الوحدات التفصيلي</h2>
+      <div class="control-table-wrap">
+        <table class="control-perf-table">
+          <thead>
+            <tr>
+              {% for header in report.table_headers %}
+              <th>{{ header }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in report.table_rows %}
+            <tr>
+              <th>{{ row[0] }}</th>
+              {% for value in row[1:] %}
+              <td>
+                <span class="control-score control-score--{% if value >= 85 %}high{% elif value >= 70 %}good{% elif value >= 60 %}mid{% else %}low{% endif %}">
+                  {{ value }}%
+                </span>
+              </td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </article>
+
+    <article class="control-panel">
+      <h2>التقدم الزمني للتقييم</h2>
+      <svg class="control-line" viewBox="0 0 420 230" role="img" aria-label="التقدم الزمني للتقييم">
+        <g class="control-line__grid">
+          <line x1="48" y1="30" x2="48" y2="185"></line>
+          <line x1="48" y1="185" x2="396" y2="185"></line>
+          <line x1="48" y1="146" x2="396" y2="146"></line>
+          <line x1="48" y1="108" x2="396" y2="108"></line>
+          <line x1="48" y1="69" x2="396" y2="69"></line>
+          <line x1="48" y1="30" x2="396" y2="30"></line>
+        </g>
+        <polyline class="control-line__area" points="58,170 106,158 154,143 202,123 250,100 298,77 346,58 386,52 386,185 58,185"></polyline>
+        <polyline class="control-line__stroke" points="58,170 106,158 154,143 202,123 250,100 298,77 346,58 386,52"></polyline>
+        {% for point in report.timeline %}
+        {% set x = 58 + loop.index0 * 48 %}
+        {% set y = 185 - (point.value * 1.55) %}
+        <circle cx="{{ x }}" cy="{{ y }}" r="4"></circle>
+        <text class="control-line__pct" x="{{ x }}" y="{{ y - 12 }}">{{ point.value }}%</text>
+        <text class="control-line__label" x="{{ x }}" y="208">{{ point.label }}</text>
+        {% endfor %}
+        <text x="20" y="35">100%</text>
+        <text x="23" y="112">50%</text>
+        <text x="27" y="188">0%</text>
+      </svg>
+    </article>
+
+    <article class="control-panel">
+      <h2>توزيع نتائج التقييم</h2>
+      <div class="control-donut-layout">
+        <div class="control-donut">
+          <span>إجمالي<br><strong>128</strong><br>معيار</span>
+        </div>
+        <div class="control-donut-legend">
+          {% for item in report.distribution %}
+          <span><i style="background: {{ item.color }}"></i>{{ item.label }} <b>{{ item.pct }}%</b> ({{ item.count }})</span>
+          {% endfor %}
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <footer class="control-report__foot">نسخة ويب - Windows و Android و iOS</footer>
+</div>
+{% endblock %}

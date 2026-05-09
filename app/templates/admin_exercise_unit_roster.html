@@ -1,0 +1,222 @@
+{% extends "admin_shell.html" %}
+{% block title %}{{ roster_meta.page_title }}{% if not current_exercise %} — إدارة النظام{% endif %}{% endblock %}
+{% block body_class %}hide-workspace-exercise{% endblock %}
+{% block admin_workspace %}
+<div class="page-header">
+  <h1><i class="fa-solid {{ roster_meta.icon }} fa-icon-title" aria-hidden="true"></i> {{ roster_meta.h1 }}</h1>
+</div>
+{% if error %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ error }}</p>
+{% endif %}
+{% if ok_msg %}
+<p class="form-ok-banner" id="roster-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
+<script>
+(function () {
+  var el = document.getElementById("roster-ok-banner");
+  if (!el) return;
+  setTimeout(function () { el.remove(); }, 2200);
+})();
+</script>
+{% endif %}
+
+{% if not current_exercise %}
+<p class="muted">لا يوجد تمرين حالي في المساحة. انتقل إلى <a href="/admin/exercises/create">إنشاء تمرين جديد</a> لإنشاء تمرين أو فتحه من ملف JSON.</p>
+{% else %}
+<form method="post" action="{{ roster_meta.form_action }}" enctype="multipart/form-data" id="roster-main-form">
+  <fieldset class="objectives-mode-fieldset card">
+    <legend class="objectives-mode-legend-inline">
+      <span class="objectives-mode-legend-text">طريقة الإدخال</span>
+      <span class="objectives-mode-radios">
+        <label class="objectives-mode-label">
+          <input type="radio" name="roster_source" value="manual" id="roster-src-manual" checked>
+          <span>إدخال يدوي</span>
+        </label>
+        <label class="objectives-mode-label">
+          <input type="radio" name="roster_source" value="excel" id="roster-src-file">
+          <span>إدراج ملف خارجي (CSV / TXT / Excel)</span>
+        </label>
+      </span>
+    </legend>
+  </fieldset>
+
+  <div id="roster-panel-manual" class="objectives-mode-panel card">
+    <ol class="roster-editor-list" id="roster-editor-list">
+      {% if roster_rows %}
+        {% for r in roster_rows %}
+        <li class="roster-editor-row">
+          <span class="roster-editor-row__num" aria-hidden="true">{{ loop.index }}</span>
+          <input class="roster-editor-row__field" type="text" name="roster_military" value="{{ r.military_number }}" maxlength="128" autocomplete="off" placeholder="الرقم العسكري" aria-label="الرقم العسكري">
+          <input class="roster-editor-row__field" type="text" name="roster_rank" value="{{ r.rank_ar }}" maxlength="256" autocomplete="off" placeholder="الرتبة" aria-label="الرتبة">
+          <input class="roster-editor-row__field roster-editor-row__field--grow" type="text" name="roster_full_name" value="{{ r.full_name }}" maxlength="256" autocomplete="off" placeholder="الاسم" aria-label="الاسم">
+          <select name="roster_unit_level" class="roster-editor-row__field roster-editor-row__field--unit-level" aria-label="مستوى الوحدة">
+            <option value="">— اختر مستوى الوحدة —</option>
+            {% for u in unit_levels %}
+            <option value="{{ u.key }}" {% if (r.unit_level_key or '') == u.key %}selected{% elif not r.unit_level_key and (r.position_ar or '') == u.label %}selected{% endif %}>{{ u.label }}</option>
+            {% endfor %}
+          </select>
+          <button type="button" class="btn btn-ghost roster-editor-row__del" title="حذف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
+        </li>
+        {% endfor %}
+      {% else %}
+        <li class="roster-editor-row">
+          <span class="roster-editor-row__num" aria-hidden="true">1</span>
+          <input class="roster-editor-row__field" type="text" name="roster_military" value="" maxlength="128" autocomplete="off" placeholder="الرقم العسكري" aria-label="الرقم العسكري">
+          <input class="roster-editor-row__field" type="text" name="roster_rank" value="" maxlength="256" autocomplete="off" placeholder="الرتبة" aria-label="الرتبة">
+          <input class="roster-editor-row__field roster-editor-row__field--grow" type="text" name="roster_full_name" value="" maxlength="256" autocomplete="off" placeholder="الاسم" aria-label="الاسم">
+          <select name="roster_unit_level" class="roster-editor-row__field roster-editor-row__field--unit-level" aria-label="مستوى الوحدة">
+            <option value="">— اختر مستوى الوحدة —</option>
+            {% for u in unit_levels %}
+            <option value="{{ u.key }}">{{ u.label }}</option>
+            {% endfor %}
+          </select>
+          <button type="button" class="btn btn-ghost roster-editor-row__del" title="حذف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
+        </li>
+      {% endif %}
+    </ol>
+    <p class="mt-tight">
+      <button type="button" class="btn btn-ghost" id="roster-add-row"><i class="fa-solid fa-plus" aria-hidden="true"></i> {{ roster_meta.add_label }}</button>
+    </p>
+  </div>
+
+  <div id="roster-panel-file" class="objectives-mode-panel card" hidden>
+    <div class="form-group">
+      <label for="roster_file_input"><i class="fa-solid fa-file-import fa-icon-label" aria-hidden="true"></i> ملف خارجي</label>
+      <input id="roster_file_input" name="roster_file" type="file" accept=".csv,.txt,.xlsx,.xlsm,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+      <p class="muted mt-tight">{{ roster_meta.file_panel_hint }}</p>
+    </div>
+  </div>
+
+  <div class="btn-group" style="margin-top: 1rem;">
+    <button class="btn" type="submit" name="roster_action" value="save"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> {{ roster_meta.save_label }}</button>
+    <button class="btn btn-ghost" type="submit" name="roster_action" value="clear_all" id="roster-clear-all" formnovalidate><i class="fa-solid fa-trash-can" aria-hidden="true"></i> {{ roster_meta.clear_label }}</button>
+  </div>
+</form>
+<script>
+const ROSTER_UNIT_LEVELS = {{ unit_levels | tojson }};
+(() => {
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/"/g, "&quot;");
+  }
+  function escapeAttr(s) {
+    return String(s == null ? "" : s).replace(/"/g, "&quot;");
+  }
+  function unitLevelSelectHtml(selectedKey) {
+    let opts = '<option value="">— اختر مستوى الوحدة —</option>';
+    (ROSTER_UNIT_LEVELS || []).forEach((u) => {
+      const sel = u.key === selectedKey ? " selected" : "";
+      opts += `<option value="${escapeAttr(u.key)}"${sel}>${escapeHtml(u.label)}</option>`;
+    });
+    return (
+      `<select name="roster_unit_level" class="roster-editor-row__field roster-editor-row__field--unit-level" aria-label="مستوى الوحدة">${opts}</select>`
+    );
+  }
+  const form = document.getElementById("roster-main-form");
+  const listEl = document.getElementById("roster-editor-list");
+  const addBtn = document.getElementById("roster-add-row");
+  const srcManual = document.getElementById("roster-src-manual");
+  const srcFile = document.getElementById("roster-src-file");
+  const panelManual = document.getElementById("roster-panel-manual");
+  const panelFile = document.getElementById("roster-panel-file");
+  const fileInput = document.getElementById("roster_file_input");
+  const clearAllBtn = document.getElementById("roster-clear-all");
+  if (!form || !listEl || !addBtn || !srcManual || !srcFile || !panelManual || !panelFile) return;
+
+  function rows() {
+    return Array.from(listEl.querySelectorAll(".roster-editor-row"));
+  }
+
+  function renumber() {
+    rows().forEach((row, idx) => {
+      const n = row.querySelector(".roster-editor-row__num");
+      if (n) n.textContent = String(idx + 1);
+    });
+  }
+
+  function setMode(isManual) {
+    panelManual.hidden = !isManual;
+    panelFile.hidden = isManual;
+    rows().forEach((row) => {
+      row.querySelectorAll("input, button").forEach((el) => {
+        el.disabled = !isManual;
+      });
+    });
+    if (fileInput) fileInput.disabled = isManual;
+  }
+
+  function rowHtml() {
+    return (
+      '<span class="roster-editor-row__num" aria-hidden="true">0</span>' +
+      '<input class="roster-editor-row__field" type="text" name="roster_military" value="" maxlength="128" autocomplete="off" placeholder="الرقم العسكري" aria-label="الرقم العسكري">' +
+      '<input class="roster-editor-row__field" type="text" name="roster_rank" value="" maxlength="256" autocomplete="off" placeholder="الرتبة" aria-label="الرتبة">' +
+      '<input class="roster-editor-row__field roster-editor-row__field--grow" type="text" name="roster_full_name" value="" maxlength="256" autocomplete="off" placeholder="الاسم" aria-label="الاسم">' +
+      unitLevelSelectHtml("") +
+      '<button type="button" class="btn btn-ghost roster-editor-row__del" title="حذف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>'
+    );
+  }
+
+  function addRow(focus) {
+    const li = document.createElement("li");
+    li.className = "roster-editor-row";
+    li.innerHTML = rowHtml();
+    listEl.appendChild(li);
+    renumber();
+    const inp = li.querySelector("input[name=\"roster_military\"]");
+    if (focus && inp) inp.focus();
+  }
+
+  srcManual.addEventListener("change", () => { if (srcManual.checked) setMode(true); });
+  srcFile.addEventListener("change", () => { if (srcFile.checked) setMode(false); });
+  setMode(true);
+
+  addBtn.addEventListener("click", () => addRow(true));
+
+  listEl.addEventListener("click", (e) => {
+    const btn = e.target.closest(".roster-editor-row__del");
+    if (!btn) return;
+    const row = btn.closest(".roster-editor-row");
+    if (!row) return;
+    if (rows().length <= 1) {
+      window.alert("يجب أن يبقى صف واحد على الأقل.");
+      return;
+    }
+    row.remove();
+    renumber();
+  });
+
+  if (clearAllBtn) {
+    clearAllBtn.addEventListener("click", (e) => {
+      if (!window.confirm("سيتم حذف جميع الأسطر في هذه القائمة من النظام ومن ملف التصدير. هل تريد المتابعة؟")) {
+        e.preventDefault();
+      }
+    });
+  }
+
+  form.addEventListener("submit", (e) => {
+    const sub = e.submitter;
+    if (sub && sub.getAttribute("name") === "roster_action" && sub.value === "clear_all") {
+      return;
+    }
+    if (srcFile.checked) {
+      if (!fileInput || !fileInput.files || !fileInput.files.length) {
+        e.preventDefault();
+        window.alert("اختر ملفاً خارجياً أولاً (CSV أو TXT أو Excel).");
+      }
+      return;
+    }
+    const nonEmpty = rows().some((row) => {
+      return Array.from(row.querySelectorAll("input")).some((inp) => inp.value.trim() !== "");
+    });
+    if (!nonEmpty) {
+      e.preventDefault();
+      window.alert("أدخل بيانات صف واحد على الأقل، أو انتقل إلى «إدراج ملف خارجي».");
+    }
+  });
+
+  renumber();
+})();
+</script>
+{% endif %}
+{% endblock %}

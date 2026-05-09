@@ -1,0 +1,184 @@
+{% extends "admin_shell.html" %}
+{% block title %}الأهداف التدريبية{% if not current_exercise %} — إدارة النظام{% endif %}{% endblock %}
+{% block body_class %}hide-workspace-exercise{% endblock %}
+{% block admin_workspace %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-bullseye fa-icon-title" aria-hidden="true"></i> الأهداف التدريبية</h1>
+  {% if not current_exercise %}
+  <p class="muted">خياران فقط: إدخال يدوي، أو استيراد من ملف (Excel أو PDF أو CSV أو XML أو نص). يُستبدل قائمة الأهداف بالكامل عند كل حفظ.</p>
+  {% endif %}
+</div>
+{% if error %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ error }}</p>
+{% endif %}
+{% if ok_msg %}
+<p class="form-ok-banner" id="objectives-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
+<script>
+(function () {
+  var el = document.getElementById("objectives-ok-banner");
+  if (!el) return;
+  setTimeout(function () {
+    el.remove();
+  }, 2000);
+})();
+</script>
+{% endif %}
+
+{% if not current_exercise %}
+<p class="muted">لا يوجد تمرين حالي في المساحة. انتقل إلى <a href="/admin/exercises/create">إنشاء تمرين جديد</a> لإنشاء تمرين أو فتحه من ملف JSON.</p>
+{% else %}
+<form method="post" action="/admin/exercises/objectives" enctype="multipart/form-data" id="objectives-main-form">
+  <fieldset class="objectives-mode-fieldset card">
+    <legend class="objectives-mode-legend-inline">
+      <span class="objectives-mode-legend-text">طريقة الإدخال</span>
+      <span class="objectives-mode-radios">
+        <label class="objectives-mode-label">
+          <input type="radio" name="objectives_source" value="manual" id="src-manual" checked>
+          <span>إدخال الأهداف يدوياً</span>
+        </label>
+        <label class="objectives-mode-label">
+          <input type="radio" name="objectives_source" value="excel" id="src-excel">
+          <span>إدراج ملف خارجي (Excel / PDF / CSV / XML)</span>
+        </label>
+      </span>
+    </legend>
+  </fieldset>
+
+  <div id="panel-manual" class="objectives-mode-panel card">
+    <ol class="objectives-editor-list" id="objectives-editor-list">
+      {% if current_exercise.objectives %}
+        {% for o in current_exercise.objectives|sort(attribute='sort_order') %}
+        <li class="objectives-editor-row">
+          <span class="objectives-editor-row__num" aria-hidden="true">{{ loop.index }}</span>
+          <input class="objectives-editor-row__input" type="text" name="objective_items" value="{{ o.text }}" maxlength="2000" autocomplete="off" placeholder="نص الهدف">
+          <button type="button" class="btn btn-ghost objectives-editor-row__del" title="حذف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
+        </li>
+        {% endfor %}
+      {% else %}
+        <li class="objectives-editor-row">
+          <span class="objectives-editor-row__num" aria-hidden="true">1</span>
+          <input class="objectives-editor-row__input" type="text" name="objective_items" value="" maxlength="2000" autocomplete="off" placeholder="نص الهدف">
+          <button type="button" class="btn btn-ghost objectives-editor-row__del" title="حذف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
+        </li>
+      {% endif %}
+    </ol>
+    <p class="mt-tight">
+      <button type="button" class="btn btn-ghost" id="objectives-add-row"><i class="fa-solid fa-plus" aria-hidden="true"></i> إضافة هدف</button>
+    </p>
+  </div>
+
+  <div id="panel-excel" class="objectives-mode-panel card" hidden>
+    <div class="form-group">
+      <label for="objectives_xlsx"><i class="fa-solid fa-file-import fa-icon-label" aria-hidden="true"></i> ملف خارجي</label>
+      <input id="objectives_xlsx" name="objectives_file" type="file" accept=".xlsx,.xlsm,.csv,.xml,.pdf,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/pdf,application/xml,text/xml">
+      <p class="muted mt-tight">يُدعم: Excel (xlsx)، PDF، CSV، XML، ونص txt. يُجمع النص من الجداول والفقرات والعناصر ثم تُستخرج الأسطر كأهداف مع تجاهل العناوين الشائعة. عند الحفظ تُستبدل القائمة بالكامل ثم تظهر في «إدخال يدوي» مع الترقيم والحذف.</p>
+    </div>
+  </div>
+
+  <div class="btn-group" style="margin-top: 1rem;">
+    <button class="btn" type="submit" name="objectives_action" value="save"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ الأهداف</button>
+    <button class="btn btn-ghost" type="submit" name="objectives_action" value="clear_all" id="objectives-clear-all" formnovalidate><i class="fa-solid fa-trash-can" aria-hidden="true"></i> حذف جميع الأهداف</button>
+  </div>
+</form>
+<script>
+(() => {
+  const form = document.getElementById("objectives-main-form");
+  const listEl = document.getElementById("objectives-editor-list");
+  const addBtn = document.getElementById("objectives-add-row");
+  const srcManual = document.getElementById("src-manual");
+  const srcExcel = document.getElementById("src-excel");
+  const panelManual = document.getElementById("panel-manual");
+  const panelExcel = document.getElementById("panel-excel");
+  const xlsxInput = document.getElementById("objectives_xlsx");
+  const clearAllBtn = document.getElementById("objectives-clear-all");
+  if (!form || !listEl || !addBtn || !srcManual || !srcExcel || !panelManual || !panelExcel) return;
+
+  function rows() {
+    return Array.from(listEl.querySelectorAll(".objectives-editor-row"));
+  }
+
+  function renumber() {
+    rows().forEach((row, idx) => {
+      const n = row.querySelector(".objectives-editor-row__num");
+      if (n) n.textContent = String(idx + 1);
+    });
+  }
+
+  function setMode(isManual) {
+    panelManual.hidden = !isManual;
+    panelExcel.hidden = isManual;
+    rows().forEach((row) => {
+      row.querySelectorAll("input, button").forEach((el) => {
+        el.disabled = !isManual;
+      });
+    });
+    if (xlsxInput) xlsxInput.disabled = isManual;
+  }
+
+  function addRow(focus) {
+    const li = document.createElement("li");
+    li.className = "objectives-editor-row";
+    li.innerHTML =
+      '<span class="objectives-editor-row__num" aria-hidden="true">0</span>' +
+      '<input class="objectives-editor-row__input" type="text" name="objective_items" value="" maxlength="2000" autocomplete="off" placeholder="نص الهدف">' +
+      '<button type="button" class="btn btn-ghost objectives-editor-row__del" title="حذف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>';
+    listEl.appendChild(li);
+    renumber();
+    const inp = li.querySelector("input");
+    if (focus && inp) inp.focus();
+  }
+
+  srcManual.addEventListener("change", () => { if (srcManual.checked) setMode(true); });
+  srcExcel.addEventListener("change", () => { if (srcExcel.checked) setMode(false); });
+  setMode(true);
+
+  addBtn.addEventListener("click", () => addRow(true));
+
+  listEl.addEventListener("click", (e) => {
+    const btn = e.target.closest(".objectives-editor-row__del");
+    if (!btn) return;
+    const row = btn.closest(".objectives-editor-row");
+    if (!row) return;
+    if (rows().length <= 1) {
+      window.alert("يجب أن يبقى صف واحد على الأقل.");
+      return;
+    }
+    row.remove();
+    renumber();
+  });
+
+  if (clearAllBtn) {
+    clearAllBtn.addEventListener("click", (e) => {
+      if (!window.confirm("سيتم حذف جميع الأهداف التدريبية لهذا التمرين من النظام ومن ملف التصدير. هل تريد المتابعة؟")) {
+        e.preventDefault();
+      }
+    });
+  }
+
+  form.addEventListener("submit", (e) => {
+    const sub = e.submitter;
+    if (sub && sub.getAttribute("name") === "objectives_action" && sub.value === "clear_all") {
+      return;
+    }
+    if (srcExcel.checked) {
+      if (!xlsxInput || !xlsxInput.files || !xlsxInput.files.length) {
+        e.preventDefault();
+        window.alert("اختر ملفاً خارجياً أولاً (Excel أو PDF أو CSV أو XML أو نص).");
+      }
+      return;
+    }
+    const nonEmpty = rows().some((row) => {
+      const inp = row.querySelector("input");
+      return inp && inp.value.trim() !== "";
+    });
+    if (!nonEmpty) {
+      e.preventDefault();
+      window.alert("أدخل نص هدف واحد على الأقل، أو انتقل إلى خيار «إدراج ملف خارجي».");
+    }
+  });
+
+  renumber();
+})();
+</script>
+{% endif %}
+{% endblock %}

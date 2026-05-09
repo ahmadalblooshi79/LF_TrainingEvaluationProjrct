@@ -1,0 +1,14 @@
+{
+  "_default": "Mechanized_Infantry_Company.png",
+  "brigade:mech_inf": "Mechanized_Infantry_Brigade.png",
+  "battalion:infantry": "Mechanized_Infantry_Battalion.png",
+  "battalion:armor": "Armor_Battalion.png",
+  "battalion:artillery": "Mechanized_Infantry_Battalion.png",
+  "company:infantry": "Mechanized_Infantry_Company.png",
+  "company:armor": "Armor_Company.png",
+  "company:artillery": "Mechanized_Infantry_Company.png",
+  "platoon:infantry": "Mechanized_Infantry_Platoon.png",
+  "platoon:armor": "Armor_Platoon.png",
+  "squad:armor": "Armor_Squad.png",
+  "squad:infantry": "Mechanized_Infantry_Squad.png"
+}

@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}سجل الإشعارات{% endblock %}
+{% block content %}
+<style>
+  .notif-log-table th,
+  .notif-log-table td {
+    text-align: center;
+    vertical-align: middle;
+  }
+  .notif-log-table td.notif-log-table__msg { text-align: start; max-width: 22rem; }
+</style>
+<div class="page-header">
+  <h1><i class="fa-solid fa-bell fa-icon-title" aria-hidden="true"></i> سجل الإشعارات</h1>
+  <p class="mt-tight">
+    <a class="btn btn-ghost" href="/dashboard"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
+    {% if has_exercise and notifications %}
+    <form method="post" action="{{ url_for('views.notifications_mark_all_read') }}" style="display:inline;">
+      <button type="submit" class="btn btn-ghost"><i class="fa-solid fa-check-double" aria-hidden="true"></i> تعليم الكل كمقروء</button>
+    </form>
+    {% endif %}
+  </p>
+</div>
+
+{% if not has_exercise %}
+<section class="card">
+  <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في نطاق عملك. أنشئ أو افتح تمريناً أولاً.</p>
+</section>
+{% elif not notifications %}
+<section class="card">
+  <p class="muted" dir="rtl" style="margin:0;">لا توجد إشعارات مسجّلة لهذا التمرين.</p>
+</section>
+{% else %}
+<section class="card">
+  <div class="table-wrap">
+    <table class="notif-log-table" dir="rtl" aria-label="سجل الإشعارات">
+      <thead>
+        <tr>
+          <th scope="col">#</th>
+          <th scope="col">نوع الإشعار</th>
+          <th scope="col">العنوان</th>
+          <th scope="col">التفاصيل</th>
+          <th scope="col">الأولوية</th>
+          <th scope="col">التاريخ والوقت</th>
+          <th scope="col">الحالة</th>
+          <th scope="col">إجراء</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for n in notifications %}
+        <tr class="{% if not n.is_read %}notif-row--unread{% endif %}">
+          <td>{{ loop.index }}</td>
+          <td>
+            {% if n.type == 'message' %}رسالة
+            {% elif n.type == 'meeting' %}اجتماع
+            {% elif n.type == 'document' %}وثيقة / ملف
+            {% elif n.type == 'task' %}مهمة
+            {% else %}نظام{% endif %}
+          </td>
+          <td><strong>{{ n.title }}</strong></td>
+          <td class="notif-log-table__msg muted">{{ n.body or '—' }}</td>
+          <td>
+            {% if n.priority == 'urgent' %}<span class="badge badge--prio-high">عاجل</span>
+            {% elif n.priority == 'important' %}<span class="badge badge--prio-med">مهم</span>
+            {% else %}<span class="badge badge--prio-low">عادي</span>{% endif %}
+          </td>
+          <td>{% if n.created_at %}{{ n.created_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td>
+            {% if n.is_read %}<span class="badge badge--status-ontime">مقروء</span>
+            {% else %}<span class="badge badge--status-late">غير مقروء</span>{% endif %}
+          </td>
+          <td>
+            <div style="display:flex;flex-wrap:wrap;gap:0.35rem;justify-content:center;">
+              {% if n.action_url %}
+              <a class="btn btn-ghost" style="padding:0.25rem 0.5rem;font-size:0.85rem;" href="{{ n.action_url }}">فتح</a>
+              {% endif %}
+              {% if not n.is_read %}
+              <form method="post" action="{{ url_for('views.notification_mark_read', nid=n.id) }}" style="margin:0;">
+                <button type="submit" class="btn btn-ghost" style="padding:0.25rem 0.5rem;font-size:0.85rem;">كمقروء</button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

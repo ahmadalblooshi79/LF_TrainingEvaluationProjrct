@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+{% block title %}{{ section_title }} — المحللين{% endblock %}
+{% block body_class %}aerd-page{% endblock %}
+{% block content %}
+<style>
+  .analyst-pn .aerd-side-table th,
+  .analyst-pn .aerd-side-table td {
+    text-align: center;
+    vertical-align: middle;
+  }
+  .analyst-pn .aerd-bullets {
+    display: inline-block;
+    padding-inline-start: 0;
+    list-style-position: inside;
+    text-align: center;
+  }
+  .analyst-pn-units {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 0.55rem;
+    margin: 0.85rem 0 1rem;
+  }
+  .analyst-pn-unit-btn {
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    background: var(--tint-50);
+    color: var(--brown-800);
+    padding: 0.7rem 0.8rem;
+    min-height: 4.2rem;
+    cursor: pointer;
+    text-align: center;
+    box-shadow: var(--shadow-sm);
+  }
+  .analyst-pn-unit-btn.is-active {
+    background: var(--tint-200);
+    border-color: var(--border);
+    outline: 2px solid rgba(120, 83, 45, 0.16);
+  }
+  .analyst-pn-unit-btn__title {
+    display: block;
+    font-weight: 800;
+    margin-bottom: 0.25rem;
+  }
+  .analyst-pn-unit-btn__meta {
+    display: block;
+    font-size: 0.78rem;
+  }
+  .analyst-pn-detail[hidden] { display: none; }
+  .analyst-pn-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 0.65rem;
+    margin-bottom: 1rem;
+  }
+  .analyst-pn-stat {
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    padding: 0.75rem;
+    background: #fff;
+    text-align: center;
+  }
+  .analyst-pn-stat strong {
+    display: block;
+    font-size: 1.15rem;
+    color: var(--brown-800);
+  }
+  .analyst-pn-columns {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.85rem;
+  }
+  .analyst-pn-point-box {
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    padding: 0.85rem;
+    background: var(--white);
+    min-height: 10rem;
+  }
+  .analyst-pn-point-box h3 {
+    margin: 0 0 0.65rem;
+    font-size: 0.98rem;
+  }
+  .analyst-pn-point-list {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0;
+  }
+  .analyst-pn-point {
+    border-radius: var(--radius-sm);
+    padding: 0.55rem 0.65rem;
+    background: var(--tint-50);
+    border: 1px solid var(--border-light);
+  }
+  .analyst-pn-point__label {
+    display: block;
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+  }
+  .analyst-pn-point__pct {
+    font-weight: 800;
+  }
+  .analyst-pn-point--dev .analyst-pn-point__pct { color: #b91c1c; }
+  .analyst-pn-point--sus .analyst-pn-point__pct { color: #047857; }
+  .analyst-pn-side-list {
+    display: grid;
+    gap: 0.5rem;
+  }
+</style>
+<div class="aerd analyst-pn" dir="rtl">
+  <header class="aerd-top">
+    <div class="aerd-top__titles">
+      <h1 class="aerd-title"><i class="fa-solid fa-plus-minus fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+      <p class="aerd-subtitle">تحليل الإيجابيات والسلبيات من نتائج قوائم التقييم التي تم اعتمادها من المحكمين، مع تصنيفها حسب مستوى الوحدة.</p>
+    </div>
+    <p class="aerd-back"><a class="btn btn-ghost" href="{{ url_for('views.analyst_hub') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى مساحة المحللين</a></p>
+  </header>
+
+  {% if not has_exercise %}
+  <section class="card aerd-empty">
+    <p class="muted" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل. افتح أو أنشئ تمريناً لعرض التحليل.</p>
+  </section>
+  {% else %}
+
+  <div class="aerd-filter-bar" role="region" aria-label="ملخص التحليل">
+    <div class="aerd-filter-bar__inner">
+      <span class="aerd-filter-label">تحليل بيانات</span>
+      <span class="aerd-filter-chip"><strong>{{ exercise.title }}</strong> <code class="aerd-code">{{ exercise.code }}</code></span>
+      <span class="aerd-filter-sep">·</span>
+      <span class="aerd-filter-chip muted">قوائم التقييم: <strong>{{ n_eval_lists }}</strong></span>
+      <span class="aerd-filter-sep">·</span>
+      <span class="aerd-filter-chip muted">المعتمدة: <strong>{{ n_approved_eval_lists }}</strong></span>
+    </div>
+  </div>
+
+  <div class="aerd-layout">
+    <main class="aerd-main card">
+      <h2 class="aerd-panel-title">تحليل حسب مستوى الوحدة</h2>
+      <p class="muted">اضغط على مستوى الوحدة لعرض النقاط التي تحتاج إلى تطوير والنقاط التي تحتاج إلى الاستدامة دون جدول. يعتمد التحليل على النتائج المعتمدة فقط.</p>
+
+      <div class="analyst-pn-units" role="tablist" aria-label="مستويات الوحدة">
+        {% for u in unit_eval_analysis %}
+        <button
+          type="button"
+          class="analyst-pn-unit-btn {% if loop.first %}is-active{% endif %}"
+          data-unit-target="pn-unit-{{ loop.index }}"
+          role="tab"
+          aria-selected="{{ 'true' if loop.first else 'false' }}"
+        >
+          <span class="analyst-pn-unit-btn__title">{{ u.unit_label }}</span>
+          <span class="analyst-pn-unit-btn__meta">
+            {% if u.avg_pct is not none %}{{ u.avg_pct|round(1) }}% — {{ u.avg_grade }}{% else %}لا توجد نتائج معتمدة{% endif %}
+          </span>
+        </button>
+        {% endfor %}
+      </div>
+
+      {% for u in unit_eval_analysis %}
+      <section class="analyst-pn-detail" id="pn-unit-{{ loop.index }}" {% if not loop.first %}hidden{% endif %} role="tabpanel">
+        <div class="analyst-pn-summary">
+          <div class="analyst-pn-stat">
+            <span class="muted">مستوى الوحدة</span>
+            <strong>{{ u.unit_label }}</strong>
+          </div>
+          <div class="analyst-pn-stat">
+            <span class="muted">قوائم معتمدة</span>
+            <strong>{{ u.approved_items_count }}</strong>
+          </div>
+          <div class="analyst-pn-stat">
+            <span class="muted">متوسط التقييم</span>
+            {% if u.avg_pct is not none %}
+            <strong>{{ u.avg_pct|round(1) }}%</strong>
+            <span class="aerd-grade aerd-grade--{{ 'low' if u.avg_pct < 50 else ('mid' if u.avg_pct < 75 else 'high') }}">{{ u.avg_grade }}</span>
+            {% else %}
+            <strong>—</strong>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="analyst-pn-columns">
+          {% if not u.development_points and not u.sustainability_points %}
+          <div class="analyst-pn-point-box" style="grid-column:1 / -1;min-height:auto;text-align:center;">
+            <p class="muted" style="margin:0;font-weight:700;">لا يوجد أي سلبيات أو إيجابيات لهذا المستوى.</p>
+          </div>
+          {% else %}
+          <div class="analyst-pn-point-box">
+            <h3><i class="fa-solid fa-arrow-trend-up fa-icon-title" aria-hidden="true"></i> النقاط التي تحتاج إلى الاستدامة</h3>
+            {% if u.sustainability_points %}
+            <div class="analyst-pn-point-list">
+              {% for p in u.sustainability_points %}
+              <div class="analyst-pn-point analyst-pn-point--sus">
+                <span class="analyst-pn-point__label">{{ p.label }}</span>
+                <span class="analyst-pn-point__pct">{{ p.pct|round(1) }}%</span>
+              </div>
+              {% endfor %}
+            </div>
+            {% else %}
+            <p class="muted" style="margin:0;">لا توجد نقاط استدامة لهذا المستوى.</p>
+            {% endif %}
+          </div>
+
+          <div class="analyst-pn-point-box">
+            <h3><i class="fa-solid fa-arrow-trend-down fa-icon-title" aria-hidden="true"></i> النقاط التي تحتاج إلى تطوير</h3>
+            {% if u.development_points %}
+            <div class="analyst-pn-point-list">
+              {% for p in u.development_points %}
+              <div class="analyst-pn-point analyst-pn-point--dev">
+                <span class="analyst-pn-point__label">{{ p.label }}</span>
+                <span class="analyst-pn-point__pct">{{ p.pct|round(1) }}%</span>
+              </div>
+              {% endfor %}
+            </div>
+            {% else %}
+            <p class="muted" style="margin:0;">لا توجد نقاط تطوير لهذا المستوى.</p>
+            {% endif %}
+          </div>
+          {% endif %}
+        </div>
+      </section>
+      {% endfor %}
+    </main>
+
+    <aside class="aerd-aside" aria-label="ملخص الإيجابيات والسلبيات">
+      <section class="card aerd-sidecard">
+        <h2 class="aerd-side-title"><i class="fa-solid fa-arrow-trend-up fa-icon-title" aria-hidden="true"></i> أبرز الإيجابيات</h2>
+        <p class="muted aerd-side-desc">ملاحظات المحكمين المرتبطة بأقوى البنود فقط.</p>
+        {% if sustainability_notes %}
+        <div class="analyst-pn-side-list">
+          {% for s in sustainability_notes[:6] %}
+          <div class="analyst-pn-point analyst-pn-point--sus">
+            <span class="analyst-pn-point__label">{{ s.note }}</span>
+            <span class="muted">{{ s.entities }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="muted" style="margin:0;">لا يوجد ملاحظات.</p>
+        {% endif %}
+      </section>
+
+      <section class="card aerd-sidecard">
+        <h2 class="aerd-side-title"><i class="fa-solid fa-arrow-trend-down fa-icon-title" aria-hidden="true"></i> أبرز السلبيات</h2>
+        <p class="muted aerd-side-desc">ملاحظات المحكمين المرتبطة بأضعف البنود فقط.</p>
+        {% if development_notes %}
+        <div class="analyst-pn-side-list">
+          {% for d in development_notes[:6] %}
+          <div class="analyst-pn-point analyst-pn-point--dev">
+            <span class="analyst-pn-point__label">{{ d.note }}</span>
+            <span class="muted">{{ d.entities }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="muted" style="margin:0;">لا يوجد ملاحظات.</p>
+        {% endif %}
+      </section>
+    </aside>
+  </div>
+
+  <script>
+  (function () {
+    var root = document.querySelector(".analyst-pn");
+    if (!root) return;
+    var buttons = Array.from(root.querySelectorAll("[data-unit-target]"));
+    var panels = Array.from(root.querySelectorAll(".analyst-pn-detail"));
+    buttons.forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var id = btn.getAttribute("data-unit-target");
+        buttons.forEach(function (b) {
+          var active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-selected", active ? "true" : "false");
+        });
+        panels.forEach(function (panel) {
+          if (panel.id === id) panel.removeAttribute("hidden");
+          else panel.setAttribute("hidden", "hidden");
+        });
+      });
+    });
+  })();
+  </script>
+  {% endif %}
+</div>
+{% endblock %}
+

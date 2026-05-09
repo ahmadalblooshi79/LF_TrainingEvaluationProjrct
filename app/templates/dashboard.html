@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}الصفحة الرئيسية{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-gauge-high fa-icon-title" aria-hidden="true"></i> مرحباً، {{ user.full_name or user.username }}</h1>
+  <p class="muted">دورك الحالي: <strong>{{ role_title }}</strong></p>
+  {% if user.role_key == 'system_admin' %}
+  <p class="mt-tight">
+    <a class="btn" href="/admin/chat-rooms"><i class="fa-solid fa-comments" aria-hidden="true"></i> غرف المحادثة — إدارة</a>
+    <a class="btn btn-ghost" href="/chat-rooms"><i class="fa-solid fa-door-open" aria-hidden="true"></i> فتح المحادثات</a>
+  </p>
+  {% elif user.role_key in ('judge', 'planner', 'control', 'analyst') %}
+  <p class="mt-tight">
+    <a class="btn btn-ghost" href="/chat-rooms"><i class="fa-solid fa-comments" aria-hidden="true"></i> غرف المحادثة</a>
+  </p>
+  {% endif %}
+</div>
+
+<div class="role-grid">
+{% for c in dashboard_cards %}
+  <a class="card card--tint dashboard-role-card" href="{{ c.href }}" aria-label="{{ c.aria_label }}">
+    <h3>
+      {% if c.role_key == 'system_admin' %}
+        <i class="fa-solid fa-screwdriver-wrench fa-icon-role" aria-hidden="true"></i>
+      {% elif c.role_key == 'analyst' %}
+        <i class="fa-solid fa-magnifying-glass-chart fa-icon-role" aria-hidden="true"></i>
+      {% elif c.role_key == 'planner' %}
+        <i class="fa-solid fa-calendar-check fa-icon-role" aria-hidden="true"></i>
+      {% elif c.role_key == 'judge' %}
+        <i class="fa-solid fa-scale-balanced fa-icon-role" aria-hidden="true"></i>
+      {% elif c.role_key == 'control' %}
+        <i class="fa-solid fa-eye fa-icon-role" aria-hidden="true"></i>
+      {% else %}
+        <i class="fa-solid fa-circle fa-icon-role" aria-hidden="true"></i>
+      {% endif %}
+      <span>{{ c.title_ar }}</span>
+    </h3>
+    <p class="text-pre-wrap">{{ c.duties_ar }}</p>
+    <p class="muted dashboard-role-hint"><i class="fa-solid fa-arrow-pointer" aria-hidden="true"></i> {{ c.hint }}</p>
+  </a>
+{% endfor %}
+</div>
+{% endblock %}

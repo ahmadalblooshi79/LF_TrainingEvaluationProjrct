@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}مكتبة المراجع{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-book-open fa-icon-title" aria-hidden="true"></i> مكتبة المراجع والمعايير</h1>
+  <p class="muted">المستندات والمعايير المستخدمة في التقييم</p>
+</div>
+{% if can_edit %}
+<form class="card form-narrow-l" method="post" action="/library">
+  <h2><i class="fa-solid fa-plus fa-icon-title" aria-hidden="true"></i> إضافة مرجع</h2>
+  <div class="form-group">
+    <label><i class="fa-solid fa-heading fa-icon-label" aria-hidden="true"></i> العنوان</label>
+    <input name="title" required>
+  </div>
+  <div class="form-group">
+    <label><i class="fa-solid fa-tag fa-icon-label" aria-hidden="true"></i> النوع</label>
+    <select name="ref_type">
+      <option value="standard">معيار</option>
+      <option value="regulation">لائحة</option>
+      <option value="template">نموذج</option>
+      <option value="other">أخرى</option>
+    </select>
+  </div>
+  <div class="form-group">
+    <label><i class="fa-solid fa-barcode fa-icon-label" aria-hidden="true"></i> رمز المعيار</label>
+    <input name="standard_code">
+  </div>
+  <div class="form-group">
+    <label><i class="fa-solid fa-link fa-icon-label" aria-hidden="true"></i> رابط</label>
+    <input name="url" type="url" placeholder="https://">
+  </div>
+  <div class="form-group">
+    <label><i class="fa-solid fa-align-left fa-icon-label" aria-hidden="true"></i> نص / ملخص</label>
+    <textarea name="body" rows="4"></textarea>
+  </div>
+  <button class="btn" type="submit"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ</button>
+</form>
+{% else %}
+<p class="muted"><i class="fa-solid fa-lock" aria-hidden="true"></i> عرض فقط — صلاحية التعديل لمكتبة المعايير وإدارة النظام.</p>
+{% endif %}
+
+<div class="card">
+  <h2 class="h2-in-card"><i class="fa-solid fa-table fa-icon-title" aria-hidden="true"></i> قائمة المراجع</h2>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>العنوان</th><th>النوع</th><th>الرمز</th><th>رابط</th></tr>
+    </thead>
+    <tbody>
+    {% for r in references %}
+      <tr>
+        <td>{{ r.title }}</td>
+        <td>{{ r.ref_type }}</td>
+        <td>{{ r.standard_code }}</td>
+        <td>{% if r.url %}<a href="{{ r.url }}" target="_blank" rel="noopener"><i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i> فتح</a>{% else %}—{% endif %}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" class="muted">لا مراجع</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

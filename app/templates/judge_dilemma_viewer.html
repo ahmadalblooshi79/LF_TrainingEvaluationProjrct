@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}عرض معضلة{% endblock %}
+{% block content %}
+<div class="dilemma-viewer-page">
+  <div class="dilemma-viewer-toolbar card">
+    <div class="dilemma-viewer-toolbar__titles">
+      <h1 class="dilemma-viewer-title"><i class="fa-solid fa-file-pdf fa-icon-title" aria-hidden="true"></i> {{ item_title }}</h1>
+      <p class="muted dilemma-viewer-sub">عرض ملف PDF — استخدم زر الإغلاق للعودة.</p>
+    </div>
+    <div class="dilemma-viewer-toolbar__actions">
+      <a class="btn btn-ghost dilemma-viewer-close-btn" href="{{ url_for('views.judge_dilemmas', unit_key=unit_key) }}"><i class="fa-solid fa-xmark" aria-hidden="true"></i> إغلاق والعودة</a>
+    </div>
+  </div>
+  <div class="dilemma-viewer-frame-wrap card">
+    <iframe class="dilemma-viewer-frame" title="معضلة PDF" src="{{ pdf_url }}"></iframe>
+  </div>
+</div>
+{% endblock %}
+

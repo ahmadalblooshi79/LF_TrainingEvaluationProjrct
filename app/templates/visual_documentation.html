@@ -1,0 +1,513 @@
+{% extends "base.html" %}
+{% block title %}التوثيق المرئي{% endblock %}
+{% block content %}
+<style>
+  .visual-doc-table th,
+  .visual-doc-table td { text-align: center; vertical-align: middle; }
+  .visual-doc-table td.visual-doc-table__desc { text-align: start; max-width: 22rem; }
+  .visual-capture-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  .visual-capture-options label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.45rem 0.75rem;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    background: var(--tint-50);
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .visual-media-input[hidden] { display: none; }
+  .visual-camera-box,
+  .visual-audio-box {
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    padding: 0.75rem;
+    background: var(--tint-50);
+  }
+  .visual-camera-preview {
+    width: min(100%, 520px);
+    aspect-ratio: 16 / 9;
+    background: #111;
+    border-radius: var(--radius-sm);
+    display: block;
+    object-fit: cover;
+    margin-bottom: 0.75rem;
+  }
+  .visual-camera-actions,
+  .visual-audio-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .visual-camera-status,
+  .visual-audio-status {
+    margin: 0.45rem 0 0;
+    font-size: 0.88rem;
+  }
+  .visual-audio-meter {
+    width: min(100%, 420px);
+    height: 0.65rem;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--tint-200);
+    margin: 0.45rem 0 0.75rem;
+  }
+  .visual-audio-meter__bar {
+    width: 0%;
+    height: 100%;
+    background: var(--brown-400);
+    transition: width 0.08s linear;
+  }
+</style>
+<div class="page-header">
+  <h1><i class="fa-solid fa-photo-film fa-icon-title" aria-hidden="true"></i> التوثيق المرئي</h1>
+  <p class="mt-tight">
+    <a class="btn btn-ghost" href="/dashboard"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
+  </p>
+</div>
+
+{% if not has_exercise %}
+<section class="card">
+  <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في نطاق عملك. أنشئ أو افتح تمريناً أولاً.</p>
+</section>
+{% else %}
+
+<section class="card">
+  <form method="get" action="{{ url_for('views.visual_documentation') }}" style="display:flex;flex-wrap:wrap;gap:0.6rem;align-items:end;">
+    <div class="form-group" style="margin:0;min-width:16rem;">
+      <label for="vd_unit"><i class="fa-solid fa-layer-group fa-icon-label" aria-hidden="true"></i> مستوى الوحدة</label>
+      <select id="vd_unit" name="unit_key" onchange="this.form.submit()">
+        {% for u in unit_levels %}
+        <option value="{{ u.key }}" {% if (selected_unit_key or '') == u.key %}selected{% endif %}>{{ u.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <noscript><button class="btn" type="submit">تحديث</button></noscript>
+  </form>
+</section>
+
+<section class="card">
+  <h2 class="h2-in-card"><i class="fa-solid fa-cloud-arrow-up fa-icon-title" aria-hidden="true"></i> رفع مادة توثيق</h2>
+  <form method="post" action="{{ url_for('views.visual_documentation_upload') }}" enctype="multipart/form-data">
+    <input type="hidden" name="unit_key" value="{{ selected_unit_key }}">
+    <div class="form-group">
+      <label><i class="fa-solid fa-file-arrow-up fa-icon-label" aria-hidden="true"></i> طريقة إضافة الملف</label>
+      <div class="visual-capture-options" role="radiogroup" aria-label="طريقة إضافة مادة التوثيق">
+        <label>
+          <input type="radio" name="visual_input_mode" value="upload" checked>
+          <span>رفع ملف</span>
+        </label>
+        <label>
+          <input type="radio" name="visual_input_mode" value="camera">
+          <span>التصوير بالكاميرا</span>
+        </label>
+        <label>
+          <input type="radio" name="visual_input_mode" value="audio">
+          <span>التسجيل الصوتي</span>
+        </label>
+      </div>
+      <div class="visual-media-input" data-mode="upload">
+        <label for="vd_file_upload">ملف من الجهاز</label>
+        <input id="vd_file_upload" name="media_file" type="file" accept=".jpg,.jpeg,.png,.mp4,.mp3,.wav,.m4a,.ogg,.webm,image/jpeg,image/png,video/mp4,audio/mpeg,audio/wav,audio/*" required>
+      </div>
+      <div class="visual-media-input" data-mode="camera" hidden>
+        <label>التصوير بالكاميرا مباشرة</label>
+        <div class="visual-camera-box" dir="rtl">
+          <video id="vd_camera_preview" class="visual-camera-preview" autoplay muted playsinline></video>
+          <canvas id="vd_camera_canvas" hidden></canvas>
+          <input id="vd_camera_file" name="media_file" type="file" hidden disabled>
+          <div class="visual-camera-actions">
+            <button class="btn btn-ghost" type="button" id="vd_camera_start">
+              <i class="fa-solid fa-camera" aria-hidden="true"></i> تشغيل الكاميرا
+            </button>
+            <button class="btn btn-ghost" type="button" id="vd_camera_photo" disabled>
+              <i class="fa-solid fa-image" aria-hidden="true"></i> التقاط صورة
+            </button>
+            <button class="btn btn-ghost" type="button" id="vd_camera_record" disabled>
+              <i class="fa-solid fa-video" aria-hidden="true"></i> بدء تسجيل فيديو
+            </button>
+            <button class="btn btn-ghost" type="button" id="vd_camera_stop_record" disabled>
+              <i class="fa-solid fa-stop" aria-hidden="true"></i> إيقاف التسجيل
+            </button>
+          </div>
+          <p class="muted visual-camera-status" id="vd_camera_status">اضغط تشغيل الكاميرا، ثم التقط صورة أو سجّل فيديو قبل الرفع.</p>
+        </div>
+      </div>
+      <div class="visual-media-input" data-mode="audio" hidden>
+        <label>التسجيل الصوتي مباشرة</label>
+        <div class="visual-audio-box" dir="rtl">
+          <input id="vd_audio_file" name="media_file" type="file" hidden disabled>
+          <div class="visual-audio-meter" aria-hidden="true">
+            <div class="visual-audio-meter__bar" id="vd_audio_meter_bar"></div>
+          </div>
+          <div class="visual-audio-actions">
+            <button class="btn btn-ghost" type="button" id="vd_audio_start">
+              <i class="fa-solid fa-microphone" aria-hidden="true"></i> تشغيل المايكروفون
+            </button>
+            <button class="btn btn-ghost" type="button" id="vd_audio_record" disabled>
+              <i class="fa-solid fa-circle" aria-hidden="true"></i> بدء التسجيل
+            </button>
+            <button class="btn btn-ghost" type="button" id="vd_audio_stop" disabled>
+              <i class="fa-solid fa-stop" aria-hidden="true"></i> إيقاف التسجيل
+            </button>
+          </div>
+          <p class="muted visual-audio-status" id="vd_audio_status">اضغط تشغيل المايكروفون، ثم ابدأ التسجيل قبل الرفع.</p>
+        </div>
+      </div>
+      <p class="muted mt-tight" style="margin:0.35rem 0 0;">الصور: JPG/PNG — الفيديو: MP4 — الصوت: MP3/WAV/M4A/OGG/WEBM</p>
+    </div>
+    <div class="form-group">
+      <label for="vd_desc"><i class="fa-solid fa-align-right fa-icon-label" aria-hidden="true"></i> وصف مختصر</label>
+      <input id="vd_desc" name="description" type="text" maxlength="5000" placeholder="مثال: توثيق موقف دخول الهدف / رد فعل الوحدة">
+    </div>
+    <div class="form-group">
+      <label for="vd_loc"><i class="fa-solid fa-location-dot fa-icon-label" aria-hidden="true"></i> موقع التصوير</label>
+      <input id="vd_loc" name="location_label" type="text" maxlength="400" placeholder="اختياري">
+    </div>
+    <div class="form-group">
+      <label for="vd_dilemma"><i class="fa-solid fa-triangle-exclamation fa-icon-label" aria-hidden="true"></i> ربط بمعضلة (اختياري)</label>
+      <select id="vd_dilemma" name="dilemma_id">
+        <option value="">— بدون —</option>
+        {% for d in dilemmas %}
+        <option value="{{ d.id }}">{{ d.text }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="btn-group" style="margin-top:0.75rem;">
+      <button class="btn" type="submit"><i class="fa-solid fa-upload" aria-hidden="true"></i> رفع</button>
+    </div>
+  </form>
+  <script>
+  (() => {
+    const form = document.currentScript.closest("section").querySelector("form");
+    if (!form) return;
+    const radios = Array.from(form.querySelectorAll("input[name='visual_input_mode']"));
+    const panels = Array.from(form.querySelectorAll(".visual-media-input"));
+    const camera = {
+      stream: null,
+      recorder: null,
+      chunks: [],
+      preview: form.querySelector("#vd_camera_preview"),
+      canvas: form.querySelector("#vd_camera_canvas"),
+      fileInput: form.querySelector("#vd_camera_file"),
+      startBtn: form.querySelector("#vd_camera_start"),
+      photoBtn: form.querySelector("#vd_camera_photo"),
+      recordBtn: form.querySelector("#vd_camera_record"),
+      stopRecordBtn: form.querySelector("#vd_camera_stop_record"),
+      status: form.querySelector("#vd_camera_status"),
+    };
+    const audio = {
+      stream: null,
+      recorder: null,
+      chunks: [],
+      ctx: null,
+      analyser: null,
+      meterRaf: 0,
+      fileInput: form.querySelector("#vd_audio_file"),
+      startBtn: form.querySelector("#vd_audio_start"),
+      recordBtn: form.querySelector("#vd_audio_record"),
+      stopBtn: form.querySelector("#vd_audio_stop"),
+      status: form.querySelector("#vd_audio_status"),
+      meterBar: form.querySelector("#vd_audio_meter_bar"),
+    };
+
+    function setStatus(msg) {
+      if (camera.status) camera.status.textContent = msg;
+    }
+    function setAudioStatus(msg) {
+      if (audio.status) audio.status.textContent = msg;
+    }
+
+    function assignCameraFile(file) {
+      if (!camera.fileInput || !window.DataTransfer) return false;
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      camera.fileInput.files = dt.files;
+      camera.fileInput.disabled = false;
+      camera.fileInput.required = true;
+      return true;
+    }
+    function assignAudioFile(file) {
+      if (!audio.fileInput || !window.DataTransfer) return false;
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      audio.fileInput.files = dt.files;
+      audio.fileInput.disabled = false;
+      audio.fileInput.required = true;
+      return true;
+    }
+
+    function pickAudioMime() {
+      if (!window.MediaRecorder) return "";
+      const choices = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+        "audio/ogg",
+      ];
+      return choices.find((m) => MediaRecorder.isTypeSupported(m)) || "";
+    }
+
+    function audioExt(mime) {
+      return (mime || "").includes("ogg") ? "ogg" : "webm";
+    }
+
+    function startAudioMeter(stream) {
+      if (!window.AudioContext && !window.webkitAudioContext) return;
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      audio.ctx = new AudioCtx();
+      const source = audio.ctx.createMediaStreamSource(stream);
+      audio.analyser = audio.ctx.createAnalyser();
+      audio.analyser.fftSize = 256;
+      source.connect(audio.analyser);
+      const data = new Uint8Array(audio.analyser.frequencyBinCount);
+      const tick = () => {
+        if (!audio.analyser || !audio.meterBar) return;
+        audio.analyser.getByteFrequencyData(data);
+        const avg = data.reduce((a, b) => a + b, 0) / data.length;
+        audio.meterBar.style.width = Math.min(100, Math.round((avg / 255) * 120)) + "%";
+        audio.meterRaf = requestAnimationFrame(tick);
+      };
+      tick();
+    }
+
+    async function startMicrophone() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setAudioStatus("المتصفح لا يدعم التسجيل الصوتي مباشرة. استخدم خيار رفع ملف.");
+        return;
+      }
+      try {
+        audio.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        startAudioMeter(audio.stream);
+        audio.recordBtn.disabled = !window.MediaRecorder;
+        setAudioStatus("الميكروفون يعمل. يمكنك بدء التسجيل.");
+      } catch (err) {
+        setAudioStatus("تعذر تشغيل المايكروفون. تأكد من السماح للمتصفح باستخدام الميكروفون.");
+      }
+    }
+
+    function stopMicrophone() {
+      if (audio.recorder && audio.recorder.state === "recording") {
+        audio.recorder.stop();
+      }
+      if (audio.stream) {
+        audio.stream.getTracks().forEach((track) => track.stop());
+        audio.stream = null;
+      }
+      if (audio.meterRaf) cancelAnimationFrame(audio.meterRaf);
+      audio.meterRaf = 0;
+      if (audio.ctx) audio.ctx.close().catch(() => {});
+      audio.ctx = null;
+      audio.analyser = null;
+      if (audio.meterBar) audio.meterBar.style.width = "0%";
+      audio.recordBtn.disabled = true;
+      audio.stopBtn.disabled = true;
+    }
+
+    function startAudioRecording() {
+      if (!audio.stream || !window.MediaRecorder) return;
+      audio.chunks = [];
+      const mime = pickAudioMime();
+      audio.recorder = mime ? new MediaRecorder(audio.stream, { mimeType: mime }) : new MediaRecorder(audio.stream);
+      audio.recorder.addEventListener("dataavailable", (e) => {
+        if (e.data && e.data.size) audio.chunks.push(e.data);
+      });
+      audio.recorder.addEventListener("stop", () => {
+        const outMime = audio.recorder.mimeType || mime || "audio/webm";
+        const blob = new Blob(audio.chunks, { type: outMime });
+        const file = new File([blob], `visual-audio-${Date.now()}.${audioExt(outMime)}`, { type: outMime });
+        if (assignAudioFile(file)) {
+          setAudioStatus("تم تجهيز التسجيل الصوتي. اضغط رفع لحفظه في السجل.");
+        } else {
+          setAudioStatus("تعذر تجهيز التسجيل للرفع في هذا المتصفح.");
+        }
+        audio.recordBtn.disabled = false;
+        audio.stopBtn.disabled = true;
+      });
+      audio.recorder.start();
+      audio.recordBtn.disabled = true;
+      audio.stopBtn.disabled = false;
+      setAudioStatus("جاري التسجيل الصوتي...");
+    }
+
+    async function startCamera() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setStatus("المتصفح لا يدعم تشغيل الكاميرا مباشرة. استخدم خيار رفع ملف.");
+        return;
+      }
+      try {
+        camera.stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: true,
+        });
+        camera.preview.srcObject = camera.stream;
+        camera.photoBtn.disabled = false;
+        camera.recordBtn.disabled = !window.MediaRecorder;
+        setStatus("الكاميرا تعمل. يمكنك التقاط صورة أو بدء تسجيل فيديو.");
+      } catch (err) {
+        setStatus("تعذر تشغيل الكاميرا. تأكد من السماح للمتصفح باستخدام الكاميرا والميكروفون.");
+      }
+    }
+
+    function stopCamera() {
+      if (camera.recorder && camera.recorder.state === "recording") {
+        camera.recorder.stop();
+      }
+      if (camera.stream) {
+        camera.stream.getTracks().forEach((track) => track.stop());
+        camera.stream = null;
+      }
+      if (camera.preview) camera.preview.srcObject = null;
+      camera.photoBtn.disabled = true;
+      camera.recordBtn.disabled = true;
+      camera.stopRecordBtn.disabled = true;
+    }
+
+    function capturePhoto() {
+      if (!camera.stream || !camera.preview || !camera.canvas) return;
+      const w = camera.preview.videoWidth || 1280;
+      const h = camera.preview.videoHeight || 720;
+      camera.canvas.width = w;
+      camera.canvas.height = h;
+      const ctx = camera.canvas.getContext("2d");
+      ctx.drawImage(camera.preview, 0, 0, w, h);
+      camera.canvas.toBlob((blob) => {
+        if (!blob) {
+          setStatus("تعذر التقاط الصورة.");
+          return;
+        }
+        const file = new File([blob], `visual-photo-${Date.now()}.jpg`, { type: "image/jpeg" });
+        if (assignCameraFile(file)) {
+          setStatus("تم التقاط صورة. اضغط رفع لحفظها في السجل.");
+        } else {
+          setStatus("تعذر تجهيز الصورة للرفع في هذا المتصفح.");
+        }
+      }, "image/jpeg", 0.92);
+    }
+
+    function startRecording() {
+      if (!camera.stream || !window.MediaRecorder) return;
+      camera.chunks = [];
+      const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
+        ? "video/webm;codecs=vp8,opus"
+        : "video/webm";
+      camera.recorder = new MediaRecorder(camera.stream, { mimeType: mime });
+      camera.recorder.addEventListener("dataavailable", (e) => {
+        if (e.data && e.data.size) camera.chunks.push(e.data);
+      });
+      camera.recorder.addEventListener("stop", () => {
+        const blob = new Blob(camera.chunks, { type: "video/webm" });
+        const file = new File([blob], `visual-video-${Date.now()}.webm`, { type: "video/webm" });
+        if (assignCameraFile(file)) {
+          setStatus("تم تجهيز الفيديو. اضغط رفع لحفظه في السجل.");
+        } else {
+          setStatus("تعذر تجهيز الفيديو للرفع في هذا المتصفح.");
+        }
+        camera.recordBtn.disabled = false;
+        camera.stopRecordBtn.disabled = true;
+      });
+      camera.recorder.start();
+      camera.recordBtn.disabled = true;
+      camera.stopRecordBtn.disabled = false;
+      setStatus("جاري تسجيل الفيديو...");
+    }
+
+    function setMode(mode) {
+      panels.forEach((panel) => {
+        const active = panel.dataset.mode === mode;
+        panel.hidden = !active;
+        panel.querySelectorAll("input[type='file']").forEach((inp) => {
+          inp.disabled = !active;
+          inp.required = active;
+          if (!active) inp.value = "";
+        });
+      });
+      if (mode !== "camera") {
+        stopCamera();
+      }
+      if (mode !== "audio") {
+        stopMicrophone();
+      }
+    }
+    radios.forEach((r) => r.addEventListener("change", () => {
+      if (r.checked) setMode(r.value);
+    }));
+    if (camera.startBtn) camera.startBtn.addEventListener("click", startCamera);
+    if (camera.photoBtn) camera.photoBtn.addEventListener("click", capturePhoto);
+    if (camera.recordBtn) camera.recordBtn.addEventListener("click", startRecording);
+    if (camera.stopRecordBtn) camera.stopRecordBtn.addEventListener("click", () => {
+      if (camera.recorder && camera.recorder.state === "recording") camera.recorder.stop();
+    });
+    if (audio.startBtn) audio.startBtn.addEventListener("click", startMicrophone);
+    if (audio.recordBtn) audio.recordBtn.addEventListener("click", startAudioRecording);
+    if (audio.stopBtn) audio.stopBtn.addEventListener("click", () => {
+      if (audio.recorder && audio.recorder.state === "recording") audio.recorder.stop();
+    });
+    form.addEventListener("submit", (e) => {
+      const mode = (radios.find((r) => r.checked) || {}).value;
+      if (mode === "camera" && (!camera.fileInput || !camera.fileInput.files.length)) {
+        e.preventDefault();
+        setStatus("التقط صورة أو سجّل فيديو أولاً قبل الضغط على رفع.");
+      }
+      if (mode === "audio" && (!audio.fileInput || !audio.fileInput.files.length)) {
+        e.preventDefault();
+        setAudioStatus("سجّل مقطعاً صوتياً أولاً قبل الضغط على رفع.");
+      }
+    });
+    window.addEventListener("beforeunload", () => {
+      stopCamera();
+      stopMicrophone();
+    });
+    setMode((radios.find((r) => r.checked) || radios[0]).value);
+  })();
+  </script>
+</section>
+
+<section class="card">
+  <h2 class="h2-in-card"><i class="fa-solid fa-clock-rotate-left fa-icon-title" aria-hidden="true"></i> السجل</h2>
+  {% if docs %}
+  <div class="table-wrap">
+    <table class="visual-doc-table" dir="rtl" aria-label="سجل التوثيق المرئي">
+      <thead>
+        <tr>
+          <th scope="col">التاريخ والوقت</th>
+          <th scope="col">نوع الملف</th>
+          <th scope="col">المحكم</th>
+          <th scope="col">الوصف</th>
+          <th scope="col">الموقع</th>
+          <th scope="col">فتح</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in docs %}
+        <tr>
+          <td>{% if r.created_at %}{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td>
+            {% if r.file_type == 'video' %}<span class="badge badge--prio-med">فيديو</span>
+            {% elif r.file_type == 'audio' %}<span class="badge badge--prio-low">صوت</span>
+            {% else %}<span class="badge badge--prio-high">صورة</span>{% endif %}
+          </td>
+          <td>{{ (r.uploader.full_name if r.uploader else '') or '—' }}</td>
+          <td class="visual-doc-table__desc muted">{{ r.description or '—' }}</td>
+          <td class="muted">{{ r.location_label or '—' }}</td>
+          <td><a href="{{ url_for('views.visual_document_file', doc_id=r.id) }}" target="_blank" rel="noopener">فتح</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted" dir="rtl" style="margin:0;">لا توجد مواد توثيق لهذا المستوى حتى الآن.</p>
+  {% endif %}
+</section>
+
+{% endif %}
+{% endblock %}
+

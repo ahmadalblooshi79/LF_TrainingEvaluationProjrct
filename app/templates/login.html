@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}تسجيل الدخول{% endblock %}
+{% block content %}
+<div class="auth-page">
+  <div class="card auth-card">
+    <h1><i class="fa-solid fa-right-to-bracket fa-icon-title" aria-hidden="true"></i> تسجيل الدخول</h1>
+    <p class="muted text-center">حسابات تجريبية متعددة متاحة للدخول.</p>
+    <p class="muted text-center">كلمة مرور التجربة: <code>demo123</code></p>
+    {% if error %}<div class="error"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ error }}</div>{% endif %}
+    <form method="post" action="/login">
+      <input type="hidden" name="next" value="{{ next_url or '' }}">
+      <div class="form-group">
+        <label for="username"><i class="fa-solid fa-user fa-icon-label" aria-hidden="true"></i> اسم المستخدم</label>
+        <input id="username" name="username" required autocomplete="username" placeholder="اسم المستخدم">
+      </div>
+      <div class="form-group">
+        <label for="password"><i class="fa-solid fa-lock fa-icon-label" aria-hidden="true"></i> كلمة المرور</label>
+        <input id="password" name="password" type="password" required autocomplete="current-password" placeholder="••••••••">
+      </div>
+      <p class="mt-tight">
+        <button class="btn btn-block" type="submit"><i class="fa-solid fa-right-to-bracket" aria-hidden="true"></i> دخول</button>
+      </p>
+    </form>
+  </div>
+</div>
+{% endblock %}

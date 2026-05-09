@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}قوائم المعاضل — {{ unit.label }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-file-pdf fa-icon-title" aria-hidden="true"></i> قوائم المعاضل — {{ unit.label }}</h1>
+  <p class="muted">عرض ملفات المعاضل (PDF) الخاصة بوحدتك.</p>
+  <p class="mt-tight">
+    <a class="btn btn-ghost" href="{{ url_for('views.judge_dilemmas_home') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> رجوع</a>
+  </p>
+</div>
+
+<section class="card dilemmas-current">
+  <h2 class="h2-in-card"><i class="fa-solid fa-list-ol fa-icon-title" aria-hidden="true"></i> القائمة الحالية</h2>
+  {% if items %}
+  <ol class="objectives-list dilemmas-list">
+    {% for it in items %}
+      <li class="objectives-list__item dilemmas-list__item">
+        <div class="dilemmas-list__toolbar">
+          <div class="dilemmas-list__title" title="{{ it.text }}">{{ it.text }}</div>
+          <div class="dilemmas-list__actions">
+            {% if it.pdf_relpath %}
+            <a class="btn btn-ghost dilemmas-open-pdf-btn" href="{{ url_for('views.judge_dilemma_viewer', unit_key=unit_key, item_id=it.id) }}">
+              <i class="fa-solid fa-file-pdf" aria-hidden="true"></i>
+              فتح المعضلة (PDF)
+            </a>
+            {% else %}
+            <span class="muted">لا يوجد ملف PDF</span>
+            {% endif %}
+          </div>
+        </div>
+      </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p class="muted">لا توجد معاضل محفوظة لهذا المستوى.</p>
+  {% endif %}
+</section>
+{% endblock %}
+

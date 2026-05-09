@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="admin-shell">
+  <section class="card admin-shell__workspace">
+    {% block admin_workspace %}{% endblock %}
+  </section>
+  <aside class="card admin-shell__menu" aria-label="خيارات إدارة النظام">
+    <h2 class="h2-in-card"><i class="fa-solid fa-table-columns fa-icon-title" aria-hidden="true"></i> أوامر العمل</h2>
+    <a class="admin-action-btn{% if request.path == '/admin/exercises/create' %} admin-action-btn--active{% endif %}" href="/admin/exercises/create">
+      <i class="fa-solid fa-file-circle-plus" aria-hidden="true"></i>
+      <span>إنشاء تمرين جديد</span>
+    </a>
+    <a class="admin-action-btn{% if request.path == '/admin/exercises/objectives' %} admin-action-btn--active{% endif %}" href="/admin/exercises/objectives">
+      <i class="fa-solid fa-bullseye" aria-hidden="true"></i>
+      <span>الأهداف التدريبية</span>
+    </a>
+    <a class="admin-action-btn{% if request.path == '/admin/exercises/judge-unit-roster' %} admin-action-btn--active{% endif %}" href="/admin/exercises/judge-unit-roster">
+      <i class="fa-solid fa-gavel" aria-hidden="true"></i>
+      <span>قائمة المحكمين</span>
+    </a>
+    <a class="admin-action-btn{% if request.path == '/admin/exercises/trainee-unit-roster' %} admin-action-btn--active{% endif %}" href="/admin/exercises/trainee-unit-roster">
+      <i class="fa-solid fa-users" aria-hidden="true"></i>
+      <span>قائمة الوحدة المتدربة</span>
+    </a>
+    <a class="admin-action-btn{% if request.path.startswith('/admin/dilemmas') %} admin-action-btn--active{% endif %}" href="/admin/dilemmas">
+      <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+      <span>قائمة المعاضل</span>
+    </a>
+    <a class="admin-action-btn{% if request.path.startswith('/admin/evaluation-lists') %} admin-action-btn--active{% endif %}" href="/admin/evaluation-lists">
+      <i class="fa-solid fa-file-excel" aria-hidden="true"></i>
+      <span>قوائم التقييم</span>
+    </a>
+    <a class="admin-action-btn{% if request.path == '/admin/evaluation-lists/saved-results' %} admin-action-btn--active{% endif %}" href="/admin/evaluation-lists/saved-results">
+      <i class="fa-solid fa-square-poll-vertical" aria-hidden="true"></i>
+      <span>إدارة تقييمات الوحدات</span>
+    </a>
+    <a class="admin-action-btn{% if request.path == '/admin/dilemmas-evaluation-unit-report' %} admin-action-btn--active{% endif %}" href="/admin/dilemmas-evaluation-unit-report">
+      <i class="fa-solid fa-link" aria-hidden="true"></i>
+      <span>ربط المعاضل والتقييم</span>
+    </a>
+    <a class="admin-action-btn{% if request.path == '/admin/battle-organization' %} admin-action-btn--active{% endif %}" href="/admin/battle-organization">
+      <i class="fa-solid fa-sitemap" aria-hidden="true"></i>
+      <span>تنظيم المعركة</span>
+    </a>
+    <a class="admin-action-btn{% if request.path.startswith('/admin/users') %} admin-action-btn--active{% endif %}" href="/admin/users">
+      <i class="fa-solid fa-users-gear" aria-hidden="true"></i>
+      <span>إدارة المستخدمين</span>
+    </a>
+    <a class="admin-action-btn{% if request.path == '/admin/system-checklist' %} admin-action-btn--active{% endif %}" href="/admin/system-checklist">
+      <i class="fa-solid fa-list-check" aria-hidden="true"></i>
+      <span>Checklist محتويات النظام</span>
+    </a>
+  </aside>
+</div>
+{% endblock %}
