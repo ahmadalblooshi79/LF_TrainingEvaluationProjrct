@@ -1,0 +1,254 @@
+{
+  "schema_version": 2,
+  "exported_at": "2026-05-06T15:10:50.182278",
+  "exercise": {
+    "id": 1,
+    "code": "EX-73CAB193",
+    "title": "تمرين/3",
+    "description": "نوع التمرين: تمرين لعبات الحرب\nمستوى التمرين: مجموعة لواء\nالمهمة: عملية تعرضيه\nاسم الوحدة المتدربة: مجموعة اللواء/101\nمكان التمرين: مركز تدريب المنطقة الغربية",
+    "exercise_type": "تمرين لعبات الحرب",
+    "exercise_level": "مجموعة لواء",
+    "mission_label": "عملية تعرضيه",
+    "trained_unit": "مجموعة اللواء/101",
+    "location_label": "مركز تدريب المنطقة الغربية",
+    "status": "draft",
+    "owner_id": 1,
+    "planned_start": "2026-05-05T16:47:00",
+    "planned_end": "2026-06-04T16:47:00",
+    "control_approved": false,
+    "created_at": "2026-05-06T15:10:37.266110",
+    "updated_at": "2026-05-06T15:10:37.266110"
+  },
+  "objectives": [
+    {
+      "id": 411,
+      "sort_order": 0,
+      "text": "الهدف الأول",
+      "created_at": "2026-05-06T15:10:50.116782"
+    },
+    {
+      "id": 412,
+      "sort_order": 1,
+      "text": "الهدف الثاني",
+      "created_at": "2026-05-06T15:10:50.116782"
+    },
+    {
+      "id": 413,
+      "sort_order": 2,
+      "text": "الهدف الثالث",
+      "created_at": "2026-05-06T15:10:50.116782"
+    },
+    {
+      "id": 414,
+      "sort_order": 3,
+      "text": "الهدف الرابع",
+      "created_at": "2026-05-06T15:10:50.116782"
+    }
+  ],
+  "trainee_unit_roster": [
+    {
+      "sort_order": 0,
+      "military_number": "1111",
+      "rank_ar": "مدني/5",
+      "full_name": "خليفة عبدالله مبارك البلوشي",
+      "unit_level_key": "brigade_group",
+      "position_ar": "مجموعة لواء",
+      "created_at": "2026-05-05T18:13:42.566916"
+    },
+    {
+      "sort_order": 1,
+      "military_number": "2222",
+      "rank_ar": "مدني/6",
+      "full_name": "راشد سيف راشد الجابري",
+      "unit_level_key": "mech_infantry_bn",
+      "position_ar": "كتيبة مشاة آلية",
+      "created_at": "2026-05-05T18:13:42.566916"
+    },
+    {
+      "sort_order": 2,
+      "military_number": "3333",
+      "rank_ar": "مدني/7",
+      "full_name": "زايد أحمد عبدالله البلوشي",
+      "unit_level_key": "tank_bn",
+      "position_ar": "كتيبة دبابات",
+      "created_at": "2026-05-05T18:13:42.566916"
+    },
+    {
+      "sort_order": 3,
+      "military_number": "4444",
+      "rank_ar": "مدني/8",
+      "full_name": "حمدان خالد حمدان السويدي",
+      "unit_level_key": "artillery_bn",
+      "position_ar": "كتيبة المدفعية",
+      "created_at": "2026-05-05T18:13:42.566916"
+    }
+  ],
+  "judge_unit_roster": [
+    {
+      "sort_order": 0,
+      "military_number": "123456",
+      "rank_ar": "مدني/1",
+      "full_name": "أحمد عبدالله مبارك البلوشي",
+      "unit_level_key": "brigade_group",
+      "position_ar": "مجموعة لواء",
+      "created_at": "2026-05-05T19:11:14.804552"
+    },
+    {
+      "sort_order": 1,
+      "military_number": "654321",
+      "rank_ar": "مدني/2",
+      "full_name": "عارف عيضة الجابري",
+      "unit_level_key": "mech_infantry_bn",
+      "position_ar": "كتيبة مشاة آلية",
+      "created_at": "2026-05-05T19:11:14.804552"
+    },
+    {
+      "sort_order": 2,
+      "military_number": "456789",
+      "rank_ar": "مدني/3",
+      "full_name": "عبدالله أحمد مبارك آل علي",
+      "unit_level_key": "tank_bn",
+      "position_ar": "كتيبة دبابات",
+      "created_at": "2026-05-05T19:11:14.804552"
+    },
+    {
+      "sort_order": 3,
+      "military_number": "987654",
+      "rank_ar": "مدني/3",
+      "full_name": "سعيد سالم سعيد الحنطوبي",
+      "unit_level_key": "artillery_bn",
+      "position_ar": "كتيبة المدفعية",
+      "created_at": "2026-05-05T19:11:14.804552"
+    }
+  ],
+  "event_flows": [
+    {
+      "id": 1,
+      "order_index": 0,
+      "title": "إحاطة",
+      "description": "",
+      "scheduled_at": null,
+      "event_type": "briefing",
+      "created_at": "2026-04-29T08:30:13.855387"
+    },
+    {
+      "id": 3,
+      "order_index": 0,
+      "title": "إحاطة",
+      "description": "",
+      "scheduled_at": null,
+      "event_type": "briefing",
+      "created_at": "2026-04-29T08:30:13.855387"
+    },
+    {
+      "id": 2,
+      "order_index": 1,
+      "title": "تنفيذ المرحلة",
+      "description": "",
+      "scheduled_at": null,
+      "event_type": "stage",
+      "created_at": "2026-04-29T08:30:13.855389"
+    },
+    {
+      "id": 4,
+      "order_index": 1,
+      "title": "تنفيذ المرحلة",
+      "description": "",
+      "scheduled_at": null,
+      "event_type": "stage",
+      "created_at": "2026-04-29T08:30:13.855389"
+    }
+  ],
+  "problems": [
+    {
+      "id": 1,
+      "title": "نقص مرفق إحاطة",
+      "description": "إدراج مرفق للإحاطة لاحقاً",
+      "severity": 1,
+      "status": "open",
+      "reported_by_id": 3,
+      "created_at": "2026-04-29T08:30:13.870641",
+      "updated_at": "2026-04-29T08:30:13.870643"
+    },
+    {
+      "id": 2,
+      "title": "نقص مرفق إحاطة",
+      "description": "إدراج مرفق للإحاطة لاحقاً",
+      "severity": 1,
+      "status": "open",
+      "reported_by_id": 3,
+      "created_at": "2026-04-29T08:30:13.870641",
+      "updated_at": "2026-04-29T08:30:13.870643"
+    }
+  ],
+  "checklists": [
+    {
+      "id": 1,
+      "title": "قائمة تقييم — الأداء العام",
+      "created_by_id": 3,
+      "created_at": "2026-04-29T08:30:13.854342",
+      "items": [
+        {
+          "id": 1,
+          "sort_order": 0,
+          "text": "وضوح التعليمات",
+          "weight": 1.0,
+          "is_done": false,
+          "judge_note": ""
+        },
+        {
+          "id": 2,
+          "sort_order": 1,
+          "text": "الدقة",
+          "weight": 1.0,
+          "is_done": false,
+          "judge_note": ""
+        },
+        {
+          "id": 3,
+          "sort_order": 2,
+          "text": "توقيت الاستجابة",
+          "weight": 1.0,
+          "is_done": false,
+          "judge_note": ""
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "قائمة تقييم — الأداء العام",
+      "created_by_id": 3,
+      "created_at": "2026-04-29T08:30:13.854342",
+      "items": [
+        {
+          "id": 4,
+          "sort_order": 0,
+          "text": "وضوح التعليمات",
+          "weight": 1.0,
+          "is_done": false,
+          "judge_note": ""
+        },
+        {
+          "id": 5,
+          "sort_order": 1,
+          "text": "الدقة",
+          "weight": 1.0,
+          "is_done": false,
+          "judge_note": ""
+        },
+        {
+          "id": 6,
+          "sort_order": 2,
+          "text": "توقيت الاستجابة",
+          "weight": 1.0,
+          "is_done": false,
+          "judge_note": ""
+        }
+      ]
+    }
+  ],
+  "evaluation_notes": [],
+  "exercise_ref_links": [],
+  "dilemma_items": [],
+  "evaluation_list_items": []
+}
