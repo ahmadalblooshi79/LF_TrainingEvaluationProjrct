@@ -2607,7 +2607,8 @@ def _control_exercise_performance_report(db, user: User) -> dict:
     if ex0 is None:
         return {
             "exercise": None,
-            "crumb": "التمرين الحالي",
+            "crumb": "",
+            "criteria_count": 0,
             "report_title": "تقرير شامل لأداء التمرين",
             "exercise_label": "—",
             "exercise_code": "—",
@@ -2918,6 +2919,7 @@ def _control_exercise_performance_report(db, user: User) -> dict:
     return {
         "exercise": ex,
         "crumb": crumb,
+        "criteria_count": criteria_count,
         "report_title": "تقرير شامل لأداء التمرين",
         "exercise_label": exercise_label,
         "exercise_code": exercise_code,

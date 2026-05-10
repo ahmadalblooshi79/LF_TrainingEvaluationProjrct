@@ -5,7 +5,6 @@
 <div class="control-report" dir="rtl">
   <section class="control-report__head">
     <div>
-      <p class="control-report__crumb">{{ report.crumb }}</p>
       <h1>{{ report.report_title }}</h1>
       <p class="control-report__meta">
         <span>{{ report.exercise_label }} - {{ report.exercise_code }}</span>
@@ -124,36 +123,10 @@
     </article>
 
     <article class="control-panel">
-      <h2>التقدم الزمني للتقييم</h2>
-      <svg class="control-line" viewBox="0 0 420 230" role="img" aria-label="التقدم الزمني للتقييم">
-        <g class="control-line__grid">
-          <line x1="48" y1="30" x2="48" y2="185"></line>
-          <line x1="48" y1="185" x2="396" y2="185"></line>
-          <line x1="48" y1="146" x2="396" y2="146"></line>
-          <line x1="48" y1="108" x2="396" y2="108"></line>
-          <line x1="48" y1="69" x2="396" y2="69"></line>
-          <line x1="48" y1="30" x2="396" y2="30"></line>
-        </g>
-        <polyline class="control-line__area" points="58,170 106,158 154,143 202,123 250,100 298,77 346,58 386,52 386,185 58,185"></polyline>
-        <polyline class="control-line__stroke" points="58,170 106,158 154,143 202,123 250,100 298,77 346,58 386,52"></polyline>
-        {% for point in report.timeline %}
-        {% set x = 58 + loop.index0 * 48 %}
-        {% set y = 185 - (point.value * 1.55) %}
-        <circle cx="{{ x }}" cy="{{ y }}" r="4"></circle>
-        <text class="control-line__pct" x="{{ x }}" y="{{ y - 12 }}">{{ point.value }}%</text>
-        <text class="control-line__label" x="{{ x }}" y="208">{{ point.label }}</text>
-        {% endfor %}
-        <text x="20" y="35">100%</text>
-        <text x="23" y="112">50%</text>
-        <text x="27" y="188">0%</text>
-      </svg>
-    </article>
-
-    <article class="control-panel">
       <h2>توزيع نتائج التقييم</h2>
       <div class="control-donut-layout">
         <div class="control-donut">
-          <span>إجمالي<br><strong>128</strong><br>معيار</span>
+          <span>إجمالي<br><strong>{{ report.criteria_count }}</strong><br>معيار</span>
         </div>
         <div class="control-donut-legend">
           {% for item in report.distribution %}

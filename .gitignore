@@ -3,3 +3,7 @@ __pycache__/
 *.py[cod]
 .env
 exercise_store/
+# بيانات تدريب تعلم آلي محلية (سرية — لا تُرفع للمستودع)
+ml_training/raw/
+ml_training/models/*.joblib
+ml_training/models/*.pkl
