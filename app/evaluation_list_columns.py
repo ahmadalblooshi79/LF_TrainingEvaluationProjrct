@@ -94,8 +94,8 @@ def _score_label(n: float) -> str:
     return s
 
 
-def snap_cell_to_acquired_value(cell: str) -> str:
-    """يطابق محتوى خلية الملف مع قيمة خيار القائمة."""
+def snap_cell_to_acquired_value(cell: str, *, cap_five: bool = True) -> str:
+    """يطابق محتوى خلية الملف مع قيمة خيار القائمة أو رقمًا عامًا."""
     s = normalize_ar_header(cell)
     if not s:
         return ""
@@ -106,9 +106,45 @@ def snap_cell_to_acquired_value(cell: str) -> str:
         v = float(s)
     except ValueError:
         return ""
-    v = max(0.0, min(5.0, v))
+    if cap_five:
+        v = max(0.0, min(5.0, v))
+    else:
+        v = max(0.0, v)
     v = round(v * 4.0) / 4.0
     return _score_key(v)
+
+
+def parse_max_cell(s: str | None) -> float | None:
+    """يستخرج الرقم من عمود القصوى."""
+    t = normalize_ar_header(str(s or "")).replace(",", ".").replace("٫", ".")
+    if not t:
+        return None
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def resolve_rubric_subheader_indices(header_row: list[str]) -> tuple[int, int, int] | None:
+    """
+    صف يحتوي عناوين «القصوى» و«المكتسبة» (قوالب قائمة التقييم).
+    يعيد (عنصر، قصوى، مكتسبة) مع افتراض عمود العنصر = 0.
+    """
+    i_mx: int | None = None
+    i_aq: int | None = None
+    for i, raw in enumerate(header_row):
+        h = normalize_ar_header(raw)
+        if not h:
+            continue
+        if i_mx is None and ("قصوى" in h) and ("مكتسب" not in h):
+            i_mx = i
+            continue
+        if i_aq is None and ("مكتسب" in h or "محصل" in h or "منجز" in h):
+            i_aq = i
+            continue
+    if i_mx is None or i_aq is None:
+        return None
+    return (0, i_mx, i_aq)
 
 
 def build_structured_rows(
@@ -117,6 +153,8 @@ def build_structured_rows(
     i_el: int,
     i_mx: int,
     i_aq: int,
+    *,
+    acquired_cap_five: bool = True,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for r in body_rows:
@@ -128,11 +166,30 @@ def build_structured_rows(
                 "element": cells[i_el] if i_el < len(cells) else "",
                 "max_val": cells[i_mx] if i_mx < len(cells) else "",
                 "acquired_initial": snap_cell_to_acquired_value(
-                    cells[i_aq] if i_aq < len(cells) else ""
+                    cells[i_aq] if i_aq < len(cells) else "",
+                    cap_five=acquired_cap_five,
                 ),
             }
         )
     return rows
+
+
+def annotate_evaluation_row_kinds(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """يصنّف كل صف: score (له قصوى رقمية > 0) أو section (عنوان فرعي فقط)."""
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        mx = parse_max_cell(r.get("max_val"))
+        el = (r.get("element") or "").strip()
+        if mx is not None and mx > 0:
+            out.append({**r, "row_kind": "score", "max_num": mx})
+        elif el:
+            out.append({**r, "row_kind": "section", "max_num": None})
+        else:
+            aq = (r.get("acquired_initial") or "").strip()
+            if not aq:
+                continue
+            out.append({**r, "row_kind": "section", "max_num": None})
+    return out
 
 
 def grade_label_from_percent(pct: float | None) -> str:

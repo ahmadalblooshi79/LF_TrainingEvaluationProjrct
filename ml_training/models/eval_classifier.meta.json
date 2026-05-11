@@ -1,0 +1,31 @@
+{
+  "training_format": "demo_synthetic",
+  "data_dir": "C:\\Users\\USER\\Documents\\GitHub\\LF_TrainingEvaluationProjrct\\ml_training\\raw",
+  "files": [],
+  "sheet_index": 0,
+  "label_column": "last",
+  "feature_names": [
+    "بند",
+    "القصوى"
+  ],
+  "feature_indices_in_sheet": [
+    0,
+    1
+  ],
+  "numeric_feature_indices": [
+    1
+  ],
+  "categorical_feature_indices": [
+    0
+  ],
+  "classes": [
+    "جيد",
+    "جيد_جدا",
+    "راسب",
+    "مقبول",
+    "ممتاز"
+  ],
+  "n_samples": 120,
+  "test_accuracy": 0.25,
+  "classification_report": "              precision    recall  f1-score   support\n\n         جيد       0.00      0.00      0.00         3\n     جيد_جدا       0.33      0.25      0.29         4\n        راسب       0.43      0.30      0.35        10\n       مقبول       0.20      0.25      0.22         4\n       ممتاز       0.25      0.33      0.29         3\n\n    accuracy                           0.25        24\n   macro avg       0.24      0.23      0.23        24\nweighted avg       0.30      0.25      0.27        24\n"
+}

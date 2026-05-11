@@ -79,12 +79,10 @@ from app.unit_levels_catalog import (
 )
 from app.evaluation_list_columns import (
     acquired_select_options,
-    build_structured_rows,
     grade_label_from_percent,
-    resolve_evaluation_column_indices,
 )
+from app.evaluation_sheet_parser import read_evaluation_list_sheet
 from app.roster_import import parse_roster_rows_from_upload
-from app.xlsx_grid_preview import read_xlsx_sheet_preview
 from app.exercise_store import (
     export_directory,
     extract_create_form_prefill_from_export_json,
@@ -140,6 +138,24 @@ def _evaluation_list_file_abspath(relpath: str) -> Path | None:
     except ValueError:
         return None
     return out if out.is_file() else None
+
+
+def _evaluation_sheet_view_context(fspath: Path) -> dict:
+    """قراءة ملف قائمة التقييم مع اكتشاف قوالب الصفوف (القصوى/المكتسبة) تلقائيًا."""
+    sheet = read_evaluation_list_sheet(fspath)
+    es = bool(sheet.get("eval_structured"))
+    return {
+        "preview_error": sheet.get("error"),
+        "sheet_title": sheet.get("sheet_title") or "",
+        "header_row": sheet.get("header_row") or [],
+        "body_rows": sheet.get("body_rows") or [],
+        "eval_structured": es,
+        "eval_column_source": sheet.get("eval_column_source"),
+        "eval_rows": sheet.get("eval_rows") or [],
+        "eval_input_mode": sheet.get("eval_input_mode") or "scale5",
+        "eval_layout": sheet.get("eval_layout") or "legacy",
+        "acquired_options": acquired_select_options() if es else [],
+    }
 
 
 def _unlink_evaluation_list_stored_file(relpath: str) -> None:
@@ -448,28 +464,18 @@ def _evaluation_delete_duplicate_saves(db, *, exercise_id: int, evaluation_item_
 
 
 def _evaluation_grade_from_payload_rows(rows: list) -> tuple[float | None, str]:
-    total_points = 0.0
-    n_scored = 0
+    """متوسط نسب الصفوف (المكتسبة/القصوى إن وُجدت، وإلا منطق 5 نقاط)."""
+    pcts: list[float] = []
     for r in rows[:2000]:
         if not isinstance(r, dict):
             continue
-        v = r.get("acquired")
-        if v in (None, "", "na"):
-            continue
-        try:
-            n = float(str(v).replace(",", "."))
-        except Exception:
-            continue
-        if n < 0:
-            n = 0.0
-        if n > 5:
-            n = 5.0
-        total_points += n
-        n_scored += 1
+        p = _eval_row_score_pct(r)
+        if p is not None:
+            pcts.append(float(p))
     total_pct = None
     grade = ""
-    if n_scored > 0:
-        total_pct = (total_points / (n_scored * 5.0)) * 100.0
+    if pcts:
+        total_pct = sum(pcts) / len(pcts)
         grade = grade_label_from_percent(total_pct)
     return total_pct, grade
 
@@ -1725,19 +1731,7 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
     fspath = _evaluation_list_file_abspath(row.pdf_relpath)
     if fspath is None:
         return redirect(list_url)
-    preview = read_xlsx_sheet_preview(fspath)
-    header_row = preview.get("header_row") or []
-    body_rows = preview.get("body_rows") or []
-    ncol = int(preview.get("ncol") or 0) or max(len(header_row), 1)
-    resolved_layout = resolve_evaluation_column_indices(header_row, ncol)
-    eval_structured = resolved_layout is not None
-    eval_column_source = resolved_layout[1] if resolved_layout else None
-    eval_rows: list = []
-    acquired_options: list = []
-    if resolved_layout:
-        (i_el, i_mx, i_aq) = resolved_layout[0]
-        eval_rows = build_structured_rows(body_rows, ncol, i_el, i_mx, i_aq)
-        acquired_options = acquired_select_options()
+    ev = _evaluation_sheet_view_context(fspath)
 
     saved_payload = {}
     saved_updated_at = None
@@ -1810,14 +1804,7 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
             saved_updated_at=saved_updated_at,
             saved_is_approved=saved_is_approved,
             saved_approved_at=saved_approved_at,
-            sheet_title=preview.get("sheet_title") or "",
-            header_row=header_row,
-            body_rows=body_rows,
-            preview_error=preview.get("error"),
-            eval_structured=eval_structured,
-            eval_column_source=eval_column_source,
-            eval_rows=eval_rows,
-            acquired_options=acquired_options,
+            **ev,
             unit_label=unit_label or "—",
             shown_date=shown_date,
             commander_name=commander_name or "—",
@@ -1826,6 +1813,7 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
             eval_save_url=eval_save_url,
             eval_approve_url=eval_approve_url,
             show_eval_approve=show_eval_approve,
+            eval_can_edit=not saved_is_approved,
         ),
     )
 
@@ -3896,19 +3884,7 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
     fspath = _evaluation_list_file_abspath(row.pdf_relpath)
     if fspath is None:
         return redirect(list_url)
-    preview = read_xlsx_sheet_preview(fspath)
-    header_row = preview.get("header_row") or []
-    body_rows = preview.get("body_rows") or []
-    ncol = int(preview.get("ncol") or 0) or max(len(header_row), 1)
-    resolved_layout = resolve_evaluation_column_indices(header_row, ncol)
-    eval_structured = resolved_layout is not None
-    eval_column_source = resolved_layout[1] if resolved_layout else None
-    eval_rows: list = []
-    acquired_options: list = []
-    if resolved_layout:
-        (i_el, i_mx, i_aq) = resolved_layout[0]
-        eval_rows = build_structured_rows(body_rows, ncol, i_el, i_mx, i_aq)
-        acquired_options = acquired_select_options()
+    ev = _evaluation_sheet_view_context(fspath)
 
     saved_payload = {}
     saved_updated_at = None
@@ -4009,19 +3985,13 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
             eval_save_url=url_for("views.admin_evaluation_list_save_results", unit_key=unit_key, item_id=item_id),
             eval_approve_url=url_for("views.admin_evaluation_list_approve", unit_key=unit_key, item_id=item_id),
             show_eval_approve=can_approve_evaluation_results(user),
-            sheet_title=preview.get("sheet_title") or "",
-            header_row=header_row,
-            body_rows=body_rows,
-            preview_error=preview.get("error"),
-            eval_structured=eval_structured,
-            eval_column_source=eval_column_source,
-            eval_rows=eval_rows,
-            acquired_options=acquired_options,
+            **ev,
             unit_label=unit_label or "—",
             shown_date=shown_date,
             commander_name=commander_name or "—",
             judge_name=judge_name or "—",
             has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
+            eval_can_edit=not saved_is_approved,
         ),
     )
 
@@ -4053,19 +4023,7 @@ def analyst_evaluation_list_file_viewer(unit_key: str, item_id: int):
     if fspath is None:
         abort(404)
 
-    preview = read_xlsx_sheet_preview(fspath)
-    header_row = preview.get("header_row") or []
-    body_rows = preview.get("body_rows") or []
-    ncol = int(preview.get("ncol") or 0) or max(len(header_row), 1)
-    resolved_layout = resolve_evaluation_column_indices(header_row, ncol)
-    eval_structured = resolved_layout is not None
-    eval_column_source = resolved_layout[1] if resolved_layout else None
-    eval_rows: list = []
-    acquired_options: list = []
-    if resolved_layout:
-        (i_el, i_mx, i_aq) = resolved_layout[0]
-        eval_rows = build_structured_rows(body_rows, ncol, i_el, i_mx, i_aq)
-        acquired_options = acquired_select_options()
+    ev = _evaluation_sheet_view_context(fspath)
 
     # نعرض أحدث نتيجة محفوظة إن وجدت (اختيار saved_id اختياري)
     saved_payload = {}
@@ -4158,14 +4116,7 @@ def analyst_evaluation_list_file_viewer(unit_key: str, item_id: int):
             saved_is_approved=saved_is_approved,
             saved_approved_at=saved_approved_at,
             saved_by_id=saved_by_id,
-            sheet_title=preview.get("sheet_title") or "",
-            header_row=header_row,
-            body_rows=body_rows,
-            preview_error=preview.get("error"),
-            eval_structured=eval_structured,
-            eval_column_source=eval_column_source,
-            eval_rows=eval_rows,
-            acquired_options=acquired_options,
+            **ev,
             unit_label=unit_label or "—",
             shown_date=shown_date,
             commander_name=commander_name or "—",
@@ -4174,6 +4125,7 @@ def analyst_evaluation_list_file_viewer(unit_key: str, item_id: int):
             eval_save_url="#",
             eval_approve_url="#",
             show_eval_approve=False,
+            eval_can_edit=False,
         ),
     )
 
@@ -4578,19 +4530,7 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
     fspath = _evaluation_list_file_abspath(row.pdf_relpath)
     if fspath is None:
         return redirect(list_url)
-    preview = read_xlsx_sheet_preview(fspath)
-    header_row = preview.get("header_row") or []
-    body_rows = preview.get("body_rows") or []
-    ncol = int(preview.get("ncol") or 0) or max(len(header_row), 1)
-    resolved_layout = resolve_evaluation_column_indices(header_row, ncol)
-    eval_structured = resolved_layout is not None
-    eval_column_source = resolved_layout[1] if resolved_layout else None
-    eval_rows: list = []
-    acquired_options: list = []
-    if resolved_layout:
-        (i_el, i_mx, i_aq) = resolved_layout[0]
-        eval_rows = build_structured_rows(body_rows, ncol, i_el, i_mx, i_aq)
-        acquired_options = acquired_select_options()
+    ev = _evaluation_sheet_view_context(fspath)
 
     saved_payload = {}
     saved_updated_at = None
@@ -4668,14 +4608,7 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
             saved_updated_at=saved_updated_at,
             saved_is_approved=saved_is_approved,
             saved_approved_at=saved_approved_at,
-            sheet_title=preview.get("sheet_title") or "",
-            header_row=header_row,
-            body_rows=body_rows,
-            preview_error=preview.get("error"),
-            eval_structured=eval_structured,
-            eval_column_source=eval_column_source,
-            eval_rows=eval_rows,
-            acquired_options=acquired_options,
+            **ev,
             unit_label=unit_label or "—",
             shown_date=shown_date,
             commander_name=commander_name or "—",
@@ -4684,6 +4617,7 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
             eval_save_url=eval_save_url,
             eval_approve_url=eval_approve_url,
             show_eval_approve=show_eval_approve,
+            eval_can_edit=not saved_is_approved,
         ),
     )
 
