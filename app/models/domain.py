@@ -612,3 +612,72 @@ class VisualDocument(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
     uploader = relationship("User", foreign_keys=[uploaded_by_id])
+
+
+class InformationBankPhaseNote(Base):
+    """ملاحظات مرحلة تمرين في بنك المعلومات — عامة للنظام دون ForeignKey إلى تمرين."""
+
+    __tablename__ = "information_bank_phase_notes"
+
+    phase_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    notes: Mapped[str] = mapped_column(Text(), default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class InformationBankUnitNote(Base):
+    """ملاحظات مستوى وحدة في بنك المعلومات — عامة للنظام دون ارتباط بتمرين."""
+
+    __tablename__ = "information_bank_unit_notes"
+
+    unit_level_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    notes: Mapped[str] = mapped_column(Text(), default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class InfoBankEventFlowPdf(Base):
+    """مجرى الأحداث والمعاضل — ملف PDF أو Word (.doc/.docx) لمرحلة ومستوى وحدة؛ تخزين عام بلا exercise_id."""
+
+    __tablename__ = "info_bank_event_flow_pdfs"
+    __table_args__ = (Index("ix_ib_flow_phase_unit", "training_phase_key", "unit_level_key"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    training_phase_key: Mapped[str] = mapped_column(String(64), index=True)
+    unit_level_key: Mapped[str] = mapped_column(String(128), index=True)
+    title: Mapped[str] = mapped_column(String(500), default="")
+    file_relpath: Mapped[str] = mapped_column(String(500), default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class InfoBankActionEvalXlsx(Base):
+    """قوائم تقييم الإجراءات (Excel) في بنك المعلومات — عامة بلا ارتباط بتمرين."""
+
+    __tablename__ = "info_bank_action_eval_xlsx"
+    __table_args__ = (Index("ix_ib_action_phase_unit", "training_phase_key", "unit_level_key"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    training_phase_key: Mapped[str] = mapped_column(String(64), index=True)
+    unit_level_key: Mapped[str] = mapped_column(String(128), index=True)
+    title: Mapped[str] = mapped_column(String(500), default="")
+    file_relpath: Mapped[str] = mapped_column(String(500), default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class InfoBankDilemmaEvalXlsx(Base):
+    """قوائم تقييم المعاضل (Excel) في بنك المعلومات — عامة بلا exercise_id."""
+
+    __tablename__ = "info_bank_dilemma_eval_xlsx"
+    __table_args__ = (Index("ix_ib_dilemma_phase_unit", "training_phase_key", "unit_level_key"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    training_phase_key: Mapped[str] = mapped_column(String(64), index=True)
+    unit_level_key: Mapped[str] = mapped_column(String(128), index=True)
+    title: Mapped[str] = mapped_column(String(500), default="")
+    file_relpath: Mapped[str] = mapped_column(String(500), default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

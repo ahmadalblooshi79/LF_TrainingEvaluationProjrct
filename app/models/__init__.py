@@ -33,6 +33,11 @@ from app.models.domain import (
     ChatMessageRead,
     ExerciseNotification,
     VisualDocument,
+    InformationBankPhaseNote,
+    InformationBankUnitNote,
+    InfoBankEventFlowPdf,
+    InfoBankActionEvalXlsx,
+    InfoBankDilemmaEvalXlsx,
 )
 
 __all__ = [
@@ -71,4 +76,9 @@ __all__ = [
     "ChatMessageRead",
     "ExerciseNotification",
     "VisualDocument",
+    "InformationBankPhaseNote",
+    "InformationBankUnitNote",
+    "InfoBankEventFlowPdf",
+    "InfoBankActionEvalXlsx",
+    "InfoBankDilemmaEvalXlsx",
 ]

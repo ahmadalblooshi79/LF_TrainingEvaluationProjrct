@@ -23,7 +23,13 @@ from werkzeug.utils import secure_filename
 from sqlalchemy import delete, desc, func
 from sqlalchemy.orm import joinedload
 
-from app.config import CHAT_UPLOAD_DIR, DILEMMA_PDF_DIR, EVALUATION_LIST_XLSX_DIR, VISUAL_DOC_DIR
+from app.config import (
+    CHAT_UPLOAD_DIR,
+    DILEMMA_PDF_DIR,
+    EVALUATION_LIST_XLSX_DIR,
+    INFO_BANK_DIR,
+    VISUAL_DOC_DIR,
+)
 from app.auth import get_current_user_optional, hash_password, verify_password
 from app.models import (
     ChatMessage,
@@ -43,6 +49,11 @@ from app.models import (
     EvaluationListSavedResult,
     ExerciseNotification,
     VisualDocument,
+    InformationBankPhaseNote,
+    InformationBankUnitNote,
+    InfoBankEventFlowPdf,
+    InfoBankActionEvalXlsx,
+    InfoBankDilemmaEvalXlsx,
     JudgeTraineeAssignment,
     Reference,
     RefType,
@@ -59,10 +70,12 @@ from app.permissions import (
     can_edit_references,
     can_judge_exercise,
     can_manage_chat_rooms,
+    can_manage_information_bank,
     can_manage_users,
     can_plan_exercises,
     can_save_evaluation_results,
     can_use_chat_rooms,
+    can_view_information_bank,
     can_view_notifications_log,
     can_use_visual_documentation,
     is_analyst,
@@ -76,6 +89,14 @@ from app.unit_levels_catalog import (
     coerce_roster_import_position_cell,
     label_for_unit_level_key,
     normalize_unit_level_key,
+)
+from app.information_bank_catalog import (
+    INFO_BANK_UNIT_LEVELS,
+    TRAINING_PHASES,
+    info_bank_unit_label,
+    is_valid_info_bank_unit_key,
+    is_valid_training_phase_key,
+    training_phase_label,
 )
 from app.evaluation_list_columns import (
     acquired_select_options,
@@ -172,6 +193,49 @@ def _is_pdf_bytes(data: bytes) -> bool:
     return bool(data) and data[:4] == b"%PDF"
 
 
+def _is_docx_bytes(data: bytes) -> bool:
+    """Word .docx — أرشيف ZIP يحتوي مجلد word/."""
+    if not data or len(data) < 64:
+        return False
+    if data[:2] != b"PK":
+        return False
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            return any(n.startswith("word/") for n in z.namelist())
+    except zipfile.BadZipFile:
+        return False
+
+
+def _is_doc_bytes(data: bytes) -> bool:
+    """Word .doc — مركب OLE (CF)."""
+    if not data or len(data) < 512:
+        return False
+    return data[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+
+def _info_bank_event_flow_sniff_ext(data: bytes) -> str | None:
+    """يحدد امتداد الحفظ الآمن (.pdf / .docx / .doc) من محتوى الملف."""
+    if _is_pdf_bytes(data):
+        return ".pdf"
+    if _is_docx_bytes(data):
+        return ".docx"
+    if _is_doc_bytes(data):
+        return ".doc"
+    return None
+
+
+def _mimetype_info_bank_event_flow(path: Path) -> str:
+    n = path.name.lower()
+    if n.endswith(".pdf"):
+        return "application/pdf"
+    if n.endswith(".docx"):
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    if n.endswith(".doc"):
+        return "application/msword"
+    guessed, _ = mimetypes.guess_type(path.name)
+    return guessed or "application/octet-stream"
+
+
 def _is_xlsx_bytes(data: bytes) -> bool:
     """ملف Excel (.xlsx) هو أرشيف ZIP يحتوي [Content_Types].xml."""
     if not data or len(data) < 64:
@@ -183,6 +247,36 @@ def _is_xlsx_bytes(data: bytes) -> bool:
             return "[Content_Types].xml" in z.namelist()
     except zipfile.BadZipFile:
         return False
+
+
+_INFO_BANK_KIND_DIRS = {"event_flow": "event_flow", "action_eval": "action_eval", "dilemma_eval": "dilemma_eval"}
+
+
+def _info_bank_file_abspath(kind: str, relpath: str) -> Path | None:
+    if kind not in _INFO_BANK_KIND_DIRS:
+        return None
+    if not relpath or not isinstance(relpath, str):
+        return None
+    norm = relpath.replace("\\", "/").strip()
+    if not norm or any(part == ".." for part in norm.split("/")):
+        return None
+    root = INFO_BANK_DIR.resolve()
+    out = (root / norm).resolve()
+    try:
+        out.relative_to(root)
+    except ValueError:
+        return None
+    return out if out.is_file() else None
+
+
+def _unlink_info_bank_file(kind: str, relpath: str) -> None:
+    p = _info_bank_file_abspath(kind, relpath)
+    if p is None:
+        return
+    try:
+        p.unlink()
+    except OSError:
+        pass
 
 
 def _mimetype_for_eval_list_file(path: Path) -> str:
@@ -5637,6 +5731,488 @@ def admin_dilemmas_clear(unit_key: str):
     q.delete(synchronize_session=False)
     db.commit()
     return redirect(url_for("views.admin_dilemmas", unit_key=unit_key))
+
+
+_INFO_BANK_MAX_PDF = 50 * 1024 * 1024
+_INFO_BANK_MAX_XLSX = 30 * 1024 * 1024
+
+
+def _info_bank_next_sort_order(db, model, phase: str, unit: str) -> int:
+    mx = (
+        db.query(func.max(model.sort_order))
+        .filter(
+            model.training_phase_key == phase,
+            model.unit_level_key == unit,
+        )
+        .scalar()
+    )
+    return (int(mx) if mx is not None else -1) + 1
+
+
+@bp.route("/admin/information-bank", methods=["GET"])
+def admin_information_bank():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/admin/information-bank")
+    if not can_view_information_bank(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    phase_notes = {r.phase_key: r.notes for r in db.query(InformationBankPhaseNote).all()}
+    unit_notes = {r.unit_level_key: r.notes for r in db.query(InformationBankUnitNote).all()}
+    flows = (
+        db.query(InfoBankEventFlowPdf)
+        .order_by(
+            InfoBankEventFlowPdf.training_phase_key,
+            InfoBankEventFlowPdf.unit_level_key,
+            InfoBankEventFlowPdf.sort_order,
+            InfoBankEventFlowPdf.id,
+        )
+        .all()
+    )
+    actions = (
+        db.query(InfoBankActionEvalXlsx)
+        .order_by(
+            InfoBankActionEvalXlsx.training_phase_key,
+            InfoBankActionEvalXlsx.unit_level_key,
+            InfoBankActionEvalXlsx.sort_order,
+            InfoBankActionEvalXlsx.id,
+        )
+        .all()
+    )
+    dilemmas_x = (
+        db.query(InfoBankDilemmaEvalXlsx)
+        .order_by(
+            InfoBankDilemmaEvalXlsx.training_phase_key,
+            InfoBankDilemmaEvalXlsx.unit_level_key,
+            InfoBankDilemmaEvalXlsx.sort_order,
+            InfoBankDilemmaEvalXlsx.id,
+        )
+        .all()
+    )
+    err = (request.args.get("err") or "").strip()[:2000]
+    ok = (request.args.get("ok") or "").strip()[:500]
+    return render_template(
+        "admin_information_bank.html",
+        **_ctx(
+            user,
+            training_phases=TRAINING_PHASES,
+            info_bank_units=INFO_BANK_UNIT_LEVELS,
+            phase_notes=phase_notes,
+            unit_notes=unit_notes,
+            flows=flows,
+            actions=actions,
+            dilemmas_x=dilemmas_x,
+            training_phase_label=training_phase_label,
+            info_bank_unit_label=info_bank_unit_label,
+            error=err,
+            ok_msg=ok,
+            information_bank_can_manage=can_manage_information_bank(user),
+        ),
+    )
+
+
+@bp.route("/admin/information-bank/phase-notes", methods=["POST"])
+def admin_information_bank_phase_notes():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    for p in TRAINING_PHASES:
+        key = p["key"]
+        raw = request.form.get(f"note_{key}") or ""
+        row = db.get(InformationBankPhaseNote, key)
+        if row is None:
+            row = InformationBankPhaseNote(phase_key=key, notes=raw)
+            db.add(row)
+        else:
+            row.notes = raw
+    db.commit()
+    return redirect(url_for("views.admin_information_bank", ok="تم حفظ بيانات مراحل التمرين."))
+
+
+@bp.route("/admin/information-bank/unit-notes", methods=["POST"])
+def admin_information_bank_unit_notes():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    for u in INFO_BANK_UNIT_LEVELS:
+        key = u["key"]
+        raw = request.form.get(f"unote_{key}") or ""
+        row = db.get(InformationBankUnitNote, key)
+        if row is None:
+            row = InformationBankUnitNote(unit_level_key=key, notes=raw)
+            db.add(row)
+        else:
+            row.notes = raw
+    db.commit()
+    return redirect(url_for("views.admin_information_bank", ok="تم حفظ بيانات مستويات الوحدات."))
+
+
+@bp.route("/admin/information-bank/event-flow/upload", methods=["POST"])
+def admin_information_bank_event_flow_upload():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    phase = (request.form.get("training_phase_key") or "").strip()
+    unit = (request.form.get("unit_level_key") or "").strip()
+    if not is_valid_training_phase_key(phase) or not is_valid_info_bank_unit_key(unit):
+        return redirect(url_for("views.admin_information_bank", err="مرحلة أو مستوى وحدة غير صالح."))
+    files = [x for x in request.files.getlist("file") if x and getattr(x, "filename", "").strip()]
+    if not files:
+        return redirect(url_for("views.admin_information_bank", err="اختر ملفاً واحداً على الأقل (PDF أو Word)."))
+    INFO_BANK_DIR.mkdir(parents=True, exist_ok=True)
+    sub = INFO_BANK_DIR / "event_flow"
+    sub.mkdir(parents=True, exist_ok=True)
+    sort_next = _info_bank_next_sort_order(db, InfoBankEventFlowPdf, phase, unit)
+    added = 0
+    errors: list[str] = []
+    for f in files:
+        fn = (getattr(f, "filename", "") or "").strip()
+        try:
+            data = f.read()
+        except Exception:
+            errors.append(f"{fn or 'ملف'}: تعذّر القراءة.")
+            continue
+        ext = _info_bank_event_flow_sniff_ext(data)
+        if ext is None:
+            errors.append(f"{fn}: يُقبل فقط PDF أو Word صالحاً.")
+            continue
+        if len(data) > _INFO_BANK_MAX_PDF:
+            errors.append(f"{fn}: الملف كبير جداً (الحد 50 ميغابايت).")
+            continue
+        title = (Path(fn).stem or "مجرى أحداث").strip()[:500]
+        rel_name = f"event_flow/{uuid.uuid4().hex}{ext}"
+        full = (INFO_BANK_DIR / rel_name).resolve()
+        full.write_bytes(data)
+        row = InfoBankEventFlowPdf(
+            training_phase_key=phase,
+            unit_level_key=unit,
+            title=title,
+            file_relpath=rel_name.replace("\\", "/"),
+            sort_order=sort_next,
+        )
+        sort_next += 1
+        db.add(row)
+        added += 1
+    if added:
+        db.commit()
+    else:
+        db.rollback()
+    err_q = " ".join(errors)[:2000] if errors else ""
+    if not added:
+        return redirect(url_for("views.admin_information_bank", err=err_q or "لم تُضف أي ملف."))
+    ok_msg = f"تمت إضافة {added} ملف(ات) لمجرى الأحداث والمعاضل."
+    if err_q:
+        return redirect(url_for("views.admin_information_bank", ok=ok_msg, err=f"تجاهل أو فشل بعض الملفات: {err_q}"))
+    return redirect(url_for("views.admin_information_bank", ok=ok_msg))
+
+
+@bp.route("/admin/information-bank/event-flow/<int:item_id>/delete", methods=["POST"])
+def admin_information_bank_event_flow_delete(item_id: int):
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    row = db.get(InfoBankEventFlowPdf, item_id)
+    if not row:
+        abort(404)
+    if row.file_relpath:
+        _unlink_info_bank_file("event_flow", row.file_relpath)
+    db.delete(row)
+    db.commit()
+    return redirect(url_for("views.admin_information_bank", ok="تم حذف ملف مجرى الأحداث."))
+
+
+@bp.route("/admin/information-bank/action-eval/upload", methods=["POST"])
+def admin_information_bank_action_eval_upload():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    phase = (request.form.get("training_phase_key") or "").strip()
+    unit = (request.form.get("unit_level_key") or "").strip()
+    if not is_valid_training_phase_key(phase) or not is_valid_info_bank_unit_key(unit):
+        return redirect(url_for("views.admin_information_bank", err="مرحلة أو مستوى وحدة غير صالح."))
+    files = [x for x in request.files.getlist("file") if x and getattr(x, "filename", "").strip()]
+    if not files:
+        return redirect(url_for("views.admin_information_bank", err="اختر ملفاً واحداً على الأقل (.xlsx)."))
+    sort_next = _info_bank_next_sort_order(db, InfoBankActionEvalXlsx, phase, unit)
+    added = 0
+    errors: list[str] = []
+    for f in files:
+        fn = (getattr(f, "filename", "") or "").strip()
+        try:
+            data = f.read()
+        except Exception:
+            errors.append(f"{fn or 'ملف'}: تعذّر القراءة.")
+            continue
+        if not fn.lower().endswith(".xlsx") or not _is_xlsx_bytes(data):
+            errors.append(f"{fn}: يُقبل فقط ملف .xlsx صالحاً.")
+            continue
+        if len(data) > _INFO_BANK_MAX_XLSX:
+            errors.append(f"{fn}: ملف Excel كبير جداً (الحد 30 ميغابايت).")
+            continue
+        title = (Path(fn).stem or "قائمة تقييم إجراءات").strip()[:500]
+        rel_name = f"action_eval/{uuid.uuid4().hex}.xlsx"
+        full = (INFO_BANK_DIR / rel_name).resolve()
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_bytes(data)
+        row = InfoBankActionEvalXlsx(
+            training_phase_key=phase,
+            unit_level_key=unit,
+            title=title,
+            file_relpath=rel_name.replace("\\", "/"),
+            sort_order=sort_next,
+        )
+        sort_next += 1
+        db.add(row)
+        added += 1
+    if added:
+        db.commit()
+    else:
+        db.rollback()
+    err_q = " ".join(errors)[:2000] if errors else ""
+    if not added:
+        return redirect(url_for("views.admin_information_bank", err=err_q or "لم تُضف أي ملف."))
+    ok_msg = f"تمت إضافة {added} ملف(ات) لتقييم الإجراءات."
+    if err_q:
+        return redirect(url_for("views.admin_information_bank", ok=ok_msg, err=f"تجاهل أو فشل بعض الملفات: {err_q}"))
+    return redirect(url_for("views.admin_information_bank", ok=ok_msg))
+
+
+@bp.route("/admin/information-bank/action-eval/<int:item_id>/delete", methods=["POST"])
+def admin_information_bank_action_eval_delete(item_id: int):
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    row = db.get(InfoBankActionEvalXlsx, item_id)
+    if not row:
+        abort(404)
+    if row.file_relpath:
+        _unlink_info_bank_file("action_eval", row.file_relpath)
+    db.delete(row)
+    db.commit()
+    return redirect(url_for("views.admin_information_bank", ok="تم حذف قائمة تقييم الإجراءات."))
+
+
+@bp.route("/admin/information-bank/dilemma-eval/upload", methods=["POST"])
+def admin_information_bank_dilemma_eval_upload():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    phase = (request.form.get("training_phase_key") or "").strip()
+    unit = (request.form.get("unit_level_key") or "").strip()
+    if not is_valid_training_phase_key(phase) or not is_valid_info_bank_unit_key(unit):
+        return redirect(url_for("views.admin_information_bank", err="مرحلة أو مستوى وحدة غير صالح."))
+    files = [x for x in request.files.getlist("file") if x and getattr(x, "filename", "").strip()]
+    if not files:
+        return redirect(url_for("views.admin_information_bank", err="اختر ملفاً واحداً على الأقل (.xlsx)."))
+    sort_next = _info_bank_next_sort_order(db, InfoBankDilemmaEvalXlsx, phase, unit)
+    added = 0
+    errors: list[str] = []
+    for f in files:
+        fn = (getattr(f, "filename", "") or "").strip()
+        try:
+            data = f.read()
+        except Exception:
+            errors.append(f"{fn or 'ملف'}: تعذّر القراءة.")
+            continue
+        if not fn.lower().endswith(".xlsx") or not _is_xlsx_bytes(data):
+            errors.append(f"{fn}: يُقبل فقط ملف .xlsx صالحاً.")
+            continue
+        if len(data) > _INFO_BANK_MAX_XLSX:
+            errors.append(f"{fn}: ملف Excel كبير جداً (الحد 30 ميغابايت).")
+            continue
+        title = (Path(fn).stem or "قائمة تقييم معضلة").strip()[:500]
+        rel_name = f"dilemma_eval/{uuid.uuid4().hex}.xlsx"
+        full = (INFO_BANK_DIR / rel_name).resolve()
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_bytes(data)
+        row = InfoBankDilemmaEvalXlsx(
+            training_phase_key=phase,
+            unit_level_key=unit,
+            title=title,
+            file_relpath=rel_name.replace("\\", "/"),
+            sort_order=sort_next,
+        )
+        sort_next += 1
+        db.add(row)
+        added += 1
+    if added:
+        db.commit()
+    else:
+        db.rollback()
+    err_q = " ".join(errors)[:2000] if errors else ""
+    if not added:
+        return redirect(url_for("views.admin_information_bank", err=err_q or "لم تُضف أي ملف."))
+    ok_msg = f"تمت إضافة {added} ملف(ات) لتقييم المعاضل."
+    if err_q:
+        return redirect(url_for("views.admin_information_bank", ok=ok_msg, err=f"تجاهل أو فشل بعض الملفات: {err_q}"))
+    return redirect(url_for("views.admin_information_bank", ok=ok_msg))
+
+
+@bp.route("/admin/information-bank/dilemma-eval/<int:item_id>/delete", methods=["POST"])
+def admin_information_bank_dilemma_eval_delete(item_id: int):
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    row = db.get(InfoBankDilemmaEvalXlsx, item_id)
+    if not row:
+        abort(404)
+    if row.file_relpath:
+        _unlink_info_bank_file("dilemma_eval", row.file_relpath)
+    db.delete(row)
+    db.commit()
+    return redirect(url_for("views.admin_information_bank", ok="تم حذف قائمة تقييم المعاضل."))
+
+
+@bp.route("/admin/information-bank/file/event-flow/<int:item_id>", methods=["GET"])
+def admin_information_bank_event_flow_file(item_id: int):
+    user = get_current_user_optional()
+    if not user or not can_view_information_bank(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    row = db.get(InfoBankEventFlowPdf, item_id)
+    if not row or not (row.file_relpath or "").strip():
+        abort(404)
+    path = _info_bank_file_abspath("event_flow", row.file_relpath)
+    if path is None:
+        abort(404)
+    mt = _mimetype_info_bank_event_flow(path)
+    return send_file(path, mimetype=mt, as_attachment=False)
+
+
+@bp.route("/admin/information-bank/file/action-eval/<int:item_id>", methods=["GET"])
+def admin_information_bank_action_eval_file(item_id: int):
+    user = get_current_user_optional()
+    if not user or not can_view_information_bank(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    row = db.get(InfoBankActionEvalXlsx, item_id)
+    if not row or not (row.file_relpath or "").strip():
+        abort(404)
+    path = _info_bank_file_abspath("action_eval", row.file_relpath)
+    if path is None:
+        abort(404)
+    return send_file(
+        path,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=False,
+    )
+
+
+@bp.route("/admin/information-bank/file/dilemma-eval/<int:item_id>", methods=["GET"])
+def admin_information_bank_dilemma_eval_file(item_id: int):
+    user = get_current_user_optional()
+    if not user or not can_view_information_bank(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    row = db.get(InfoBankDilemmaEvalXlsx, item_id)
+    if not row or not (row.file_relpath or "").strip():
+        abort(404)
+    path = _info_bank_file_abspath("dilemma_eval", row.file_relpath)
+    if path is None:
+        abort(404)
+    return send_file(
+        path,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=False,
+    )
+
+
+@bp.route("/admin/information-bank/manifest.json", methods=["GET"])
+def admin_information_bank_manifest_json():
+    """قائمة موحّدة للمرفقات (لصفحات أخرى تستهلك السحب والإفلات لاحقاً)."""
+    user = get_current_user_optional()
+    if not user or not can_view_information_bank(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    items: list[dict] = []
+    for row in db.query(InfoBankEventFlowPdf).order_by(InfoBankEventFlowPdf.id).all():
+        if not (row.file_relpath or "").strip():
+            continue
+        p = _info_bank_file_abspath("event_flow", row.file_relpath)
+        if p is None:
+            continue
+        items.append(
+            {
+                "kind": "event_flow_document",
+                "id": row.id,
+                "title": row.title or "",
+                "file_ext": p.suffix.lower().lstrip("."),
+                "training_phase_key": row.training_phase_key,
+                "training_phase_label": training_phase_label(row.training_phase_key),
+                "unit_level_key": row.unit_level_key,
+                "unit_label": info_bank_unit_label(row.unit_level_key),
+                "url": url_for("views.admin_information_bank_event_flow_file", item_id=row.id),
+            }
+        )
+    for row in db.query(InfoBankActionEvalXlsx).order_by(InfoBankActionEvalXlsx.id).all():
+        if not (row.file_relpath or "").strip():
+            continue
+        if _info_bank_file_abspath("action_eval", row.file_relpath) is None:
+            continue
+        items.append(
+            {
+                "kind": "action_eval_xlsx",
+                "id": row.id,
+                "title": row.title or "",
+                "training_phase_key": row.training_phase_key,
+                "training_phase_label": training_phase_label(row.training_phase_key),
+                "unit_level_key": row.unit_level_key,
+                "unit_label": info_bank_unit_label(row.unit_level_key),
+                "url": url_for("views.admin_information_bank_action_eval_file", item_id=row.id),
+            }
+        )
+    for row in db.query(InfoBankDilemmaEvalXlsx).order_by(InfoBankDilemmaEvalXlsx.id).all():
+        if not (row.file_relpath or "").strip():
+            continue
+        if _info_bank_file_abspath("dilemma_eval", row.file_relpath) is None:
+            continue
+        items.append(
+            {
+                "kind": "dilemma_eval_xlsx",
+                "id": row.id,
+                "title": row.title or "",
+                "training_phase_key": row.training_phase_key,
+                "training_phase_label": training_phase_label(row.training_phase_key),
+                "unit_level_key": row.unit_level_key,
+                "unit_label": info_bank_unit_label(row.unit_level_key),
+                "url": url_for("views.admin_information_bank_dilemma_eval_file", item_id=row.id),
+            }
+        )
+    return jsonify({"version": 1, "items": items})
 
 
 @bp.route("/exercises/<int:eid>")

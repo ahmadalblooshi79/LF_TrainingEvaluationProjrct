@@ -37,6 +37,16 @@ def can_plan_exercises(user: User) -> bool:
     return is_system_admin(user) or is_planner(user) or is_control(user)
 
 
+def can_manage_information_bank(user: User) -> bool:
+    """بنك المعلومات ثابت في النظام وليس مرتبطاً بأي تمرين — الإضافة/التعديل/الحذف لإدارة النظام فقط."""
+    return is_system_admin(user)
+
+
+def can_view_information_bank(user: User) -> bool:
+    """عرض بنك المعلومات وتنزيل الملفات (للاستعمال في التخطيط وتخصيص المحتوى للمحكمين/الوحدات)."""
+    return can_manage_information_bank(user) or can_plan_exercises(user)
+
+
 def can_access_analyst_hub(user: User) -> bool:
     """مساحة المحللين — المحلل أو إدارة النظام."""
     return is_analyst(user) or is_system_admin(user)

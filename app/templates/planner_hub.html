@@ -17,5 +17,9 @@
     <span>{{ item.title_ar }}</span>
   </a>
   {% endfor %}
+  <a class="admin-action-btn{% if request.path.startswith('/admin/information-bank') %} admin-action-btn--active{% endif %}" href="/admin/information-bank">
+    <i class="fa-solid fa-database" aria-hidden="true"></i>
+    <span>بنك المعلومات</span>
+  </a>
 </aside>
 {% endblock %}

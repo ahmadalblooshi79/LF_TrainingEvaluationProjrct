@@ -4488,3 +4488,194 @@ main:has(.timeline-word-root) .admin-shell__workspace {
     color: #2e2823 !important;
   }
 }
+
+/* بنك المعلومات — إدارة النظام */
+.ibank-card.ibank-card--tabbed {
+  padding: 0;
+  overflow: hidden;
+}
+.ibank-tabbed {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  overflow: hidden;
+}
+.ibank-tabs-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0;
+  margin: 0;
+  padding: 0.5rem 0.5rem 0;
+  background: #ece8e3;
+  border-bottom: 1px solid var(--border-soft, #c9bfb5);
+}
+.ibank-tab {
+  appearance: none;
+  margin: 0 0 -1px 5px;
+  padding: 0.48rem 0.95rem 0.52rem;
+  border: 1px solid var(--border-soft, #c9bfb5);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: #ddd8d2;
+  color: #5a514a;
+  font-weight: 500;
+  font-size: 0.9rem;
+  cursor: pointer;
+  line-height: 1.25;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.ibank-tabs-row .ibank-tab:first-child {
+  margin-inline-start: 0;
+}
+.ibank-tab:hover {
+  background: #d4cec7;
+  color: #3a332c;
+}
+.ibank-tab.is-active {
+  background: var(--surface-card, #fff);
+  color: #231e1a;
+  font-weight: 700;
+  border-bottom: 1px solid var(--surface-card, #fff);
+  margin-bottom: -1px;
+  position: relative;
+  z-index: 2;
+}
+.ibank-tab-body {
+  padding: 0.85rem 1rem 1.05rem;
+  background: var(--surface-card, #fff);
+}
+.ibank-tabpane {
+  display: none;
+}
+.ibank-tabpane.is-active {
+  display: block;
+}
+/* بنك المعلومات — صفوف الملفات: نفس تخطيط قوائم المعاضل/التقييم (قائمة يسار | إدراج يمين) */
+.ibank-files-page {
+  margin-top: 0.25rem;
+}
+.ibank-files-page--readonly .dilemmas-col {
+  grid-template-columns: 1fr;
+}
+.ibank-files-list-scroll {
+  max-height: min(58vh, 24rem);
+  overflow: auto;
+  margin-top: 0.35rem;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+.ibank-page-header .ibank-page-header__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  direction: rtl;
+}
+.ibank-page-header .ibank-page-header__title-row h1 {
+  margin-bottom: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ibank-page-header .ibank-ok-toast {
+  flex: 0 1 auto;
+  margin: 0;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.88rem;
+  max-width: min(100%, 22rem);
+}
+.ibank-ok-toast--dismissed {
+  display: none !important;
+}
+.ibank-file-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.65rem 1rem;
+  margin: 0.35rem 0 0.5rem;
+}
+.ibank-file-filters__item .muted {
+  display: block;
+  margin-bottom: 0.2rem;
+  font-size: 0.82rem;
+}
+.ibank-file-filters__item .unit-level-select {
+  min-width: 10rem;
+}
+.ibank-files-page table.ibank-files-compact tbody td {
+  padding-top: 0.3rem;
+  padding-bottom: 0.3rem;
+  vertical-align: middle;
+}
+.ibank-table-scroll {
+  max-height: 70vh;
+  overflow: auto;
+}
+.ibank-table th[scope="row"] {
+  white-space: nowrap;
+  vertical-align: top;
+  min-width: 10rem;
+}
+.ibank-link-block__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  margin-bottom: 0.65rem;
+}
+.ibank-inline-form {
+  display: inline;
+  margin-inline-start: auto;
+}
+.ibank-check-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.5rem;
+}
+.ibank-check-list li {
+  margin: 0.25rem 0;
+}
+.ibank-check-label {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  align-items: center;
+  cursor: pointer;
+}
+.ibank-upload-row .form-group {
+  margin-bottom: 0.65rem;
+}
+.ibank-text-input {
+  width: 100%;
+  max-width: 28rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-soft, #c9bfb5);
+  background: var(--surface-card, #fff);
+  color: inherit;
+}
+.ibank-table.ibank-table--compact-notes th,
+.ibank-table.ibank-table--compact-notes td {
+  padding-top: 0.3rem;
+  padding-bottom: 0.3rem;
+  vertical-align: top;
+}
+.ibank-table--compact-notes .ibank-readonly-notes {
+  font-size: 0.92rem;
+  line-height: 1.35;
+  max-height: 4.2em;
+  overflow: auto;
+}
+.ibank-ta-compact {
+  min-height: 2em !important;
+  max-height: 4.2em;
+  font-size: 0.92rem !important;
+  line-height: 1.35 !important;
+  padding: 0.22rem 0.4rem !important;
+}
+.ibank-table-scroll--short {
+  max-height: 38vh;
+}
+.js-ibank-drag[draggable="true"] {
+  cursor: grab;
+}

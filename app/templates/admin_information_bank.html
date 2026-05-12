@@ -1,0 +1,563 @@
+{% extends "base.html" %}
+{% block title %}بنك المعلومات{% endblock %}
+{% block content %}
+<p class="mt-tight" style="margin-bottom:0.75rem;">
+  <a class="btn btn-ghost" href="/dashboard"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> الصفحة الرئيسية</a>
+</p>
+<div class="page-header ibank-page-header">
+  <div class="ibank-page-header__title-row" dir="rtl">
+    <h1><i class="fa-solid fa-database fa-icon-title" aria-hidden="true"></i> بنك المعلومات</h1>
+    {% if ok_msg %}
+    <p class="form-ok-banner ibank-ok-toast" id="ibank-ok-toast" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
+    {% endif %}
+  </div>
+  {% if not information_bank_can_manage %}
+  <p class="form-ok-banner" role="status" style="margin-top:0.65rem;"><i class="fa-solid fa-eye" aria-hidden="true"></i> <strong>عرض وتنزيل فقط</strong> — الإضافة والتعديل والحذف من صلاحية إدارة النظام فقط. يمكنك استخدام الروابط والسحب في أدوات التخطيط المرتبطة بالتمرين.</p>
+  {% endif %}
+</div>
+{% if ok_msg %}
+<script>
+(function () {
+  var el = document.getElementById("ibank-ok-toast");
+  if (!el) return;
+  setTimeout(function () {
+    el.classList.add("ibank-ok-toast--dismissed");
+  }, 2000);
+})();
+</script>
+{% endif %}
+{% if error %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ error }}</p>
+{% endif %}
+
+<section class="card ibank-card ibank-card--tabbed">
+  <div class="ibank-tabbed">
+    <div class="ibank-tabs-row" dir="rtl" role="tablist" aria-label="تبويبات بنك المعلومات">
+      <button type="button" class="ibank-tab is-active" data-tab-btn="phases" role="tab" aria-selected="true">مراحل التمرين</button>
+      <button type="button" class="ibank-tab" data-tab-btn="units" role="tab" aria-selected="false">مستويات الوحدات</button>
+      <button type="button" class="ibank-tab" data-tab-btn="event-flow" role="tab" aria-selected="false">مجرى الأحداث والمعاضل</button>
+      <button type="button" class="ibank-tab" data-tab-btn="action-eval" role="tab" aria-selected="false">تقييم الإجراءات</button>
+      <button type="button" class="ibank-tab" data-tab-btn="dilemma-eval" role="tab" aria-selected="false">قوائم تقييم المعاضل</button>
+    </div>
+    <div class="ibank-tab-body">
+      <div class="ibank-tabpane is-active" data-tab-pane="phases" role="tabpanel">
+        <h2 class="h2-in-card"><i class="fa-solid fa-layer-group fa-icon-title" aria-hidden="true"></i> جدول بيانات مراحل التمرين</h2>
+        {% if information_bank_can_manage %}
+        <form method="post" action="{{ url_for('views.admin_information_bank_phase_notes') }}">
+          <div class="table-wrap">
+            <table dir="rtl" class="ibank-table ibank-table--compact-notes" aria-label="مراحل التمرين">
+              <thead>
+                <tr>
+                  <th scope="col">مرحلة التمرين</th>
+                  <th scope="col">بيانات / ملاحظات</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for p in training_phases %}
+                <tr>
+                  <th scope="row">{{ p.label }}</th>
+                  <td>
+                    <textarea class="timeline-table__textarea ibank-ta-compact" name="note_{{ p.key }}" rows="2" placeholder="أدخل البيانات لهذه المرحلة…">{{ phase_notes.get(p.key, '') }}</textarea>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="btn-group" style="margin-top:0.75rem;">
+            <button type="submit" class="btn"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ مراحل التمرين</button>
+          </div>
+        </form>
+        {% else %}
+        <div class="table-wrap">
+          <table dir="rtl" class="ibank-table ibank-table--compact-notes" aria-label="مراحل التمرين للعرض">
+            <thead>
+              <tr>
+                <th scope="col">مرحلة التمرين</th>
+                <th scope="col">البيانات المحفوظة</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in training_phases %}
+              <tr>
+                <th scope="row">{{ p.label }}</th>
+                <td><div class="ibank-readonly-notes">{{ phase_notes.get(p.key, '') or '—' }}</div></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="ibank-tabpane" data-tab-pane="units" role="tabpanel">
+        <h2 class="h2-in-card"><i class="fa-solid fa-sitemap fa-icon-title" aria-hidden="true"></i> جدول بيانات مستويات الوحدات</h2>
+        {% if information_bank_can_manage %}
+        <form method="post" action="{{ url_for('views.admin_information_bank_unit_notes') }}">
+          <div class="table-wrap ibank-table-scroll ibank-table-scroll--short">
+            <table dir="rtl" class="ibank-table ibank-table--compact-notes" aria-label="مستويات الوحدات">
+              <thead>
+                <tr>
+                  <th scope="col">مستوى الوحدة</th>
+                  <th scope="col">بيانات / ملاحظات</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for u in info_bank_units %}
+                <tr>
+                  <th scope="row">{{ u.label }}</th>
+                  <td>
+                    <textarea class="timeline-table__textarea ibank-ta-compact" name="unote_{{ u.key }}" rows="2" placeholder="أدخل البيانات لهذا المستوى…">{{ unit_notes.get(u.key, '') }}</textarea>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="btn-group" style="margin-top:0.75rem;">
+            <button type="submit" class="btn"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ مستويات الوحدات</button>
+          </div>
+        </form>
+        {% else %}
+        <div class="table-wrap ibank-table-scroll ibank-table-scroll--short">
+          <table dir="rtl" class="ibank-table ibank-table--compact-notes" aria-label="مستويات الوحدات للعرض">
+            <thead>
+              <tr>
+                <th scope="col">مستوى الوحدة</th>
+                <th scope="col">البيانات المحفوظة</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for u in info_bank_units %}
+              <tr>
+                <th scope="row">{{ u.label }}</th>
+                <td><div class="ibank-readonly-notes">{{ unit_notes.get(u.key, '') or '—' }}</div></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="ibank-tabpane" data-tab-pane="event-flow" role="tabpanel">
+        <div class="dilemmas-page ibank-files-page{% if not information_bank_can_manage %} ibank-files-page--readonly{% endif %}" dir="ltr">
+          <div class="dilemmas-col">
+            <section class="card dilemmas-current">
+              <h2 class="h2-in-card"><i class="fa-solid fa-list-ol fa-icon-title" aria-hidden="true"></i> قائمة ملفات مجرى الأحداث والمعاضل</h2>
+              <div class="ibank-file-filters" dir="rtl">
+                <div class="ibank-file-filters__item">
+                  <label class="muted" for="ib-flow-filter-phase">مرحلة التمرين</label>
+                  <select id="ib-flow-filter-phase" class="unit-level-select" aria-label="تصفية القائمة حسب مرحلة التمرين">
+                    <option value="__all__" selected>الكل</option>
+                    {% for p in training_phases %}<option value="{{ p.key }}">{{ p.label }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="ibank-file-filters__item">
+                  <label class="muted" for="ib-flow-filter-unit">مستوى الوحدة</label>
+                  <select id="ib-flow-filter-unit" class="unit-level-select" aria-label="تصفية القائمة حسب مستوى الوحدة">
+                    <option value="__all__" selected>الكل</option>
+                    {% for u in info_bank_units %}<option value="{{ u.key }}">{{ u.label }}</option>{% endfor %}
+                  </select>
+                </div>
+              </div>
+              <div class="table-wrap ibank-files-list-scroll" id="ib-flow-list-wrap">
+                <table dir="rtl" class="ibank-table ibank-files-compact" aria-label="ملفات مجرى الأحداث">
+                  <thead>
+                    <tr>
+                      <th>العنوان</th>
+                      <th>المرحلة</th>
+                      <th>المستوى</th>
+                      <th>فتح</th>
+                      {% if information_bank_can_manage %}<th>حذف</th>{% endif %}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for f in flows %}
+                    <tr class="js-ibank-filter-row" data-phase="{{ f.training_phase_key }}" data-unit="{{ f.unit_level_key }}">
+                      <td>{{ f.title }}</td>
+                      <td>{{ training_phase_label(f.training_phase_key) }}</td>
+                      <td>{{ info_bank_unit_label(f.unit_level_key) }}</td>
+                      <td>
+                        {% if f.file_relpath %}
+                        {% set rp = (f.file_relpath or '')|lower %}
+                        {% set flbl = 'PDF' if rp.endswith('.pdf') else ('Word' if (rp.endswith('.doc') or rp.endswith('.docx')) else 'ملف') %}
+                        <a href="{{ url_for('views.admin_information_bank_event_flow_file', item_id=f.id) }}" target="_blank" rel="noopener" class="js-ibank-drag" data-ibank-kind="event_flow_document" data-ibank-id="{{ f.id }}" data-ibank-title="{{ f.title|e }}" draggable="true">{{ flbl }}</a>
+                        {% else %}—{% endif %}
+                      </td>
+                      {% if information_bank_can_manage %}
+                      <td>
+                        <form method="post" action="{{ url_for('views.admin_information_bank_event_flow_delete', item_id=f.id) }}" onsubmit="return confirm('حذف هذا الملف؟');">
+                          <button type="submit" class="btn btn-ghost"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
+                        </form>
+                      </td>
+                      {% endif %}
+                    </tr>
+                    {% else %}
+                    <tr class="js-ibank-filter-row js-ibank-filter-empty"><td colspan="{% if information_bank_can_manage %}5{% else %}4{% endif %}" class="muted">لا توجد سجلات.</td></tr>
+                    {% endfor %}
+                    {% if flows %}
+                    <tr class="js-ibank-filter-nohits" style="display:none"><td colspan="{% if information_bank_can_manage %}5{% else %}4{% endif %}" class="muted">لا توجد ملفات مطابقة للتصفية.</td></tr>
+                    {% endif %}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+            {% if information_bank_can_manage %}
+            <section class="card dilemmas-add">
+              <h2 class="h2-in-card"><i class="fa-solid fa-file-lines fa-icon-title" aria-hidden="true"></i> إدراج ملف مجرى الأحداث (PDF أو Word)</h2>
+              <form method="post" action="{{ url_for('views.admin_information_bank_event_flow_upload') }}" enctype="multipart/form-data" class="dilemmas-upload-form js-ibank-upload-form">
+                <div class="form-group">
+                  <label for="ib-flow-phase"><i class="fa-solid fa-timeline fa-icon-label" aria-hidden="true"></i> مرحلة التمرين</label>
+                  <select id="ib-flow-phase" name="training_phase_key" class="unit-level-select" required>
+                    {% for p in training_phases %}<option value="{{ p.key }}">{{ p.label }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="ib-flow-unit"><i class="fa-solid fa-layer-group fa-icon-label" aria-hidden="true"></i> مستوى الوحدة</label>
+                  <select id="ib-flow-unit" name="unit_level_key" class="unit-level-select" required>
+                    {% for u in info_bank_units %}<option value="{{ u.key }}">{{ u.label }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="form-group">
+                  <span class="battle-field-label" id="ib-flow-file-label">ملفات مجرى الأحداث</span>
+                  <input id="ib-flow-file" name="file" type="file" multiple
+                         accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                         class="sr-only" tabindex="-1" aria-labelledby="ib-flow-file-label" required>
+                  <div class="dilemmas-file-trigger-row dilemmas-file-trigger-row--align">
+                    <button type="button" class="btn btn-ghost dilemmas-pdf-trigger" id="ib-flow-file-trigger" title="اختيار ملف أو أكثر (PDF أو Word)">
+                      <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
+                      اختيار ملف أو أكثر (PDF أو Word)
+                    </button>
+                    <span class="muted dilemmas-file-name" id="ib-flow-file-name" aria-live="polite"></span>
+                  </div>
+                </div>
+                <div class="btn-group dilemmas-add__actions dilemmas-add__actions--end">
+                  <button type="submit" class="btn" id="ib-flow-submit" disabled><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> إضافة إلى القائمة</button>
+                </div>
+              </form>
+            </section>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="ibank-tabpane" data-tab-pane="action-eval" role="tabpanel">
+        <div class="dilemmas-page ibank-files-page{% if not information_bank_can_manage %} ibank-files-page--readonly{% endif %}" dir="ltr">
+          <div class="dilemmas-col">
+            <section class="card dilemmas-current">
+              <h2 class="h2-in-card"><i class="fa-solid fa-list-ol fa-icon-title" aria-hidden="true"></i> قائمة ملفات تقييم الإجراءات</h2>
+              <div class="ibank-file-filters" dir="rtl">
+                <div class="ibank-file-filters__item">
+                  <label class="muted" for="ib-act-filter-phase">مرحلة التمرين</label>
+                  <select id="ib-act-filter-phase" class="unit-level-select" aria-label="تصفية القائمة حسب مرحلة التمرين">
+                    <option value="__all__" selected>الكل</option>
+                    {% for p in training_phases %}<option value="{{ p.key }}">{{ p.label }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="ibank-file-filters__item">
+                  <label class="muted" for="ib-act-filter-unit">مستوى الوحدة</label>
+                  <select id="ib-act-filter-unit" class="unit-level-select" aria-label="تصفية القائمة حسب مستوى الوحدة">
+                    <option value="__all__" selected>الكل</option>
+                    {% for u in info_bank_units %}<option value="{{ u.key }}">{{ u.label }}</option>{% endfor %}
+                  </select>
+                </div>
+              </div>
+              <div class="table-wrap ibank-files-list-scroll" id="ib-act-list-wrap">
+                <table dir="rtl" class="ibank-table ibank-files-compact" aria-label="ملفات Excel للإجراءات">
+                  <thead>
+                    <tr>
+                      <th>العنوان</th>
+                      <th>المرحلة</th>
+                      <th>المستوى</th>
+                      <th>فتح</th>
+                      {% if information_bank_can_manage %}<th>حذف</th>{% endif %}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for a in actions %}
+                    <tr class="js-ibank-filter-row" data-phase="{{ a.training_phase_key }}" data-unit="{{ a.unit_level_key }}">
+                      <td>{{ a.title }}</td>
+                      <td>{{ training_phase_label(a.training_phase_key) }}</td>
+                      <td>{{ info_bank_unit_label(a.unit_level_key) }}</td>
+                      <td>
+                        {% if a.file_relpath %}
+                        <a href="{{ url_for('views.admin_information_bank_action_eval_file', item_id=a.id) }}" target="_blank" rel="noopener" class="js-ibank-drag" data-ibank-kind="action_eval_xlsx" data-ibank-id="{{ a.id }}" data-ibank-title="{{ a.title|e }}" draggable="true">Excel</a>
+                        {% else %}—{% endif %}
+                      </td>
+                      {% if information_bank_can_manage %}
+                      <td>
+                        <form method="post" action="{{ url_for('views.admin_information_bank_action_eval_delete', item_id=a.id) }}" onsubmit="return confirm('حذف؟');">
+                          <button type="submit" class="btn btn-ghost"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
+                        </form>
+                      </td>
+                      {% endif %}
+                    </tr>
+                    {% else %}
+                    <tr class="js-ibank-filter-row js-ibank-filter-empty"><td colspan="{% if information_bank_can_manage %}5{% else %}4{% endif %}" class="muted">لا توجد سجلات.</td></tr>
+                    {% endfor %}
+                    {% if actions %}
+                    <tr class="js-ibank-filter-nohits" style="display:none"><td colspan="{% if information_bank_can_manage %}5{% else %}4{% endif %}" class="muted">لا توجد ملفات مطابقة للتصفية.</td></tr>
+                    {% endif %}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+            {% if information_bank_can_manage %}
+            <section class="card dilemmas-add">
+              <h2 class="h2-in-card"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> إدراج قائمة تقييم الإجراءات (Excel)</h2>
+              <form method="post" action="{{ url_for('views.admin_information_bank_action_eval_upload') }}" enctype="multipart/form-data" class="dilemmas-upload-form js-ibank-upload-form">
+                <div class="form-group">
+                  <label for="ib-act-phase"><i class="fa-solid fa-timeline fa-icon-label" aria-hidden="true"></i> مرحلة التمرين</label>
+                  <select id="ib-act-phase" name="training_phase_key" class="unit-level-select" required>
+                    {% for p in training_phases %}<option value="{{ p.key }}">{{ p.label }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="ib-act-unit"><i class="fa-solid fa-layer-group fa-icon-label" aria-hidden="true"></i> مستوى الوحدة</label>
+                  <select id="ib-act-unit" name="unit_level_key" class="unit-level-select" required>
+                    {% for u in info_bank_units %}<option value="{{ u.key }}">{{ u.label }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="form-group">
+                  <span class="battle-field-label" id="ib-act-file-label">ملفات التقييم</span>
+                  <input id="ib-act-file" name="file" type="file" multiple
+                         accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                         class="sr-only" tabindex="-1" aria-labelledby="ib-act-file-label" required>
+                  <div class="dilemmas-file-trigger-row dilemmas-file-trigger-row--align">
+                    <button type="button" class="btn btn-ghost dilemmas-pdf-trigger" id="ib-act-file-trigger" title="اختيار ملف أو أكثر (.xlsx)">
+                      <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
+                      اختيار ملف أو أكثر (.xlsx)
+                    </button>
+                    <span class="muted dilemmas-file-name" id="ib-act-file-name" aria-live="polite"></span>
+                  </div>
+                </div>
+                <div class="btn-group dilemmas-add__actions dilemmas-add__actions--end">
+                  <button type="submit" class="btn" id="ib-act-submit" disabled><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> إضافة إلى القائمة</button>
+                </div>
+              </form>
+            </section>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="ibank-tabpane" data-tab-pane="dilemma-eval" role="tabpanel">
+        <div class="dilemmas-page ibank-files-page{% if not information_bank_can_manage %} ibank-files-page--readonly{% endif %}" dir="ltr">
+          <div class="dilemmas-col">
+            <section class="card dilemmas-current">
+              <h2 class="h2-in-card"><i class="fa-solid fa-list-ol fa-icon-title" aria-hidden="true"></i> قائمة ملفات تقييم المعاضل</h2>
+              <div class="ibank-file-filters" dir="rtl">
+                <div class="ibank-file-filters__item">
+                  <label class="muted" for="ib-dil-filter-phase">مرحلة التمرين</label>
+                  <select id="ib-dil-filter-phase" class="unit-level-select" aria-label="تصفية القائمة حسب مرحلة التمرين">
+                    <option value="__all__" selected>الكل</option>
+                    {% for p in training_phases %}<option value="{{ p.key }}">{{ p.label }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="ibank-file-filters__item">
+                  <label class="muted" for="ib-dil-filter-unit">مستوى الوحدة</label>
+                  <select id="ib-dil-filter-unit" class="unit-level-select" aria-label="تصفية القائمة حسب مستوى الوحدة">
+                    <option value="__all__" selected>الكل</option>
+                    {% for u in info_bank_units %}<option value="{{ u.key }}">{{ u.label }}</option>{% endfor %}
+                  </select>
+                </div>
+              </div>
+              <div class="table-wrap ibank-files-list-scroll" id="ib-dil-list-wrap">
+                <table dir="rtl" class="ibank-table ibank-files-compact" aria-label="قوائم تقييم المعاضل">
+                  <thead>
+                    <tr>
+                      <th>العنوان</th>
+                      <th>المرحلة</th>
+                      <th>المستوى</th>
+                      <th>فتح</th>
+                      {% if information_bank_can_manage %}<th>حذف</th>{% endif %}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for d in dilemmas_x %}
+                    <tr class="js-ibank-filter-row" data-phase="{{ d.training_phase_key }}" data-unit="{{ d.unit_level_key }}">
+                      <td>{{ d.title }}</td>
+                      <td>{{ training_phase_label(d.training_phase_key) }}</td>
+                      <td>{{ info_bank_unit_label(d.unit_level_key) }}</td>
+                      <td>
+                        {% if d.file_relpath %}
+                        <a href="{{ url_for('views.admin_information_bank_dilemma_eval_file', item_id=d.id) }}" target="_blank" rel="noopener" class="js-ibank-drag" data-ibank-kind="dilemma_eval_xlsx" data-ibank-id="{{ d.id }}" data-ibank-title="{{ d.title|e }}" draggable="true">Excel</a>
+                        {% else %}—{% endif %}
+                      </td>
+                      {% if information_bank_can_manage %}
+                      <td>
+                        <form method="post" action="{{ url_for('views.admin_information_bank_dilemma_eval_delete', item_id=d.id) }}" onsubmit="return confirm('حذف؟');">
+                          <button type="submit" class="btn btn-ghost"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
+                        </form>
+                      </td>
+                      {% endif %}
+                    </tr>
+                    {% else %}
+                    <tr class="js-ibank-filter-row js-ibank-filter-empty"><td colspan="{% if information_bank_can_manage %}5{% else %}4{% endif %}" class="muted">لا توجد سجلات.</td></tr>
+                    {% endfor %}
+                    {% if dilemmas_x %}
+                    <tr class="js-ibank-filter-nohits" style="display:none"><td colspan="{% if information_bank_can_manage %}5{% else %}4{% endif %}" class="muted">لا توجد ملفات مطابقة للتصفية.</td></tr>
+                    {% endif %}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+            {% if information_bank_can_manage %}
+            <section class="card dilemmas-add">
+              <h2 class="h2-in-card"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> إدراج قائمة تقييم المعاضل (Excel)</h2>
+              <form method="post" action="{{ url_for('views.admin_information_bank_dilemma_eval_upload') }}" enctype="multipart/form-data" class="dilemmas-upload-form js-ibank-upload-form">
+                <div class="form-group">
+                  <label for="ib-dil-phase"><i class="fa-solid fa-timeline fa-icon-label" aria-hidden="true"></i> مرحلة التمرين</label>
+                  <select id="ib-dil-phase" name="training_phase_key" class="unit-level-select" required>
+                    {% for p in training_phases %}<option value="{{ p.key }}">{{ p.label }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="ib-dil-unit"><i class="fa-solid fa-layer-group fa-icon-label" aria-hidden="true"></i> مستوى الوحدة</label>
+                  <select id="ib-dil-unit" name="unit_level_key" class="unit-level-select" required>
+                    {% for u in info_bank_units %}<option value="{{ u.key }}">{{ u.label }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="form-group">
+                  <span class="battle-field-label" id="ib-dil-file-label">ملفات التقييم</span>
+                  <input id="ib-dil-file" name="file" type="file" multiple
+                         accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                         class="sr-only" tabindex="-1" aria-labelledby="ib-dil-file-label" required>
+                  <div class="dilemmas-file-trigger-row dilemmas-file-trigger-row--align">
+                    <button type="button" class="btn btn-ghost dilemmas-pdf-trigger" id="ib-dil-file-trigger" title="اختيار ملف أو أكثر (.xlsx)">
+                      <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
+                      اختيار ملف أو أكثر (.xlsx)
+                    </button>
+                    <span class="muted dilemmas-file-name" id="ib-dil-file-name" aria-live="polite"></span>
+                  </div>
+                </div>
+                <div class="btn-group dilemmas-add__actions dilemmas-add__actions--end">
+                  <button type="submit" class="btn" id="ib-dil-submit" disabled><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> إضافة إلى القائمة</button>
+                </div>
+              </form>
+            </section>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    var card = document.currentScript && document.currentScript.parentElement;
+    if (!card) return;
+    var btns = card.querySelectorAll('[data-tab-btn]');
+    var panes = card.querySelectorAll('[data-tab-pane]');
+    function activate(id) {
+      btns.forEach(function (b) {
+        var on = (b.getAttribute('data-tab-btn') === id);
+        b.classList.toggle('is-active', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      panes.forEach(function (p) {
+        var on = (p.getAttribute('data-tab-pane') === id);
+        p.classList.toggle('is-active', on);
+      });
+    }
+    var ibankSubmitting = false;
+    btns.forEach(function (b) {
+      b.addEventListener('click', function () {
+        if (ibankSubmitting) return;
+        activate(b.getAttribute('data-tab-btn'));
+      });
+    });
+
+    card.querySelectorAll('.js-ibank-upload-form').forEach(function (form) {
+      form.addEventListener('submit', function () {
+        ibankSubmitting = true;
+        btns.forEach(function (btn) { btn.disabled = true; });
+        var sb = form.querySelector('button[type="submit"]');
+        if (sb) sb.disabled = true;
+      });
+    });
+
+    function bindIbankListFilter(wrapId, phaseId, unitId) {
+      var wrap = document.getElementById(wrapId);
+      var phaseSel = document.getElementById(phaseId);
+      var unitSel = document.getElementById(unitId);
+      if (!wrap || !phaseSel || !unitSel) return;
+      var tbody = wrap.querySelector('tbody');
+      var nohits = wrap.querySelector('.js-ibank-filter-nohits');
+      function apply() {
+        var pk = phaseSel.value;
+        var uk = unitSel.value;
+        var rows = tbody.querySelectorAll('tr.js-ibank-filter-row');
+        var visibleData = 0;
+        var hasAnyDataRow = !!tbody.querySelector('tr.js-ibank-filter-row[data-phase]');
+        rows.forEach(function (tr) {
+          if (tr.classList.contains('js-ibank-filter-empty')) {
+            tr.style.display = '';
+            return;
+          }
+          var matchP = pk === '__all__' || tr.getAttribute('data-phase') === pk;
+          var matchU = uk === '__all__' || tr.getAttribute('data-unit') === uk;
+          var show = matchP && matchU;
+          tr.style.display = show ? '' : 'none';
+          if (show) visibleData += 1;
+        });
+        if (nohits) {
+          nohits.style.display = (hasAnyDataRow && visibleData === 0) ? '' : 'none';
+        }
+      }
+      phaseSel.addEventListener('change', apply);
+      unitSel.addEventListener('change', apply);
+      apply();
+    }
+    bindIbankListFilter('ib-flow-list-wrap', 'ib-flow-filter-phase', 'ib-flow-filter-unit');
+    bindIbankListFilter('ib-act-list-wrap', 'ib-act-filter-phase', 'ib-act-filter-unit');
+    bindIbankListFilter('ib-dil-list-wrap', 'ib-dil-filter-phase', 'ib-dil-filter-unit');
+
+    function bindInfoBankFilePicker(inputId, triggerId, nameId, submitId) {
+      var input = document.getElementById(inputId);
+      var trigger = document.getElementById(triggerId);
+      var nameEl = document.getElementById(nameId);
+      var submit = document.getElementById(submitId);
+      if (!input || !trigger || !submit) return;
+      trigger.addEventListener('click', function () { input.click(); });
+      function sync() {
+        var n = input.files ? input.files.length : 0;
+        if (nameEl) {
+          if (n === 0) nameEl.textContent = '';
+          else if (n === 1) nameEl.textContent = input.files[0].name;
+          else nameEl.textContent = 'تم اختيار ' + n + ' ملفات';
+        }
+        submit.disabled = n === 0;
+      }
+      input.addEventListener('change', sync);
+      sync();
+    }
+    bindInfoBankFilePicker('ib-flow-file', 'ib-flow-file-trigger', 'ib-flow-file-name', 'ib-flow-submit');
+    bindInfoBankFilePicker('ib-act-file', 'ib-act-file-trigger', 'ib-act-file-name', 'ib-act-submit');
+    bindInfoBankFilePicker('ib-dil-file', 'ib-dil-file-trigger', 'ib-dil-file-name', 'ib-dil-submit');
+
+    function payloadFromEl(el) {
+      var u = el.getAttribute('href') || '';
+      return {
+        source: 'information_bank',
+        kind: el.getAttribute('data-ibank-kind') || '',
+        id: parseInt(el.getAttribute('data-ibank-id') || '0', 10) || 0,
+        title: el.getAttribute('data-ibank-title') || '',
+        url: u
+      };
+    }
+    card.querySelectorAll('.js-ibank-drag').forEach(function (el) {
+      el.addEventListener('dragstart', function (ev) {
+        var p = payloadFromEl(el);
+        try {
+          ev.dataTransfer.setData('application/x-lf-info-bank', JSON.stringify(p));
+          ev.dataTransfer.setData('text/plain', p.url);
+          ev.dataTransfer.effectAllowed = 'copy';
+        } catch (e) {}
+      });
+    });
+  })();
+  </script>
+</section>
+{% endblock %}

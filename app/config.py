@@ -30,6 +30,10 @@ CHAT_UPLOAD_DIR = Path(
 VISUAL_DOC_DIR = Path(
     os.getenv("VISUAL_DOC_DIR", str(BASE_DIR / "instance" / "visual_docs"))
 ).resolve()
+# بنك المعلومات (PDF/Excel) — خارج /static
+INFO_BANK_DIR = Path(
+    os.getenv("INFO_BANK_DIR", str(BASE_DIR / "instance" / "information_bank"))
+).resolve()
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-insecure-secret-change-in-production")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
