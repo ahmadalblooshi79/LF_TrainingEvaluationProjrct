@@ -17,7 +17,9 @@ def _cell_to_str(val: Any) -> str:
     if isinstance(val, float):
         if val == int(val) and abs(val) < 1e15:
             return str(int(val))
-    return str(val).strip()
+        return str(val)
+    s = str(val).replace("\u00a0", " ")
+    return s.replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
 def read_xlsx_sheet_preview(path: Path, *, sheet_index: int = 0) -> dict[str, Any]:

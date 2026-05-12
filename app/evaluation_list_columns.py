@@ -32,8 +32,25 @@ def _is_elements_header(h: str) -> bool:
         ("عناصر" in h and "تقييم" in h)
         or ("عنصر" in h and "تقييم" in h)
         or ("بنود" in h and "تقييم" in h)
-        or h in ("البند", "بند", "البند الوصفي", "الوصف")
+        or ("عناصر" in h and "أداء" in h)
+        or ("اسم" in h and "بند" in h)
+        or h in ("البند", "بند", "البند الوصفي", "الوصف", "الوصف الوظيفي")
     )
+
+
+def try_named_eval_column_indices(header_row: list[str]) -> tuple[tuple[int, int, int], str] | None:
+    """صف فيه عناوين الأعمدة الثلاثة بالأسماء: عناصر التقييم، القصوى، المكتسبة."""
+    m = match_evaluation_sheet_columns(header_row)
+    if (
+        m.get("elements") is not None
+        and m.get("max") is not None
+        and m.get("acquired") is not None
+    ):
+        return (
+            (int(m["elements"]), int(m["max"]), int(m["acquired"])),
+            "named",
+        )
+    return None
 
 
 def _is_max_header(h: str) -> bool:
@@ -128,7 +145,7 @@ def parse_max_cell(s: str | None) -> float | None:
 def resolve_rubric_subheader_indices(header_row: list[str]) -> tuple[int, int, int] | None:
     """
     صف يحتوي عناوين «القصوى» و«المكتسبة» (قوالب قائمة التقييم).
-    يعيد (عنصر، قصوى، مكتسبة) مع افتراض عمود العنصر = 0.
+    يعيد (فهرس عمود عناصر التقييم، القصوى، المكتسبة) مع استنتاج عمود العناصر من العناوين إن وُجد.
     """
     i_mx: int | None = None
     i_aq: int | None = None
@@ -144,7 +161,14 @@ def resolve_rubric_subheader_indices(header_row: list[str]) -> tuple[int, int, i
             continue
     if i_mx is None or i_aq is None:
         return None
-    return (0, i_mx, i_aq)
+    # لا نفترض أن عمود العناصر هو A دائماً (غالباً عمود تسلسل أو «م» قبل «عناصر التقييم»).
+    m = match_evaluation_sheet_columns(header_row)
+    i_el = 0
+    if m.get("elements") is not None:
+        cand = int(m["elements"])
+        if cand not in (i_mx, i_aq) and cand <= max(i_mx, i_aq):
+            i_el = cand
+    return (i_el, i_mx, i_aq)
 
 
 def build_structured_rows(

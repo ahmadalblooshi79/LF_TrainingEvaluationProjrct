@@ -14,6 +14,7 @@ from app.evaluation_list_columns import (
     parse_max_cell,
     resolve_evaluation_column_indices,
     resolve_rubric_subheader_indices,
+    try_named_eval_column_indices,
 )
 from app.xlsx_grid_preview import read_xlsx_sheet_preview
 
@@ -37,11 +38,34 @@ def _find_rubric_subheader_row_index(grid: list[list[str]]) -> int | None:
     return None
 
 
+def _pad_row_to_ncol(row: list[str], ncol: int) -> list[str]:
+    cells = list(row)
+    while len(cells) < ncol:
+        cells.append("")
+    return cells
+
+
+def _scan_first_named_triple_header(
+    grid: list[list[str]], ncol: int, *, max_scan: int = 36
+) -> tuple[int, tuple[int, int, int], str] | None:
+    """أول صف يحتوي عناوين الأعمدة الثلاثة بالأسماء (مفيد عند صفوف تعريف قبل جدول التقييم)."""
+    for hi in range(min(max_scan, len(grid))):
+        row = _pad_row_to_ncol(grid[hi], ncol)
+        hit = try_named_eval_column_indices(row)
+        if hit is not None:
+            triple, src = hit
+            return hi, triple, src
+    return None
+
+
 def read_evaluation_list_sheet(path: Path, *, sheet_index: int = 0) -> dict[str, Any]:
     """
     يعيد نفس مفاتيح ``read_xlsx_sheet_preview`` تقريبًا، مع:
     - ``eval_layout``: ``rubric`` | ``legacy``
     - ``eval_structured``, ``eval_rows``, ``eval_column_source``, ``eval_input_mode``
+
+    عمود «عناصر التقييم» يُستنتج من عنوان العمود في الصف (وليس دائمًا العمود A)،
+    ويُبحث في أول صفوف الورقة عن صف العناوين الكامل عند وجود صفوف تعريف أعلاه.
     """
     base = read_xlsx_sheet_preview(path, sheet_index=sheet_index)
     out: dict[str, Any] = dict(base)
@@ -100,6 +124,33 @@ def read_evaluation_list_sheet(path: Path, *, sheet_index: int = 0) -> dict[str,
         out["eval_column_source"] = src
         out["eval_layout"] = "rubric"
         out["eval_input_mode"] = "variable"
+        out["body_rows"] = body_rows
+        return out
+
+    named = _scan_first_named_triple_header(grid, ncol)
+    if named is not None:
+        hi, (i_el, i_mx, i_aq), src = named
+        header_row = _pad_row_to_ncol(grid[hi], ncol)
+        body_rows = grid[hi + 1 :]
+        raw_rows = build_structured_rows(
+            body_rows, ncol, i_el, i_mx, i_aq, acquired_cap_five=True
+        )
+        eval_rows = annotate_evaluation_row_kinds(raw_rows)
+        if not eval_rows and raw_rows:
+            eval_rows = [
+                {
+                    **r,
+                    "row_kind": "score",
+                    "max_num": parse_max_cell(r.get("max_val")),
+                }
+                for r in raw_rows
+            ]
+        out["eval_rows"] = eval_rows
+        out["eval_structured"] = len(eval_rows) > 0
+        out["eval_column_source"] = src
+        out["eval_layout"] = "legacy"
+        out["eval_input_mode"] = "scale5"
+        out["header_row"] = header_row
         out["body_rows"] = body_rows
         return out
 
