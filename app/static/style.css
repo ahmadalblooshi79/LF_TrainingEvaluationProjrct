@@ -3208,6 +3208,7 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   max-width: 100%;
   /* عرض موحّد لأعمدة: القصوى، المكتسبة، النسبة، النتيجة */
   --eval-eq-col-w: 7rem;
+  --eval-element-col-min: 24rem;
 }
 /* عرض الجدول يتبع المحتوى مع تمرير أفقي عند الحاجة */
 .eval-preview-table.eval-preview-table--raw {
@@ -3267,6 +3268,10 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   font-size: 0.8rem;
   line-height: 1.1;
 }
+.eval-preview-table.eval-structured thead tr > th:nth-child(2) {
+  min-width: var(--eval-element-col-min, 24rem);
+  width: auto;
+}
 .eval-preview-table.eval-structured thead tr > th:nth-child(3),
 .eval-preview-table.eval-structured thead tr > th:nth-child(4),
 .eval-preview-table.eval-structured thead tr > th:nth-child(5),
@@ -3287,8 +3292,8 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   white-space: normal;
   vertical-align: top;
   width: auto;
-  min-width: 5.5rem;
-  max-width: none;
+  min-width: max(4.125rem, 9ch);
+  max-width: 27rem;
 }
 .eval-preview-table.eval-structured .eval-pct-out,
 .eval-preview-table.eval-structured .eval-grade-out {
@@ -3318,7 +3323,7 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   word-break: break-word;
 }
 .eval-preview-table.eval-structured .eval-col--element {
-  min-width: 0;
+  min-width: var(--eval-element-col-min, 24rem);
   width: auto;
   max-width: none;
   white-space: normal;
@@ -3350,13 +3355,254 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   appearance: auto;
   -webkit-appearance: menulist;
 }
+
+/* —— صفحة قائمة التقييم: رأس وسفل ثابتان، جدول منزلق —— */
+.eval-list-page {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+  max-height: calc(100vh - 5rem);
+  overflow: hidden;
+}
+.eval-list-page__sticky-top {
+  flex: 0 0 auto;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: linear-gradient(180deg, var(--tint-50, #faf8f6) 0%, var(--white) 100%);
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--border-light);
+}
+.eval-list-page__main {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.eval-structured-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.eval-structured-layout__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  /* ارتفاع يعرض تقريباً صف العناوين + 12 صف بيانات ثم تمرير عمودي */
+  --eval-structured-thead-approx: 3rem;
+  --eval-structured-body-row-approx: 2.08rem;
+  --eval-structured-visible-rows: 12;
+  max-height: min(
+    62vh,
+    calc(
+      var(--eval-structured-thead-approx) +
+        var(--eval-structured-body-row-approx) * var(--eval-structured-visible-rows)
+    )
+  );
+}
+/* تثبيت صف عناوين الجدول أثناء التمرير داخل الحاوية */
+.eval-preview-table.eval-structured thead th {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  box-shadow: 0 2px 0 rgba(61, 50, 40, 0.35);
+}
+.eval-preview-table.eval-structured thead th.eval-preview-th--index {
+  z-index: 7;
+}
+.eval-preview-table.eval-structured thead th.eval-th--delete {
+  z-index: 7;
+}
+.eval-sticky-footer--bar {
+  flex: 0 0 auto;
+  position: relative;
+  bottom: auto;
+  margin-top: 0;
+}
+.eval-info-card--compact {
+  padding: 0.35rem 0.55rem !important;
+  margin: 0 0 0.35rem !important;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+.eval-info-card__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.5rem;
+  justify-content: flex-start;
+}
+.eval-info-card__kv {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem;
+}
+.eval-info-card__k {
+  color: var(--brown-600);
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+.eval-info-card__sep {
+  color: var(--border-muted, #d4d4d8);
+  font-weight: 400;
+  user-select: none;
+}
+.eval-banner-row--compact {
+  margin: 0 0 0.25rem !important;
+  gap: 0.35rem !important;
+}
+.eval-banner--small {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0 !important;
+  padding: 0.15rem 0.45rem !important;
+  font-size: 0.72rem !important;
+  line-height: 1.25 !important;
+}
+.eval-preview-sheet-title--inline {
+  margin: 0.15rem 0 0.25rem !important;
+  font-size: 0.82rem !important;
+}
+.eval-footer-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  text-align: right;
+}
+.eval-footer-stats__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+.eval-save-hint {
+  font-size: 0.72rem !important;
+}
+.eval-btn-footer {
+  padding: 0.28rem 0.65rem !important;
+  font-size: 0.82rem !important;
+  min-height: 2rem !important;
+}
+.eval-acquired-warn {
+  margin: 0.2rem 0 0;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.78rem;
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 6px;
+}
+.eval-approve-block-msg {
+  margin: 0.35rem 0 0.2rem;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+.eval-preview-table.eval-structured td.eval-col--acq.eval-acq--incomplete {
+  background: #fee2e2 !important;
+  box-shadow: inset 0 0 0 2px #dc2626;
+}
+.eval-preview-table.eval-structured td.eval-col--acq.eval-acq--incomplete .eval-preview-acquired-select {
+  background: #fef2f2;
+}
+.eval-preview-table.eval-structured.eval-structured--tight .eval-preview-td,
+.eval-preview-table.eval-structured.eval-structured--tight .eval-preview-th {
+  padding: 0.06rem 0.28rem;
+  line-height: 1.12;
+  font-size: 0.8rem;
+  vertical-align: middle;
+}
+.eval-preview-table.eval-structured.eval-structured--tight td.eval-col--element {
+  text-align: right;
+  vertical-align: middle;
+}
+.eval-preview-table.eval-structured.eval-structured--tight .eval-section-banner {
+  text-align: right;
+  padding: 0.2rem 0.4rem !important;
+  font-size: 0.85rem;
+}
+/* صف عناوين أعلى في جدول قائمة التقييم */
+.eval-preview-table.eval-structured.eval-structured--tight thead tr > th.eval-preview-th {
+  padding: 0.5rem 0.45rem !important;
+  line-height: 1.5 !important;
+  font-size: 0.92rem !important;
+  min-height: 2.85rem;
+  vertical-align: middle !important;
+}
+.eval-preview-table.eval-structured.eval-structured--tight thead tr > th.eval-preview-th--index {
+  min-height: 2.85rem;
+  padding: 0.45rem 0.3rem !important;
+  font-size: 0.82rem !important;
+}
+/* عمود القصوى: نص عادي بدون إطار/خلفية */
+.eval-preview-table.eval-structured td.eval-col--max .eval-max-display--muted {
+  color: var(--brown-600, #78716c);
+}
+.eval-preview-table.eval-structured thead tr > th:nth-child(8) {
+  width: 1.85rem;
+  min-width: 1.85rem;
+  max-width: 2.1rem;
+  padding: 0.35rem 0.08rem !important;
+  font-size: 0.68rem;
+  min-height: 2.85rem;
+  text-align: center;
+}
+.eval-preview-table.eval-structured td.eval-col--delete {
+  width: 1.85rem;
+  min-width: 1.85rem;
+  max-width: 2.1rem;
+  text-align: center;
+  vertical-align: middle;
+  padding: 0.02rem !important;
+}
+.eval-preview-table.eval-structured .eval-row-delete.btn.btn-icon {
+  padding: 0.06rem 0.12rem;
+  min-width: 1.35rem;
+  min-height: 1.35rem;
+  line-height: 1;
+  border-radius: 4px;
+  color: #71717a;
+  font-size: 0.65rem;
+  background: #fafafa;
+  border: 1px solid #e4e4e7;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+}
+.eval-preview-table.eval-structured .eval-row-delete.btn.btn-icon i {
+  font-size: 0.7rem;
+  line-height: 1;
+  color: #a1a1aa;
+}
+.eval-preview-table.eval-structured .eval-row-delete.btn.btn-icon:hover {
+  color: #dc2626;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+.eval-preview-table.eval-structured .eval-row-delete.btn.btn-icon:hover i {
+  color: #dc2626;
+}
+.eval-notes-textarea--compact {
+  min-height: 1.75rem;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.78rem;
+  line-height: 1.25;
+  resize: vertical;
+}
+
 .eval-td-readonly {
   user-select: text;
 }
 .eval-col--notes {
-  min-width: max(10rem, 16ch);
+  min-width: max(7.5rem, 12ch);
   width: auto;
-  max-width: 36rem;
+  max-width: 27rem;
   vertical-align: top;
 }
 .eval-structured .eval-notes-textarea {

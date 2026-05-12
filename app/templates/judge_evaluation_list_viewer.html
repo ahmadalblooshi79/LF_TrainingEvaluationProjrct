@@ -1,6 +1,53 @@
 {% extends "base.html" %}
 {% block title %}تقييم — {{ item_title }}{% endblock %}
 {% block content %}
+{% if header_row and eval_structured %}
+<div class="eval-list-page dilemma-viewer-page">
+  <div class="eval-list-page__sticky-top">
+    <div class="dilemma-viewer-toolbar card">
+      <div class="dilemma-viewer-toolbar__titles">
+        <h1 class="dilemma-viewer-title"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ item_title }}</h1>
+      </div>
+      <div class="dilemma-viewer-toolbar__actions">
+        <a class="btn btn-ghost dilemma-viewer-close-btn" href="{{ url_for('views.judge_evaluation_lists', unit_key=unit_key) }}"><i class="fa-solid fa-xmark" aria-hidden="true"></i> إغلاق والعودة</a>
+      </div>
+    </div>
+
+    <div class="eval-top-messages eval-banner-row--compact" dir="ltr">
+      {% if saved_is_approved %}
+      <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> اعتماد{% if saved_approved_at %} {{ saved_approved_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</p>
+      {% endif %}
+      {% if saved_updated_at %}
+      <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ {{ saved_updated_at.strftime('%Y-%m-%d %H:%M') }}</p>
+      {% endif %}
+    </div>
+
+    {% if preview_error %}
+    <p class="form-error-banner eval-banner--small" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ preview_error }}</p>
+    {% endif %}
+
+    <section class="card eval-info-card eval-info-card--compact" dir="rtl">
+      <div class="eval-info-card__row">
+        <span class="eval-info-card__kv"><span class="eval-info-card__k">مسمى الوحدة</span> <strong>{{ unit_label }}</strong></span>
+        <span class="eval-info-card__sep" aria-hidden="true">|</span>
+        <span class="eval-info-card__kv"><span class="eval-info-card__k">التاريخ</span> {% if shown_date %}{{ shown_date.strftime('%Y-%m-%d') }}{% else %}—{% endif %}</span>
+      </div>
+      <div class="eval-info-card__row">
+        <span class="eval-info-card__kv"><span class="eval-info-card__k">قائد الوحدة</span> {{ commander_name }}</span>
+        <span class="eval-info-card__sep" aria-hidden="true">|</span>
+        <span class="eval-info-card__kv"><span class="eval-info-card__k">المحكم</span> {{ judge_name }}</span>
+      </div>
+    </section>
+    {% if sheet_title %}
+    <p class="eval-preview-sheet-title eval-preview-sheet-title--inline muted" dir="rtl"><strong>{{ sheet_title }}</strong></p>
+    {% endif %}
+  </div>
+
+  <div class="eval-list-page__main">
+    {% include 'partials/evaluation_list_structured_panel.html' %}
+  </div>
+</div>
+{% else %}
 <div class="dilemma-viewer-page">
   <div class="dilemma-viewer-toolbar card">
     <div class="dilemma-viewer-toolbar__titles">
@@ -18,7 +65,6 @@
       تم اعتماد التقييم{% if saved_approved_at %} بتاريخ {{ saved_approved_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}.
     </p>
     {% endif %}
-
     {% if saved_updated_at %}
     <p class="form-ok-banner" role="status" style="display:inline-block;margin:0 0 0.5rem;">
       <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i>
@@ -26,14 +72,6 @@
     </p>
     {% endif %}
   </div>
-
-  {% if saved_is_approved %}
-  {# تم نقل رسالة الاعتماد للأعلى #}
-  {% endif %}
-
-  {% if saved_updated_at %}
-  {# تم نقل رسالة الحفظ للأعلى #}
-  {% endif %}
 
   {% if preview_error %}
   <p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ preview_error }}</p>
@@ -55,13 +93,8 @@
   {% if sheet_title %}
   <p class="eval-preview-sheet-title muted" dir="rtl"><strong>{{ sheet_title }}</strong></p>
   {% endif %}
-
-  {% if eval_structured %}
-  {% include 'partials/evaluation_list_structured_panel.html' %}
-  {% else %}
   <p class="muted eval-preview-hint" dir="rtl">لعرض الجدول التفاعلي يلزم ورقة Excel تحتوي صف «القصوى» و«المكتسبة» أو صفًا أولًا بثلاثة أعمدة على الأقل.</p>
   {% endif %}
-  {% endif %}
 </div>
+{% endif %}
 {% endblock %}
-

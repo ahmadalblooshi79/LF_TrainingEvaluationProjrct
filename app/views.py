@@ -464,20 +464,44 @@ def _evaluation_delete_duplicate_saves(db, *, exercise_id: int, evaluation_item_
 
 
 def _evaluation_grade_from_payload_rows(rows: list) -> tuple[float | None, str]:
-    """متوسط نسب الصفوف (المكتسبة/القصوى إن وُجدت، وإلا منطق 5 نقاط)."""
-    pcts: list[float] = []
-    for r in rows[:2000]:
-        if not isinstance(r, dict):
-            continue
-        p = _eval_row_score_pct(r)
-        if p is not None:
-            pcts.append(float(p))
-    total_pct = None
-    grade = ""
-    if pcts:
+    """
+    نسبة إجمالية واقعية: مجموع المكتسبة ÷ مجموع القصوى لكل بنود التقييم (عدا «لا ينطبق»)،
+    مع وزن 5 لكل بند بلا قصوى رقمية — يطابق حساب الواجهة عند وجود row_kind في الحمولة.
+    للحمولات القديمة دون row_kind يُحتفظ بمتوسط نسب الصفوف كسلوك سابق.
+    """
+    safe = [r for r in rows[:2000] if isinstance(r, dict)]
+    if not safe:
+        return None, ""
+    has_row_kind = any((str(r.get("row_kind") or "").strip()) for r in safe)
+    if not has_row_kind:
+        pcts: list[float] = []
+        for r in safe:
+            p = _eval_row_score_pct(r)
+            if p is not None:
+                pcts.append(float(p))
+        if not pcts:
+            return None, ""
         total_pct = sum(pcts) / len(pcts)
-        grade = grade_label_from_percent(total_pct)
-    return total_pct, grade
+        return total_pct, grade_label_from_percent(total_pct)
+    sum_acq = 0.0
+    sum_den = 0.0
+    for r in safe:
+        if str(r.get("row_kind") or "").strip().lower() == "section":
+            continue
+        acq = r.get("acquired")
+        acq_s = ("" if acq is None else str(acq)).strip().lower()
+        if acq_s == "na":
+            continue
+        sum_den += _eval_row_effective_max(r)
+        if acq_s:
+            try:
+                sum_acq += float(str(acq).replace(",", "."))
+            except (TypeError, ValueError):
+                pass
+    if sum_den <= 0:
+        return None, ""
+    total_pct = (sum_acq / sum_den) * 100.0
+    return total_pct, grade_label_from_percent(total_pct)
 
 
 def _evaluation_commit_payload_save(
@@ -541,6 +565,56 @@ def _parse_saved_eval_rows(payload_json: str | None) -> list[dict]:
         return []
     rows = data.get("rows") or []
     return rows if isinstance(rows, list) else []
+
+
+def _parse_saved_eval_max_positive(raw) -> float | None:
+    if raw in (None, ""):
+        return None
+    try:
+        v = float(str(raw).replace(",", "."))
+        return v if v > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _evaluation_payload_has_empty_acquired_for_approve(rows: list) -> bool:
+    """
+    True إذا وُجد بند تقييم (صف score) بمكتسبة فارغة — لا يُقبل الاعتماد.
+    «لا ينطبق» يُعتبر إدخالاً صالحاً. صفوف الأقسام تُستثنى.
+    للحمولات القديمة دون row_kind: يُفحص الصف إذا وُجدت له قصوى رقمية ولم تُدخل مكتسبة.
+    """
+    if not isinstance(rows, list):
+        return True
+    safe = [r for r in rows if isinstance(r, dict)]
+    if not safe:
+        return True
+    has_row_kind = any(str(r.get("row_kind") or "").strip() for r in safe)
+    for r in safe:
+        rk = str(r.get("row_kind") or "").strip().lower()
+        if rk == "section":
+            continue
+        acq = r.get("acquired")
+        empty_acq = acq is None or str(acq).strip() == ""
+        if not empty_acq:
+            continue
+        if rk == "score":
+            return True
+        if not has_row_kind and _parse_saved_eval_max_positive(r.get("max_val")) is not None:
+            return True
+    return False
+
+
+def _eval_row_effective_max(row: dict) -> float:
+    """قصوى الصف لحساب النسبة الإجمالية؛ يطابق effectiveMaxForRow في الواجهة (افتراض 5)."""
+    mx_raw = row.get("max_val")
+    if mx_raw not in (None, ""):
+        try:
+            mx = float(str(mx_raw).replace(",", "."))
+            if mx > 0:
+                return mx
+        except (TypeError, ValueError):
+            pass
+    return 5.0
 
 
 def _eval_row_score_pct(row: dict) -> float | None:
@@ -1814,6 +1888,7 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
             eval_approve_url=eval_approve_url,
             show_eval_approve=show_eval_approve,
             eval_can_edit=not saved_is_approved,
+            eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
         ),
     )
 
@@ -1886,6 +1961,16 @@ def planner_evaluation_list_approve(unit_key: str, item_id: int):
         abort(400)
     if bool(getattr(saved, "is_approved", False)):
         return redirect(url_for("views.planner_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id))
+    rows = _parse_saved_eval_rows(saved.payload_json)
+    if _evaluation_payload_has_empty_acquired_for_approve(rows):
+        return redirect(
+            url_for(
+                "views.planner_evaluation_list_file_viewer",
+                unit_key=unit_key,
+                item_id=item_id,
+                eval_approve_incomplete=1,
+            )
+        )
     saved.is_approved = True
     saved.approved_by_id = getattr(user, "id", None)
     saved.approved_at = datetime.utcnow()
@@ -3992,6 +4077,7 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
             judge_name=judge_name or "—",
             has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
             eval_can_edit=not saved_is_approved,
+            eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
         ),
     )
 
@@ -4280,6 +4366,16 @@ def admin_evaluation_list_approve(unit_key: str, item_id: int):
         abort(400)
     if bool(getattr(saved, "is_approved", False)):
         return redirect(url_for("views.admin_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id))
+    rows = _parse_saved_eval_rows(saved.payload_json)
+    if _evaluation_payload_has_empty_acquired_for_approve(rows):
+        return redirect(
+            url_for(
+                "views.admin_evaluation_list_file_viewer",
+                unit_key=unit_key,
+                item_id=item_id,
+                eval_approve_incomplete=1,
+            )
+        )
     saved.is_approved = True
     saved.approved_by_id = getattr(user, "id", None)
     saved.approved_at = datetime.utcnow()
@@ -4618,6 +4714,7 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
             eval_approve_url=eval_approve_url,
             show_eval_approve=show_eval_approve,
             eval_can_edit=not saved_is_approved,
+            eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
         ),
     )
 
@@ -4692,6 +4789,16 @@ def judge_evaluation_list_approve(unit_key: str, item_id: int):
         abort(400)
     if bool(getattr(saved, "is_approved", False)):
         return redirect(url_for("views.judge_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id))
+    rows = _parse_saved_eval_rows(saved.payload_json)
+    if _evaluation_payload_has_empty_acquired_for_approve(rows):
+        return redirect(
+            url_for(
+                "views.judge_evaluation_list_file_viewer",
+                unit_key=unit_key,
+                item_id=item_id,
+                eval_approve_incomplete=1,
+            )
+        )
     saved.is_approved = True
     saved.approved_by_id = getattr(user, "id", None)
     saved.approved_at = datetime.utcnow()

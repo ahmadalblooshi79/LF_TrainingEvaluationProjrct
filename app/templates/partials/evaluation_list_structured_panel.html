@@ -1,12 +1,7 @@
-{# جدول تعبئة قائمة التقييم — يدعم قوالب الإكسل ذات صف «القصوى/المكتسبة» وأوزان متغيرة + صفوف عناوين فرعية #}
-{% if eval_layout == 'rubric' %}
-<p class="muted eval-preview-hint" dir="rtl" style="margin:0 0 0.75rem;">
-  تمّ ضبط النموذج تلقائيًا من بنية ملف Excel (قالب قائمة التقييم). أدخل المكتسبة حتى الحدّ الموضّح في «القصوى» لكل بند.
-</p>
-{% endif %}
-<div class="eval-preview-shell" dir="rtl">
-  <div class="eval-preview-scroll">
-    <table class="eval-preview-table eval-structured" role="table" aria-label="جدول التقييم" id="eval-structured-table">
+{# جدول تعبئة قائمة التقييم — تمرير وسفلي ثابتان، مكتسبة كقائمة حسب القصوى #}
+<div class="eval-structured-layout" dir="rtl" id="eval-structured-root" data-approve-incomplete="{% if eval_approve_incomplete|default(false) %}1{% else %}0{% endif %}">
+  <div class="eval-structured-layout__scroll" id="eval-structured-scroll">
+    <table class="eval-preview-table eval-structured eval-structured--tight" role="table" aria-label="جدول التقييم" id="eval-structured-table">
       <thead>
         <tr>
           <th scope="col" class="eval-preview-th eval-preview-th--index"><span class="sr-only">ترقيم الصفوف</span></th>
@@ -16,6 +11,7 @@
           <th scope="col" class="eval-preview-th eval-th--col">النسبة</th>
           <th scope="col" class="eval-preview-th eval-th--col">النتيجة</th>
           <th scope="col" class="eval-preview-th eval-th--col">ملاحظات</th>
+          <th scope="col" class="eval-preview-th eval-th--col eval-th--delete" aria-label="حذف الصف"><i class="fa-solid fa-trash" aria-hidden="true"></i></th>
         </tr>
       </thead>
       <tbody>
@@ -23,76 +19,95 @@
         {% for row in eval_rows %}
         {% set rk = row.row_kind | default('score') %}
         {% set saved_row = saved_rows[loop.index0] if saved_rows and (loop.index0 < (saved_rows|length)) else {} %}
+        {% set acq_saved = saved_row.get('acquired') if saved_row else none %}
         {% if rk == 'section' %}
         <tr class="eval-structured-row eval-row--section" data-row-kind="section">
           <th scope="row" class="eval-preview-rowhead eval-row-section-num">{{ loop.index }}</th>
           <td class="eval-preview-td eval-section-banner" colspan="6"><strong>{{ row.element }}</strong></td>
+          <td class="eval-preview-td eval-col--delete">
+            {% if eval_can_edit %}
+            <button type="button" class="btn btn-icon eval-row-delete" title="حذف الصف" aria-label="حذف الصف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
+            {% endif %}
+          </td>
         </tr>
         {% else %}
-        <tr class="eval-structured-row eval-row--score" data-row-kind="score" data-max="{% if row.max_num is defined and row.max_num %}{{ row.max_num }}{% endif %}">
-          <th scope="row" class="eval-preview-rowhead">{{ loop.index }}</th>
+        {% set mxn = row.max_num if row.max_num is defined and row.max_num is not none else none %}
+        {% set init_aq = (row.acquired_initial or '') | string %}
+        {% if mxn is not none and mxn > 0 %}
+          {% set cap_steps = (mxn * 4)|int %}
+        {% else %}
+          {% set cap_steps = 20 %}
+        {% endif %}
+        <tr class="eval-structured-row eval-row--score" data-row-kind="score" data-max="{% if mxn is not none and mxn > 0 %}{{ mxn }}{% endif %}" data-max-text="{{ row.max_val | e }}">
+          <th scope="row" class="eval-preview-rowhead eval-row-num">{{ loop.index }}</th>
           <td class="eval-preview-td eval-col--element">{{ row.element }}</td>
-          <td class="eval-preview-td eval-col--max eval-td-readonly">{{ row.max_val }}</td>
+          <td class="eval-preview-td eval-col--max eval-td-readonly" data-max-persist="{{ row.max_val | e }}">
+            <span class="eval-max-display">{{ row.max_val }}</span>
+          </td>
           <td class="eval-preview-td eval-col--acq">
             <label class="sr-only">المكتسبة — الصف {{ loop.index }}</label>
-            {% if eval_input_mode == 'variable' %}
-            <input type="number" class="eval-acquired-number eval-acquired-input" name="acquired_inp_{{ loop.index0 }}" autocomplete="off" inputmode="decimal" placeholder="0"
-                   min="0" step="0.25" {% if row.max_num is defined and row.max_num %}max="{{ row.max_num }}"{% endif %}
-                   dir="ltr"{% if not eval_can_edit %} disabled{% endif %}
-                   value="{% if saved_row.get('acquired') %}{{ saved_row.get('acquired') }}{% elif row.acquired_initial %}{{ row.acquired_initial }}{% endif %}">
-            {% else %}
-            <select class="eval-preview-acquired-select eval-acquired-input" name="acquired_sel_{{ loop.index0 }}" autocomplete="off" dir="rtl"{% if not eval_can_edit %} disabled{% endif %}>
-              {% for val, label in acquired_options %}
-              {% set selv = (saved_row.get('acquired') if saved_row else none) %}
-              <option value="{{ val }}"{% if selv is not none and val == selv %} selected{% elif selv is none and val == row.acquired_initial %} selected{% endif %}>{{ label }}</option>
+            <select class="eval-preview-acquired-select eval-acquired-input" name="acquired_sel_{{ loop.index0 }}" autocomplete="off" dir="rtl" title="اختر علامة لا تتجاوز القصوى"{% if not eval_can_edit %} disabled{% endif %}>
+              <option value=""{% if acq_saved == '' or (acq_saved is none and init_aq == '') %} selected{% endif %}>&#8203;</option>
+              <option value="na"{% if acq_saved == 'na' or (acq_saved is none and init_aq == 'na') %} selected{% endif %}>لا ينطبق</option>
+              {% for step in range(0, cap_steps + 1) %}
+              {% if step % 4 == 0 %}
+              {% set val_key = (step // 4) | string %}
+              {% else %}
+              {% set val_key = ((step * 0.25) | round(2)) | string %}
+              {% endif %}
+              <option value="{{ val_key }}"{% if acq_saved is not none and acq_saved != '' and acq_saved != 'na' and (acq_saved | string) == val_key %} selected{% elif (acq_saved is none or acq_saved == '') and init_aq != '' and init_aq != 'na' and (init_aq | string) == val_key %} selected{% endif %}>{{ val_key }}</option>
               {% endfor %}
             </select>
-            {% endif %}
           </td>
           <td class="eval-preview-td eval-col--pct eval-td-readonly"><span class="eval-pct-out" data-pct-out aria-live="polite">—</span></td>
           <td class="eval-preview-td eval-col--grade eval-td-readonly"><span class="eval-grade-out" data-grade-out aria-live="polite">—</span></td>
           <td class="eval-preview-td eval-col--notes">
-            <textarea class="eval-notes-textarea" name="notes_{{ loop.index0 }}" rows="2" placeholder="ملاحظات" spellcheck="true" dir="rtl" {% if not eval_can_edit %}disabled{% endif %}>{{ (saved_row.get('notes') or '') if saved_row else '' }}</textarea>
+            <textarea class="eval-notes-textarea eval-notes-textarea--compact" name="notes_{{ loop.index0 }}" rows="1" placeholder="ملاحظات" spellcheck="true" dir="rtl" {% if not eval_can_edit %}disabled{% endif %}>{{ (saved_row.get('notes') or '') if saved_row else '' }}</textarea>
+          </td>
+          <td class="eval-preview-td eval-col--delete">
+            {% if eval_can_edit %}
+            <button type="button" class="btn btn-icon eval-row-delete" title="حذف الصف" aria-label="حذف الصف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
+            {% endif %}
           </td>
         </tr>
         {% endif %}
         {% else %}
         <tr>
-          <td class="eval-preview-td eval-preview-empty-row" colspan="7">لا توجد صفوف بيانات بعد صف العناوين.</td>
+          <td class="eval-preview-td eval-preview-empty-row" colspan="8">لا توجد صفوف بيانات بعد صف العناوين.</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
-    <div class="eval-sticky-footer" dir="rtl">
-      <div class="eval-sticky-footer__left">
-        <div class="muted">متوسط النسبة المئوية للبنود المُدخلة</div>
-        <div class="eval-sticky-total"><span id="eval-total-pct">—</span> <span class="muted" style="margin-inline-start:0.35rem;" id="eval-total-grade"></span></div>
+  </div>
+  <p class="form-error-banner eval-approve-block-msg" id="eval-approve-block-msg" role="alert" dir="rtl"{% if not eval_approve_incomplete|default(false) %} hidden{% endif %}>{% if eval_approve_incomplete|default(false) %}لا يمكن الاعتماد: يوجد بند أو أكثر لم تُدخل له المكتسبة (الخانات المحددة باللون الأحمر). اختر علامة أو «لا ينطبق»، ثم احفظ إن لزم، ثم أعد الاعتماد.{% endif %}</p>
+  <p class="eval-acquired-warn" id="eval-acquired-warn" role="alert" hidden></p>
+  <div class="eval-sticky-footer eval-sticky-footer--bar" dir="rtl" id="eval-structured-footer">
+    <div class="eval-sticky-footer__left">
+      <div class="eval-footer-stats">
+        <div class="eval-footer-stats__line"><span class="muted">مجموع العلامات المكتسبة</span> <span class="eval-sticky-total"><span id="eval-sum-acquired">—</span></span></div>
+        <div class="eval-footer-stats__line"><span class="muted">النسبة المئوية الفعلية</span> <span class="eval-sticky-total"><span id="eval-total-pct">—</span> <span class="muted" id="eval-total-grade"></span></span></div>
+        <div class="eval-footer-stats__line"><span class="muted">مجموع علامات القصوى</span> <span class="eval-sticky-total"><span id="eval-sum-max">—</span></span></div>
       </div>
-      <div class="eval-sticky-footer__right">
-        {% if eval_can_edit %}
-        <form method="post" action="{{ eval_save_url }}" id="eval-save-form" style="margin:0;">
-          <input type="hidden" name="payload_json" id="eval-save-payload" value="">
-          <input type="hidden" name="saved_id" value="{{ saved_row_id or '' }}">
-          <button type="submit" class="btn" id="eval-save-btn"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ نتائج التقييم</button>
-        </form>
-        {% else %}
-        <span class="muted">عرض فقط</span>
-        {% endif %}
-        {% if show_eval_approve and not saved_is_approved and has_saved_rows %}
-        <form method="post" action="{{ eval_approve_url }}" style="margin:0;">
-          <button type="submit" class="btn btn-danger"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> اعتماد</button>
-        </form>
-        {% endif %}
-        <span class="muted" id="eval-save-hint" aria-live="polite"></span>
-      </div>
+    </div>
+    <div class="eval-sticky-footer__right">
+      {% if eval_can_edit %}
+      <form method="post" action="{{ eval_save_url }}" id="eval-save-form" style="margin:0;">
+        <input type="hidden" name="payload_json" id="eval-save-payload" value="">
+        <input type="hidden" name="saved_id" value="{{ saved_row_id or '' }}">
+        <button type="submit" class="btn eval-btn-footer" id="eval-save-btn"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ نتائج التقييم</button>
+      </form>
+      {% else %}
+      <span class="muted">عرض فقط</span>
+      {% endif %}
+      {% if show_eval_approve and not saved_is_approved and has_saved_rows %}
+      <form method="post" action="{{ eval_approve_url }}" id="eval-approve-form" style="margin:0;">
+        <button type="submit" class="btn btn-danger eval-btn-footer"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> اعتماد</button>
+      </form>
+      {% endif %}
+      <span class="muted eval-save-hint" id="eval-save-hint" aria-live="polite"></span>
     </div>
   </div>
 </div>
-<style>
-.eval-section-banner { background: var(--surface-elevated, #f4f4f5); font-size: 1.02rem; }
-.eval-row-section-num { vertical-align: middle; }
-.eval-acquired-number { width: 100%; max-width: 7rem; padding: 0.35rem 0.5rem; border-radius: 6px; border: 1px solid var(--border-muted, #d4d4d8); }
-</style>
 <script>
 (function () {
   var table = document.getElementById('eval-structured-table');
@@ -100,13 +115,138 @@
   var form = document.getElementById('eval-save-form');
   var payloadEl = document.getElementById('eval-save-payload');
   var hintEl = document.getElementById('eval-save-hint');
+  var warnEl = document.getElementById('eval-acquired-warn');
+  var approveMsgEl = document.getElementById('eval-approve-block-msg');
+  var root = document.getElementById('eval-structured-root');
+  var approveForm = document.getElementById('eval-approve-form');
+
+  function clearAcqIncompleteHighlight() {
+    table.querySelectorAll('td.eval-col--acq.eval-acq--incomplete').forEach(function (td) {
+      td.classList.remove('eval-acq--incomplete');
+    });
+  }
+
+  function collectEmptyAcquiredRows() {
+    var out = [];
+    table.querySelectorAll('tr.eval-row--score').forEach(function (tr) {
+      var sel = tr.querySelector('.eval-acquired-input');
+      if (!sel) return;
+      if (String(sel.value || '').trim() === '') out.push(tr);
+    });
+    return out;
+  }
+
+  function showApproveBlockMsg(emptyRows) {
+    clearAcqIncompleteHighlight();
+    if (approveMsgEl) {
+      approveMsgEl.textContent =
+        'لا يمكن الاعتماد: يوجد بند أو أكثر لم تُدخل له المكتسبة (الخانات المحددة باللون الأحمر). اختر علامة أو «لا ينطبق»، ثم احفظ إن لزم، ثم أعد الاعتماد.';
+      approveMsgEl.hidden = false;
+    }
+    emptyRows.forEach(function (tr) {
+      var td = tr.querySelector('td.eval-col--acq');
+      if (td) td.classList.add('eval-acq--incomplete');
+    });
+    if (emptyRows[0]) {
+      var firstTd = emptyRows[0].querySelector('td.eval-col--acq');
+      if (firstTd && firstTd.scrollIntoView) firstTd.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
+  function maybeClearApproveBlockVisual() {
+    if (collectEmptyAcquiredRows().length) return;
+    clearAcqIncompleteHighlight();
+    if (approveMsgEl) {
+      approveMsgEl.hidden = true;
+      approveMsgEl.textContent = '';
+    }
+  }
+
+  if (approveForm) {
+    approveForm.addEventListener('submit', function (e) {
+      var emptyRows = collectEmptyAcquiredRows();
+      if (emptyRows.length) {
+        e.preventDefault();
+        showApproveBlockMsg(emptyRows);
+        return false;
+      }
+      clearAcqIncompleteHighlight();
+      if (approveMsgEl) {
+        approveMsgEl.hidden = true;
+        approveMsgEl.textContent = '';
+      }
+    });
+  }
+
+  table.addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t || !t.classList.contains('eval-acquired-input')) return;
+    var tr = t.closest('tr');
+    if (tr) {
+      var td = tr.querySelector('td.eval-col--acq');
+      if (td && String(t.value || '').trim() !== '') td.classList.remove('eval-acq--incomplete');
+    }
+    maybeClearApproveBlockVisual();
+  });
+
+  if (root && root.getAttribute('data-approve-incomplete') === '1') {
+    var bad = collectEmptyAcquiredRows();
+    if (bad.length) showApproveBlockMsg(bad);
+  }
+
+  function showWarn(msg) {
+    if (!warnEl) return;
+    if (!msg) { warnEl.hidden = true; warnEl.textContent = ''; return; }
+    warnEl.textContent = msg;
+    warnEl.hidden = false;
+    clearTimeout(showWarn._t);
+    showWarn._t = setTimeout(function () { warnEl.hidden = true; }, 4500);
+  }
 
   function getAcquiredFromRow(tr) {
-    var inp = tr.querySelector('.eval-acquired-number');
-    var sel = tr.querySelector('.eval-preview-acquired-select');
-    if (inp && !inp.disabled) return (inp.value || '').trim();
+    var sel = tr.querySelector('.eval-acquired-input');
     if (sel && !sel.disabled) return (sel.value || '').trim();
     return '';
+  }
+
+  function parseMaxAttr(tr) {
+    var dm = tr.getAttribute('data-max');
+    var mx = dm ? parseFloat(dm) : NaN;
+    if (!isNaN(mx) && mx > 0) return mx;
+    return NaN;
+  }
+
+  /** قصوى الصف لحساب النسبة؛ يطابق rowPercent عند غياب قصوى رقمية (افتراض 5). */
+  function effectiveMaxForRow(tr) {
+    var mx = parseMaxAttr(tr);
+    if (!isNaN(mx) && mx > 0) return mx;
+    return 5;
+  }
+
+  function maxPersistText(tr) {
+    var td = tr.querySelector('.eval-col--max');
+    if (!td) return '';
+    return (td.getAttribute('data-max-persist') || '').trim();
+  }
+
+  function clampSelectToMax(tr, silent) {
+    var sel = tr.querySelector('.eval-acquired-input');
+    if (!sel || sel.disabled) return;
+    var mx = parseMaxAttr(tr);
+    if (isNaN(mx) || mx <= 0) return;
+    var v = getAcquiredFromRow(tr);
+    if (v === '' || v === 'na') return;
+    var n = parseFloat(String(v).replace(',', '.'));
+    if (isNaN(n) || n <= mx) return;
+    if (!silent) showWarn('لا يمكن تجاوز علامة القصوى لهذا البند.');
+    var best = '';
+    for (var i = 0; i < sel.options.length; i++) {
+      var o = sel.options[i];
+      if (o.value === 'na' || o.value === '') continue;
+      var ov = parseFloat(String(o.value).replace(',', '.'));
+      if (!isNaN(ov) && ov <= mx) best = o.value;
+    }
+    sel.value = best;
   }
 
   function buildPayload() {
@@ -114,11 +254,11 @@
     table.querySelectorAll('.eval-structured-row').forEach(function (tr) {
       var kind = tr.getAttribute('data-row-kind') || 'score';
       var elCell = tr.querySelector('.eval-col--element');
-      var mxCell = tr.querySelector('.eval-col--max');
       var notes = tr.querySelector('.eval-notes-textarea');
       if (kind === 'section') {
         var banner = tr.querySelector('.eval-section-banner');
         out.rows.push({
+          row_kind: 'section',
           element: banner ? (banner.textContent || '').trim() : '',
           max_val: '',
           acquired: '',
@@ -127,8 +267,9 @@
         return;
       }
       out.rows.push({
+        row_kind: 'score',
         element: elCell ? (elCell.textContent || '').trim() : '',
-        max_val: mxCell ? (mxCell.textContent || '').trim() : '',
+        max_val: maxPersistText(tr),
         acquired: getAcquiredFromRow(tr),
         notes: notes ? (notes.value || '') : '',
       });
@@ -137,9 +278,8 @@
   }
   if (form && payloadEl) {
     form.addEventListener('submit', function () {
-      var payload = buildPayload();
-      payloadEl.value = JSON.stringify(payload);
-      if (hintEl) hintEl.textContent = 'جاري الحفظ...';
+      payloadEl.value = JSON.stringify(buildPayload());
+      if (hintEl) hintEl.textContent = 'جاري الحفظ…';
     });
   }
 
@@ -170,10 +310,26 @@
     if (v === '' || v === 'na') return null;
     var n = parseFloat(String(v).replace(',', '.'));
     if (isNaN(n)) return null;
-    var dm = tr.getAttribute('data-max');
-    var mx = dm ? parseFloat(dm) : NaN;
-    if (!isNaN(mx) && mx > 0) return (n / mx) * 100;
+    var mx = parseMaxAttr(tr);
+    if (!isNaN(mx) && mx > 0) {
+      if (n > mx + 1e-6) return null;
+      return (n / mx) * 100;
+    }
     return (n / 5) * 100;
+  }
+
+  function syncMaxDisplay(tr) {
+    var v = getAcquiredFromRow(tr);
+    var span = tr.querySelector('.eval-max-display');
+    var persist = maxPersistText(tr);
+    if (!span) return;
+    if (v === 'na') {
+      span.textContent = '—';
+      span.classList.add('eval-max-display--muted');
+    } else {
+      span.textContent = persist || '—';
+      span.classList.remove('eval-max-display--muted');
+    }
   }
 
   function updateRow(tr) {
@@ -181,6 +337,14 @@
     var grEl = tr.querySelector('[data-grade-out]');
     var gradeTd = tr.querySelector('td.eval-col--grade');
     if (!pctEl || !grEl) return;
+    syncMaxDisplay(tr);
+    var v = getAcquiredFromRow(tr);
+    if (v === 'na') {
+      pctEl.textContent = '—';
+      grEl.textContent = 'غير محسوب';
+      setResultCellBackground(gradeTd, null);
+      return;
+    }
     var pct = rowPercent(tr);
     if (pct === null) {
       pctEl.textContent = '—';
@@ -194,37 +358,77 @@
   }
 
   function bindRow(tr) {
-    var inp = tr.querySelector('.eval-acquired-number');
-    var sel = tr.querySelector('.eval-preview-acquired-select');
-    var handler = function () { updateRow(tr); updateTotal(); };
-    if (inp) { inp.addEventListener('input', handler); inp.addEventListener('change', handler); }
-    if (sel) sel.addEventListener('change', handler);
+    var sel = tr.querySelector('.eval-acquired-input');
+    var handler = function () {
+      clampSelectToMax(tr, false);
+      updateRow(tr);
+      updateTotal();
+    };
+    if (sel) {
+      sel.addEventListener('change', handler);
+      clampSelectToMax(tr, true);
+    }
     updateRow(tr);
   }
 
   table.querySelectorAll('.eval-structured-row.eval-row--score').forEach(bindRow);
 
+  function renumberRows() {
+    var i = 0;
+    table.querySelectorAll('.eval-structured-row').forEach(function (tr) {
+      i += 1;
+      var th = tr.querySelector('th.eval-preview-rowhead');
+      if (th) th.textContent = String(i);
+    });
+  }
+
+  table.addEventListener('click', function (e) {
+    var btn = e.target.closest('.eval-row-delete');
+    if (!btn || btn.disabled) return;
+    var tr = btn.closest('tr');
+    if (!tr || !tr.parentNode) return;
+    tr.parentNode.removeChild(tr);
+    renumberRows();
+    updateTotal();
+  });
+
   function updateTotal() {
     var totalEl = document.getElementById('eval-total-pct');
     var gradeEl = document.getElementById('eval-total-grade');
+    var sumMaxEl = document.getElementById('eval-sum-max');
+    var sumAcqEl = document.getElementById('eval-sum-acquired');
     if (!totalEl) return;
-    var sum = 0;
-    var n = 0;
+    var sumMax = 0;
+    var sumAcq = 0;
+    var anyNumericAcquired = false;
+    /** مقام النسبة الإجمالية: قصوى كل بند يُحسب (ليس فقط المُدخل)، باستثناء «لا ينطبق»؛ بدون قصوى رقمية يُفترض 5 كعمود النسبة. */
+    var sumMaxDen = 0;
     table.querySelectorAll('.eval-structured-row.eval-row--score').forEach(function (tr) {
-      var inp = tr.querySelector('.eval-acquired-number');
-      var sel = tr.querySelector('.eval-preview-acquired-select');
-      if ((inp && inp.disabled) || (sel && sel.disabled)) return;
-      var p = rowPercent(tr);
-      if (p !== null) { sum += p; n += 1; }
+      var mx = parseMaxAttr(tr);
+      if (!isNaN(mx) && mx > 0) sumMax += mx;
+      var sel = tr.querySelector('.eval-acquired-input');
+      var rawAcq = sel ? String(sel.value || '').trim() : '';
+      if (rawAcq !== 'na') sumMaxDen += effectiveMaxForRow(tr);
+      if (rawAcq !== '' && rawAcq !== 'na') {
+        var an = parseFloat(rawAcq.replace(',', '.'));
+        if (!isNaN(an)) {
+          sumAcq += an;
+          anyNumericAcquired = true;
+        }
+      }
     });
-    if (n <= 0) {
+    if (sumMaxEl) sumMaxEl.textContent = sumMax > 0 ? String(Math.round(sumMax * 100) / 100) : '—';
+    if (sumAcqEl) {
+      sumAcqEl.textContent = anyNumericAcquired ? String(Math.round(sumAcq * 100) / 100) : '—';
+    }
+    if (sumMaxDen <= 0) {
       totalEl.textContent = '—';
       if (gradeEl) gradeEl.textContent = '';
       return;
     }
-    var avg = sum / n;
-    totalEl.textContent = Math.round(avg * 100) / 100 + '%';
-    if (gradeEl) gradeEl.textContent = gradeFromPct(avg);
+    var actualPct = (sumAcq / sumMaxDen) * 100;
+    totalEl.textContent = Math.round(actualPct * 100) / 100 + '%';
+    if (gradeEl) gradeEl.textContent = gradeFromPct(actualPct);
   }
   updateTotal();
 })();
