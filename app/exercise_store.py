@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app import exercise_options as ex_opts
 from app.config import EXERCISE_EXPORT_DIR
+from app.exercise_phase_catalog import normalize_exercise_phase
 from app.unit_levels_catalog import label_for_unit_level_key, normalize_unit_level_key
 from app.models import (
     Checklist,
@@ -235,7 +236,7 @@ def exercise_to_export_dict(ex: Exercise, db: Session) -> dict[str, Any]:
             {
                 "unit_level_key": d.unit_level_key,
                 "unit_level_label": d.unit_level_label or "",
-                "exercise_phase": getattr(d, "exercise_phase", None) or "main",
+                "exercise_phase": normalize_exercise_phase(getattr(d, "exercise_phase", None)),
                 "sort_order": d.sort_order,
                 "text": d.text,
                 "pdf_relpath": d.pdf_relpath or "",
@@ -246,7 +247,7 @@ def exercise_to_export_dict(ex: Exercise, db: Session) -> dict[str, Any]:
             {
                 "unit_level_key": e.unit_level_key,
                 "unit_level_label": e.unit_level_label or "",
-                "exercise_phase": getattr(e, "exercise_phase", None) or "main",
+                "exercise_phase": normalize_exercise_phase(getattr(e, "exercise_phase", None)),
                 "sort_order": e.sort_order,
                 "text": e.text,
                 "pdf_relpath": e.pdf_relpath or "",
@@ -708,8 +709,9 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
                 so = int(row.get("sort_order") or 0)
             except (TypeError, ValueError):
                 so = 0
-            ep_raw = str(row.get("exercise_phase") or "main").strip()[:32]
-            exercise_phase = ep_raw if ep_raw == "reorg" else "main"
+            exercise_phase = normalize_exercise_phase(
+                str(row.get("exercise_phase") or "").strip()[:32]
+            )
             db.add(
                 DilemmaItem(
                     exercise_id=ex.id,
@@ -737,8 +739,9 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
                 so = int(row.get("sort_order") or 0)
             except (TypeError, ValueError):
                 so = 0
-            ep_raw = str(row.get("exercise_phase") or "main").strip()[:32]
-            exercise_phase = ep_raw if ep_raw == "reorg" else "main"
+            exercise_phase = normalize_exercise_phase(
+                str(row.get("exercise_phase") or "").strip()[:32]
+            )
             db.add(
                 EvaluationListPdfItem(
                     exercise_id=ex.id,

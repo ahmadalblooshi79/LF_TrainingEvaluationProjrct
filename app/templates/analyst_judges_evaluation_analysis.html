@@ -121,7 +121,7 @@
             {% set r = sd.row %}
             <tr>
               <td>{{ sd.unit_label_ar }}</td>
-              <td>{% if r.exercise_phase == 'reorg' %}إعادة التنظيم{% else %}التمرين الرئيسي{% endif %}</td>
+              <td>{{ phase_label_ar(r.exercise_phase) }}</td>
               <td><a href="{{ url_for('views.analyst_evaluation_list_file_viewer', unit_key=r.unit_level_key, item_id=r.evaluation_item_id) }}">فتح التقييم</a></td>
               <td>{% if r.total_pct is not none %}{{ (r.total_pct | round(2)) }}%{% else %}—{% endif %}</td>
               <td>{{ r.grade_label or "—" }}</td>
@@ -174,7 +174,7 @@
           <div class="analysis-bar{% if is_unfilled %} is-unfilled{% endif %}">
             <div class="analysis-bar__label">
               {{ it.title }}
-              <span class="muted">— {% if it.phase == 'reorg' %}إعادة التنظيم{% else %}التمرين الرئيسي{% endif %}</span>
+              <span class="muted">— {{ phase_label_ar(it.phase) }}</span>
               {% if is_unfilled %}
                 <span class="badge eval-item-unfilled">غير معبّأة</span>
               {% else %}
@@ -260,7 +260,7 @@
         <div class="card {% if not it.is_filled %}eval-item-unfilled{% endif %}" style="padding:0.55rem 0.75rem;margin:0 0 0.65rem;">
           <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:baseline;">
             <span><strong>{{ it.title }}</strong></span>
-            <span class="muted">— {% if it.phase == 'reorg' %}إعادة التنظيم{% else %}التمرين الرئيسي{% endif %}</span>
+            <span class="muted">— {{ phase_label_ar(it.phase) }}</span>
             {% if not it.is_filled %}<span class="badge">غير معبّأة</span>{% endif %}
           </div>
           {% if it.results %}

@@ -33,7 +33,7 @@
         {% set r = sd.row %}
         <tr>
           <td>{{ sd.unit_label or r.unit_level_key or "—" }}</td>
-          <td>{% if r.exercise_phase == 'reorg' %}إعادة التنظيم{% else %}التمرين الرئيسي{% endif %}</td>
+          <td>{{ phase_label_ar(r.exercise_phase) }}</td>
           <td>{% if r.total_pct is not none %}{{ (r.total_pct | round(2)) }}%{% else %}—{% endif %}</td>
           <td>{{ r.grade_label or "—" }}</td>
           <td><code>{{ r.saved_by_id or "—" }}</code></td>

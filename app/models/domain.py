@@ -27,8 +27,10 @@ class ExerciseStatus(str, enum.Enum):
 class ExercisePhase(str, enum.Enum):
     """مرحلة التمرين لمع ضبط المعاضل وقوائم التقييم."""
 
-    MAIN = "main"  # التمرين الرئيسي
-    REORG = "reorg"  # إعادة التنظيم
+    PREPARATION = "preparation"  # مرحلة التحضير
+    OPENING = "opening"  # مرحلة الإنفتاح
+    MAIN = "main"  # مرحلة المعركة التعرضية
+    REORG = "reorg"  # مرحلة إعادة التنظيم
 
 
 class RoleDef(Base):
@@ -282,7 +284,7 @@ class DilemmaItem(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     exercise_id: Mapped[int | None] = mapped_column(ForeignKey("exercises.id", ondelete="CASCADE"), nullable=True, index=True)
     exercise_phase: Mapped[str] = mapped_column(
-        String(32), default=ExercisePhase.MAIN.value, index=True
+        String(32), default=ExercisePhase.PREPARATION.value, index=True
     )
     unit_level_key: Mapped[str] = mapped_column(String(64), index=True)
     unit_level_label: Mapped[str] = mapped_column(String(200), default="")
@@ -303,7 +305,7 @@ class EvaluationListPdfItem(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     exercise_id: Mapped[int | None] = mapped_column(ForeignKey("exercises.id", ondelete="CASCADE"), nullable=True, index=True)
     exercise_phase: Mapped[str] = mapped_column(
-        String(32), default=ExercisePhase.MAIN.value, index=True
+        String(32), default=ExercisePhase.PREPARATION.value, index=True
     )
     unit_level_key: Mapped[str] = mapped_column(String(64), index=True)
     unit_level_label: Mapped[str] = mapped_column(String(200), default="")
@@ -330,7 +332,7 @@ class EvaluationListSavedResult(Base):
     exercise_id: Mapped[int | None] = mapped_column(
         ForeignKey("exercises.id", ondelete="CASCADE"), nullable=True, index=True
     )
-    exercise_phase: Mapped[str] = mapped_column(String(32), default=ExercisePhase.MAIN.value, index=True)
+    exercise_phase: Mapped[str] = mapped_column(String(32), default=ExercisePhase.PREPARATION.value, index=True)
     unit_level_key: Mapped[str] = mapped_column(String(64), default="", index=True)
     payload_json: Mapped[str] = mapped_column(Text(), default="")  # rows + notes + totals
     total_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -362,7 +364,7 @@ class JudgeIncompleteTaskStatus(Base):
     exercise_id: Mapped[int] = mapped_column(ForeignKey("exercises.id", ondelete="CASCADE"), index=True)
     judge_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     unit_level_key: Mapped[str] = mapped_column(String(64), default="", index=True)
-    exercise_phase: Mapped[str] = mapped_column(String(32), default=ExercisePhase.MAIN.value, index=True)
+    exercise_phase: Mapped[str] = mapped_column(String(32), default=ExercisePhase.PREPARATION.value, index=True)
     pair_index: Mapped[int] = mapped_column(Integer, default=0)  # index داخل تقرير الربط (1..n)
     dilemma_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     evaluation_item_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -84,6 +84,13 @@ from app.permissions import (
     is_system_admin,
 )
 from app import exercise_options as ex_opts
+from app.exercise_phase_catalog import (
+    DEFAULT_EXERCISE_PHASE,
+    EXERCISE_PHASE_OPTIONS,
+    exercise_phase_keys,
+    exercise_phase_label,
+    normalize_exercise_phase,
+)
 from app.unit_levels_catalog import (
     UNIT_LEVELS,
     coerce_roster_import_position_cell,
@@ -320,16 +327,7 @@ def _hashes_of_unit_pdfs(
 
 
 def _normalized_exercise_phase(val: str | None) -> str:
-    v = (val or "").strip()
-    if v == ExercisePhase.REORG.value:
-        return ExercisePhase.REORG.value
-    return ExercisePhase.MAIN.value
-
-
-EXERCISE_PHASE_OPTIONS: list[tuple[str, str]] = [
-    (ExercisePhase.MAIN.value, "التمرين الرئيسي"),
-    (ExercisePhase.REORG.value, "إعادة التنظيم"),
-]
+    return normalize_exercise_phase(val)
 
 
 def _admin_exercise_form_ctx() -> dict:
@@ -466,7 +464,12 @@ def _parse_objectives_file_storage(f) -> list[str]:
 
 
 def _ctx(user=None, **extra):
-    d = {"user": user, "RoleKey": RoleKey}
+    d = {
+        "user": user,
+        "RoleKey": RoleKey,
+        "normalize_exercise_phase": _normalized_exercise_phase,
+        "phase_label_ar": _phase_label_ar,
+    }
     d.update(extra)
     return d
 
@@ -642,10 +645,7 @@ def _evaluation_commit_payload_save(
 
 
 def _phase_label_ar(phase: str | None) -> str:
-    p = (phase or "").strip().lower()
-    if p == ExercisePhase.REORG.value:
-        return "إعادة التنظيم"
-    return "التمرين الرئيسي"
+    return exercise_phase_label(phase)
 
 
 def _parse_saved_eval_rows(payload_json: str | None) -> list[dict]:
@@ -1412,7 +1412,7 @@ def analyst_hub_section(slug: str):
                 x = {
                     "id": it.id,
                     "title": it.text or "تقييم",
-                    "phase": getattr(it, "exercise_phase", "main"),
+                    "phase": _normalized_exercise_phase(getattr(it, "exercise_phase", None)),
                     "is_filled": int(it.id) in saved_by_item_ids,
                 }
                 (filled if x["is_filled"] else unfilled).append(x)
@@ -1521,7 +1521,7 @@ def analyst_hub_section(slug: str):
                     {
                         "item_id": it.id,
                         "title": it.text or "تقييم",
-                        "phase": getattr(it, "exercise_phase", "main"),
+                        "phase": _normalized_exercise_phase(getattr(it, "exercise_phase", None)),
                         "is_filled": int(it.id) in saved_by_item_ids,
                         "results": per_item,
                     }
@@ -1619,7 +1619,7 @@ def analyst_hub_section(slug: str):
                     {
                         "item_id": it.get("item_id"),
                         "title": it.get("title") or "تقييم",
-                        "phase": it.get("phase") or "main",
+                        "phase": _normalized_exercise_phase(it.get("phase")),
                         "is_filled": bool(it.get("is_filled")),
                         "avg_pct": avg,
                         "n": len(vals),
@@ -2179,8 +2179,8 @@ def judge_hub_section(slug: str):
             if uk2 and display and uk2 not in judge_name_by_unit:
                 judge_name_by_unit[uk2] = display
 
-        # نقرأ الربط للمرحلتين (الرئيسي/إعادة التنظيم) لتكوين قائمة مهام شاملة
-        phases = [ExercisePhase.MAIN.value, ExercisePhase.REORG.value]
+        # نقرأ الربط لكل مراحل التمرين لتكوين قائمة مهام شاملة
+        phases = exercise_phase_keys()
         report_blocks = []
         for ph in phases:
             report_blocks.extend(_build_dilemma_evaluation_unit_report(db, ex.id, exercise_phase=ph))
@@ -2246,9 +2246,13 @@ def judge_hub_section(slug: str):
                 # القاعدة: إن كان التقييم معتمد -> مكتملة، وإلا ضمن الوقت (افتراضي).
                 auto_status = "done" if is_done else "ontime"
 
-                ph = (getattr(saved, "exercise_phase", None) if saved is not None else None) or ExercisePhase.MAIN.value
+                ph = (
+                    (getattr(saved, "exercise_phase", None) if saved is not None else None)
+                    or blk.get("exercise_phase")
+                    or DEFAULT_EXERCISE_PHASE
+                )
                 ph = _normalized_exercise_phase(ph)
-                ph_ar = "إعادة التنظيم" if ph == ExercisePhase.REORG.value else "التمرين الرئيسي"
+                ph_ar = _phase_label_ar(ph)
 
                 key = (uk, ph, int(p.get("index") or 0))
                 ov = override_map.get(key)
@@ -5138,7 +5142,7 @@ def admin_evaluation_lists(unit_key: str):
             selected_unit_key=unit_key,
             selected_unit_label=unit["label"],
             exercise_phase_options=EXERCISE_PHASE_OPTIONS,
-            upload_phase_default=ExercisePhase.MAIN.value,
+            upload_phase_default=DEFAULT_EXERCISE_PHASE,
             items=existing,
             error=error,
             ok_msg=ok_msg,
@@ -5282,6 +5286,7 @@ def _build_dilemma_evaluation_unit_report(
             {
                 "unit_key": uk,
                 "unit_label": ul,
+                "exercise_phase": phase,
                 "n_dilemmas": n_d,
                 "n_evaluations": n_e,
                 "n_trainees": len(trainees),
@@ -5588,7 +5593,7 @@ def admin_dilemmas(unit_key: str):
             selected_unit_key=unit_key,
             selected_unit_label=unit["label"],
             exercise_phase_options=EXERCISE_PHASE_OPTIONS,
-            upload_phase_default=ExercisePhase.MAIN.value,
+            upload_phase_default=DEFAULT_EXERCISE_PHASE,
             items=existing,
             error=error,
             ok_msg=ok_msg,

@@ -150,7 +150,7 @@
   const sel = document.getElementById("de-report-phase-select");
   if (!sel) return;
   sel.addEventListener("change", () => {
-    const p = (sel.value || "").trim() || "main";
+    const p = (sel.value || "").trim() || "preparation";
     window.location.href = `/admin/dilemmas-evaluation-unit-report?phase=${encodeURIComponent(p)}`;
   });
 })();

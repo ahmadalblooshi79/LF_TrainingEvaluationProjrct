@@ -142,7 +142,7 @@ def ensure_exercise_roster_unit_level_key_column() -> None:
 
 
 def ensure_dilemma_eval_exercise_phase_columns() -> None:
-    """مرحلة التمرين (رئيسي / إعادة التنظيم) لمعاضل التقييم — إضافة للجداول القديمة."""
+    """مرحلة التمرين لمعاضل التقييم — إضافة للجداول القديمة."""
     if not DATABASE_URL.startswith("sqlite"):
         return
     try:
@@ -160,7 +160,7 @@ def ensure_dilemma_eval_exercise_phase_columns() -> None:
             conn.execute(
                 text(
                     f"ALTER TABLE {table} "
-                    "ADD COLUMN exercise_phase VARCHAR(32) DEFAULT 'main'"
+                    "ADD COLUMN exercise_phase VARCHAR(32) DEFAULT 'preparation'"
                 )
             )
 
