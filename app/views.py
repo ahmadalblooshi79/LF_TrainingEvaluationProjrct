@@ -47,6 +47,9 @@ from app.models import (
     DilemmaItem,
     EvaluationListPdfItem,
     EvaluationListSavedResult,
+    AnalystEvaluationCriteriaResult,
+    AnalystEvaluationCriteriaUnit,
+    AnalystEvaluationCriteriaPhaseItem,
     ExerciseNotification,
     VisualDocument,
     InformationBankPhaseNote,
@@ -1079,6 +1082,254 @@ def _build_analyst_evaluation_results_dashboard(
     }
 
 
+def _build_analyst_evaluation_criteria_distribution(db, user: User) -> dict:
+    """توزيع نتائج مراحل التقييم اليدوية، مستقل عن قوائم التقييم."""
+    ex0 = _current_workspace_exercise(db, user)
+    if ex0 is None:
+        return {"has_exercise": False}
+    ex = db.query(Exercise).filter(Exercise.id == ex0.id).first()
+    if ex is None:
+        return {"has_exercise": False}
+
+    criteria_units = _ensure_analyst_evaluation_criteria_units(db, ex)
+    phase_items = (
+        db.query(AnalystEvaluationCriteriaPhaseItem)
+        .filter(AnalystEvaluationCriteriaPhaseItem.exercise_id == ex.id)
+        .all()
+    )
+    marks_by_unit_phase: dict[tuple[int, str], list[float]] = {}
+    for item in phase_items:
+        if item.allocated_mark is None:
+            continue
+        marks_by_unit_phase.setdefault(
+            (int(item.criteria_unit_id), item.phase_key or ""),
+            [],
+        ).append(float(item.allocated_mark))
+
+    rows: list[dict] = []
+    grand_total = 0.0
+    for unit in criteria_units:
+        prep_marks = marks_by_unit_phase.get((unit.id, "preparation"), [])
+        ops_marks = marks_by_unit_phase.get((unit.id, "main"), [])
+        preparation_total = sum(prep_marks) if prep_marks else None
+        operations_total = sum(ops_marks) if ops_marks else None
+        parts = [x for x in (preparation_total, operations_total) if x is not None]
+        total_mark = sum(parts) if parts else None
+        if total_mark is not None:
+            grand_total += total_mark
+        rows.append(
+            {
+                "unit_id": unit.id,
+                "unit_label": unit.label or "—",
+                "preparation_total": preparation_total,
+                "operations_total": operations_total,
+                "total_mark": total_mark,
+                "allocated_pct": None,
+            }
+        )
+
+    if grand_total > 0:
+        for row in rows:
+            if row["total_mark"] is not None:
+                row["allocated_pct"] = (float(row["total_mark"]) / grand_total) * 100.0
+
+    return {
+        "has_exercise": True,
+        "exercise": ex,
+        "distribution_rows": rows,
+        "grand_total": grand_total if grand_total > 0 else None,
+    }
+
+
+DEFAULT_ANALYST_EVALUATION_CRITERIA_UNITS: tuple[str, ...] = (
+    "قيادة مجموعة اللواء",
+    "كتيبة المشاة الآلية/1",
+    "كتيبة المشاة الآلية /2",
+    "كتيبة الدبابات/3",
+    "سرية الاستطلاع",
+    "سرية الـ م/د",
+    "كتيبة المدفعية",
+    "سرية الهاون",
+    "سرية هندسة الميدان",
+    "سرية الإشارة",
+    "سرية الدفاع الجوي",
+    "كتيبة الاسناد الإداري",
+    "سرية الدفاع الكيميائي",
+    "تقييم إدارة التمرين",
+)
+
+ANALYST_EVALUATION_CRITERIA_PHASES: dict[str, str] = {
+    "preparation": "مرحلة التحضير",
+    "main": "مرحلة العمليات التعرضية",
+}
+
+
+def _ensure_analyst_evaluation_criteria_units(
+    db,
+    ex: Exercise,
+) -> list[AnalystEvaluationCriteriaUnit]:
+    rows = (
+        db.query(AnalystEvaluationCriteriaUnit)
+        .filter(AnalystEvaluationCriteriaUnit.exercise_id == ex.id)
+        .order_by(AnalystEvaluationCriteriaUnit.sort_order, AnalystEvaluationCriteriaUnit.id)
+        .all()
+    )
+    if rows:
+        return rows
+    for idx, label in enumerate(DEFAULT_ANALYST_EVALUATION_CRITERIA_UNITS):
+        db.add(
+            AnalystEvaluationCriteriaUnit(
+                exercise_id=ex.id,
+                sort_order=idx,
+                label=label,
+            )
+        )
+    db.commit()
+    return (
+        db.query(AnalystEvaluationCriteriaUnit)
+        .filter(AnalystEvaluationCriteriaUnit.exercise_id == ex.id)
+        .order_by(AnalystEvaluationCriteriaUnit.sort_order, AnalystEvaluationCriteriaUnit.id)
+        .all()
+    )
+
+
+def _parse_pct_form_value(raw: str | None) -> float | None:
+    s = (raw or "").strip().replace(",", ".")
+    if not s:
+        return None
+    try:
+        v = float(s)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, min(100.0, v))
+
+
+def _save_analyst_evaluation_criteria_distribution(db, user: User, ex: Exercise) -> None:
+    del user  # محفوظ للتوقيع المتسق مع بقية دوال الحفظ.
+    existing = {
+        int(row.id): row
+        for row in (
+            db.query(AnalystEvaluationCriteriaUnit)
+            .filter(AnalystEvaluationCriteriaUnit.exercise_id == ex.id)
+            .all()
+        )
+    }
+    delete_ids = {
+        int(x)
+        for x in request.form.getlist("delete_unit_ids")
+        if (x or "").strip().isdigit()
+    }
+    ordered_ids = [
+        int(x)
+        for x in request.form.getlist("unit_ids")
+        if (x or "").strip().isdigit()
+    ]
+    for sort_order, uid in enumerate(ordered_ids):
+        row = existing.get(uid)
+        if row is None:
+            continue
+        if uid in delete_ids:
+            db.query(AnalystEvaluationCriteriaPhaseItem).filter(
+                AnalystEvaluationCriteriaPhaseItem.criteria_unit_id == uid
+            ).delete(synchronize_session=False)
+            db.delete(row)
+            continue
+        label = (request.form.get(f"unit_label__{uid}") or "").strip()[:300]
+        if label:
+            row.label = label
+        row.sort_order = sort_order
+    for label in request.form.getlist("new_unit_label"):
+        clean = (label or "").strip()[:300]
+        if not clean:
+            continue
+        db.add(
+            AnalystEvaluationCriteriaUnit(
+                exercise_id=ex.id,
+                sort_order=len(ordered_ids),
+                label=clean,
+            )
+        )
+        ordered_ids.append(-1)
+    db.commit()
+
+
+def _parse_mark_form_value(raw: str | None) -> float | None:
+    s = (raw or "").strip().replace(",", ".")
+    if not s:
+        return None
+    try:
+        v = float(s)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, v)
+
+
+def _criteria_phase_items_for_unit(
+    db,
+    ex: Exercise,
+    unit: AnalystEvaluationCriteriaUnit,
+    phase_key: str,
+) -> list[dict]:
+    rows = (
+        db.query(AnalystEvaluationCriteriaPhaseItem)
+        .filter(
+            AnalystEvaluationCriteriaPhaseItem.exercise_id == ex.id,
+            AnalystEvaluationCriteriaPhaseItem.criteria_unit_id == unit.id,
+            AnalystEvaluationCriteriaPhaseItem.phase_key == phase_key,
+        )
+        .order_by(
+            AnalystEvaluationCriteriaPhaseItem.sort_order,
+            AnalystEvaluationCriteriaPhaseItem.id,
+        )
+        .all()
+    )
+    total_mark = sum(float(r.allocated_mark or 0) for r in rows)
+    out: list[dict] = []
+    for row in rows:
+        mark = float(row.allocated_mark) if row.allocated_mark is not None else None
+        pct = (mark / total_mark * 100.0) if mark is not None and total_mark > 0 else None
+        out.append(
+            {
+                "criteria_text": row.criteria_text or "",
+                "allocated_mark": mark,
+                "allocated_pct": pct,
+            }
+        )
+    return out
+
+
+def _save_criteria_phase_items_for_unit(
+    db,
+    ex: Exercise,
+    unit: AnalystEvaluationCriteriaUnit,
+    phase_key: str,
+) -> None:
+    db.query(AnalystEvaluationCriteriaPhaseItem).filter(
+        AnalystEvaluationCriteriaPhaseItem.exercise_id == ex.id,
+        AnalystEvaluationCriteriaPhaseItem.criteria_unit_id == unit.id,
+        AnalystEvaluationCriteriaPhaseItem.phase_key == phase_key,
+    ).delete(synchronize_session=False)
+    criteria_texts = request.form.getlist("criteria_text")
+    marks = request.form.getlist("allocated_mark")
+    n = max(len(criteria_texts), len(marks))
+    for idx in range(n):
+        text_value = (criteria_texts[idx] if idx < len(criteria_texts) else "").strip()[:1000]
+        mark = _parse_mark_form_value(marks[idx] if idx < len(marks) else "")
+        if not text_value and mark is None:
+            continue
+        db.add(
+            AnalystEvaluationCriteriaPhaseItem(
+                exercise_id=ex.id,
+                criteria_unit_id=unit.id,
+                phase_key=phase_key,
+                sort_order=idx,
+                criteria_text=text_value,
+                allocated_mark=mark,
+            )
+        )
+    db.commit()
+
+
 def _ensure_judge_roster_synced(db, user: User, ex: Exercise | None) -> None:
     """إذا كانت بيانات قائمة المحكمين موجودة لكن الربط غير مُنشأ، أنشئه تلقائياً.
 
@@ -1274,7 +1525,7 @@ def analyst_hub():
     )
 
 
-@bp.route("/analyst/<slug>")
+@bp.route("/analyst/<slug>", methods=["GET", "POST"])
 def analyst_hub_section(slug: str):
     user = get_current_user_optional()
     if not user:
@@ -1287,6 +1538,31 @@ def analyst_hub_section(slug: str):
     title = ANALYST_HUB_SLUGS.get(slug_norm)
     if not title:
         abort(404)
+    if slug_norm == "evaluation-criteria":
+        from flask import g
+
+        db = g.db
+        dist = _build_analyst_evaluation_criteria_distribution(db, user)
+        if not dist.get("has_exercise"):
+            return render_template(
+                "analyst_evaluation_criteria.html",
+                **_ctx(user, section_title=title, has_exercise=False),
+            )
+        if request.method == "POST":
+            _save_analyst_evaluation_criteria_distribution(db, user, dist["exercise"])
+            return redirect(url_for("views.analyst_hub_section", slug=slug_norm, ok=1))
+        return render_template(
+            "analyst_evaluation_criteria.html",
+            **_ctx(
+                user,
+                section_title=title,
+                has_exercise=True,
+                exercise=dist["exercise"],
+                distribution_rows=dist["distribution_rows"],
+                grand_total=dist["grand_total"],
+                ok_msg="تم حفظ قائمة وحدات معايير التقييم." if request.args.get("ok") else "",
+            ),
+        )
     if slug_norm == "positives-negatives":
         from flask import g
 
@@ -1729,6 +2005,73 @@ def analyst_hub_section(slug: str):
     return render_template(
         "analyst_section_placeholder.html",
         **_ctx(user, section_title=title, section_slug=slug),
+    )
+
+
+@bp.route("/analyst/evaluation-criteria/<int:unit_id>/<phase_key>", methods=["GET", "POST"])
+def analyst_evaluation_criteria_phase(unit_id: int, phase_key: str):
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/analyst/evaluation-criteria/{unit_id}/{phase_key}")
+    if not can_access_analyst_hub(user):
+        abort(403)
+    phase_key = (phase_key or "").strip()
+    phase_label = ANALYST_EVALUATION_CRITERIA_PHASES.get(phase_key)
+    if not phase_label:
+        abort(404)
+    from flask import g
+
+    db = g.db
+    ex0 = _current_workspace_exercise(db, user)
+    if ex0 is None:
+        return render_template(
+            "analyst_evaluation_criteria_phase.html",
+            **_ctx(
+                user,
+                has_exercise=False,
+                section_title="معايير التقييم",
+                phase_label=phase_label,
+                unit=None,
+                items=[],
+                total_mark=None,
+            ),
+        )
+    ex = db.query(Exercise).filter(Exercise.id == ex0.id).first()
+    if ex is None:
+        abort(404)
+    unit = db.get(AnalystEvaluationCriteriaUnit, unit_id)
+    if unit is None or unit.exercise_id != ex.id:
+        abort(404)
+    if request.method == "POST":
+        _save_criteria_phase_items_for_unit(db, ex, unit, phase_key)
+        return redirect(
+            url_for(
+                "views.analyst_evaluation_criteria_phase",
+                unit_id=unit.id,
+                phase_key=phase_key,
+                ok=1,
+            )
+        )
+    items = _criteria_phase_items_for_unit(db, ex, unit, phase_key)
+    total_mark = sum(
+        float(item["allocated_mark"] or 0)
+        for item in items
+        if item.get("allocated_mark") is not None
+    )
+    return render_template(
+        "analyst_evaluation_criteria_phase.html",
+        **_ctx(
+            user,
+            has_exercise=True,
+            section_title="معايير التقييم",
+            exercise=ex,
+            unit=unit,
+            phase_key=phase_key,
+            phase_label=phase_label,
+            items=items,
+            total_mark=total_mark if total_mark > 0 else None,
+            ok_msg="تم حفظ جدول المرحلة." if request.args.get("ok") else "",
+        ),
     )
 
 

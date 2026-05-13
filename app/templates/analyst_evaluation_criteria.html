@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}{{ section_title }} — المحللين{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-list-check fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+  <p class="muted">جدول توزيع النسب حسب الوحدة، مع تفاصيل مستقلة لكل مرحلة.</p>
+  <p class="mt-tight">
+    <a class="btn btn-ghost" href="{{ url_for('views.analyst_hub') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى مساحة المحللين</a>
+  </p>
+</div>
+
+{% if not has_exercise %}
+<section class="card">
+  <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل. افتح أو أنشئ تمريناً لعرض معايير التقييم.</p>
+</section>
+{% else %}
+<section class="card">
+  <h2 class="h2-in-card"><i class="fa-solid fa-percent fa-icon-title" aria-hidden="true"></i> توزيع النسبة المئوية الاجماليه للتقييم</h2>
+  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
+    التمرين الحالي: <strong>{{ exercise.title }}</strong> — <code>{{ exercise.code }}</code>
+  </p>
+  {% if ok_msg %}
+  <p class="form-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('views.analyst_hub_section', slug='evaluation-criteria') }}">
+    <div class="table-wrap">
+      <table dir="rtl" aria-label="توزيع النسبة المئوية الاجماليه للتقييم">
+        <thead>
+          <tr>
+            <th scope="col">الوحده</th>
+            <th scope="col">مرحلة التحضير</th>
+            <th scope="col">مرحلة العمليات التعرضية</th>
+            <th scope="col">الإجمالي</th>
+            <th scope="col">النسبه المئويه المخصصه</th>
+            <th scope="col">تفاصيل / حذف</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in distribution_rows %}
+          {% set preparation_total = row.preparation_total|default(none) %}
+          {% set operations_total = row.operations_total|default(none) %}
+          {% set total_mark = row.total_mark|default(none) %}
+          {% set allocated_pct = row.allocated_pct|default(none) %}
+          <tr>
+            <th scope="row">
+              <input type="hidden" name="unit_ids" value="{{ row.unit_id }}">
+              <input class="unit-level-select" style="min-width:18rem;" type="text" name="unit_label__{{ row.unit_id }}" value="{{ row.unit_label }}" maxlength="300" aria-label="اسم الوحدة">
+            </th>
+            <td>{% if preparation_total is number %}{{ preparation_total|round(2) }}{% else %}—{% endif %}</td>
+            <td>{% if operations_total is number %}{{ operations_total|round(2) }}{% else %}—{% endif %}</td>
+            <td>{% if total_mark is number %}{{ total_mark|round(2) }}{% else %}—{% endif %}</td>
+            <td>{% if allocated_pct is number %}{{ allocated_pct|round(2) }}%{% else %}—{% endif %}</td>
+            <td>
+              <div class="btn-group" style="gap:0.35rem;justify-content:flex-start;flex-wrap:wrap;">
+                <a class="btn btn-ghost" href="/analyst/evaluation-criteria/{{ row.unit_id }}/preparation">مرحلة التحضير</a>
+                <a class="btn btn-ghost" href="/analyst/evaluation-criteria/{{ row.unit_id }}/main">مرحلة العمليات التعرضية</a>
+                <label class="muted" style="display:inline-flex;gap:0.25rem;align-items:center;">
+                  <input type="checkbox" name="delete_unit_ids" value="{{ row.unit_id }}">
+                  حذف
+                </label>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row">الإجمالي</th>
+            <td>—</td>
+            <td>—</td>
+            <td>{% if grand_total is number %}{{ grand_total|round(2) }}{% else %}—{% endif %}</td>
+            <td>{% if grand_total is number %}100%{% else %}—{% endif %}</td>
+            <td>—</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <div class="form-group" style="margin-top:1rem;">
+      <label for="new-unit-label">إضافة وحدة جديدة</label>
+      <input id="new-unit-label" class="unit-level-select" style="min-width:18rem;" type="text" name="new_unit_label" maxlength="300" placeholder="اسم الوحدة الجديدة">
+    </div>
+    <div class="btn-group" style="margin-top:1rem;">
+      <button class="btn" type="submit"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ قائمة الوحدات</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

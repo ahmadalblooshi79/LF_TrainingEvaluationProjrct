@@ -23,6 +23,9 @@ from app.models import (
     ChecklistItem,
     DilemmaItem,
     EvaluationListPdfItem,
+    AnalystEvaluationCriteriaResult,
+    AnalystEvaluationCriteriaUnit,
+    AnalystEvaluationCriteriaPhaseItem,
     EvaluationNote,
     EventFlow,
     EventFlowType,
@@ -396,6 +399,9 @@ def purge_all_exercises_and_dilemmas(db: Session) -> None:
 
     db.execute(delete(DilemmaItem))
     db.execute(delete(EvaluationListPdfItem))
+    db.execute(delete(AnalystEvaluationCriteriaPhaseItem))
+    db.execute(delete(AnalystEvaluationCriteriaUnit))
+    db.execute(delete(AnalystEvaluationCriteriaResult))
     db.execute(delete(Exercise))
     if DILEMMA_PDF_DIR.exists():
         shutil.rmtree(DILEMMA_PDF_DIR, ignore_errors=True)

@@ -345,6 +345,62 @@ class EvaluationListSavedResult(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class AnalystEvaluationCriteriaResult(Base):
+    """نتائج مراحل التقييم اليدوية للمحللين، مستقلة عن قوائم التقييم."""
+
+    __tablename__ = "analyst_evaluation_criteria_results"
+    __table_args__ = (
+        UniqueConstraint("exercise_id", "unit_level_key", name="uq_analyst_eval_criteria_ex_unit"),
+        Index("ix_analyst_eval_criteria_exercise", "exercise_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    exercise_id: Mapped[int] = mapped_column(ForeignKey("exercises.id", ondelete="CASCADE"), index=True)
+    unit_level_key: Mapped[str] = mapped_column(String(64), default="", index=True)
+    preparation_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    operations_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AnalystEvaluationCriteriaUnit(Base):
+    """قائمة وحدات معايير التقييم الخاصة بالمحللين، قابلة للتعديل والحذف."""
+
+    __tablename__ = "analyst_evaluation_criteria_units"
+    __table_args__ = (
+        Index("ix_analyst_eval_criteria_units_exercise", "exercise_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    exercise_id: Mapped[int] = mapped_column(ForeignKey("exercises.id", ondelete="CASCADE"), index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    label: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AnalystEvaluationCriteriaPhaseItem(Base):
+    """معايير وعلامات مرحلة محددة لوحدة ضمن جدول معايير التقييم."""
+
+    __tablename__ = "analyst_evaluation_criteria_phase_items"
+    __table_args__ = (
+        Index("ix_analyst_eval_criteria_phase_unit", "criteria_unit_id", "phase_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    exercise_id: Mapped[int] = mapped_column(ForeignKey("exercises.id", ondelete="CASCADE"), index=True)
+    criteria_unit_id: Mapped[int] = mapped_column(
+        ForeignKey("analyst_evaluation_criteria_units.id", ondelete="CASCADE"),
+        index=True,
+    )
+    phase_key: Mapped[str] = mapped_column(String(32), index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    criteria_text: Mapped[str] = mapped_column(String(1000), default="")
+    allocated_mark: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class JudgeTaskStatusKey(str, enum.Enum):
     LATE = "late"
     ONTIME = "ontime"
