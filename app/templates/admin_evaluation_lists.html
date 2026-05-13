@@ -67,20 +67,20 @@
         <i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i>
         إدراج ملفات التقييم (Excel)
       </h2>
-      <div class="form-group">
-        <label for="unit-level-select-eval-lists"><i class="fa-solid fa-layer-group fa-icon-label" aria-hidden="true"></i> مستوى الوحدة</label>
-        <select id="unit-level-select-eval-lists" class="unit-level-select">
-          {% for u in unit_levels %}
-            <option value="{{ u.key }}" {% if u.key == selected_unit_key %}selected{% endif %}>{{ u.label }}</option>
-          {% endfor %}
-        </select>
-      </div>
       <form method="post" action="{{ url_for('views.admin_evaluation_lists', unit_key=selected_unit_key) }}" enctype="multipart/form-data" class="dilemmas-upload-form">
         <div class="form-group">
           <label for="upload-phase-eval-lists"><i class="fa-solid fa-timeline fa-icon-label" aria-hidden="true"></i> مرحلة التمرين (للملفات الجديدة)</label>
           <select id="upload-phase-eval-lists" name="exercise_phase" class="unit-level-select" aria-label="مرحلة التمرين للملفات المضافة">
             {% for pk, pl in exercise_phase_options %}
               <option value="{{ pk }}" {% if pk == upload_phase_default %}selected{% endif %}>{{ pl }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="unit-level-select-eval-lists"><i class="fa-solid fa-layer-group fa-icon-label" aria-hidden="true"></i> مستوى الوحدة</label>
+          <select id="unit-level-select-eval-lists" class="unit-level-select">
+            {% for u in unit_levels %}
+              <option value="{{ u.key }}" {% if u.key == selected_unit_key %}selected{% endif %}>{{ u.label }}</option>
             {% endfor %}
           </select>
         </div>

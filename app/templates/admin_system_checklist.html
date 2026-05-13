@@ -42,6 +42,12 @@
     font-weight: 700;
     color: var(--brown-700);
   }
+  .system-checklist-row-actions {
+    display: flex;
+    gap: 0.35rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
   @media print {
     header,
     footer,
@@ -92,6 +98,9 @@
   <button type="button" class="btn btn-ghost" id="system-checklist-clear">
     <i class="fa-solid fa-rotate-left" aria-hidden="true"></i> مسح علامات المراجعة
   </button>
+  <button type="button" class="btn" id="system-checklist-add">
+    <i class="fa-solid fa-plus" aria-hidden="true"></i> إضافة
+  </button>
   <button type="button" class="btn" onclick="window.print()">
     <i class="fa-solid fa-print" aria-hidden="true"></i> طباعة / حفظ PDF
   </button>
@@ -111,20 +120,27 @@
         <th scope="col">المحتويات بالتفصيل</th>
         <th scope="col">الإجراءات</th>
         <th scope="col">نقطة التحقق</th>
+        <th scope="col">تحكم</th>
       </tr>
     </thead>
     <tbody>
       {% for r in checklist_rows %}
       <tr data-checklist-row>
         <td><input type="checkbox" data-check-id="system-checklist-{{ r.idx }}" data-row-idx="{{ r.idx }}" aria-label="تمت مراجعة {{ r.page }}"{% if r.reviewed %} checked{% endif %}></td>
-        <td>{{ r.idx }}</td>
-        <td><span class="system-checklist-stage">{{ r.stage }}</span></td>
-        <td><strong>{{ r.page }}</strong></td>
-        <td><code class="system-checklist-path">{{ r.path }}</code></td>
-        <td>{{ r.role }}</td>
-        <td class="system-checklist-table__wide">{{ r.contents }}</td>
-        <td class="system-checklist-table__wide">{{ r.actions }}</td>
-        <td class="system-checklist-table__wide">{{ r.check }}</td>
+        <td data-field="idx">{{ r.idx }}</td>
+        <td data-field="stage"><span class="system-checklist-stage">{{ r.stage }}</span></td>
+        <td data-field="page"><strong>{{ r.page }}</strong></td>
+        <td data-field="path"><code class="system-checklist-path">{{ r.path }}</code></td>
+        <td data-field="role">{{ r.role }}</td>
+        <td data-field="contents" class="system-checklist-table__wide">{{ r.contents }}</td>
+        <td data-field="actions" class="system-checklist-table__wide">{{ r.actions }}</td>
+        <td data-field="check" class="system-checklist-table__wide">{{ r.check }}</td>
+        <td>
+          <div class="system-checklist-row-actions">
+            <button type="button" class="btn btn-ghost" data-checklist-edit><i class="fa-solid fa-pen" aria-hidden="true"></i> تعديل</button>
+            <button type="button" class="btn btn-ghost" data-checklist-delete><i class="fa-solid fa-trash-can" aria-hidden="true"></i> حذف</button>
+          </div>
+        </td>
       </tr>
       {% endfor %}
     </tbody>
@@ -134,19 +150,27 @@
 <script>
 (function () {
   var storagePrefix = "admin-system-checklist:";
-  var checks = Array.from(document.querySelectorAll("[data-check-id]"));
-  var rows = Array.from(document.querySelectorAll("[data-checklist-row]"));
+  var checks = [];
+  var rows = [];
   var progress = document.getElementById("system-checklist-progress");
   var search = document.getElementById("system-checklist-search");
   var clearBtn = document.getElementById("system-checklist-clear");
+  var addBtn = document.getElementById("system-checklist-add");
   var exportForm = document.getElementById("system-checklist-export-form");
+  var tbody = document.querySelector(".system-checklist-table tbody");
+
+  function refreshCollections() {
+    checks = Array.from(document.querySelectorAll("[data-check-id]"));
+    rows = Array.from(document.querySelectorAll("[data-checklist-row]"));
+  }
 
   function updateProgress() {
+    refreshCollections();
     var done = checks.filter(function (c) { return c.checked; }).length;
     if (progress) progress.textContent = done + " / " + checks.length;
   }
 
-  checks.forEach(function (box) {
+  function bindCheckbox(box) {
     var key = storagePrefix + box.getAttribute("data-check-id");
     if (!box.checked) box.checked = localStorage.getItem(key) === "1";
     box.addEventListener("change", function () {
@@ -154,16 +178,134 @@
       else localStorage.removeItem(key);
       updateProgress();
     });
-  });
+  }
+
+  function cell(row, field) {
+    return row.querySelector('[data-field="' + field + '"]');
+  }
+
+  function textOf(row, field) {
+    var el = cell(row, field);
+    return el ? (el.textContent || "").trim() : "";
+  }
+
+  function setText(row, field, value) {
+    var el = cell(row, field);
+    if (!el) return;
+    if (field === "stage") el.innerHTML = '<span class="system-checklist-stage"></span>';
+    else if (field === "page") el.innerHTML = "<strong></strong>";
+    else if (field === "path") el.innerHTML = '<code class="system-checklist-path"></code>';
+    var target = el.querySelector("span,strong,code") || el;
+    target.textContent = value || "";
+  }
+
+  function rowPayload(row) {
+    var box = row.querySelector("[data-check-id]");
+    return {
+      reviewed: !!(box && box.checked),
+      stage: textOf(row, "stage"),
+      page: textOf(row, "page"),
+      path: textOf(row, "path"),
+      role: textOf(row, "role"),
+      contents: textOf(row, "contents"),
+      actions: textOf(row, "actions"),
+      check: textOf(row, "check")
+    };
+  }
+
+  function renumberRows() {
+    refreshCollections();
+    rows.forEach(function (row, idx) {
+      var n = idx + 1;
+      setText(row, "idx", String(n));
+      var box = row.querySelector("[data-check-id]");
+      if (box) {
+        box.setAttribute("data-row-idx", String(n));
+        box.setAttribute("data-check-id", "system-checklist-" + n);
+      }
+    });
+    updateProgress();
+  }
+
+  function editRow(row) {
+    var fields = [
+      ["stage", "المرحلة"],
+      ["page", "الصفحة / الوظيفة"],
+      ["path", "المسار"],
+      ["role", "الدور"],
+      ["contents", "المحتويات بالتفصيل"],
+      ["actions", "الإجراءات"],
+      ["check", "نقطة التحقق"]
+    ];
+    var next = {};
+    for (var i = 0; i < fields.length; i += 1) {
+      var key = fields[i][0];
+      var label = fields[i][1];
+      var val = window.prompt(label, textOf(row, key));
+      if (val === null) return;
+      next[key] = val.trim();
+    }
+    fields.forEach(function (pair) { setText(row, pair[0], next[pair[0]]); });
+    applySearch();
+  }
+
+  function bindRowActions(row) {
+    var editBtn = row.querySelector("[data-checklist-edit]");
+    var deleteBtn = row.querySelector("[data-checklist-delete]");
+    var box = row.querySelector("[data-check-id]");
+    if (box && !box.dataset.bound) {
+      box.dataset.bound = "1";
+      bindCheckbox(box);
+    }
+    if (editBtn && !editBtn.dataset.bound) {
+      editBtn.dataset.bound = "1";
+      editBtn.addEventListener("click", function () { editRow(row); });
+    }
+    if (deleteBtn && !deleteBtn.dataset.bound) {
+      deleteBtn.dataset.bound = "1";
+      deleteBtn.addEventListener("click", function () {
+        if (!window.confirm("حذف هذا الصف من القائمة؟")) return;
+        row.remove();
+        renumberRows();
+      });
+    }
+  }
+
+  function buildRow(data) {
+    var tr = document.createElement("tr");
+    tr.setAttribute("data-checklist-row", "");
+    tr.innerHTML = [
+      '<td><input type="checkbox" data-check-id="" data-row-idx="" aria-label="تمت مراجعة"></td>',
+      '<td data-field="idx"></td>',
+      '<td data-field="stage"><span class="system-checklist-stage"></span></td>',
+      '<td data-field="page"><strong></strong></td>',
+      '<td data-field="path"><code class="system-checklist-path"></code></td>',
+      '<td data-field="role"></td>',
+      '<td data-field="contents" class="system-checklist-table__wide"></td>',
+      '<td data-field="actions" class="system-checklist-table__wide"></td>',
+      '<td data-field="check" class="system-checklist-table__wide"></td>',
+      '<td><div class="system-checklist-row-actions"><button type="button" class="btn btn-ghost" data-checklist-edit><i class="fa-solid fa-pen" aria-hidden="true"></i> تعديل</button><button type="button" class="btn btn-ghost" data-checklist-delete><i class="fa-solid fa-trash-can" aria-hidden="true"></i> حذف</button></div></td>'
+    ].join("");
+    ["stage", "page", "path", "role", "contents", "actions", "check"].forEach(function (key) {
+      setText(tr, key, data[key] || "");
+    });
+    return tr;
+  }
+
+  refreshCollections();
+  rows.forEach(bindRowActions);
+
+  function applySearch() {
+    refreshCollections();
+    var q = (search && search.value || "").trim().toLowerCase();
+    rows.forEach(function (row) {
+      var text = (row.textContent || "").toLowerCase();
+      row.hidden = q && text.indexOf(q) === -1;
+    });
+  }
 
   if (search) {
-    search.addEventListener("input", function () {
-      var q = (search.value || "").trim().toLowerCase();
-      rows.forEach(function (row) {
-        var text = (row.textContent || "").toLowerCase();
-        row.hidden = q && text.indexOf(q) === -1;
-      });
-    });
+    search.addEventListener("input", applySearch);
   }
 
   if (clearBtn) {
@@ -177,9 +319,21 @@
     });
   }
 
+  if (addBtn && tbody) {
+    addBtn.addEventListener("click", function () {
+      var row = buildRow({ stage: "", page: "صفحة جديدة", path: "", role: "", contents: "", actions: "", check: "" });
+      tbody.appendChild(row);
+      bindRowActions(row);
+      renumberRows();
+      editRow(row);
+    });
+  }
+
   if (exportForm) {
     exportForm.addEventListener("submit", function () {
       exportForm.querySelectorAll("input[name='reviewed_idx']").forEach(function (el) { el.remove(); });
+      exportForm.querySelectorAll("input[name='checklist_rows_json']").forEach(function (el) { el.remove(); });
+      refreshCollections();
       checks.forEach(function (box) {
         if (!box.checked) return;
         var input = document.createElement("input");
@@ -188,9 +342,16 @@
         input.value = box.getAttribute("data-row-idx") || "";
         exportForm.appendChild(input);
       });
+      var payload = rows.map(rowPayload);
+      var jsonInput = document.createElement("input");
+      jsonInput.type = "hidden";
+      jsonInput.name = "checklist_rows_json";
+      jsonInput.value = JSON.stringify(payload);
+      exportForm.appendChild(jsonInput);
     });
   }
 
+  renumberRows();
   updateProgress();
 })();
 </script>

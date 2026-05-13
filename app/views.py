@@ -20,7 +20,7 @@ from flask import (
     url_for,
 )
 from werkzeug.utils import secure_filename
-from sqlalchemy import delete, desc, func
+from sqlalchemy import case, delete, desc, func
 from sqlalchemy.orm import joinedload
 
 from app.config import (
@@ -54,6 +54,8 @@ from app.models import (
     VisualDocument,
     InformationBankPhaseNote,
     InformationBankUnitNote,
+    InformationBankTrainingPhase,
+    InformationBankUnitLevel,
     InfoBankEventFlowPdf,
     InfoBankActionEvalXlsx,
     InfoBankDilemmaEvalXlsx,
@@ -84,6 +86,7 @@ from app.permissions import (
     is_analyst,
     is_control,
     is_judge,
+    is_planner,
     is_system_admin,
 )
 from app import exercise_options as ex_opts
@@ -104,8 +107,6 @@ from app.information_bank_catalog import (
     INFO_BANK_UNIT_LEVELS,
     TRAINING_PHASES,
     info_bank_unit_label,
-    is_valid_info_bank_unit_key,
-    is_valid_training_phase_key,
     training_phase_label,
 )
 from app.evaluation_list_columns import (
@@ -331,6 +332,26 @@ def _hashes_of_unit_pdfs(
 
 def _normalized_exercise_phase(val: str | None) -> str:
     return normalize_exercise_phase(val)
+
+
+def _exercise_phase_order_expr(column):
+    return case(
+        {key: idx for idx, key in enumerate(exercise_phase_keys())},
+        value=column,
+        else_=len(exercise_phase_keys()),
+    )
+
+
+def _unit_level_order_expr(column):
+    return case(
+        {row["key"]: idx for idx, row in enumerate(UNIT_LEVELS)},
+        value=column,
+        else_=len(UNIT_LEVELS),
+    )
+
+
+def _can_manage_dilemma_eval_catalog(user: User) -> bool:
+    return is_system_admin(user) or is_planner(user)
 
 
 def _admin_exercise_form_ctx() -> dict:
@@ -793,8 +814,8 @@ def _build_analyst_evaluation_results_dashboard(
         db.query(EvaluationListPdfItem)
         .filter(EvaluationListPdfItem.exercise_id == ex.id)
         .order_by(
-            EvaluationListPdfItem.unit_level_key,
-            EvaluationListPdfItem.exercise_phase,
+            _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
+            _unit_level_order_expr(EvaluationListPdfItem.unit_level_key),
             EvaluationListPdfItem.sort_order,
             EvaluationListPdfItem.id,
         )
@@ -1648,8 +1669,8 @@ def analyst_hub_section(slug: str):
             db.query(EvaluationListPdfItem)
             .filter(EvaluationListPdfItem.exercise_id == ex.id)
             .order_by(
-                EvaluationListPdfItem.unit_level_key,
-                EvaluationListPdfItem.exercise_phase,
+                _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
+                _unit_level_order_expr(EvaluationListPdfItem.unit_level_key),
                 EvaluationListPdfItem.sort_order,
                 EvaluationListPdfItem.id,
             )
@@ -2116,6 +2137,10 @@ def planner_hub_section(slug: str):
     if not can_access_planner_hub(user):
         abort(403)
     slug_norm = (slug or "").strip().lower()
+    if slug_norm == "new-flow":
+        return redirect(url_for("views.admin_dilemmas_home"))
+    if slug_norm == "new-evaluation-list":
+        return redirect(url_for("views.admin_evaluation_lists_home"))
     if slug_norm == "evaluation-lists":
         return redirect(url_for("views.planner_evaluation_lists_home"))
     if slug_norm == "chat-rooms":
@@ -2176,7 +2201,11 @@ def planner_evaluation_lists(unit_key: str):
     items = (
         db.query(EvaluationListPdfItem)
         .filter(EvaluationListPdfItem.exercise_id == ex.id, EvaluationListPdfItem.unit_level_key == unit_key)
-        .order_by(EvaluationListPdfItem.exercise_phase, EvaluationListPdfItem.sort_order, EvaluationListPdfItem.id)
+        .order_by(
+            _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
+            EvaluationListPdfItem.sort_order,
+            EvaluationListPdfItem.id,
+        )
         .all()
     )
     item_ids = [int(it.id) for it in items]
@@ -2522,17 +2551,9 @@ def judge_hub_section(slug: str):
             if uk2 and display and uk2 not in judge_name_by_unit:
                 judge_name_by_unit[uk2] = display
 
-        # نقرأ الربط لكل مراحل التمرين لتكوين قائمة مهام شاملة
-        phases = exercise_phase_keys()
-        report_blocks = []
-        for ph in phases:
-            report_blocks.extend(_build_dilemma_evaluation_unit_report(db, ex.id, exercise_phase=ph))
-
         # تقليص العرض للمحكم إلى وحدته المخصصة (إن وجدت)
         a = _judge_assignment_for_current_exercise(db, user, ex)
         assigned_uk = (getattr(a, "unit_level_key", "") or "").strip() if a else ""
-        if assigned_uk and not is_system_admin(user):
-            report_blocks = [b for b in report_blocks if (b.get("unit_key") or "") == assigned_uk]
 
         # overrides المحفوظة
         overrides = (
@@ -2544,91 +2565,60 @@ def judge_hub_section(slug: str):
         for o in overrides:
             override_map[(o.unit_level_key or "", o.exercise_phase or "", int(o.pair_index or 0))] = o
 
-        # نتائج التقييم الموحّدة (سجل واحد لكل عنصر يظهر لجميع المستخدمين)
-        eval_item_ids: list[int] = []
-        for blk in report_blocks:
-            for p in blk.get("pairs") or []:
-                ev = p.get("evaluation")
-                if ev and ev.get("id") is not None:
-                    try:
-                        eval_item_ids.append(int(ev["id"]))
-                    except Exception:
-                        pass
-        eval_item_ids = sorted(set(eval_item_ids))
+        eval_q = db.query(EvaluationListPdfItem).filter(EvaluationListPdfItem.exercise_id == ex.id)
+        if assigned_uk and not is_system_admin(user):
+            eval_q = eval_q.filter(EvaluationListPdfItem.unit_level_key == assigned_uk)
+        eval_items = (
+            eval_q.order_by(
+                _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
+                _unit_level_order_expr(EvaluationListPdfItem.unit_level_key),
+                EvaluationListPdfItem.sort_order,
+                EvaluationListPdfItem.id,
+            )
+            .all()
+        )
+        eval_item_ids = [int(it.id) for it in eval_items if getattr(it, "id", None) is not None]
         canonical_by_item = _evaluation_canonical_map_for_items(db, ex.id, eval_item_ids)
 
-        now = datetime.utcnow()
+        phase_unit_counter: dict[tuple[str, str], int] = {}
         tasks: list[dict] = []
-        for blk in report_blocks:
-            uk = blk.get("unit_key") or ""
-            ul = blk.get("unit_label") or ""
-            for p in blk.get("pairs") or []:
-                di = p.get("dilemma")
-                ev = p.get("evaluation")
-                if not di:
-                    continue
-                if not ev:
-                    continue
-                dilemma_id = int(di.get("id")) if di and di.get("id") is not None else None
-                eval_item_id = int(ev.get("id")) if ev and ev.get("id") is not None else None
-                if eval_item_id is None:
-                    continue
-                canon = canonical_by_item.get(eval_item_id)
-                saved = canon
-                done_dt = None
-                is_done = False
-                if canon is not None:
-                    is_done = bool(getattr(canon, "is_approved", False))
-                    done_dt = (
-                        getattr(canon, "approved_at", None)
-                        if is_done
-                        else getattr(canon, "updated_at", None)
-                    )
-
-                # مؤشر حالة تلقائي (مع إمكانية override محفوظ)
-                # القاعدة: إن كان التقييم معتمد -> مكتملة، وإلا ضمن الوقت (افتراضي).
-                auto_status = "done" if is_done else "ontime"
-
-                ph = (
-                    (getattr(saved, "exercise_phase", None) if saved is not None else None)
-                    or blk.get("exercise_phase")
-                    or DEFAULT_EXERCISE_PHASE
-                )
-                ph = _normalized_exercise_phase(ph)
-                ph_ar = _phase_label_ar(ph)
-
-                key = (uk, ph, int(p.get("index") or 0))
-                ov = override_map.get(key)
-                status_key = (ov.status_key if ov else "") or auto_status
-
-                # درجة الأسبقية تعتمد على مؤشر الحالة
-                if status_key == "late":
-                    prio = "high"
-                elif status_key == "done":
-                    prio = "low"
-                else:
-                    prio = "medium"
-
-                tasks.append(
-                    {
-                        "task_name": (di.get("text") or "مهمة").strip(),
-                        "judge_name": judge_name_by_unit.get(uk, fallback_judge_name),
-                        "done_dt": done_dt,
-                        "priority_key": prio,
-                        "status_key": status_key,
-                        "unit_key": uk,
-                        "unit_label": ul,
-                        "phase": ph,
-                        "phase_ar": ph_ar,
-                        "pair_index": int(p.get("index") or 0),
-                        "dilemma_id": dilemma_id,
-                        "evaluation_item_id": eval_item_id,
-                        "open_eval_href": url_for("views.judge_evaluation_list_file_viewer", unit_key=uk, item_id=eval_item_id),
-                    }
-                )
-
-        # ترتيب الجدول حسب "اسم المهمة"
-        tasks.sort(key=lambda x: ((x.get("task_name") or "").strip().lower()))
+        for it in eval_items:
+            eval_item_id = int(it.id)
+            uk = (it.unit_level_key or "").strip()
+            ph = _normalized_exercise_phase(getattr(it, "exercise_phase", None))
+            phase_unit_counter[(uk, ph)] = phase_unit_counter.get((uk, ph), 0) + 1
+            item_index = phase_unit_counter[(uk, ph)]
+            canon = canonical_by_item.get(eval_item_id)
+            is_done = bool(canon and getattr(canon, "is_approved", False))
+            done_dt = None
+            if canon is not None:
+                done_dt = getattr(canon, "approved_at", None) if is_done else getattr(canon, "updated_at", None)
+            auto_status = "done" if is_done else "ontime"
+            ov = override_map.get((uk, ph, item_index))
+            status_key = (ov.status_key if ov else "") or auto_status
+            if status_key == "late":
+                prio = "high"
+            elif status_key == "done":
+                prio = "low"
+            else:
+                prio = "medium"
+            tasks.append(
+                {
+                    "task_name": (it.text or "قائمة تقييم").strip(),
+                    "judge_name": judge_name_by_unit.get(uk, fallback_judge_name),
+                    "done_dt": done_dt,
+                    "priority_key": prio,
+                    "status_key": status_key,
+                    "unit_key": uk,
+                    "unit_label": label_for_unit_level_key(uk) or uk,
+                    "phase": ph,
+                    "phase_ar": _phase_label_ar(ph),
+                    "pair_index": item_index,
+                    "dilemma_id": None,
+                    "evaluation_item_id": eval_item_id,
+                    "open_eval_href": url_for("views.judge_evaluation_list_file_viewer", unit_key=uk, item_id=eval_item_id),
+                }
+            )
 
         return render_template(
             "judge_incomplete_tasks.html",
@@ -3142,8 +3132,8 @@ def _control_exercise_performance_report(db, user: User) -> dict:
         db.query(EvaluationListPdfItem)
         .filter(EvaluationListPdfItem.exercise_id == ex0.id)
         .order_by(
-            EvaluationListPdfItem.unit_level_key,
-            EvaluationListPdfItem.exercise_phase,
+            _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
+            _unit_level_order_expr(EvaluationListPdfItem.unit_level_key),
             EvaluationListPdfItem.sort_order,
             EvaluationListPdfItem.id,
         )
@@ -3539,7 +3529,7 @@ def _system_checklist_rows() -> list[dict]:
     add("إدارة النظام", "قائمة المعاضل", "/admin/dilemmas", "إدارة النظام", "رفع ملفات PDF حسب مستوى الوحدة ومرحلة التمرين.", "رفع، فتح، حذف، تغيير المرحلة، مسح المستوى.", "فتح القوائم من مساحة المحكمين.")
     add("إدارة النظام", "قوائم التقييم", "/admin/evaluation-lists", "إدارة النظام", "رفع ملفات Excel حسب مستوى الوحدة ومرحلة التمرين.", "رفع، فتح، حذف، تغيير المرحلة، مسح المستوى.", "فتح القائمة من المحكم وإدخال النتائج.")
     add("إدارة النظام", "إدارة تقييمات الوحدات", "/admin/evaluation-lists/saved-results", "إدارة النظام", "نتائج التقييم المحفوظة والمعتمدة.", "عرض، حذف نتيجة محفوظة.", "تطابق الحالة مع اعتماد المحكم.")
-    add("إدارة النظام", "ربط المعاضل والتقييم", "/admin/dilemmas-evaluation-unit-report", "إدارة النظام", "تقرير ربط المعاضل بقوائم التقييم حسب مستوى الوحدة والمرحلة.", "مراجعة الربط واكتشاف النواقص.", "ظهور المهام غير المكتملة من هذا الربط.")
+    add("إدارة النظام", "الربط المتكامل", "/admin/dilemmas-evaluation-unit-report", "إدارة النظام", "تقرير يربط قائمة الوحدة المتدربة بقائمة المحكمين حسب مستوى الوحدة.", "مراجعة أسماء المتدربين والمحكمين حسب المستوى.", "تطابق مستوى الوحدة بين القائمتين.")
     add("إدارة النظام", "تنظيم المعركة", "/admin/battle-organization", "إدارة النظام", "رموز الوحدات، بيانات المتدربين، بيانات المحكمين، المواقع/التنظيم.", "تعبئة وحفظ تنظيم المعركة.", "انعكاس البيانات في الصورة العامة.")
     add("إدارة النظام", "إدارة المستخدمين", "/admin/users", "إدارة النظام", "المستخدمون، الأدوار، الحالة، كلمة المرور.", "إضافة، تعديل، تعطيل/حذف.", "تطبيق الصلاحيات بعد التعديل.")
     add("إدارة النظام", "غرف المحادثة", "/admin/chat-rooms", "إدارة النظام", "غرف حسب التمرين، النوع، مستوى الوحدة، الأعضاء.", "إنشاء غرفة، إضافة/إزالة أعضاء، أرشفة.", "ظهور الغرفة للأعضاء فقط.")
@@ -3547,7 +3537,7 @@ def _system_checklist_rows() -> list[dict]:
     add("المحكمين", "مساحة المحكمين", "/judge", "محكم / إدارة النظام", "أوامر المحكمين: المعاضل، التقييم، المحادثات، المهام، التوثيق، الإشعارات.", "فتح أقسام المحكم حسب الصلاحية.", "ظهور الأقسام المطلوبة للمحكم.")
     add("المحكمين", "قوائم المعاضل", "/judge/dilemmas", "محكم", "مستويات الوحدة المتاحة وملفات PDF للمعاضل.", "فتح القوائم وملفات PDF.", "حصر المحكم في وحدته المخصصة.")
     add("المحكمين", "قوائم التقييم", "/judge/evaluation-lists", "محكم", "قوائم Excel، إدخال المكتسبة، النسبة، النتيجة، ملاحظات المحكم.", "حفظ النتيجة واعتمادها.", "ظهور النتيجة المعتمدة في المحللين.")
-    add("المحكمين", "مهام غير مكتملة", "/judge/incomplete-tasks", "محكم", "المهام الناتجة من ربط المعاضل والتقييم، الحالة، الأولوية، المكلف.", "تغيير الحالة وفتح قائمة التقييم.", "تطابق اسم المحكم مع قائمة المحكمين.")
+    add("المحكمين", "مهام غير مكتملة", "/judge/incomplete-tasks", "محكم", "مهام قوائم التقييم حسب مرحلة التمرين ثم مستوى الوحدة، الحالة، الأولوية، المكلف.", "تغيير الحالة وفتح قائمة التقييم.", "تطابق اسم المحكم مع قائمة المحكمين.")
     add("المحكمين", "التوثيق المرئي", "/visual-documentation", "محكم / سيطرة / تخطيط / إدارة", "رفع ملف، تصوير بالكاميرا، تسجيل صوتي، وصف، موقع، ربط بمعضلة.", "رفع صورة/فيديو/صوت وفتح السجل.", "ظهور المادة في سجل التوثيق.")
     add("المحادثات", "غرف المحادثة", "/chat-rooms", "الأعضاء حسب الغرفة", "قائمة غرف المستخدم، آخر نشاط، نوع الغرفة.", "فتح غرفة وإرسال رسائل/ملفات.", "وصول الإشعار للعضو عند رسالة جديدة.")
     add("المحادثات", "تفاصيل غرفة", "/chat-rooms/<id>", "الأعضاء حسب الغرفة", "رسائل نصية، ملفات، قراءات الأعضاء.", "إرسال رسالة، رفع ملف، تنزيل ملف.", "حفظ الرسالة وظهور حالة القراءة.")
@@ -3681,9 +3671,35 @@ def admin_system_checklist_export():
     if not can_manage_users(user):
         abort(403)
     checked = set(request.form.getlist("reviewed_idx"))
+    custom_rows_raw = (request.form.get("checklist_rows_json") or "").strip()
     rows = _system_checklist_rows()
+    if custom_rows_raw:
+        try:
+            payload = json.loads(custom_rows_raw)
+        except Exception:
+            payload = []
+        if isinstance(payload, list):
+            parsed_rows: list[dict] = []
+            for item in payload[:500]:
+                if not isinstance(item, dict):
+                    continue
+                parsed_rows.append(
+                    {
+                        "idx": len(parsed_rows) + 1,
+                        "reviewed": bool(item.get("reviewed")),
+                        "stage": str(item.get("stage") or "")[:500],
+                        "page": str(item.get("page") or "")[:500],
+                        "path": str(item.get("path") or "")[:500],
+                        "role": str(item.get("role") or "")[:500],
+                        "contents": str(item.get("contents") or "")[:2000],
+                        "actions": str(item.get("actions") or "")[:2000],
+                        "check": str(item.get("check") or "")[:2000],
+                    }
+                )
+            if parsed_rows:
+                rows = parsed_rows
     for r in rows:
-        r["reviewed"] = str(r.get("idx")) in checked
+        r["reviewed"] = bool(r.get("reviewed")) or str(r.get("idx")) in checked
     bio = _system_checklist_export_xlsx(rows)
     return send_file(
         bio,
@@ -4392,7 +4408,7 @@ def admin_exercise_open_export():
 @bp.route("/admin/evaluation-lists/<unit_key>/view/<int:item_id>", methods=["GET"])
 def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
     user = get_current_user_optional()
-    if not user or not is_system_admin(user):
+    if not user or not _can_manage_dilemma_eval_catalog(user):
         abort(403)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
@@ -4660,7 +4676,7 @@ def analyst_evaluation_list_file_viewer(unit_key: str, item_id: int):
 @bp.route("/admin/evaluation-lists/<unit_key>/item/<int:item_id>/file", methods=["GET"])
 def admin_evaluation_list_file(unit_key: str, item_id: int):
     user = get_current_user_optional()
-    if not user or not is_system_admin(user):
+    if not user or not _can_manage_dilemma_eval_catalog(user):
         abort(403)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
@@ -4693,7 +4709,7 @@ def admin_evaluation_list_file(unit_key: str, item_id: int):
 )
 def admin_evaluation_list_delete_item(unit_key: str, item_id: int):
     user = get_current_user_optional()
-    if not user or not is_system_admin(user):
+    if not user or not _can_manage_dilemma_eval_catalog(user):
         abort(403)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
@@ -4722,7 +4738,7 @@ def admin_evaluation_list_delete_item(unit_key: str, item_id: int):
 )
 def admin_evaluation_list_set_phase(unit_key: str, item_id: int):
     user = get_current_user_optional()
-    if not user or not is_system_admin(user):
+    if not user or not _can_manage_dilemma_eval_catalog(user):
         abort(403)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
@@ -4749,7 +4765,7 @@ def admin_evaluation_list_set_phase(unit_key: str, item_id: int):
 )
 def admin_evaluation_list_save_results(unit_key: str, item_id: int):
     user = get_current_user_optional()
-    if not user or not is_system_admin(user):
+    if not user or not _can_manage_dilemma_eval_catalog(user):
         abort(403)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
@@ -4901,7 +4917,11 @@ def judge_dilemmas(unit_key: str):
     items = (
         db.query(DilemmaItem)
         .filter(DilemmaItem.exercise_id == ex.id, DilemmaItem.unit_level_key == unit_key)
-        .order_by(DilemmaItem.exercise_phase, DilemmaItem.sort_order, DilemmaItem.id)
+        .order_by(
+            _exercise_phase_order_expr(DilemmaItem.exercise_phase),
+            DilemmaItem.sort_order,
+            DilemmaItem.id,
+        )
         .all()
     )
     return render_template(
@@ -4991,7 +5011,11 @@ def judge_evaluation_lists(unit_key: str):
     items = (
         db.query(EvaluationListPdfItem)
         .filter(EvaluationListPdfItem.exercise_id == ex.id, EvaluationListPdfItem.unit_level_key == unit_key)
-        .order_by(EvaluationListPdfItem.exercise_phase, EvaluationListPdfItem.sort_order, EvaluationListPdfItem.id)
+        .order_by(
+            _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
+            EvaluationListPdfItem.sort_order,
+            EvaluationListPdfItem.id,
+        )
         .all()
     )
 
@@ -5309,7 +5333,7 @@ def admin_evaluation_saved_results_delete(saved_id: int):
 @bp.route("/admin/evaluation-lists/<unit_key>/clear", methods=["POST"])
 def admin_evaluation_list_clear(unit_key: str):
     user = get_current_user_optional()
-    if not user or not is_system_admin(user):
+    if not user or not _can_manage_dilemma_eval_catalog(user):
         abort(403)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
@@ -5334,7 +5358,7 @@ def admin_evaluation_list_clear(unit_key: str):
 @bp.route("/admin/evaluation-lists/<unit_key>", methods=["GET", "POST"])
 def admin_evaluation_lists(unit_key: str):
     user = get_current_user_optional()
-    if not user or not is_system_admin(user):
+    if not user or not _can_manage_dilemma_eval_catalog(user):
         abort(403)
     from flask import g
 
@@ -5473,7 +5497,7 @@ def admin_evaluation_lists(unit_key: str):
     else:
         existing_q = existing_q.filter(EvaluationListPdfItem.exercise_id == -1)
     existing = existing_q.order_by(
-        EvaluationListPdfItem.exercise_phase,
+        _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
         EvaluationListPdfItem.sort_order,
         EvaluationListPdfItem.id,
     ).all()
@@ -5499,7 +5523,7 @@ def admin_evaluation_lists_home():
     user = get_current_user_optional()
     if not user:
         return redirect("/login?next=/admin/evaluation-lists")
-    if not is_system_admin(user):
+    if not _can_manage_dilemma_eval_catalog(user):
         abort(403)
     first = UNIT_LEVELS[0]["key"] if UNIT_LEVELS else "brigade_group"
     return redirect(url_for("views.admin_evaluation_lists", unit_key=first))
@@ -5511,84 +5535,12 @@ def _build_dilemma_evaluation_unit_report(
     *,
     exercise_phase: str | None = None,
 ) -> list[dict]:
-    """يجمع المعاضل وقوائم التقييم لكل مستوى وحدة داخل التمرين الحالي ويقترنها حسب ترتيب الحفظ (sort_order)."""
+    """يعرض ربط مستويات الوحدات بين قائمة الوحدة المتدربة وقائمة المحكمين فقط."""
     phase = _normalized_exercise_phase(exercise_phase)
     out: list[dict] = []
     for unit in UNIT_LEVELS:
         uk = unit["key"]
         ul = unit["label"]
-        d_q = db.query(DilemmaItem).filter(DilemmaItem.unit_level_key == uk)
-        e_q = db.query(EvaluationListPdfItem).filter(EvaluationListPdfItem.unit_level_key == uk)
-        d_q = d_q.filter(DilemmaItem.exercise_phase == phase)
-        e_q = e_q.filter(EvaluationListPdfItem.exercise_phase == phase)
-        if exercise_id is not None:
-            d_q = d_q.filter(DilemmaItem.exercise_id == exercise_id)
-            e_q = e_q.filter(EvaluationListPdfItem.exercise_id == exercise_id)
-        else:
-            d_q = d_q.filter(DilemmaItem.exercise_id == -1)
-            e_q = e_q.filter(EvaluationListPdfItem.exercise_id == -1)
-        d_rows = d_q.order_by(DilemmaItem.sort_order, DilemmaItem.id).all()
-        e_rows = e_q.order_by(EvaluationListPdfItem.sort_order, EvaluationListPdfItem.id).all()
-
-        def _d_pack(r: DilemmaItem) -> dict:
-            return {
-                "id": r.id,
-                "text": (r.text or "")[:220],
-                "sort_order": r.sort_order,
-                "has_file": bool((r.pdf_relpath or "").strip()),
-            }
-
-        dilemmas = [_d_pack(r) for r in d_rows]
-        evals = [
-            {
-                "id": r.id,
-                "text": (r.text or "")[:220],
-                "sort_order": r.sort_order,
-                "has_file": bool((r.pdf_relpath or "").strip()),
-            }
-            for r in e_rows
-        ]
-        n_d, n_e = len(dilemmas), len(evals)
-        max_n = max(n_d, n_e)
-        pairs: list[dict] = []
-        for i in range(max_n):
-            d = dilemmas[i] if i < n_d else None
-            e = evals[i] if i < n_e else None
-            if d and e:
-                st, st_ar = "paired", "صف مقترَح — معضلة وتقييم في نفس موضع الترتيب"
-            elif d and not e:
-                st, st_ar = "dilemma_only", "معضلة دون عنصر تقييم في نفس الموضع"
-            elif e and not d:
-                st, st_ar = "eval_only", "تقييم دون معضلة في نفس الموضع"
-            else:
-                st, st_ar = "empty", ""
-            pairs.append(
-                {
-                    "index": i + 1,
-                    "dilemma": d,
-                    "evaluation": e,
-                    "status": st,
-                    "status_ar": st_ar,
-                }
-            )
-
-        if n_d == 0 and n_e == 0:
-            balance_ar, balance_key = "لا عناصر في هذا المستوى", "empty"
-        elif n_d == n_e and n_d > 0:
-            balance_ar, balance_key = (
-                f"عدد متساوٍ ({n_d}) — يمكن قراءة الصفوف كأزواج بالترتيب",
-                "balanced",
-            )
-        elif n_d > n_e:
-            balance_ar, balance_key = (
-                f"المعاضل أكثر ({n_d} مقابل {n_e})",
-                "more_dilemmas",
-            )
-        else:
-            balance_ar, balance_key = (
-                f"قوائم التقييم أكثر ({n_e} مقابل {n_d})",
-                "more_evals",
-            )
 
         def _pack_roster_row(r: ExerciseRosterRow) -> dict:
             return {
@@ -5630,13 +5582,8 @@ def _build_dilemma_evaluation_unit_report(
                 "unit_key": uk,
                 "unit_label": ul,
                 "exercise_phase": phase,
-                "n_dilemmas": n_d,
-                "n_evaluations": n_e,
                 "n_trainees": len(trainees),
                 "n_judges": len(judges),
-                "balance_key": balance_key,
-                "balance_ar": balance_ar,
-                "pairs": pairs,
                 "trainees": trainees,
                 "judges": judges,
             }
@@ -5780,7 +5727,7 @@ def admin_battle_organization_save():
 @bp.route("/admin/dilemmas/")
 def admin_dilemmas_home():
     user = get_current_user_optional()
-    if not user or not is_system_admin(user):
+    if not user or not _can_manage_dilemma_eval_catalog(user):
         abort(403)
     first = UNIT_LEVELS[0]["key"] if UNIT_LEVELS else "brigade_group"
     return redirect(url_for("views.admin_dilemmas", unit_key=first))
@@ -5789,7 +5736,7 @@ def admin_dilemmas_home():
 @bp.route("/admin/dilemmas/<unit_key>", methods=["GET", "POST"])
 def admin_dilemmas(unit_key: str):
     user = get_current_user_optional()
-    if not user or not is_system_admin(user):
+    if not user or not _can_manage_dilemma_eval_catalog(user):
         abort(403)
     from flask import g
 
@@ -5924,7 +5871,7 @@ def admin_dilemmas(unit_key: str):
     else:
         existing_q = existing_q.filter(DilemmaItem.exercise_id == -1)
     existing = existing_q.order_by(
-        DilemmaItem.exercise_phase,
+        _exercise_phase_order_expr(DilemmaItem.exercise_phase),
         DilemmaItem.sort_order,
         DilemmaItem.id,
     ).all()
@@ -5947,7 +5894,7 @@ def admin_dilemmas(unit_key: str):
 @bp.route("/admin/dilemmas/<unit_key>/view/<int:item_id>", methods=["GET"])
 def admin_dilemma_viewer(unit_key: str, item_id: int):
     user = get_current_user_optional()
-    if not user or not is_system_admin(user):
+    if not user or not _can_manage_dilemma_eval_catalog(user):
         abort(403)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
@@ -5982,7 +5929,7 @@ def admin_dilemma_viewer(unit_key: str, item_id: int):
 @bp.route("/admin/dilemmas/<unit_key>/item/<int:item_id>/pdf", methods=["GET"])
 def admin_dilemma_pdf_file(unit_key: str, item_id: int):
     user = get_current_user_optional()
-    if not user or not is_system_admin(user):
+    if not user or not _can_manage_dilemma_eval_catalog(user):
         abort(403)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
@@ -6006,7 +5953,7 @@ def admin_dilemma_pdf_file(unit_key: str, item_id: int):
 @bp.route("/admin/dilemmas/<unit_key>/item/<int:item_id>/delete", methods=["POST"])
 def admin_dilemmas_delete_item(unit_key: str, item_id: int):
     user = get_current_user_optional()
-    if not user or not is_system_admin(user):
+    if not user or not _can_manage_dilemma_eval_catalog(user):
         abort(403)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
@@ -6035,7 +5982,7 @@ def admin_dilemmas_delete_item(unit_key: str, item_id: int):
 )
 def admin_dilemmas_set_phase(unit_key: str, item_id: int):
     user = get_current_user_optional()
-    if not user or not is_system_admin(user):
+    if not user or not _can_manage_dilemma_eval_catalog(user):
         abort(403)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
@@ -6059,7 +6006,7 @@ def admin_dilemmas_set_phase(unit_key: str, item_id: int):
 @bp.route("/admin/dilemmas/<unit_key>/clear", methods=["POST"])
 def admin_dilemmas_clear(unit_key: str):
     user = get_current_user_optional()
-    if not user or not is_system_admin(user):
+    if not user or not _can_manage_dilemma_eval_catalog(user):
         abort(403)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
@@ -6097,6 +6044,80 @@ def _info_bank_next_sort_order(db, model, phase: str, unit: str) -> int:
     return (int(mx) if mx is not None else -1) + 1
 
 
+def _ensure_information_bank_catalog_rows(db) -> None:
+    if db.query(InformationBankTrainingPhase).first() is None:
+        for idx, row in enumerate(TRAINING_PHASES):
+            db.add(
+                InformationBankTrainingPhase(
+                    key=row["key"],
+                    label=row["label"],
+                    sort_order=idx,
+                    is_system=True,
+                )
+            )
+    if db.query(InformationBankUnitLevel).first() is None:
+        for idx, row in enumerate(INFO_BANK_UNIT_LEVELS):
+            db.add(
+                InformationBankUnitLevel(
+                    key=row["key"],
+                    label=row["label"],
+                    sort_order=idx,
+                    is_system=True,
+                )
+            )
+    db.commit()
+
+
+def _information_bank_training_phases(db) -> list[dict[str, str]]:
+    _ensure_information_bank_catalog_rows(db)
+    rows = (
+        db.query(InformationBankTrainingPhase)
+        .order_by(InformationBankTrainingPhase.sort_order, InformationBankTrainingPhase.created_at, InformationBankTrainingPhase.key)
+        .all()
+    )
+    return [{"key": r.key, "label": r.label} for r in rows if (r.key or "").strip()]
+
+
+def _information_bank_unit_levels(db) -> list[dict[str, str]]:
+    _ensure_information_bank_catalog_rows(db)
+    rows = (
+        db.query(InformationBankUnitLevel)
+        .order_by(InformationBankUnitLevel.sort_order, InformationBankUnitLevel.created_at, InformationBankUnitLevel.key)
+        .all()
+    )
+    return [{"key": r.key, "label": r.label} for r in rows if (r.key or "").strip()]
+
+
+def _information_bank_training_phase_label(db, key: str | None) -> str:
+    k = (key or "").strip()
+    for row in _information_bank_training_phases(db):
+        if row["key"] == k:
+            return row["label"]
+    return training_phase_label(k)
+
+
+def _information_bank_unit_label(db, key: str | None) -> str:
+    k = (key or "").strip()
+    for row in _information_bank_unit_levels(db):
+        if row["key"] == k:
+            return row["label"]
+    return info_bank_unit_label(k)
+
+
+def _is_valid_information_bank_phase(db, key: str | None) -> bool:
+    k = (key or "").strip()
+    return any(row["key"] == k for row in _information_bank_training_phases(db))
+
+
+def _is_valid_information_bank_unit(db, key: str | None) -> bool:
+    k = (key or "").strip()
+    return any(row["key"] == k for row in _information_bank_unit_levels(db))
+
+
+def _custom_catalog_key(prefix: str) -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:12]}"
+
+
 @bp.route("/admin/information-bank", methods=["GET"])
 def admin_information_bank():
     user = get_current_user_optional()
@@ -6107,6 +6128,8 @@ def admin_information_bank():
     from flask import g
 
     db = g.db
+    training_phases = _information_bank_training_phases(db)
+    info_bank_units = _information_bank_unit_levels(db)
     phase_notes = {r.phase_key: r.notes for r in db.query(InformationBankPhaseNote).all()}
     unit_notes = {r.unit_level_key: r.notes for r in db.query(InformationBankUnitNote).all()}
     flows = (
@@ -6141,21 +6164,25 @@ def admin_information_bank():
     )
     err = (request.args.get("err") or "").strip()[:2000]
     ok = (request.args.get("ok") or "").strip()[:500]
+    active_tab = (request.args.get("tab") or "phases").strip()
+    if active_tab not in {"phases", "units", "event-flow", "action-eval", "dilemma-eval"}:
+        active_tab = "phases"
     return render_template(
         "admin_information_bank.html",
         **_ctx(
             user,
-            training_phases=TRAINING_PHASES,
-            info_bank_units=INFO_BANK_UNIT_LEVELS,
+            training_phases=training_phases,
+            info_bank_units=info_bank_units,
             phase_notes=phase_notes,
             unit_notes=unit_notes,
             flows=flows,
             actions=actions,
             dilemmas_x=dilemmas_x,
-            training_phase_label=training_phase_label,
-            info_bank_unit_label=info_bank_unit_label,
+            training_phase_label=lambda key: _information_bank_training_phase_label(db, key),
+            info_bank_unit_label=lambda key: _information_bank_unit_label(db, key),
             error=err,
             ok_msg=ok,
+            active_tab=active_tab,
             information_bank_can_manage=can_manage_information_bank(user),
         ),
     )
@@ -6203,6 +6230,92 @@ def admin_information_bank_unit_notes():
     return redirect(url_for("views.admin_information_bank", ok="تم حفظ بيانات مستويات الوحدات."))
 
 
+@bp.route("/admin/information-bank/phases/add", methods=["POST"])
+def admin_information_bank_phase_add():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    label = (request.form.get("phase_label") or "").strip()[:300]
+    if not label:
+        return redirect(url_for("views.admin_information_bank", tab="phases", err="أدخل اسم المرحلة."))
+    db = g.db
+    _ensure_information_bank_catalog_rows(db)
+    mx = db.query(func.max(InformationBankTrainingPhase.sort_order)).scalar()
+    next_order = (int(mx) if mx is not None else -1) + 1
+    db.add(
+        InformationBankTrainingPhase(
+            key=_custom_catalog_key("phase"),
+            label=label,
+            sort_order=next_order,
+            is_system=False,
+        )
+    )
+    db.commit()
+    return redirect(url_for("views.admin_information_bank", tab="phases", ok="تمت إضافة مرحلة التمرين."))
+
+
+@bp.route("/admin/information-bank/phases/delete", methods=["POST"])
+def admin_information_bank_phase_delete():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    key = (request.form.get("phase_key") or "").strip()
+    db = g.db
+    row = db.get(InformationBankTrainingPhase, key)
+    if row is None:
+        return redirect(url_for("views.admin_information_bank", tab="phases", err="اختر مرحلة صالحة للحذف."))
+    db.delete(row)
+    db.commit()
+    return redirect(url_for("views.admin_information_bank", tab="phases", ok="تم حذف مرحلة التمرين."))
+
+
+@bp.route("/admin/information-bank/units/add", methods=["POST"])
+def admin_information_bank_unit_add():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    label = (request.form.get("unit_label") or "").strip()[:300]
+    if not label:
+        return redirect(url_for("views.admin_information_bank", tab="units", err="أدخل اسم مستوى الوحدة."))
+    db = g.db
+    _ensure_information_bank_catalog_rows(db)
+    mx = db.query(func.max(InformationBankUnitLevel.sort_order)).scalar()
+    next_order = (int(mx) if mx is not None else -1) + 1
+    db.add(
+        InformationBankUnitLevel(
+            key=_custom_catalog_key("unit"),
+            label=label,
+            sort_order=next_order,
+            is_system=False,
+        )
+    )
+    db.commit()
+    return redirect(url_for("views.admin_information_bank", tab="units", ok="تمت إضافة مستوى الوحدة."))
+
+
+@bp.route("/admin/information-bank/units/delete", methods=["POST"])
+def admin_information_bank_unit_delete():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    key = (request.form.get("unit_key") or "").strip()
+    db = g.db
+    row = db.get(InformationBankUnitLevel, key)
+    if row is None:
+        return redirect(url_for("views.admin_information_bank", tab="units", err="اختر مستوى وحدة صالحاً للحذف."))
+    db.delete(row)
+    db.commit()
+    return redirect(url_for("views.admin_information_bank", tab="units", ok="تم حذف مستوى الوحدة."))
+
+
 @bp.route("/admin/information-bank/event-flow/upload", methods=["POST"])
 def admin_information_bank_event_flow_upload():
     user = get_current_user_optional()
@@ -6213,11 +6326,11 @@ def admin_information_bank_event_flow_upload():
     db = g.db
     phase = (request.form.get("training_phase_key") or "").strip()
     unit = (request.form.get("unit_level_key") or "").strip()
-    if not is_valid_training_phase_key(phase) or not is_valid_info_bank_unit_key(unit):
-        return redirect(url_for("views.admin_information_bank", err="مرحلة أو مستوى وحدة غير صالح."))
+    if not _is_valid_information_bank_phase(db, phase) or not _is_valid_information_bank_unit(db, unit):
+        return redirect(url_for("views.admin_information_bank", tab="event-flow", err="مرحلة أو مستوى وحدة غير صالح."))
     files = [x for x in request.files.getlist("file") if x and getattr(x, "filename", "").strip()]
     if not files:
-        return redirect(url_for("views.admin_information_bank", err="اختر ملفاً واحداً على الأقل (PDF أو Word)."))
+        return redirect(url_for("views.admin_information_bank", tab="event-flow", err="اختر ملفاً واحداً على الأقل (PDF أو Word)."))
     INFO_BANK_DIR.mkdir(parents=True, exist_ok=True)
     sub = INFO_BANK_DIR / "event_flow"
     sub.mkdir(parents=True, exist_ok=True)
@@ -6258,11 +6371,11 @@ def admin_information_bank_event_flow_upload():
         db.rollback()
     err_q = " ".join(errors)[:2000] if errors else ""
     if not added:
-        return redirect(url_for("views.admin_information_bank", err=err_q or "لم تُضف أي ملف."))
+        return redirect(url_for("views.admin_information_bank", tab="event-flow", err=err_q or "لم تُضف أي ملف."))
     ok_msg = f"تمت إضافة {added} ملف(ات) لمجرى الأحداث والمعاضل."
     if err_q:
-        return redirect(url_for("views.admin_information_bank", ok=ok_msg, err=f"تجاهل أو فشل بعض الملفات: {err_q}"))
-    return redirect(url_for("views.admin_information_bank", ok=ok_msg))
+        return redirect(url_for("views.admin_information_bank", tab="event-flow", ok=ok_msg, err=f"تجاهل أو فشل بعض الملفات: {err_q}"))
+    return redirect(url_for("views.admin_information_bank", tab="event-flow", ok=ok_msg))
 
 
 @bp.route("/admin/information-bank/event-flow/<int:item_id>/delete", methods=["POST"])
@@ -6280,7 +6393,7 @@ def admin_information_bank_event_flow_delete(item_id: int):
         _unlink_info_bank_file("event_flow", row.file_relpath)
     db.delete(row)
     db.commit()
-    return redirect(url_for("views.admin_information_bank", ok="تم حذف ملف مجرى الأحداث."))
+    return redirect(url_for("views.admin_information_bank", tab="event-flow", ok="تم حذف ملف مجرى الأحداث."))
 
 
 @bp.route("/admin/information-bank/action-eval/upload", methods=["POST"])
@@ -6293,11 +6406,11 @@ def admin_information_bank_action_eval_upload():
     db = g.db
     phase = (request.form.get("training_phase_key") or "").strip()
     unit = (request.form.get("unit_level_key") or "").strip()
-    if not is_valid_training_phase_key(phase) or not is_valid_info_bank_unit_key(unit):
-        return redirect(url_for("views.admin_information_bank", err="مرحلة أو مستوى وحدة غير صالح."))
+    if not _is_valid_information_bank_phase(db, phase) or not _is_valid_information_bank_unit(db, unit):
+        return redirect(url_for("views.admin_information_bank", tab="action-eval", err="مرحلة أو مستوى وحدة غير صالح."))
     files = [x for x in request.files.getlist("file") if x and getattr(x, "filename", "").strip()]
     if not files:
-        return redirect(url_for("views.admin_information_bank", err="اختر ملفاً واحداً على الأقل (.xlsx)."))
+        return redirect(url_for("views.admin_information_bank", tab="action-eval", err="اختر ملفاً واحداً على الأقل (.xlsx)."))
     sort_next = _info_bank_next_sort_order(db, InfoBankActionEvalXlsx, phase, unit)
     added = 0
     errors: list[str] = []
@@ -6335,11 +6448,11 @@ def admin_information_bank_action_eval_upload():
         db.rollback()
     err_q = " ".join(errors)[:2000] if errors else ""
     if not added:
-        return redirect(url_for("views.admin_information_bank", err=err_q or "لم تُضف أي ملف."))
+        return redirect(url_for("views.admin_information_bank", tab="action-eval", err=err_q or "لم تُضف أي ملف."))
     ok_msg = f"تمت إضافة {added} ملف(ات) لتقييم الإجراءات."
     if err_q:
-        return redirect(url_for("views.admin_information_bank", ok=ok_msg, err=f"تجاهل أو فشل بعض الملفات: {err_q}"))
-    return redirect(url_for("views.admin_information_bank", ok=ok_msg))
+        return redirect(url_for("views.admin_information_bank", tab="action-eval", ok=ok_msg, err=f"تجاهل أو فشل بعض الملفات: {err_q}"))
+    return redirect(url_for("views.admin_information_bank", tab="action-eval", ok=ok_msg))
 
 
 @bp.route("/admin/information-bank/action-eval/<int:item_id>/delete", methods=["POST"])
@@ -6357,7 +6470,7 @@ def admin_information_bank_action_eval_delete(item_id: int):
         _unlink_info_bank_file("action_eval", row.file_relpath)
     db.delete(row)
     db.commit()
-    return redirect(url_for("views.admin_information_bank", ok="تم حذف قائمة تقييم الإجراءات."))
+    return redirect(url_for("views.admin_information_bank", tab="action-eval", ok="تم حذف قائمة تقييم الإجراءات."))
 
 
 @bp.route("/admin/information-bank/dilemma-eval/upload", methods=["POST"])
@@ -6370,11 +6483,11 @@ def admin_information_bank_dilemma_eval_upload():
     db = g.db
     phase = (request.form.get("training_phase_key") or "").strip()
     unit = (request.form.get("unit_level_key") or "").strip()
-    if not is_valid_training_phase_key(phase) or not is_valid_info_bank_unit_key(unit):
-        return redirect(url_for("views.admin_information_bank", err="مرحلة أو مستوى وحدة غير صالح."))
+    if not _is_valid_information_bank_phase(db, phase) or not _is_valid_information_bank_unit(db, unit):
+        return redirect(url_for("views.admin_information_bank", tab="dilemma-eval", err="مرحلة أو مستوى وحدة غير صالح."))
     files = [x for x in request.files.getlist("file") if x and getattr(x, "filename", "").strip()]
     if not files:
-        return redirect(url_for("views.admin_information_bank", err="اختر ملفاً واحداً على الأقل (.xlsx)."))
+        return redirect(url_for("views.admin_information_bank", tab="dilemma-eval", err="اختر ملفاً واحداً على الأقل (.xlsx)."))
     sort_next = _info_bank_next_sort_order(db, InfoBankDilemmaEvalXlsx, phase, unit)
     added = 0
     errors: list[str] = []
@@ -6412,11 +6525,11 @@ def admin_information_bank_dilemma_eval_upload():
         db.rollback()
     err_q = " ".join(errors)[:2000] if errors else ""
     if not added:
-        return redirect(url_for("views.admin_information_bank", err=err_q or "لم تُضف أي ملف."))
+        return redirect(url_for("views.admin_information_bank", tab="dilemma-eval", err=err_q or "لم تُضف أي ملف."))
     ok_msg = f"تمت إضافة {added} ملف(ات) لتقييم المعاضل."
     if err_q:
-        return redirect(url_for("views.admin_information_bank", ok=ok_msg, err=f"تجاهل أو فشل بعض الملفات: {err_q}"))
-    return redirect(url_for("views.admin_information_bank", ok=ok_msg))
+        return redirect(url_for("views.admin_information_bank", tab="dilemma-eval", ok=ok_msg, err=f"تجاهل أو فشل بعض الملفات: {err_q}"))
+    return redirect(url_for("views.admin_information_bank", tab="dilemma-eval", ok=ok_msg))
 
 
 @bp.route("/admin/information-bank/dilemma-eval/<int:item_id>/delete", methods=["POST"])
@@ -6434,7 +6547,7 @@ def admin_information_bank_dilemma_eval_delete(item_id: int):
         _unlink_info_bank_file("dilemma_eval", row.file_relpath)
     db.delete(row)
     db.commit()
-    return redirect(url_for("views.admin_information_bank", ok="تم حذف قائمة تقييم المعاضل."))
+    return redirect(url_for("views.admin_information_bank", tab="dilemma-eval", ok="تم حذف قائمة تقييم المعاضل."))
 
 
 @bp.route("/admin/information-bank/file/event-flow/<int:item_id>", methods=["GET"])

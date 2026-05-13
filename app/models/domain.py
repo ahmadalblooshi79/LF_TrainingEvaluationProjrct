@@ -273,11 +273,7 @@ class JudgeTraineeAssignment(Base):
 
 
 class DilemmaItem(Base):
-    """
-    عنصر معضلة بصيغة PDF لكل مستوى وحدة، مرتبط بالتمرين الحالي.
-    العلاقة مع قوائم التقييم: نفس المفتاح ``unit_level_key`` المستخدم في ``EvaluationListPdfItem``
-    يربط القائمتين لنفس مستوى الوحدة داخل نفس التمرين.
-    """
+    """عنصر معضلة بصيغة PDF لكل مستوى وحدة، مرتبط بالتمرين الحالي دون ربط بقوائم التقييم."""
 
     __tablename__ = "dilemma_items"
 
@@ -295,10 +291,7 @@ class DilemmaItem(Base):
 
 
 class EvaluationListPdfItem(Base):
-    """
-    عناصر قوائم التقييم (ملفات Excel) لكل مستوى وحدة، مرتبطة بالتمرين الحالي؛ ``pdf_relpath`` يخزّن مسار ملف .xlsx.
-    العلاقة مع المعاضل: يشارك ``DilemmaItem`` نفس ``unit_level_key`` داخل نفس التمرين.
-    """
+    """عناصر قوائم التقييم (ملفات Excel) لكل مستوى وحدة ومرحلة، مستقلة عن المعاضل."""
 
     __tablename__ = "evaluation_list_pdf_items"
 
@@ -408,7 +401,7 @@ class JudgeTaskStatusKey(str, enum.Enum):
 
 
 class JudgeIncompleteTaskStatus(Base):
-    """حالة مهمة (معضلة + تقييم) لكل محكم داخل تمرين."""
+    """حالة مهمة تقييم لكل محكم داخل تمرين."""
 
     __tablename__ = "judge_incomplete_task_status"
     __table_args__ = (
@@ -691,6 +684,36 @@ class InformationBankUnitNote(Base):
 
     unit_level_key: Mapped[str] = mapped_column(String(128), primary_key=True)
     notes: Mapped[str] = mapped_column(Text(), default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class InformationBankTrainingPhase(Base):
+    """كتالوج مراحل التمرين في بنك المعلومات، قابل للإضافة والحذف."""
+
+    __tablename__ = "information_bank_training_phases"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    label: Mapped[str] = mapped_column(String(300), default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class InformationBankUnitLevel(Base):
+    """كتالوج مستويات الوحدات في بنك المعلومات، قابل للإضافة والحذف."""
+
+    __tablename__ = "information_bank_unit_levels"
+
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    label: Mapped[str] = mapped_column(String(300), default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )

@@ -33,114 +33,96 @@
 <section class="card ibank-card ibank-card--tabbed">
   <div class="ibank-tabbed">
     <div class="ibank-tabs-row" dir="rtl" role="tablist" aria-label="تبويبات بنك المعلومات">
-      <button type="button" class="ibank-tab is-active" data-tab-btn="phases" role="tab" aria-selected="true">مراحل التمرين</button>
-      <button type="button" class="ibank-tab" data-tab-btn="units" role="tab" aria-selected="false">مستويات الوحدات</button>
-      <button type="button" class="ibank-tab" data-tab-btn="event-flow" role="tab" aria-selected="false">مجرى الأحداث والمعاضل</button>
-      <button type="button" class="ibank-tab" data-tab-btn="action-eval" role="tab" aria-selected="false">تقييم الإجراءات</button>
-      <button type="button" class="ibank-tab" data-tab-btn="dilemma-eval" role="tab" aria-selected="false">قوائم تقييم المعاضل</button>
+      <button type="button" class="ibank-tab{% if active_tab == 'phases' %} is-active{% endif %}" data-tab-btn="phases" role="tab" aria-selected="{{ 'true' if active_tab == 'phases' else 'false' }}">مراحل التمرين</button>
+      <button type="button" class="ibank-tab{% if active_tab == 'units' %} is-active{% endif %}" data-tab-btn="units" role="tab" aria-selected="{{ 'true' if active_tab == 'units' else 'false' }}">مستويات الوحدات</button>
+      <button type="button" class="ibank-tab{% if active_tab == 'event-flow' %} is-active{% endif %}" data-tab-btn="event-flow" role="tab" aria-selected="{{ 'true' if active_tab == 'event-flow' else 'false' }}">مجرى الأحداث والمعاضل</button>
+      <button type="button" class="ibank-tab{% if active_tab == 'action-eval' %} is-active{% endif %}" data-tab-btn="action-eval" role="tab" aria-selected="{{ 'true' if active_tab == 'action-eval' else 'false' }}">تقييم الإجراءات</button>
+      <button type="button" class="ibank-tab{% if active_tab == 'dilemma-eval' %} is-active{% endif %}" data-tab-btn="dilemma-eval" role="tab" aria-selected="{{ 'true' if active_tab == 'dilemma-eval' else 'false' }}">قوائم تقييم المعاضل</button>
     </div>
     <div class="ibank-tab-body">
-      <div class="ibank-tabpane is-active" data-tab-pane="phases" role="tabpanel">
+      <div class="ibank-tabpane{% if active_tab == 'phases' %} is-active{% endif %}" data-tab-pane="phases" role="tabpanel">
         <h2 class="h2-in-card"><i class="fa-solid fa-layer-group fa-icon-title" aria-hidden="true"></i> جدول بيانات مراحل التمرين</h2>
         {% if information_bank_can_manage %}
-        <form method="post" action="{{ url_for('views.admin_information_bank_phase_notes') }}">
-          <div class="table-wrap">
-            <table dir="rtl" class="ibank-table ibank-table--compact-notes" aria-label="مراحل التمرين">
-              <thead>
-                <tr>
-                  <th scope="col">مرحلة التمرين</th>
-                  <th scope="col">بيانات / ملاحظات</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for p in training_phases %}
-                <tr>
-                  <th scope="row">{{ p.label }}</th>
-                  <td>
-                    <textarea class="timeline-table__textarea ibank-ta-compact" name="note_{{ p.key }}" rows="2" placeholder="أدخل البيانات لهذه المرحلة…">{{ phase_notes.get(p.key, '') }}</textarea>
-                  </td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-          <div class="btn-group" style="margin-top:0.75rem;">
-            <button type="submit" class="btn"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ مراحل التمرين</button>
-          </div>
-        </form>
+        <div class="btn-group" style="margin-bottom:0.75rem;">
+          <form method="post" action="{{ url_for('views.admin_information_bank_phase_add') }}" style="display:flex;gap:0.45rem;flex-wrap:wrap;align-items:end;">
+            <div class="form-group" style="margin:0;min-width:16rem;">
+              <label for="ib-new-phase">اسم المرحلة</label>
+              <input id="ib-new-phase" name="phase_label" type="text" required>
+            </div>
+            <button type="submit" class="btn"><i class="fa-solid fa-plus" aria-hidden="true"></i> إضافة مرحلة</button>
+          </form>
+        </div>
         {% else %}
+        {% endif %}
         <div class="table-wrap">
           <table dir="rtl" class="ibank-table ibank-table--compact-notes" aria-label="مراحل التمرين للعرض">
             <thead>
               <tr>
                 <th scope="col">مرحلة التمرين</th>
-                <th scope="col">البيانات المحفوظة</th>
+                {% if information_bank_can_manage %}<th scope="col">حذف</th>{% endif %}
               </tr>
             </thead>
             <tbody>
               {% for p in training_phases %}
               <tr>
                 <th scope="row">{{ p.label }}</th>
-                <td><div class="ibank-readonly-notes">{{ phase_notes.get(p.key, '') or '—' }}</div></td>
+                {% if information_bank_can_manage %}
+                <td>
+                  <form method="post" action="{{ url_for('views.admin_information_bank_phase_delete') }}" onsubmit="return confirm('حذف هذه المرحلة من بنك المعلومات؟');">
+                    <input type="hidden" name="phase_key" value="{{ p.key }}">
+                    <button type="submit" class="btn btn-ghost"><i class="fa-solid fa-trash-can" aria-hidden="true"></i> حذف مرحلة</button>
+                  </form>
+                </td>
+                {% endif %}
               </tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
-        {% endif %}
       </div>
 
-      <div class="ibank-tabpane" data-tab-pane="units" role="tabpanel">
+      <div class="ibank-tabpane{% if active_tab == 'units' %} is-active{% endif %}" data-tab-pane="units" role="tabpanel">
         <h2 class="h2-in-card"><i class="fa-solid fa-sitemap fa-icon-title" aria-hidden="true"></i> جدول بيانات مستويات الوحدات</h2>
         {% if information_bank_can_manage %}
-        <form method="post" action="{{ url_for('views.admin_information_bank_unit_notes') }}">
-          <div class="table-wrap ibank-table-scroll ibank-table-scroll--short">
-            <table dir="rtl" class="ibank-table ibank-table--compact-notes" aria-label="مستويات الوحدات">
-              <thead>
-                <tr>
-                  <th scope="col">مستوى الوحدة</th>
-                  <th scope="col">بيانات / ملاحظات</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for u in info_bank_units %}
-                <tr>
-                  <th scope="row">{{ u.label }}</th>
-                  <td>
-                    <textarea class="timeline-table__textarea ibank-ta-compact" name="unote_{{ u.key }}" rows="2" placeholder="أدخل البيانات لهذا المستوى…">{{ unit_notes.get(u.key, '') }}</textarea>
-                  </td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-          <div class="btn-group" style="margin-top:0.75rem;">
-            <button type="submit" class="btn"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ مستويات الوحدات</button>
-          </div>
-        </form>
+        <div class="btn-group" style="margin-bottom:0.75rem;">
+          <form method="post" action="{{ url_for('views.admin_information_bank_unit_add') }}" style="display:flex;gap:0.45rem;flex-wrap:wrap;align-items:end;">
+            <div class="form-group" style="margin:0;min-width:16rem;">
+              <label for="ib-new-unit">اسم مستوى الوحدة</label>
+              <input id="ib-new-unit" name="unit_label" type="text" required>
+            </div>
+            <button type="submit" class="btn"><i class="fa-solid fa-plus" aria-hidden="true"></i> إضافة مستوى</button>
+          </form>
+        </div>
         {% else %}
+        {% endif %}
         <div class="table-wrap ibank-table-scroll ibank-table-scroll--short">
           <table dir="rtl" class="ibank-table ibank-table--compact-notes" aria-label="مستويات الوحدات للعرض">
             <thead>
               <tr>
                 <th scope="col">مستوى الوحدة</th>
-                <th scope="col">البيانات المحفوظة</th>
+                {% if information_bank_can_manage %}<th scope="col">حذف</th>{% endif %}
               </tr>
             </thead>
             <tbody>
               {% for u in info_bank_units %}
               <tr>
                 <th scope="row">{{ u.label }}</th>
-                <td><div class="ibank-readonly-notes">{{ unit_notes.get(u.key, '') or '—' }}</div></td>
+                {% if information_bank_can_manage %}
+                <td>
+                  <form method="post" action="{{ url_for('views.admin_information_bank_unit_delete') }}" onsubmit="return confirm('حذف هذا المستوى من بنك المعلومات؟');">
+                    <input type="hidden" name="unit_key" value="{{ u.key }}">
+                    <button type="submit" class="btn btn-ghost"><i class="fa-solid fa-trash-can" aria-hidden="true"></i> حذف مستوى</button>
+                  </form>
+                </td>
+                {% endif %}
               </tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
-        {% endif %}
       </div>
 
-      <div class="ibank-tabpane" data-tab-pane="event-flow" role="tabpanel">
+      <div class="ibank-tabpane{% if active_tab == 'event-flow' %} is-active{% endif %}" data-tab-pane="event-flow" role="tabpanel">
         <div class="dilemmas-page ibank-files-page{% if not information_bank_can_manage %} ibank-files-page--readonly{% endif %}" dir="ltr">
           <div class="dilemmas-col">
             <section class="card dilemmas-current">
@@ -242,7 +224,7 @@
         </div>
       </div>
 
-      <div class="ibank-tabpane" data-tab-pane="action-eval" role="tabpanel">
+      <div class="ibank-tabpane{% if active_tab == 'action-eval' %} is-active{% endif %}" data-tab-pane="action-eval" role="tabpanel">
         <div class="dilemmas-page ibank-files-page{% if not information_bank_can_manage %} ibank-files-page--readonly{% endif %}" dir="ltr">
           <div class="dilemmas-col">
             <section class="card dilemmas-current">
@@ -342,7 +324,7 @@
         </div>
       </div>
 
-      <div class="ibank-tabpane" data-tab-pane="dilemma-eval" role="tabpanel">
+      <div class="ibank-tabpane{% if active_tab == 'dilemma-eval' %} is-active{% endif %}" data-tab-pane="dilemma-eval" role="tabpanel">
         <div class="dilemmas-page ibank-files-page{% if not information_bank_can_manage %} ibank-files-page--readonly{% endif %}" dir="ltr">
           <div class="dilemmas-col">
             <section class="card dilemmas-current">

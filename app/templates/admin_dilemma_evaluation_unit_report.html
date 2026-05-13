@@ -1,5 +1,5 @@
 {% extends "admin_shell.html" %}
-{% block title %}تقرير الربط المتكامل — المعاضل والتقييم والقوائم{% endblock %}
+{% block title %}تقرير الربط المتكامل — الوحدة المتدربة والمحكمين{% endblock %}
 {% block admin_workspace %}
 <div class="page-header page-header--split">
   <h1><i class="fa-solid fa-link fa-icon-title" aria-hidden="true"></i> تقرير الربط المتكامل</h1>
@@ -12,18 +12,13 @@
     </select>
     <a class="btn btn-ghost" href="{{ url_for('views.admin_exercise_trainee_unit_roster') }}"><i class="fa-solid fa-users" aria-hidden="true"></i> قائمة الوحدة المتدربة</a>
     <a class="btn btn-ghost" href="{{ url_for('views.admin_exercise_judge_unit_roster') }}"><i class="fa-solid fa-gavel" aria-hidden="true"></i> قائمة المحكمين</a>
-    <a class="btn btn-ghost" href="{{ url_for('views.admin_dilemmas_home') }}"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> قوائم المعاضل</a>
-    <a class="btn btn-ghost" href="{{ url_for('views.admin_evaluation_lists_home') }}"><i class="fa-solid fa-file-excel" aria-hidden="true"></i> قوائم التقييم</a>
   </div>
 </div>
 
 <section class="card">
-  <p class="de-report-beta-label" dir="rtl"><span class="badge">نسخة تجريبية</span></p>
   <p class="de-report-intro" dir="rtl">
-    <strong>العلاقة المنطقية:</strong> المعاضل <code>DilemmaItem</code> وقوائم التقييم <code>EvaluationListPdfItem</code> يشتركان في <code>unit_level_key</code> و<code>exercise_phase</code>.
-    قائما الوحدة المتدربة والمحكمين <code>ExerciseRosterRow</code> يخزنان نفس المفتاح في الحقل <code>unit_level_key</code> (قائمة «مستوى الوحدة» الموحدة).
-    أسفله لكل مستوى وحدة: جدول ربط المعاضل/التقييم، ثم منسوبو المتدربين والمحكمين المقيّدون لهذا المستوى ضمن القوائتين.
-    صف المعاضلة/التقييم يُقترَن حسب <code>sort_order</code> كمرجع تشغيلي وليس كقيد بين السجلات في قاعدة البيانات.
+    تعرض هذه الصفحة الربط المتكامل بين قائمة الوحدة المتدربة وقائمة المحكمين حسب <code>unit_level_key</code>.
+    تم فصل المعاضل عن قوائم التقييم، لذلك لا تُعرض أي أزواج أو مقارنة بين المعاضل والتقييم هنا.
   </p>
 </section>
 
@@ -31,7 +26,7 @@
 <section class="card de-report-unit" id="unit-{{ block.unit_key }}">
   <h2 class="h2-in-card"><i class="fa-solid fa-layer-group fa-icon-title" aria-hidden="true"></i> {{ block.unit_label }}</h2>
   <p class="muted" style="margin: 0 0 0.35rem;"><code>{{ block.unit_key }}</code></p>
-  <p class="de-report-unit__summary">{{ block.balance_ar }} — معضلات: {{ block.n_dilemmas }} | تقييم: {{ block.n_evaluations }} | متدربون (بهذا المستوى): {{ block.n_trainees }} | محكمون (بهذا المستوى): {{ block.n_judges }}</p>
+  <p class="de-report-unit__summary">متدربون (بهذا المستوى): {{ block.n_trainees }} | محكمون (بهذا المستوى): {{ block.n_judges }}</p>
 
   <div class="de-report-roster-block">
     <h3 class="de-report-roster-heading"><i class="fa-solid fa-users fa-icon-title" aria-hidden="true"></i> الوحدة المتدربة — مرتبطون بـ «{{ block.unit_label }}»</h3>
@@ -93,56 +88,6 @@
     {% endif %}
   </div>
 
-  {% if block.pairs %}
-  <div class="de-report-table-wrap">
-    <table class="de-report-table" dir="rtl">
-      <thead>
-        <tr>
-          <th scope="col">#</th>
-          <th scope="col">المعضلة (عنوان / ملف)</th>
-          <th scope="col">قائمة التقييم (عنوان / ملف)</th>
-          <th scope="col">الحالة</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in block.pairs %}
-        <tr>
-          <td>{{ p.index }}</td>
-          <td>
-            {% if p.dilemma %}
-            <div class="text-pre-wrap">{{ p.dilemma.text or "—" }}</div>
-            <p class="muted" style="margin: 0.25rem 0 0; font-size: 0.82rem;">
-              ترتيب: {{ p.dilemma.sort_order }} — id {{ p.dilemma.id }}
-              {% if p.dilemma.has_file %}— <span class="form-ok-banner" style="display:inline;padding:0.1rem 0.35rem;font-size:0.75rem;">PDF</span>{% else %}— <span class="muted">لا ملف</span>{% endif %}
-            </p>
-            {% else %}<span class="muted">—</span>{% endif %}
-          </td>
-          <td>
-            {% if p.evaluation %}
-            <div class="text-pre-wrap">{{ p.evaluation.text or "—" }}</div>
-            <p class="muted" style="margin: 0.25rem 0 0; font-size: 0.82rem;">
-              ترتيب: {{ p.evaluation.sort_order }} — id {{ p.evaluation.id }}
-              {% if p.evaluation.has_file %}— <span class="form-ok-banner" style="display:inline;padding:0.1rem 0.35rem;font-size:0.75rem;">Excel</span>{% else %}— <span class="muted">لا ملف</span>{% endif %}
-            </p>
-            {% else %}<span class="muted">—</span>{% endif %}
-          </td>
-          <td>
-            {% if p.status == 'paired' %}
-            <span class="de-badge de-badge--paired">{{ p.status_ar }}</span>
-            {% elif p.status == 'dilemma_only' %}
-            <span class="de-badge de-badge--dilemma">{{ p.status_ar }}</span>
-            {% elif p.status == 'eval_only' %}
-            <span class="de-badge de-badge--eval">{{ p.status_ar }}</span>
-            {% else %}—{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <p class="muted">لا صفوف للمقارنة بين المعاضل وقوائم التقييم في هذا المستوى.</p>
-  {% endif %}
 </section>
 {% endfor %}
 <script>
