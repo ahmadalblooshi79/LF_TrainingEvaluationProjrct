@@ -22,14 +22,6 @@
       <i class="fa-solid fa-users" aria-hidden="true"></i>
       <span>قائمة الوحدة المتدربة</span>
     </a>
-    <a class="admin-action-btn{% if request.path.startswith('/admin/dilemmas') %} admin-action-btn--active{% endif %}" href="/admin/dilemmas">
-      <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
-      <span>قائمة المعاضل</span>
-    </a>
-    <a class="admin-action-btn{% if request.path.startswith('/admin/evaluation-lists') %} admin-action-btn--active{% endif %}" href="/admin/evaluation-lists">
-      <i class="fa-solid fa-file-excel" aria-hidden="true"></i>
-      <span>قوائم التقييم</span>
-    </a>
     <a class="admin-action-btn{% if request.path == '/admin/evaluation-lists/saved-results' %} admin-action-btn--active{% endif %}" href="/admin/evaluation-lists/saved-results">
       <i class="fa-solid fa-square-poll-vertical" aria-hidden="true"></i>
       <span>إدارة تقييمات الوحدات</span>

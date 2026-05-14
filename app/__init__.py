@@ -8,12 +8,13 @@ from app.database import (
     SessionLocal,
     engine,
     ensure_battle_unit_personnel_judge_columns,
-    ensure_dilemma_items_pdf_relpath_column,
-    ensure_exercise_extended_columns,
-    ensure_file_items_exercise_id_columns,
     ensure_dilemma_eval_exercise_phase_columns,
-    ensure_exercise_roster_unit_level_key_column,
+    ensure_dilemma_items_pdf_relpath_column,
     ensure_evaluation_saved_results_approval_columns,
+    ensure_exercise_extended_columns,
+    ensure_exercise_roster_unit_level_key_column,
+    ensure_file_items_exercise_id_columns,
+    ensure_judge_trainee_assignment_planner_bundle_column,
 )
 
 # تسجيل النماذج لضمان اكتمال metadata
@@ -38,6 +39,7 @@ def create_app() -> Flask:
         ensure_dilemma_eval_exercise_phase_columns()
         ensure_exercise_roster_unit_level_key_column()
         ensure_evaluation_saved_results_approval_columns()
+        ensure_judge_trainee_assignment_planner_bundle_column()
         from app.seed import seed_all
         db = SessionLocal()
         try:

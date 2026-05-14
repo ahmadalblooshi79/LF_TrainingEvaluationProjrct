@@ -34,6 +34,13 @@ VISUAL_DOC_DIR = Path(
 INFO_BANK_DIR = Path(
     os.getenv("INFO_BANK_DIR", str(BASE_DIR / "instance" / "information_bank"))
 ).resolve()
+# حزم التخطيط: ربط مجرى الأحداث (PDF/Word) بعدة قوائم تقييم إجراءات (Excel) لكل تمرين
+PLANNER_FLOW_BUNDLE_DIR = Path(
+    os.getenv(
+        "PLANNER_FLOW_BUNDLE_DIR",
+        str(BASE_DIR / "instance" / "planner_flow_bundles"),
+    )
+).resolve()
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-insecure-secret-change-in-production")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")

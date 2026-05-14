@@ -61,12 +61,16 @@ def inject_header_exercise():
             nm = (getattr(u, "full_name", "") or "").strip() or (getattr(u, "username", "") or "").strip()
             base["judge_welcome_name"] = nm or "محكم"
 
-        ws = (
-            db.query(Exercise)
-            .filter(Exercise.owner_id == u.id)
-            .order_by(Exercise.id.desc())
-            .first()
-        )
+        # التمرين الحالي في الشريط العلوي: نفس منطق _current_workspace_exercise — للجميع
+        if is_system_admin(u):
+            ws = (
+                db.query(Exercise)
+                .filter(Exercise.owner_id == u.id)
+                .order_by(Exercise.id.desc())
+                .first()
+            )
+        else:
+            ws = db.query(Exercise).order_by(Exercise.id.desc()).first()
         if ws is not None:
             base["workspace_exercise"] = {
                 "id": ws.id,

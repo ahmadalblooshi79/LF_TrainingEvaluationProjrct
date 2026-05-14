@@ -38,4 +38,3 @@ if __name__ == "__main__":
     app = create_app()
     threading.Thread(target=_open_browser, daemon=True).start()
     app.run(host="0.0.0.0", port=PORT, debug=True, use_reloader=False)
-    

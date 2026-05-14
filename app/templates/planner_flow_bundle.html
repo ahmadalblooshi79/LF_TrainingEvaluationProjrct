@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}تخصيص وربط المجرى وتقييم الإجراءات{% endblock %}
+{% block content %}
+<div class="page-header ibank-page-header">
+  <div class="ibank-page-header__title-row" dir="rtl">
+    <h1><i class="fa-solid fa-diagram-project fa-icon-title" aria-hidden="true"></i> تخصيص وربط قوائم تقييم الإجراءات بمجرى الأحداث والمعاضل</h1>
+  </div>
+  <p class="muted" style="margin:0.35rem 0 0;">لمستوى وحدة محدد ومرحلة تمرين: يُرفع ملف واحد لمجرى الأحداث، وعدد ملفات Excel مساوٍ لعدد المعاضل في ذلك المجرى، ثم تخصيص الربط وتوجيه الحزمة للمحكم المناسب.</p>
+  <p class="mt-tight"><a class="btn btn-ghost" href="{{ url_for('views.planner_hub') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> مساحة التخطيط</a></p>
+</div>
+
+{% if not has_exercise %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يوجد تمرين حالي في مساحة العمل. افتح أو أنشئ تمريناً من الصفحة الرئيسية أو إدارة النظام.</p>
+{% else %}
+
+{% if ok_msg %}
+<p class="form-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
+{% endif %}
+{% if err_msg %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ err_msg }}</p>
+{% endif %}
+
+<form method="post" action="{{ url_for('views.planner_flow_bundle_set_context') }}" class="planner-flow-toolbar card" dir="rtl">
+  <div class="planner-flow-toolbar__row">
+    <div class="planner-flow-field">
+      <label class="muted" for="pf-phase">مرحلة التمرين</label>
+      <select id="pf-phase" name="phase" class="unit-level-select">
+        {% for pk, pl in phase_options %}
+        <option value="{{ pk }}" {% if pk == phase_key %}selected{% endif %}>{{ pl }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="planner-flow-field">
+      <label class="muted" for="pf-unit">مستوى الوحدة</label>
+      <select id="pf-unit" name="unit_level_key" class="unit-level-select">
+        {% for u in unit_levels %}
+        <option value="{{ u.key }}" {% if u.key == unit_key %}selected{% endif %}>{{ u.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-ghost planner-flow-toolbar__apply"><i class="fa-solid fa-filter" aria-hidden="true"></i> تطبيق</button>
+  </div>
+</form>
+
+<form method="post" action="{{ url_for('views.planner_flow_bundle_set_dilemma_count', bundle_id=bundle.id) }}" class="card planner-flow-count-row" dir="rtl">
+  <div class="planner-flow-toolbar__row planner-flow-toolbar__row--tight">
+    <label class="muted" for="pf-dcount">عدد المعاضل في مجرى الأحداث (= عدد قوائم تقييم الإجراءات)</label>
+    <input id="pf-dcount" name="dilemma_count" type="number" min="0" max="40" value="{{ bundle.dilemma_count }}" class="planner-flow-count-input">
+    <button type="submit" class="btn btn-ghost"><i class="fa-solid fa-table-list" aria-hidden="true"></i> حفظ عدد القوائم</button>
+  </div>
+</form>
+
+<p class="muted planner-flow-scope-hint" dir="rtl"><i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i> القائمة المعروضة مخصّصة لـ <strong>{{ phase_label_display }}</strong> — <strong>{{ unit_label_display }}</strong></p>
+
+{% set _n = bundle.dilemma_count|int %}
+{% set _master_ok = planner_event_flow_file_ok %}
+{% set _slots_with_file = slots|selectattr('file_relpath')|list|length %}
+{% set _all_actions_ok = _n >= 1 and (slots|length == _n) and (_slots_with_file == _n) %}
+{% set link_ready = _master_ok and _all_actions_ok %}
+
+<div class="planner-flow-bundle-grid" dir="rtl">
+  {# RTL grid: الأول في DOM يظهر جهة اليمين — المجرى يمين، قوائم التقييم يساراً #}
+  <section class="card planner-flow-col planner-flow-col--master">
+    <h2 class="h2-in-card"><i class="fa-solid fa-file-pdf fa-icon-title" aria-hidden="true"></i> مجرى الأحداث والمعاضل</h2>
+    {% if bundle.event_flow_file_relpath %}
+    <p class="planner-flow-event-filename" title="{{ planner_event_flow_display_name | e }}"><i class="fa-solid fa-file-lines" aria-hidden="true"></i> <strong>{{ planner_event_flow_display_name or 'ملف المجرى' }}</strong></p>
+    {% else %}
+    <p class="muted">لم يُدرج ملف المجرى بعد.</p>
+    {% endif %}
+    <form method="post" action="{{ url_for('views.planner_flow_bundle_upload_event', bundle_id=bundle.id) }}" enctype="multipart/form-data" class="planner-flow-inline-upload planner-flow-inline-upload--stack">
+      <input type="file" name="file" accept=".pdf,.doc,.docx" required class="planner-flow-file-input">
+      <button type="submit" class="btn btn-ghost btn-sm-compact"><i class="fa-solid fa-upload" aria-hidden="true"></i> إدراج PDF أو Word</button>
+    </form>
+  </section>
+
+  <div class="planner-flow-center-actions">
+    <form method="post" action="{{ url_for('views.planner_flow_bundle_link', bundle_id=bundle.id) }}">
+      <button type="submit" class="btn planner-flow-link-btn" {% if not link_ready %}disabled title="أكمل إدراج ملف المجرى وجميع ملفات Excel لقوائم التقييم ثم ارجع للضغط هنا."{% endif %}>
+        <i class="fa-solid fa-link" aria-hidden="true"></i> تخصيص وربط
+      </button>
+    </form>
+    {% if bundle.dilemma_count >= 1 and not link_ready %}
+    <p class="muted planner-flow-link-hint" role="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+      {% if not _master_ok %}أدرِج ملف مجرى الأحداث والمعاضل. {% endif %}
+      {% if _master_ok and not _all_actions_ok %}ثم استخدم «اختيار ملفات Excel» لإدراج جميع ملفات قوائم التقييم ({{ _slots_with_file }} / {{ _n }}).{% endif %}
+    </p>
+    {% endif %}
+    {% if bundle.linked_at %}
+    <p class="muted planner-flow-linked-note"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> تم الربط {{ bundle.linked_at.strftime('%Y-%m-%d %H:%M') }}</p>
+    {% endif %}
+  </div>
+
+  <section class="card planner-flow-col planner-flow-col--actions">
+    <h2 class="h2-in-card"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> قوائم تقييم الإجراءات</h2>
+    {% if bundle.dilemma_count < 1 %}
+    <p class="muted">حدّد عدد المعاضل واحفظ عدد القوائم لإظهار الجدول والإدراج.</p>
+    {% else %}
+    <p class="muted planner-flow-bulk-hint">رُتِّب ملفاتك قبل الاختيار: الملف الأول يُطبَّق على القائمة&nbsp;1، ثم 2، … لا يمكن اختيار عدد ملفات أكبر من عدد القوائم؛ يمكنك إدراج دفعات حتى يكتمل العدد.</p>
+    <form method="post" action="{{ url_for('views.planner_flow_bundle_upload_actions_bulk', bundle_id=bundle.id) }}" enctype="multipart/form-data" class="planner-flow-actions-bulk-form">
+      <p class="planner-flow-upload-callout-title"><i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i> إدراج قوائم التقييم (Excel)</p>
+      <div class="planner-flow-excel-upload-toolbar">
+        <input id="pf-actions-files" type="file" name="files" multiple accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="planner-flow-file-input-hidden">
+        <label for="pf-actions-files" class="btn btn-ghost planner-flow-file-pick-btn"><i class="fa-regular fa-folder-open" aria-hidden="true"></i> اختيار ملفات Excel</label>
+        <button type="submit" class="btn planner-flow-excel-submit-btn"><i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i> إدراج في القوائم</button>
+      </div>
+      <p id="pf-excel-picker-status" class="muted planner-flow-pick-status" aria-live="polite"></p>
+    </form>
+    <div class="table-wrap planner-flow-slot-table-wrap">
+      <table class="ibank-table planner-flow-slot-table">
+        <thead>
+          <tr>
+            <th>القائمة</th>
+            <th>ملف Excel</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in slots %}
+          <tr>
+            <td><span class="planner-flow-slot-idx">{{ s.slot_index }}</span> {{ s.title or ('قائمة ' ~ s.slot_index) }}</td>
+            <td>
+              {% if s.file_relpath %}
+              <span class="muted"><i class="fa-solid fa-paperclip" aria-hidden="true"></i> تم الإدراج</span>
+              {% else %}
+              <span class="muted">— لم يُدرج بعد</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <script>
+    (function () {
+      var inp = document.getElementById("pf-actions-files");
+      var st = document.getElementById("pf-excel-picker-status");
+      if (!inp || !st) return;
+      function sync() {
+        var n = inp.files ? inp.files.length : 0;
+        st.textContent = n ? ("تم اختيار " + n + " ملف — اضغط «إدراج في القوائم».") : "";
+      }
+      inp.addEventListener("change", sync);
+      sync();
+    })();
+    </script>
+    {% endif %}
+  </section>
+</div>
+
+<section class="card planner-flow-judges" dir="rtl">
+  <h2 class="h2-in-card"><i class="fa-solid fa-gavel fa-icon-title" aria-hidden="true"></i> ربط الحزمة بالمحكمين (حسب مستوى الوحدة)</h2>
+  {% if judges %}
+  <div class="table-wrap">
+    <table class="ibank-table planner-flow-judge-table">
+      <thead>
+        <tr>
+          <th>المحكم</th>
+          <th>المتدرب</th>
+          <th>حالة الربط</th>
+          <th>إجراء</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ja in judges %}
+        {% set ju = ja.judge_user %}
+        {% set jname = (ju.full_name or ju.username or '') %}
+        <tr>
+          <td>{{ jname }}</td>
+          <td>{{ ja.trainee_name or '—' }}</td>
+          <td>
+            {% if ja.planner_flow_bundle_id == bundle.id %}
+            <span class="form-ok-banner planner-flow-tag-ok"><i class="fa-solid fa-link" aria-hidden="true"></i> مرتبط بهذه الحزمة</span>
+            {% elif ja.planner_flow_bundle_id %}
+            <span class="muted">مرتبط بحزمة أخرى</span>
+            {% else %}
+            <span class="muted">غير مرتبط</span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="planner-flow-judge-actions">
+              {% if ja.planner_flow_bundle_id != bundle.id %}
+              <form method="post" action="{{ url_for('views.planner_flow_bundle_assign_judge', bundle_id=bundle.id) }}" style="display:inline;">
+                <input type="hidden" name="judge_user_id" value="{{ ja.judge_user_id }}">
+                <button type="submit" class="btn btn-ghost btn-sm-compact"><i class="fa-solid fa-user-check" aria-hidden="true"></i> ربط</button>
+              </form>
+              {% endif %}
+              {% if ja.planner_flow_bundle_id == bundle.id %}
+              <form method="post" action="{{ url_for('views.planner_flow_bundle_assign_judge', bundle_id=bundle.id) }}" style="display:inline;">
+                <input type="hidden" name="judge_user_id" value="{{ ja.judge_user_id }}">
+                <input type="hidden" name="clear" value="1">
+                <button type="submit" class="btn btn-ghost btn-sm-compact"><i class="fa-solid fa-unlink" aria-hidden="true"></i> إزالة</button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">لا توجد سجلات تخصيص محكم لهذا المستوى ضمن التمرين الحالي. أضِف المحكمين من قائمة المحكمين المرتبطة بالتمرين.</p>
+  {% endif %}
+</section>
+
+{% endif %}
+{% endblock %}

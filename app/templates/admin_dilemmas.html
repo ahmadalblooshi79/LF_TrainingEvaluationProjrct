@@ -1,6 +1,9 @@
-{% extends "admin_shell.html" %}
-{% block title %}قوائم المعاضل — إدارة النظام{% endblock %}
-{% block admin_workspace %}
+{% extends "base.html" %}
+{% block title %}قوائم المعاضل — مساحة التخطيط{% endblock %}
+{% block content %}
+<p class="mt-tight catalog-tools-back" style="margin-bottom:0.65rem;">
+  <a class="btn btn-ghost" href="{{ url_for('views.planner_hub') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> مساحة التخطيط</a>
+</p>
 <div class="page-header">
   <h1><i class="fa-solid fa-triangle-exclamation fa-icon-title" aria-hidden="true"></i> قوائم المعاضل</h1>
 </div>

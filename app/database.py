@@ -193,6 +193,28 @@ def ensure_evaluation_saved_results_approval_columns() -> None:
             conn.execute(text(sql))
 
 
+def ensure_judge_trainee_assignment_planner_bundle_column() -> None:
+    """ربط المحكم بحزمة مجرى الأحداث وتقييم الإجراءات (مساحة التخطيط)."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    try:
+        insp = inspect(engine)
+        if "judge_trainee_assignments" not in insp.get_table_names():
+            return
+    except Exception:
+        return
+    cols = {c["name"] for c in inspect(engine).get_columns("judge_trainee_assignments")}
+    if "planner_flow_bundle_id" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE judge_trainee_assignments "
+                "ADD COLUMN planner_flow_bundle_id INTEGER"
+            )
+        )
+
+
 def get_db():
     db = SessionLocal()
     try:

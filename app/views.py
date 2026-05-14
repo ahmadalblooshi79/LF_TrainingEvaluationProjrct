@@ -2,6 +2,7 @@ import hashlib
 import io
 import json
 import mimetypes
+import re
 import uuid
 import zipfile
 from datetime import datetime
@@ -28,6 +29,7 @@ from app.config import (
     DILEMMA_PDF_DIR,
     EVALUATION_LIST_XLSX_DIR,
     INFO_BANK_DIR,
+    PLANNER_FLOW_BUNDLE_DIR,
     VISUAL_DOC_DIR,
 )
 from app.auth import get_current_user_optional, hash_password, verify_password
@@ -43,6 +45,9 @@ from app.models import (
     ExercisePhase,
     ExerciseRosterKind,
     ExerciseRosterRow,
+    ExercisePlannerFlowBundle,
+    ExercisePlannerFlowBundleActionEval,
+    PlannerFlowBundleEvalSavedResult,
     ExerciseStatus,
     DilemmaItem,
     EvaluationListPdfItem,
@@ -301,6 +306,83 @@ def _mimetype_for_eval_list_file(path: Path) -> str:
     return "application/octet-stream"
 
 
+def _planner_flow_bundle_root() -> Path:
+    PLANNER_FLOW_BUNDLE_DIR.mkdir(parents=True, exist_ok=True)
+    return PLANNER_FLOW_BUNDLE_DIR.resolve()
+
+
+def _planner_bundle_file_abspath(relpath: str | None) -> Path | None:
+    if not relpath or not isinstance(relpath, str):
+        return None
+    norm = relpath.replace("\\", "/").strip()
+    if not norm or any(part == ".." for part in norm.split("/")):
+        return None
+    root = _planner_flow_bundle_root()
+    out = (root / norm).resolve()
+    try:
+        out.relative_to(root)
+    except ValueError:
+        return None
+    return out if out.is_file() else None
+
+
+# عناوين ناتجة عن secure_filename لأسماء عربية/غريبة (pdf.1، xlsx_2، …)
+_DEGENERATE_UPLOAD_TITLE_RE = re.compile(
+    r"^(?:pdf|xlsx|excel|file)(?:[\s._-]+\d*)?$",
+    re.IGNORECASE,
+)
+
+
+def _is_degenerate_upload_title(s: str) -> bool:
+    t = (s or "").strip()
+    if not t or len(t) <= 1:
+        return True
+    return bool(_DEGENERATE_UPLOAD_TITLE_RE.match(t))
+
+
+def _planner_blob_display_filename(
+    *, stored_title: str, relpath: str, fallback: str
+) -> str:
+    """اسم عرض مقروء: يفضّل العنوان المحفوظ إن كان معبّراً، وإلا اسم الملف من المسار النسبي."""
+    rp = (relpath or "").replace("\\", "/").strip()
+    base = Path(rp).name if rp else ""
+    st = (stored_title or "").strip()
+    if st and not _is_degenerate_upload_title(st):
+        return st
+    if base:
+        return base
+    return st or fallback
+
+
+def _unlink_planner_bundle_file(relpath: str) -> None:
+    p = _planner_bundle_file_abspath(relpath)
+    if p is None:
+        return
+    try:
+        p.unlink()
+    except OSError:
+        pass
+
+
+def _sanitize_planner_bundle_orphan_event_flow(
+    db, bundle: ExercisePlannerFlowBundle | None
+) -> bool:
+    """إزالة مسار مجرى الأحداث من السجل إذا لم يعد الملف موجوداً على القرص."""
+    if bundle is None:
+        return False
+    rel = (bundle.event_flow_file_relpath or "").strip()
+    if not rel:
+        return False
+    if _planner_bundle_file_abspath(rel) is not None:
+        return False
+    bundle.event_flow_file_relpath = ""
+    bundle.event_flow_title = ""
+    bundle.linked_at = None
+    bundle.updated_at = datetime.utcnow()
+    db.commit()
+    return True
+
+
 def _hashes_of_unit_pdfs(
     db,
     model,
@@ -352,6 +434,14 @@ def _unit_level_order_expr(column):
 
 def _can_manage_dilemma_eval_catalog(user: User) -> bool:
     return is_system_admin(user) or is_planner(user)
+
+
+def _require_planner_hub_catalog_access(user: User | None) -> None:
+    """رفع وإدارة ملفات المعاضل وقوائم التقييم — مساحة التخطيط فقط (مخطّط أو إدارة النظام)."""
+    if not user:
+        abort(403)
+    if not can_access_planner_hub(user) or not _can_manage_dilemma_eval_catalog(user):
+        abort(403)
 
 
 def _admin_exercise_form_ctx() -> dict:
@@ -732,6 +822,111 @@ def _evaluation_commit_payload_save(
     db.flush()
     _evaluation_delete_duplicate_saves(db, exercise_id=current_exercise.id, evaluation_item_id=item.id, keep_id=saved.id)
     db.commit()
+
+
+def _planner_bundle_eval_canonical_saved(
+    db, exercise_id: int, bundle_action_eval_id: int
+) -> PlannerFlowBundleEvalSavedResult | None:
+    return (
+        db.query(PlannerFlowBundleEvalSavedResult)
+        .filter(
+            PlannerFlowBundleEvalSavedResult.exercise_id == exercise_id,
+            PlannerFlowBundleEvalSavedResult.bundle_action_eval_id
+            == int(bundle_action_eval_id),
+        )
+        .order_by(
+            PlannerFlowBundleEvalSavedResult.updated_at.desc(),
+            PlannerFlowBundleEvalSavedResult.id.desc(),
+        )
+        .first()
+    )
+
+
+def _planner_bundle_eval_delete_duplicate_saves(
+    db, *, exercise_id: int, bundle_action_eval_id: int, keep_id: int
+) -> None:
+    db.query(PlannerFlowBundleEvalSavedResult).filter(
+        PlannerFlowBundleEvalSavedResult.exercise_id == exercise_id,
+        PlannerFlowBundleEvalSavedResult.bundle_action_eval_id
+        == int(bundle_action_eval_id),
+        PlannerFlowBundleEvalSavedResult.id != keep_id,
+    ).delete(synchronize_session=False)
+
+
+def _planner_bundle_eval_commit_payload_save(
+    db,
+    *,
+    user: User,
+    action_row: ExercisePlannerFlowBundleActionEval,
+    bundle: ExercisePlannerFlowBundle,
+    current_exercise: Exercise,
+    raw: str,
+) -> None:
+    if not can_save_evaluation_results(user):
+        abort(403)
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        abort(400)
+    if not isinstance(payload, dict):
+        abort(400)
+    rows = payload.get("rows") or []
+    if not isinstance(rows, list):
+        abort(400)
+    total_pct, grade = _evaluation_grade_from_payload_rows(rows)
+    saved = _planner_bundle_eval_canonical_saved(
+        db, current_exercise.id, action_row.id
+    )
+    if saved is not None and bool(getattr(saved, "is_approved", False)):
+        abort(403)
+    if saved is None:
+        saved = PlannerFlowBundleEvalSavedResult(
+            bundle_action_eval_id=action_row.id,
+            exercise_id=current_exercise.id,
+            exercise_phase=_normalized_exercise_phase(bundle.exercise_phase),
+            unit_level_key=bundle.unit_level_key or "",
+            saved_by_id=getattr(user, "id", None),
+            is_approved=False,
+        )
+        db.add(saved)
+    saved.payload_json = raw
+    saved.total_pct = total_pct
+    saved.grade_label = grade
+    saved.saved_by_id = getattr(user, "id", None)
+    saved.unit_level_key = bundle.unit_level_key or ""
+    saved.exercise_phase = _normalized_exercise_phase(bundle.exercise_phase)
+    db.flush()
+    _planner_bundle_eval_delete_duplicate_saves(
+        db,
+        exercise_id=current_exercise.id,
+        bundle_action_eval_id=action_row.id,
+        keep_id=saved.id,
+    )
+    db.commit()
+
+
+def _judge_planner_flow_action_bundle_row(
+    db, user: User, ex: Exercise | None, slot: int
+) -> tuple[ExercisePlannerFlowBundle, ExercisePlannerFlowBundleActionEval] | None:
+    """حزمة المحكم وفتحة الإجراء إن وُجد الملف ومطابقة التخصيص."""
+    if ex is None:
+        return None
+    bundle = _judge_assigned_planner_bundle(db, user, ex)
+    if bundle is None:
+        return None
+    _enforce_judge_unit_scope(db, user, ex, bundle.unit_level_key)
+    _enforce_judge_has_assignment_for_unit(db, user, ex, bundle.unit_level_key)
+    row = (
+        db.query(ExercisePlannerFlowBundleActionEval)
+        .filter(
+            ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id,
+            ExercisePlannerFlowBundleActionEval.slot_index == int(slot),
+        )
+        .first()
+    )
+    if row is None or not (row.file_relpath or "").strip():
+        return None
+    return bundle, row
 
 
 def _phase_label_ar(phase: str | None) -> str:
@@ -2473,9 +2668,892 @@ def analyst_evaluation_criteria_phase(unit_id: int, phase_key: str):
     )
 
 
+def _get_or_create_planner_bundle(
+    db,
+    exercise_id: int,
+    phase: str,
+    unit_key: str,
+    unit_label: str,
+) -> ExercisePlannerFlowBundle:
+    phase_n = normalize_exercise_phase(phase)
+    row = (
+        db.query(ExercisePlannerFlowBundle)
+        .filter(
+            ExercisePlannerFlowBundle.exercise_id == exercise_id,
+            ExercisePlannerFlowBundle.exercise_phase == phase_n,
+            ExercisePlannerFlowBundle.unit_level_key == unit_key,
+        )
+        .first()
+    )
+    if row:
+        return row
+    row = ExercisePlannerFlowBundle(
+        exercise_id=exercise_id,
+        exercise_phase=phase_n,
+        unit_level_key=unit_key,
+        unit_level_label=(unit_label or "")[:200],
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def _sync_planner_bundle_slots(db, bundle: ExercisePlannerFlowBundle, new_count: int) -> None:
+    new_count = max(0, min(int(new_count), 40))
+    slots = (
+        db.query(ExercisePlannerFlowBundleActionEval)
+        .filter(ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id)
+        .order_by(ExercisePlannerFlowBundleActionEval.slot_index)
+        .all()
+    )
+    for s in slots:
+        if int(s.slot_index) > new_count:
+            if (s.file_relpath or "").strip():
+                _unlink_planner_bundle_file(s.file_relpath)
+            db.delete(s)
+    db.flush()
+    remaining = (
+        db.query(ExercisePlannerFlowBundleActionEval)
+        .filter(ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id)
+        .all()
+    )
+    indices = {int(s.slot_index) for s in remaining}
+    for i in range(1, new_count + 1):
+        if i not in indices:
+            db.add(
+                ExercisePlannerFlowBundleActionEval(
+                    bundle_id=bundle.id,
+                    slot_index=i,
+                    title=f"قائمة تقييم الإجراءات — {i}",
+                )
+            )
+    bundle.dilemma_count = new_count
+    bundle.linked_at = None
+    bundle.updated_at = datetime.utcnow()
+    db.commit()
+
+
+def _planner_bundle_judge_assignments(db, exercise_id: int, unit_level_key: str):
+    return (
+        db.query(JudgeTraineeAssignment)
+        .filter(
+            JudgeTraineeAssignment.exercise_id == exercise_id,
+            JudgeTraineeAssignment.unit_level_key == unit_level_key,
+        )
+        .options(joinedload(JudgeTraineeAssignment.judge_user))
+        .order_by(JudgeTraineeAssignment.id)
+        .all()
+    )
+
+
+_UI_MSG_PLANNER_BUNDLE = {
+    "bad_event_file": "يُقبل ملف PDF أو Word (.doc/.docx) فقط.",
+    "bad_xlsx": "يُقبل ملف Excel (.xlsx) فقط.",
+    "no_file": "لم يُحدد ملف.",
+    "link_count": "حدّد عدد المعاضل في المجرى (1–40) واحفظ عدد القوائم قبل الربط.",
+    "link_master": "أدرج ملف مجرى الأحداث والمعاضل أولاً.",
+    "link_master_disk": "مسار ملف المجرى مسجّل لكن الملف غير موجود على الخادم — أعد إدراج الملف.",
+    "link_slots": "يجب إدراج ملف Excel لكل قائمة تقييم إجراءات.",
+    "link_slots_disk": "يُشار إلى ملفات تقييم مسجّلة لكن أحدها غير موجود على الخادم — أعد إدراج ملفات Excel.",
+    "link_ok": "تم تخصيص الربط بنجاح.",
+    "slots_ok": "تم تحديث عدد قوائم تقييم الإجراءات.",
+    "upload_ok": "تم إدراج الملف.",
+    "bulk_ok": "تم إدراج ملفات التقييم وتوزيعها على القوائم بالترتيب (يمكنك بعدها الضغط على «تخصيص وربط»).",
+    "bulk_too_many": "عدد الملفات المختارة أكبر من عدد قوائم تقييم الإجراءات المحدد.",
+    "assign_ok": "تم ربط الحزمة بالمحكم.",
+    "assign_clear_ok": "تمت إزالة ربط الحزمة عن المحكم.",
+    "save_err": "تعذر حفظ الملف.",
+}
+
+
+@bp.route("/planner/create-flow", methods=["GET"])
+def planner_flow_bundle_workspace():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/planner/create-flow")
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    err = (request.args.get("err") or "").strip()
+    ok = (request.args.get("ok") or "").strip()
+    if ex is None:
+        return render_template(
+            "planner_flow_bundle.html",
+            **_ctx(
+                user,
+                has_exercise=False,
+                bundle=None,
+                slots=[],
+                phase_key="",
+                unit_key="",
+                phase_options=EXERCISE_PHASE_OPTIONS,
+                unit_levels=UNIT_LEVELS,
+                judges=[],
+                err_msg="",
+                ok_msg="",
+                phase_label_display="",
+                unit_label_display="",
+                planner_event_flow_file_ok=False,
+                planner_event_flow_display_name="",
+            ),
+        )
+    phase_key = normalize_exercise_phase(request.args.get("phase") or DEFAULT_EXERCISE_PHASE)
+    unit_param = (request.args.get("unit") or "").strip()
+    unit_key = unit_param if unit_param else (UNIT_LEVELS[0]["key"] if UNIT_LEVELS else "")
+    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
+    if unit is None:
+        abort(404)
+    bundle = _get_or_create_planner_bundle(db, ex.id, phase_key, unit_key, unit["label"])
+    _sanitize_planner_bundle_orphan_event_flow(db, bundle)
+    slots = (
+        db.query(ExercisePlannerFlowBundleActionEval)
+        .filter(ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id)
+        .order_by(ExercisePlannerFlowBundleActionEval.slot_index)
+        .all()
+    )
+    judges = _planner_bundle_judge_assignments(db, ex.id, unit_key)
+    ev_rel_pl = ((bundle.event_flow_file_relpath or "").strip()) if bundle else ""
+    planner_ef_ok = (
+        bool(ev_rel_pl) and _planner_bundle_file_abspath(ev_rel_pl) is not None
+    )
+    planner_ef_disp = (
+        _planner_blob_display_filename(
+            stored_title=bundle.event_flow_title or "",
+            relpath=ev_rel_pl,
+            fallback="ملف المجرى",
+        )
+        if bundle
+        else ""
+    )
+    return render_template(
+        "planner_flow_bundle.html",
+        **_ctx(
+            user,
+            has_exercise=True,
+            exercise=ex,
+            bundle=bundle,
+            slots=slots,
+            phase_key=phase_key,
+            unit_key=unit_key,
+            phase_options=EXERCISE_PHASE_OPTIONS,
+            unit_levels=UNIT_LEVELS,
+            judges=judges,
+            err_msg=_UI_MSG_PLANNER_BUNDLE.get(err, "") if err else "",
+            ok_msg=_UI_MSG_PLANNER_BUNDLE.get(ok, "") if ok else "",
+            phase_label_display=_phase_label_ar(phase_key),
+            unit_label_display=unit["label"],
+            planner_event_flow_file_ok=planner_ef_ok,
+            planner_event_flow_display_name=planner_ef_disp,
+        ),
+    )
+
+
+@bp.route("/planner/create-flow/context", methods=["POST"])
+def planner_flow_bundle_set_context():
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_access_planner_hub(user):
+        abort(403)
+    phase = normalize_exercise_phase(request.form.get("phase") or DEFAULT_EXERCISE_PHASE)
+    unit_key = (request.form.get("unit_level_key") or "").strip()
+    if not unit_key:
+        unit_key = UNIT_LEVELS[0]["key"] if UNIT_LEVELS else ""
+    return redirect(url_for("views.planner_flow_bundle_workspace", phase=phase, unit=unit_key))
+
+
+@bp.route("/planner/create-flow/<int:bundle_id>/dilemma-count", methods=["POST"])
+def planner_flow_bundle_set_dilemma_count(bundle_id: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    bundle = db.get(ExercisePlannerFlowBundle, bundle_id)
+    if ex is None or bundle is None or bundle.exercise_id != ex.id:
+        abort(404)
+    raw = (request.form.get("dilemma_count") or "0").strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        n = 0
+    _sync_planner_bundle_slots(db, bundle, n)
+    return redirect(
+        url_for(
+            "views.planner_flow_bundle_workspace",
+            phase=bundle.exercise_phase,
+            unit=bundle.unit_level_key,
+            ok="slots_ok",
+        )
+    )
+
+
+def _redirect_planner_bundle_workspace(bundle: ExercisePlannerFlowBundle, *, err: str = "", ok: str = ""):
+    kw = {"phase": bundle.exercise_phase, "unit": bundle.unit_level_key}
+    if err:
+        kw["err"] = err
+    if ok:
+        kw["ok"] = ok
+    return redirect(url_for("views.planner_flow_bundle_workspace", **kw))
+
+
+@bp.route("/planner/create-flow/<int:bundle_id>/upload-event-flow", methods=["POST"])
+def planner_flow_bundle_upload_event(bundle_id: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    bundle = db.get(ExercisePlannerFlowBundle, bundle_id)
+    if ex is None or bundle is None or bundle.exercise_id != ex.id:
+        abort(404)
+    f = request.files.get("file")
+    if not f or not getattr(f, "filename", ""):
+        return _redirect_planner_bundle_workspace(bundle, err="no_file")
+    try:
+        data = f.read()
+    except Exception:
+        return _redirect_planner_bundle_workspace(bundle, err="save_err")
+    ext = _info_bank_event_flow_sniff_ext(data)
+    if not ext:
+        return _redirect_planner_bundle_workspace(bundle, err="bad_event_file")
+    root = _planner_flow_bundle_root()
+    rel = f"{bundle.id}/event_flow{ext}"
+    dest = (root / rel).resolve()
+    try:
+        dest.relative_to(root)
+    except ValueError:
+        abort(400)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        dest.write_bytes(data)
+    except OSError:
+        return _redirect_planner_bundle_workspace(bundle, err="save_err")
+    old_rel = (bundle.event_flow_file_relpath or "").strip()
+    old_norm = old_rel.replace("\\", "/")
+    new_norm = rel.replace("\\", "/")
+    # إعادة الرفع بنفس الاسم النسبي: لا نحذف بعد الكتابة وإلا نزيل الملف الذي أُنشئ للتو.
+    if old_norm and old_norm != new_norm:
+        _unlink_planner_bundle_file(old_rel)
+    bundle.event_flow_file_relpath = rel.replace("\\", "/")
+    bundle.event_flow_title = secure_filename(f.filename or "")[:500] or bundle.event_flow_title
+    bundle.linked_at = None
+    bundle.updated_at = datetime.utcnow()
+    db.commit()
+    return _redirect_planner_bundle_workspace(bundle, ok="upload_ok")
+
+
+@bp.route("/planner/create-flow/<int:bundle_id>/upload-actions-bulk", methods=["POST"])
+def planner_flow_bundle_upload_actions_bulk(bundle_id: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    bundle = db.get(ExercisePlannerFlowBundle, bundle_id)
+    if ex is None or bundle is None or bundle.exercise_id != ex.id:
+        abort(404)
+    dc = int(bundle.dilemma_count or 0)
+    if dc < 1:
+        return _redirect_planner_bundle_workspace(bundle, err="link_count")
+    raw_files = request.files.getlist("files")
+    files = [f for f in raw_files if f and getattr(f, "filename", "").strip()]
+    if not files:
+        return _redirect_planner_bundle_workspace(bundle, err="no_file")
+    if len(files) > dc:
+        return _redirect_planner_bundle_workspace(bundle, err="bulk_too_many")
+
+    root = _planner_flow_bundle_root()
+
+    try:
+        for idx, f in enumerate(files):
+            slot_num = idx + 1
+            row = (
+                db.query(ExercisePlannerFlowBundleActionEval)
+                .filter(
+                    ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id,
+                    ExercisePlannerFlowBundleActionEval.slot_index == int(slot_num),
+                )
+                .first()
+            )
+            if row is None:
+                return _redirect_planner_bundle_workspace(bundle, err="link_slots")
+            try:
+                data = f.read()
+            except Exception:
+                return _redirect_planner_bundle_workspace(bundle, err="save_err")
+            if not _is_xlsx_bytes(data):
+                return _redirect_planner_bundle_workspace(bundle, err="bad_xlsx")
+            rel = f"{bundle.id}/action_{int(slot_num)}.xlsx"
+            dest = (root / rel).resolve()
+            try:
+                dest.relative_to(root)
+            except ValueError:
+                abort(400)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                dest.write_bytes(data)
+            except OSError:
+                return _redirect_planner_bundle_workspace(bundle, err="save_err")
+            old_rp = (row.file_relpath or "").strip()
+            old_nm = old_rp.replace("\\", "/")
+            nw_nm = rel.replace("\\", "/")
+            if old_nm and old_nm != nw_nm:
+                _unlink_planner_bundle_file(old_rp)
+            row.file_relpath = nw_nm
+            row.title = secure_filename(f.filename or "")[:500] or row.title
+
+        bundle.linked_at = None
+        bundle.updated_at = datetime.utcnow()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    return _redirect_planner_bundle_workspace(bundle, ok="bulk_ok")
+
+
+@bp.route("/planner/create-flow/<int:bundle_id>/upload-action/<int:slot>", methods=["POST"])
+def planner_flow_bundle_upload_action(bundle_id: int, slot: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    bundle = db.get(ExercisePlannerFlowBundle, bundle_id)
+    if ex is None or bundle is None or bundle.exercise_id != ex.id:
+        abort(404)
+    row = (
+        db.query(ExercisePlannerFlowBundleActionEval)
+        .filter(
+            ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id,
+            ExercisePlannerFlowBundleActionEval.slot_index == int(slot),
+        )
+        .first()
+    )
+    if row is None:
+        abort(404)
+    f = request.files.get("file")
+    if not f or not getattr(f, "filename", ""):
+        return _redirect_planner_bundle_workspace(bundle, err="no_file")
+    try:
+        data = f.read()
+    except Exception:
+        return _redirect_planner_bundle_workspace(bundle, err="save_err")
+    if not _is_xlsx_bytes(data):
+        return _redirect_planner_bundle_workspace(bundle, err="bad_xlsx")
+    root = _planner_flow_bundle_root()
+    rel = f"{bundle.id}/action_{int(slot)}.xlsx"
+    dest = (root / rel).resolve()
+    try:
+        dest.relative_to(root)
+    except ValueError:
+        abort(400)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        dest.write_bytes(data)
+    except OSError:
+        return _redirect_planner_bundle_workspace(bundle, err="save_err")
+    old_rp = (row.file_relpath or "").strip()
+    old_nm = old_rp.replace("\\", "/")
+    nw_nm = rel.replace("\\", "/")
+    if old_nm and old_nm != nw_nm:
+        _unlink_planner_bundle_file(old_rp)
+    row.file_relpath = nw_nm
+    row.title = secure_filename(f.filename or "")[:500] or row.title
+    bundle.linked_at = None
+    bundle.updated_at = datetime.utcnow()
+    db.commit()
+    return _redirect_planner_bundle_workspace(bundle, ok="upload_ok")
+
+
+@bp.route("/planner/create-flow/<int:bundle_id>/link", methods=["POST"])
+def planner_flow_bundle_link(bundle_id: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    bundle = db.get(ExercisePlannerFlowBundle, bundle_id)
+    if ex is None or bundle is None or bundle.exercise_id != ex.id:
+        abort(404)
+    if int(bundle.dilemma_count or 0) < 1:
+        return _redirect_planner_bundle_workspace(bundle, err="link_count")
+    if not (bundle.event_flow_file_relpath or "").strip():
+        return _redirect_planner_bundle_workspace(bundle, err="link_master")
+    if _planner_bundle_file_abspath(bundle.event_flow_file_relpath) is None:
+        return _redirect_planner_bundle_workspace(bundle, err="link_master_disk")
+    slots = (
+        db.query(ExercisePlannerFlowBundleActionEval)
+        .filter(ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id)
+        .order_by(ExercisePlannerFlowBundleActionEval.slot_index)
+        .all()
+    )
+    if len(slots) != int(bundle.dilemma_count):
+        return _redirect_planner_bundle_workspace(bundle, err="link_slots")
+    for s in slots:
+        rel = (s.file_relpath or "").strip()
+        if not rel:
+            return _redirect_planner_bundle_workspace(bundle, err="link_slots")
+        if _planner_bundle_file_abspath(rel) is None:
+            return _redirect_planner_bundle_workspace(bundle, err="link_slots_disk")
+    bundle.linked_at = datetime.utcnow()
+    bundle.updated_at = datetime.utcnow()
+    db.commit()
+    return _redirect_planner_bundle_workspace(bundle, ok="link_ok")
+
+
+@bp.route("/planner/create-flow/<int:bundle_id>/assign-judge", methods=["POST"])
+def planner_flow_bundle_assign_judge(bundle_id: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    bundle = db.get(ExercisePlannerFlowBundle, bundle_id)
+    if ex is None or bundle is None or bundle.exercise_id != ex.id:
+        abort(404)
+    raw_j = (request.form.get("judge_user_id") or "").strip()
+    if not raw_j.isdigit():
+        abort(400)
+    judge_uid = int(raw_j)
+    clear = (request.form.get("clear") or "").strip() == "1"
+    ja = (
+        db.query(JudgeTraineeAssignment)
+        .filter(
+            JudgeTraineeAssignment.exercise_id == ex.id,
+            JudgeTraineeAssignment.judge_user_id == judge_uid,
+        )
+        .first()
+    )
+    if ja is None or ja.unit_level_key != bundle.unit_level_key:
+        abort(400)
+    ja.planner_flow_bundle_id = None if clear else bundle.id
+    db.commit()
+    return _redirect_planner_bundle_workspace(
+        bundle,
+        ok="assign_clear_ok" if clear else "assign_ok",
+    )
+
+
+def _judge_assigned_planner_bundle(
+    db, user: User, ex: Exercise | None
+) -> ExercisePlannerFlowBundle | None:
+    if ex is None:
+        return None
+    ja = _judge_assignment_for_current_exercise(db, user, ex)
+    if ja is None or not ja.planner_flow_bundle_id:
+        return None
+    b = db.get(ExercisePlannerFlowBundle, ja.planner_flow_bundle_id)
+    if b is None or b.exercise_id != ex.id:
+        return None
+    return b
+
+
+@bp.route("/judge/planner-flow-materials", methods=["GET"])
+def judge_planner_flow_materials():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/judge/planner-flow-materials")
+    if not can_access_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    bundle = _judge_assigned_planner_bundle(db, user, ex)
+    _sanitize_planner_bundle_orphan_event_flow(db, bundle)
+    slots = []
+    planner_eval_rows: list[dict] = []
+    unit_label_pf = ""
+    planner_event_flow_file_ok = False
+    planner_event_flow_display_name = ""
+    if bundle:
+        ev_rel_j = (bundle.event_flow_file_relpath or "").strip()
+        planner_event_flow_file_ok = bool(
+            ev_rel_j and _planner_bundle_file_abspath(ev_rel_j) is not None
+        )
+        planner_event_flow_display_name = _planner_blob_display_filename(
+            stored_title=bundle.event_flow_title or "",
+            relpath=ev_rel_j,
+            fallback="ملف المجرى",
+        )
+        slots = (
+            db.query(ExercisePlannerFlowBundleActionEval)
+            .filter(ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id)
+            .order_by(ExercisePlannerFlowBundleActionEval.slot_index)
+            .all()
+        )
+        unit_label_pf = label_for_unit_level_key(bundle.unit_level_key) or (
+            bundle.unit_level_label or ""
+        ).strip() or bundle.unit_level_key
+        if ex is not None:
+            for slot_row in slots:
+                s_canon = _planner_bundle_eval_canonical_saved(db, ex.id, slot_row.id)
+                is_done = bool(
+                    s_canon and getattr(s_canon, "is_approved", False)
+                )
+                has_xlsx = bool((slot_row.file_relpath or "").strip())
+                title_s = _planner_blob_display_filename(
+                    stored_title=slot_row.title or "",
+                    relpath=slot_row.file_relpath or "",
+                    fallback=f"قائمة {slot_row.slot_index}",
+                )
+                planner_eval_rows.append(
+                    {
+                        "slot_index": int(slot_row.slot_index),
+                        "item_title": title_s,
+                        "dt": (getattr(s_canon, "updated_at", None) if s_canon else None)
+                        or getattr(slot_row, "created_at", None),
+                        "exercise_type": (getattr(ex, "exercise_type", "") or "").strip(),
+                        "trained_unit": (getattr(ex, "trained_unit", "") or "").strip(),
+                        "delivery_dt": (
+                            getattr(s_canon, "approved_at", None)
+                            if s_canon is not None
+                            and bool(getattr(s_canon, "is_approved", False))
+                            else None
+                        ),
+                        "status_label": "ينجز" if is_done else "لم ينجز",
+                        "status_done": is_done,
+                        "grade_label": (getattr(s_canon, "grade_label", "") or "").strip()
+                        if s_canon
+                        else "",
+                        "open_href": (
+                            url_for(
+                                "views.judge_planner_flow_materials_action_evaluate",
+                                slot=slot_row.slot_index,
+                            )
+                            if has_xlsx
+                            else ""
+                        ),
+                    }
+                )
+    return render_template(
+        "judge_planner_flow_materials.html",
+        **_ctx(
+            user,
+            has_exercise=ex is not None,
+            exercise=ex,
+            bundle=bundle,
+            slots=slots,
+            planner_eval_rows=planner_eval_rows,
+            planner_flow_unit_label=unit_label_pf,
+            planner_event_flow_file_ok=planner_event_flow_file_ok,
+            planner_event_flow_display_name=planner_event_flow_display_name,
+        ),
+    )
+
+
+@bp.route("/judge/planner-flow-materials/event-flow", methods=["GET"])
+def judge_planner_flow_materials_event_flow():
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_access_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    bundle = _judge_assigned_planner_bundle(db, user, ex)
+    if bundle is None or not (bundle.event_flow_file_relpath or "").strip():
+        abort(404)
+    path = _planner_bundle_file_abspath(bundle.event_flow_file_relpath)
+    if path is None:
+        abort(404)
+    mt = _mimetype_info_bank_event_flow(path)
+    return send_file(path, mimetype=mt, as_attachment=False)
+
+
+@bp.route("/judge/planner-flow-materials/action/<int:slot>", methods=["GET"])
+def judge_planner_flow_materials_action(slot: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_access_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    bundle = _judge_assigned_planner_bundle(db, user, ex)
+    if bundle is None:
+        abort(404)
+    row = (
+        db.query(ExercisePlannerFlowBundleActionEval)
+        .filter(
+            ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id,
+            ExercisePlannerFlowBundleActionEval.slot_index == int(slot),
+        )
+        .first()
+    )
+    if row is None or not (row.file_relpath or "").strip():
+        abort(404)
+    path = _planner_bundle_file_abspath(row.file_relpath)
+    if path is None:
+        abort(404)
+    return send_file(
+        path,
+        mimetype=_mimetype_for_eval_list_file(path),
+        as_attachment=True,
+        download_name=path.name or f"action_eval_{slot}.xlsx",
+    )
+
+
+@bp.route(
+    "/judge/planner-flow-materials/action/<int:slot>/evaluate",
+    methods=["GET"],
+)
+def judge_planner_flow_materials_action_evaluate(slot: int):
+    """واجهة تقييم تفاعلية لقائمة إجراءات الحزمة (مثل صفحة قوائم التقييم العامة)."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect(
+            f"/login?next=/judge/planner-flow-materials/action/{int(slot)}/evaluate"
+        )
+    if not can_access_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    pair = _judge_planner_flow_action_bundle_row(db, user, ex, slot)
+    if pair is None or ex is None:
+        abort(404)
+    bundle, action_row = pair
+    unit_key = bundle.unit_level_key
+    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
+    unit_label_pf = (
+        (unit.get("label") or "").strip()
+        if unit
+        else (bundle.unit_level_label or "").strip() or unit_key
+    )
+    path = _planner_bundle_file_abspath(action_row.file_relpath)
+    if path is None:
+        return redirect(url_for("views.judge_planner_flow_materials"))
+    ev = _evaluation_sheet_view_context(path)
+
+    saved_payload = {}
+    saved_updated_at = None
+    saved_is_approved = False
+    saved_approved_at = None
+    saved_row_id = None
+    canon = _planner_bundle_eval_canonical_saved(db, ex.id, action_row.id)
+
+    def _load_payload(sr: PlannerFlowBundleEvalSavedResult | None) -> dict:
+        if not sr or not (sr.payload_json or "").strip():
+            return {}
+        try:
+            p = json.loads(sr.payload_json)
+        except Exception:
+            return {}
+        return p if isinstance(p, dict) else {}
+
+    if canon is not None:
+        saved_payload = _load_payload(canon)
+        saved_updated_at = canon.updated_at
+        saved_is_approved = bool(getattr(canon, "is_approved", False))
+        saved_approved_at = getattr(canon, "approved_at", None)
+        saved_row_id = canon.id
+
+    item_title = _planner_blob_display_filename(
+        stored_title=action_row.title or "",
+        relpath=action_row.file_relpath or "",
+        fallback=f"قائمة تقييم إجراءات — {slot}",
+    ).strip()
+    eval_save_url = url_for(
+        "views.judge_planner_flow_materials_action_save_results", slot=int(slot)
+    )
+    eval_approve_url = url_for(
+        "views.judge_planner_flow_materials_action_approve", slot=int(slot)
+    )
+    eval_close_href = url_for("views.judge_planner_flow_materials")
+
+    shown_date = getattr(ex, "planned_start", None) or getattr(ex, "created_at", None)
+    commander_name = "—"
+    commander_row = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == ex.id,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.TRAINEE.value,
+            ExerciseRosterRow.unit_level_key == unit_key,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .first()
+    )
+    if commander_row is not None:
+        commander_name = (commander_row.full_name or "").strip() or commander_name
+
+    judge_name = (
+        (getattr(user, "full_name", "") or "").strip()
+        or (getattr(user, "username", "") or "").strip()
+        or f"محكم #{getattr(user, 'id', '')}"
+    )
+    judge_row = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == ex.id,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+            ExerciseRosterRow.unit_level_key == unit_key,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .first()
+    )
+    if judge_row is not None:
+        judge_name = (judge_row.full_name or "").strip() or judge_name
+
+    show_eval_approve = can_approve_evaluation_results(user)
+    return render_template(
+        "judge_evaluation_list_viewer.html",
+        **_ctx(
+            user,
+            unit_key=unit_key,
+            item_id=action_row.id,
+            evaluation_item_id=action_row.id,
+            saved_row_id=saved_row_id,
+            item_title=item_title,
+            saved_payload=saved_payload,
+            saved_updated_at=saved_updated_at,
+            saved_is_approved=saved_is_approved,
+            saved_approved_at=saved_approved_at,
+            eval_close_href=eval_close_href,
+            **ev,
+            unit_label=unit_label_pf or "—",
+            shown_date=shown_date,
+            commander_name=commander_name or "—",
+            judge_name=judge_name or "—",
+            has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
+            eval_save_url=eval_save_url,
+            eval_approve_url=eval_approve_url,
+            show_eval_approve=show_eval_approve,
+            eval_can_edit=not saved_is_approved,
+            eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int)
+            == 1,
+        ),
+    )
+
+
+@bp.route(
+    "/judge/planner-flow-materials/action/<int:slot>/save-results",
+    methods=["POST"],
+)
+def judge_planner_flow_materials_action_save_results(slot: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_access_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    pair = _judge_planner_flow_action_bundle_row(db, user, ex, slot)
+    if pair is None or ex is None:
+        abort(404)
+    bundle, action_row = pair
+    raw = (request.form.get("payload_json") or "").strip()
+    if not raw:
+        return redirect(
+            url_for(
+                "views.judge_planner_flow_materials_action_evaluate",
+                slot=int(slot),
+            )
+        )
+    if len(raw) > 250_000:
+        abort(400)
+    _planner_bundle_eval_commit_payload_save(
+        db,
+        user=user,
+        action_row=action_row,
+        bundle=bundle,
+        current_exercise=ex,
+        raw=raw,
+    )
+    return redirect(
+        url_for("views.judge_planner_flow_materials_action_evaluate", slot=int(slot))
+    )
+
+
+@bp.route(
+    "/judge/planner-flow-materials/action/<int:slot>/approve",
+    methods=["POST"],
+)
+def judge_planner_flow_materials_action_approve(slot: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_approve_evaluation_results(user):
+        abort(403)
+    if not can_access_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    pair = _judge_planner_flow_action_bundle_row(db, user, ex, slot)
+    if pair is None or ex is None:
+        abort(404)
+    _bundle, action_row = pair
+
+    saved = _planner_bundle_eval_canonical_saved(db, ex.id, action_row.id)
+    if saved is None or not (saved.payload_json or "").strip():
+        abort(400)
+    if bool(getattr(saved, "is_approved", False)):
+        return redirect(
+            url_for(
+                "views.judge_planner_flow_materials_action_evaluate",
+                slot=int(slot),
+            )
+        )
+    rows = _parse_saved_eval_rows(saved.payload_json)
+    if _evaluation_payload_has_empty_acquired_for_approve(rows):
+        return redirect(
+            url_for(
+                "views.judge_planner_flow_materials_action_evaluate",
+                slot=int(slot),
+                eval_approve_incomplete=1,
+            )
+        )
+    saved.is_approved = True
+    saved.approved_by_id = getattr(user, "id", None)
+    saved.approved_at = datetime.utcnow()
+    db.commit()
+    return redirect(
+        url_for("views.judge_planner_flow_materials_action_evaluate", slot=int(slot))
+    )
+
+
 # مساحة التخطيط — عناصر الشريط (المعرّف، العنوان، أيقونة Font Awesome)
 PLANNER_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
-    ("new-flow", "إنشاء مجرى جديد", "fa-diagram-project"),
+    ("new-flow", "المجرى وتقييم الإجراءات", "fa-diagram-project"),
     ("new-evaluation-list", "إنشاء قائمة تقييم", "fa-file-circle-plus"),
     ("evaluation-lists", "قوائم التقييم — إدخال النتائج", "fa-file-excel"),
     ("chat-rooms", "غرف المحادثة", "fa-comments"),
@@ -2515,7 +3593,7 @@ def planner_hub_section(slug: str):
         abort(403)
     slug_norm = (slug or "").strip().lower()
     if slug_norm == "new-flow":
-        return redirect(url_for("views.admin_dilemmas_home"))
+        return redirect(url_for("views.planner_flow_bundle_workspace"))
     if slug_norm == "new-evaluation-list":
         return redirect(url_for("views.admin_evaluation_lists_home"))
     if slug_norm == "evaluation-lists":
@@ -2825,6 +3903,7 @@ def planner_evaluation_list_approve(unit_key: str, item_id: int):
 JUDGE_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("dilemmas", "قوائم المعاضل", "fa-file-pdf"),
     ("evaluation-lists", "قوائم التقييم", "fa-file-excel"),
+    ("planner-flow-materials", "المجرى وتقييم الإجراءات", "fa-diagram-project"),
     ("visual-documentation", "التوثيق المرئي", "fa-photo-film"),
     ("chat-rooms", "غرف المحادثة", "fa-comments"),
     ("incomplete-tasks", "مهام غير مكتملة", "fa-clipboard-list"),
@@ -2853,7 +3932,14 @@ def judge_hub():
     items_src = JUDGE_HUB_ITEMS if is_system_admin(user) else tuple(
         x
         for x in JUDGE_HUB_ITEMS
-        if x[0] in ("dilemmas", "evaluation-lists", "incomplete-tasks", "chat-rooms")
+        if x[0]
+        in (
+            "dilemmas",
+            "evaluation-lists",
+            "planner-flow-materials",
+            "incomplete-tasks",
+            "chat-rooms",
+        )
     )
     hub_items = [{"slug": s, "title_ar": t, "icon": ic} for s, t, ic in items_src]
     return render_template(
@@ -2876,6 +3962,8 @@ def judge_hub_section(slug: str):
         return redirect("/judge/evaluation-lists")
     if slug == "dilemmas":
         return redirect("/judge/dilemmas")
+    if slug == "planner-flow-materials":
+        return redirect(url_for("views.judge_planner_flow_materials"))
     if slug == "chat-rooms":
         return redirect(url_for("views.chat_rooms_list"))
     if slug == "visual-documentation":
@@ -3903,8 +4991,6 @@ def _system_checklist_rows() -> list[dict]:
     add("إدارة النظام", "الأهداف التدريبية", "/admin/exercises/objectives", "إدارة النظام", "قائمة أهداف تدريبية، إدخال يدوي أو ملف خارجي.", "إضافة، حفظ، حذف جميع الأهداف.", "ظهور الأهداف في تحليلات المحللين.")
     add("إدارة النظام", "قائمة المحكمين", "/admin/exercises/judge-unit-roster", "إدارة النظام", "الرقم العسكري، الرتبة، الاسم، مستوى الوحدة.", "حفظ القائمة، الاستيراد من ملف، إنشاء/تحديث حسابات المحكمين تلقائياً.", "تسجيل دخول المحكم بالرقم العسكري.")
     add("إدارة النظام", "قائمة الوحدة المتدربة", "/admin/exercises/trainee-unit-roster", "إدارة النظام", "الرقم العسكري، الرتبة، الاسم، مستوى الوحدة.", "حفظ القائمة، الاستيراد من ملف، ربط المتدرب بمستوى الوحدة.", "ظهور الوحدة في تقارير الربط والتحليل.")
-    add("إدارة النظام", "قائمة المعاضل", "/admin/dilemmas", "إدارة النظام", "رفع ملفات PDF حسب مستوى الوحدة ومرحلة التمرين.", "رفع، فتح، حذف، تغيير المرحلة، مسح المستوى.", "فتح القوائم من مساحة المحكمين.")
-    add("إدارة النظام", "قوائم التقييم", "/admin/evaluation-lists", "إدارة النظام", "رفع ملفات Excel حسب مستوى الوحدة ومرحلة التمرين.", "رفع، فتح، حذف، تغيير المرحلة، مسح المستوى.", "فتح القائمة من المحكم وإدخال النتائج.")
     add("إدارة النظام", "إدارة تقييمات الوحدات", "/admin/evaluation-lists/saved-results", "إدارة النظام", "نتائج التقييم المحفوظة والمعتمدة.", "عرض، حذف نتيجة محفوظة.", "تطابق الحالة مع اعتماد المحكم.")
     add("إدارة النظام", "الربط المتكامل", "/admin/dilemmas-evaluation-unit-report", "إدارة النظام", "تقرير يربط قائمة الوحدة المتدربة بقائمة المحكمين حسب مستوى الوحدة.", "مراجعة أسماء المتدربين والمحكمين حسب المستوى.", "تطابق مستوى الوحدة بين القائمتين.")
     add("إدارة النظام", "تنظيم المعركة", "/admin/battle-organization", "إدارة النظام", "رموز الوحدات، بيانات المتدربين، بيانات المحكمين، المواقع/التنظيم.", "تعبئة وحفظ تنظيم المعركة.", "انعكاس البيانات في الصورة العامة.")
@@ -3923,6 +5009,8 @@ def _system_checklist_rows() -> list[dict]:
     add("المحللين", "عرض الإيجابيات والسلبيات", "/analyst/positives-negatives", "محلل", "نقاط الاستدامة والتطوير حسب مستوى الوحدة، وملاحظات المحكمين.", "اختيار مستوى الوحدة، عرض الإيجابيات أعلى والسلبيات أسفل.", "ظهور لا يوجد ملاحظات عند عدم وجود ملاحظات.")
     add("المحللين", "تحليل وتقييم المحكمين", "/analyst/judges-eval-analysis", "محلل", "تحليل إنجاز المحكمين، القوائم المعتمدة وغير المعتمدة.", "عرض وفتح تقييمات المحكمين.", "تطابق بيانات الاعتماد مع المحكم.")
     add("التخطيط", "مساحة التخطيط", "/planner", "مخطط / إدارة النظام", "قوائم التقييم، المحادثات، المهام، معلومات التمرين.", "فتح أقسام التخطيط وإدخال نتائج عند السماح.", "التحقق من صلاحيات التخطيط.")
+    add("التخطيط", "قوائم المعاضل — إدراج PDF", "/admin/dilemmas", "مخطط / إدارة النظام", "رفع ملفات PDF حسب مستوى الوحدة ومرحلة التمرين.", "رفع، فتح، حذف، تغيير المرحلة، مسح المستوى.", "الدخول من مساحة التخطيط؛ عرض المحكم من مساحة المحكمين.")
+    add("التخطيط", "قوائم التقييم — إدراج Excel", "/admin/evaluation-lists", "مخطط / إدارة النظام", "رفع ملفات Excel حسب مستوى الوحدة ومرحلة التمرين.", "رفع، فتح، حذف، تغيير المرحلة، مسح المستوى.", "الدخول من مساحة التخطيط؛ إدخال النتائج للمحكم من مساحة المحكمين.")
     add("السيطرة", "مساحة السيطرة", "/control", "سيطرة / إدارة النظام", "موقف التقييم، المحادثات، المهام، التوثيق المرئي، الإشعارات.", "متابعة المواقف وفتح التوثيق والمحادثات.", "ظهور البيانات المرتبطة بالتمرين الحالي.")
     add("الإشعارات", "سجل الإشعارات", "/notifications", "محكم / سيطرة / تخطيط / إدارة", "إشعارات الرسائل، الملفات، التوثيق، الحالة مقروء/غير مقروء.", "فتح الإشعار، تعليم كمقروء، تعليم الكل.", "عداد الجرس يطابق غير المقروء.")
     add("المكتبة", "المكتبة", "/library", "جميع المستخدمين", "المراجع والمعايير المتاحة.", "تصفح المراجع حسب الصلاحية.", "فتح المكتبة من الشريط العلوي.")
@@ -4785,8 +5873,7 @@ def admin_exercise_open_export():
 @bp.route("/admin/evaluation-lists/<unit_key>/view/<int:item_id>", methods=["GET"])
 def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
     user = get_current_user_optional()
-    if not user or not _can_manage_dilemma_eval_catalog(user):
-        abort(403)
+    _require_planner_hub_catalog_access(user)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
         abort(404)
@@ -5053,8 +6140,7 @@ def analyst_evaluation_list_file_viewer(unit_key: str, item_id: int):
 @bp.route("/admin/evaluation-lists/<unit_key>/item/<int:item_id>/file", methods=["GET"])
 def admin_evaluation_list_file(unit_key: str, item_id: int):
     user = get_current_user_optional()
-    if not user or not _can_manage_dilemma_eval_catalog(user):
-        abort(403)
+    _require_planner_hub_catalog_access(user)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
         abort(404)
@@ -5086,8 +6172,7 @@ def admin_evaluation_list_file(unit_key: str, item_id: int):
 )
 def admin_evaluation_list_delete_item(unit_key: str, item_id: int):
     user = get_current_user_optional()
-    if not user or not _can_manage_dilemma_eval_catalog(user):
-        abort(403)
+    _require_planner_hub_catalog_access(user)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
         abort(404)
@@ -5115,8 +6200,7 @@ def admin_evaluation_list_delete_item(unit_key: str, item_id: int):
 )
 def admin_evaluation_list_set_phase(unit_key: str, item_id: int):
     user = get_current_user_optional()
-    if not user or not _can_manage_dilemma_eval_catalog(user):
-        abort(403)
+    _require_planner_hub_catalog_access(user)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
         abort(404)
@@ -5142,8 +6226,7 @@ def admin_evaluation_list_set_phase(unit_key: str, item_id: int):
 )
 def admin_evaluation_list_save_results(unit_key: str, item_id: int):
     user = get_current_user_optional()
-    if not user or not _can_manage_dilemma_eval_catalog(user):
-        abort(403)
+    _require_planner_hub_catalog_access(user)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
         abort(404)
@@ -5710,8 +6793,7 @@ def admin_evaluation_saved_results_delete(saved_id: int):
 @bp.route("/admin/evaluation-lists/<unit_key>/clear", methods=["POST"])
 def admin_evaluation_list_clear(unit_key: str):
     user = get_current_user_optional()
-    if not user or not _can_manage_dilemma_eval_catalog(user):
-        abort(403)
+    _require_planner_hub_catalog_access(user)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
         abort(404)
@@ -5735,8 +6817,9 @@ def admin_evaluation_list_clear(unit_key: str):
 @bp.route("/admin/evaluation-lists/<unit_key>", methods=["GET", "POST"])
 def admin_evaluation_lists(unit_key: str):
     user = get_current_user_optional()
-    if not user or not _can_manage_dilemma_eval_catalog(user):
-        abort(403)
+    if not user:
+        return redirect(f"/login?next=/admin/evaluation-lists/{unit_key}")
+    _require_planner_hub_catalog_access(user)
     from flask import g
 
     db = g.db
@@ -5900,8 +6983,7 @@ def admin_evaluation_lists_home():
     user = get_current_user_optional()
     if not user:
         return redirect("/login?next=/admin/evaluation-lists")
-    if not _can_manage_dilemma_eval_catalog(user):
-        abort(403)
+    _require_planner_hub_catalog_access(user)
     first = UNIT_LEVELS[0]["key"] if UNIT_LEVELS else "brigade_group"
     return redirect(url_for("views.admin_evaluation_lists", unit_key=first))
 
@@ -6104,8 +7186,9 @@ def admin_battle_organization_save():
 @bp.route("/admin/dilemmas/")
 def admin_dilemmas_home():
     user = get_current_user_optional()
-    if not user or not _can_manage_dilemma_eval_catalog(user):
-        abort(403)
+    if not user:
+        return redirect("/login?next=/admin/dilemmas")
+    _require_planner_hub_catalog_access(user)
     first = UNIT_LEVELS[0]["key"] if UNIT_LEVELS else "brigade_group"
     return redirect(url_for("views.admin_dilemmas", unit_key=first))
 
@@ -6113,8 +7196,9 @@ def admin_dilemmas_home():
 @bp.route("/admin/dilemmas/<unit_key>", methods=["GET", "POST"])
 def admin_dilemmas(unit_key: str):
     user = get_current_user_optional()
-    if not user or not _can_manage_dilemma_eval_catalog(user):
-        abort(403)
+    if not user:
+        return redirect(f"/login?next=/admin/dilemmas/{unit_key}")
+    _require_planner_hub_catalog_access(user)
     from flask import g
 
     db = g.db
@@ -6271,8 +7355,7 @@ def admin_dilemmas(unit_key: str):
 @bp.route("/admin/dilemmas/<unit_key>/view/<int:item_id>", methods=["GET"])
 def admin_dilemma_viewer(unit_key: str, item_id: int):
     user = get_current_user_optional()
-    if not user or not _can_manage_dilemma_eval_catalog(user):
-        abort(403)
+    _require_planner_hub_catalog_access(user)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
         abort(404)
@@ -6306,8 +7389,7 @@ def admin_dilemma_viewer(unit_key: str, item_id: int):
 @bp.route("/admin/dilemmas/<unit_key>/item/<int:item_id>/pdf", methods=["GET"])
 def admin_dilemma_pdf_file(unit_key: str, item_id: int):
     user = get_current_user_optional()
-    if not user or not _can_manage_dilemma_eval_catalog(user):
-        abort(403)
+    _require_planner_hub_catalog_access(user)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
         abort(404)
@@ -6330,8 +7412,7 @@ def admin_dilemma_pdf_file(unit_key: str, item_id: int):
 @bp.route("/admin/dilemmas/<unit_key>/item/<int:item_id>/delete", methods=["POST"])
 def admin_dilemmas_delete_item(unit_key: str, item_id: int):
     user = get_current_user_optional()
-    if not user or not _can_manage_dilemma_eval_catalog(user):
-        abort(403)
+    _require_planner_hub_catalog_access(user)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
         abort(404)
@@ -6359,8 +7440,7 @@ def admin_dilemmas_delete_item(unit_key: str, item_id: int):
 )
 def admin_dilemmas_set_phase(unit_key: str, item_id: int):
     user = get_current_user_optional()
-    if not user or not _can_manage_dilemma_eval_catalog(user):
-        abort(403)
+    _require_planner_hub_catalog_access(user)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
         abort(404)
@@ -6383,8 +7463,7 @@ def admin_dilemmas_set_phase(unit_key: str, item_id: int):
 @bp.route("/admin/dilemmas/<unit_key>/clear", methods=["POST"])
 def admin_dilemmas_clear(unit_key: str):
     user = get_current_user_optional()
-    if not user or not _can_manage_dilemma_eval_catalog(user):
-        abort(403)
+    _require_planner_hub_catalog_access(user)
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if not unit:
         abort(404)

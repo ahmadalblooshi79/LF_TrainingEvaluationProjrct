@@ -171,6 +171,11 @@ class Exercise(Base):
         order_by="ExerciseRosterRow.sort_order",
         cascade="all, delete-orphan",
     )
+    planner_flow_bundles = relationship(
+        "ExercisePlannerFlowBundle",
+        back_populates="exercise",
+        cascade="all, delete-orphan",
+    )
 
 
 class ExerciseRosterKind(str, enum.Enum):
@@ -245,6 +250,121 @@ class ExerciseRosterRow(Base):
     exercise = relationship("Exercise", back_populates="roster_rows")
 
 
+class ExercisePlannerFlowBundle(Base):
+    """حزمة تخطيط: قائمة واحدة لمجرى الأحداث والمعاضل + عدة قوائم تقييم إجراءات لكل مرحلة ومستوى وحدة ضمن تمرين."""
+
+    __tablename__ = "exercise_planner_flow_bundles"
+    __table_args__ = (
+        UniqueConstraint(
+            "exercise_id",
+            "exercise_phase",
+            "unit_level_key",
+            name="uq_planner_bundle_ex_phase_unit",
+        ),
+        Index("ix_planner_bundle_exercise", "exercise_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    exercise_id: Mapped[int] = mapped_column(
+        ForeignKey("exercises.id", ondelete="CASCADE"), index=True
+    )
+    exercise_phase: Mapped[str] = mapped_column(String(32), index=True)
+    unit_level_key: Mapped[str] = mapped_column(String(64), index=True)
+    unit_level_label: Mapped[str] = mapped_column(String(200), default="")
+    event_flow_title: Mapped[str] = mapped_column(String(500), default="")
+    event_flow_file_relpath: Mapped[str] = mapped_column(String(500), default="")
+    dilemma_count: Mapped[int] = mapped_column(Integer, default=0)
+    linked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    exercise = relationship("Exercise", back_populates="planner_flow_bundles")
+    action_eval_slots = relationship(
+        "ExercisePlannerFlowBundleActionEval",
+        back_populates="bundle",
+        order_by="ExercisePlannerFlowBundleActionEval.slot_index",
+        cascade="all, delete-orphan",
+    )
+    judge_assignments = relationship(
+        "JudgeTraineeAssignment",
+        back_populates="planner_flow_bundle",
+    )
+
+
+class ExercisePlannerFlowBundleActionEval(Base):
+    """عنصر قائمة تقييم إجراءات (Excel) مرتبط بفهرس ضمن الحزمة (1..عدد المعاضل)."""
+
+    __tablename__ = "exercise_planner_flow_bundle_action_evals"
+    __table_args__ = (
+        UniqueConstraint("bundle_id", "slot_index", name="uq_bundle_action_slot"),
+        Index("ix_bundle_action_bundle", "bundle_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    bundle_id: Mapped[int] = mapped_column(
+        ForeignKey("exercise_planner_flow_bundles.id", ondelete="CASCADE"), index=True
+    )
+    slot_index: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(500), default="")
+    file_relpath: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    bundle = relationship("ExercisePlannerFlowBundle", back_populates="action_eval_slots")
+    eval_saved = relationship(
+        "PlannerFlowBundleEvalSavedResult",
+        back_populates="action_slot",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+
+class PlannerFlowBundleEvalSavedResult(Base):
+    """نتيجة تقييم محفوظة لقائمة إجراءات داخل حزمة المجرى (واجهة المحكم الفعلية)."""
+
+    __tablename__ = "planner_flow_bundle_eval_saved_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "bundle_action_eval_id", name="uq_pf_bundle_eval_saved_action"
+        ),
+        Index("ix_pf_bundle_eval_exercise", "exercise_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    bundle_action_eval_id: Mapped[int] = mapped_column(
+        ForeignKey("exercise_planner_flow_bundle_action_evals.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    exercise_id: Mapped[int | None] = mapped_column(
+        ForeignKey("exercises.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    exercise_phase: Mapped[str] = mapped_column(
+        String(32), default=ExercisePhase.PREPARATION.value, index=True
+    )
+    unit_level_key: Mapped[str] = mapped_column(String(64), default="", index=True)
+    payload_json: Mapped[str] = mapped_column(Text(), default="")
+    total_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    grade_label: Mapped[str] = mapped_column(String(64), default="")
+    saved_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    is_approved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    approved_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    action_slot = relationship(
+        "ExercisePlannerFlowBundleActionEval", back_populates="eval_saved"
+    )
+
+
 class JudgeTraineeAssignment(Base):
     """تخصيص محكّم لمتدرب محدد ضمن تمرين محدد.
 
@@ -267,9 +387,19 @@ class JudgeTraineeAssignment(Base):
     unit_level_key: Mapped[str] = mapped_column(String(64), default="", index=True)
     trainee_name: Mapped[str] = mapped_column(String(256), default="")
     trainee_military_number: Mapped[str] = mapped_column(String(128), default="", index=True)
+    planner_flow_bundle_id: Mapped[int | None] = mapped_column(
+        ForeignKey("exercise_planner_flow_bundles.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     judge_user = relationship("User", foreign_keys=[judge_user_id])
+    planner_flow_bundle = relationship(
+        "ExercisePlannerFlowBundle",
+        back_populates="judge_assignments",
+        foreign_keys=[planner_flow_bundle_id],
+    )
 
 
 class DilemmaItem(Base):

@@ -1,6 +1,9 @@
-{% extends "admin_shell.html" %}
+{% extends "base.html" %}
 {% block title %}معاينة تقييم — قوائم التقييم{% endblock %}
-{% block admin_workspace %}
+{% block content %}
+<p class="mt-tight catalog-tools-back" style="margin-bottom:0.65rem;">
+  <a class="btn btn-ghost" href="{{ url_for('views.planner_hub') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> مساحة التخطيط</a>
+</p>
 {% if header_row and eval_structured %}
 <div class="eval-list-page dilemma-viewer-page">
   <div class="eval-list-page__sticky-top">

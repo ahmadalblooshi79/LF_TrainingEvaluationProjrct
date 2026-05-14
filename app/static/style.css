@@ -4768,6 +4768,7 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   cursor: grab;
 }
 
+<<<<<<< Updated upstream
 /* التقرير النهائي: جدول رئيسي مضغوط بعرض الصفحة بدون تمرير داخلي */
 .final-report-card {
   overflow: visible;
@@ -4905,3 +4906,265 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   min-width: 7.5rem;
   text-align: center;
 }
+=======
+/* مساحة التخطيط — تخصيص وربط المجرى وتقييم الإجراءات */
+.planner-flow-toolbar__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.45rem 0.65rem;
+}
+.planner-flow-toolbar__row--tight {
+  align-items: center;
+}
+.planner-flow-field label {
+  display: block;
+  margin-bottom: 0.2rem;
+}
+.planner-flow-toolbar__apply {
+  align-self: flex-end;
+}
+.planner-flow-count-row {
+  margin-top: 0.55rem;
+  padding: 0.55rem 0.75rem;
+}
+.planner-flow-count-input {
+  width: 5rem;
+  padding: 0.45rem 0.55rem;
+}
+.planner-flow-scope-hint {
+  margin: 0.45rem 0 0.65rem;
+  font-size: 0.9rem;
+}
+.planner-flow-event-filename {
+  margin: 0 0 0.55rem;
+  font-size: 0.98rem;
+  line-height: 1.55;
+  color: var(--text, #3a332d);
+  word-break: break-word;
+}
+.planner-flow-event-filename strong {
+  font-weight: 700;
+}
+.planner-flow-master-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.55rem;
+}
+.planner-flow-pdf-embed-wrap {
+  margin-top: 0.35rem;
+  border: 1px solid var(--border-soft, #c9bfb5);
+  border-radius: var(--radius-sm, 6px);
+  overflow: hidden;
+  background: var(--surface-muted, #faf8f6);
+  min-height: 28rem;
+}
+.planner-flow-pdf-iframe {
+  display: block;
+  width: 100%;
+  min-height: 28rem;
+  border: none;
+  background: #525659;
+}
+@media (max-width: 960px) {
+  .planner-flow-pdf-embed-wrap {
+    min-height: 22rem;
+  }
+  .planner-flow-pdf-iframe {
+    min-height: 22rem;
+  }
+}
+.planner-flow-bulk-hint {
+  margin: 0 0 0.55rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.planner-flow-upload-callout-title {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.planner-flow-actions-bulk-form {
+  margin-bottom: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border-soft, #c9bfb5);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface-muted, #faf8f6);
+}
+.planner-flow-excel-upload-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+.planner-flow-file-input-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+.planner-flow-file-pick-btn {
+  cursor: pointer;
+  margin: 0;
+  font-family: inherit;
+}
+.planner-flow-pick-status {
+  margin: 0.45rem 0 0;
+  font-size: 0.82rem;
+  min-height: 1.2em;
+}
+.planner-flow-link-hint {
+  margin: 0.25rem 0 0;
+  max-width: 14rem;
+  text-align: center;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.planner-flow-slot-table-wrap {
+  margin-top: 0.15rem;
+}
+.planner-flow-slot-table.ibank-table th,
+.planner-flow-slot-table.ibank-table td {
+  padding: 0.35rem 0.55rem;
+  vertical-align: middle;
+}
+.planner-flow-slot-table .planner-flow-slot-idx {
+  margin-inline-end: 0.35rem;
+}
+.planner-flow-bundle-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 0.65rem;
+  align-items: start;
+  margin-bottom: 0.75rem;
+}
+.planner-flow-judge-page-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.planner-flow-judge-eval-note {
+  margin: 0 0 0.65rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+@media (max-width: 960px) {
+  .planner-flow-bundle-grid {
+    grid-template-columns: 1fr;
+  }
+  .planner-flow-judge-page-grid {
+    grid-template-columns: 1fr;
+  }
+  .planner-flow-center-actions {
+    order: -1;
+    justify-self: center;
+  }
+}
+.planner-flow-col {
+  padding: 0.65rem 0.75rem;
+}
+.planner-flow-slot-card {
+  padding: 0.45rem 0.55rem;
+  margin-bottom: 0.4rem;
+  border: 1px solid var(--border-soft, #c9bfb5);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface-muted, #faf8f6);
+}
+.planner-flow-slot-head {
+  font-weight: 600;
+  font-size: 0.92rem;
+  margin-bottom: 0.25rem;
+}
+.planner-flow-slot-idx {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  margin-inline-end: 0.35rem;
+  border-radius: 4px;
+  background: var(--brown-soft, #c4a990);
+  color: #fff;
+  font-size: 0.78rem;
+}
+.planner-flow-slot-meta {
+  margin: 0 0 0.35rem;
+  font-size: 0.82rem;
+}
+.planner-flow-inline-upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+.planner-flow-inline-upload--stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+.planner-flow-file-input {
+  flex: 1 1 10rem;
+  min-width: 8rem;
+  font-size: 0.85rem;
+}
+.planner-flow-center-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding-top: 2rem;
+}
+.planner-flow-link-btn {
+  white-space: nowrap;
+}
+.planner-flow-linked-note {
+  margin: 0;
+  font-size: 0.82rem;
+  text-align: center;
+}
+.planner-flow-judges {
+  margin-top: 0.35rem;
+}
+.planner-flow-judge-table {
+  font-size: 0.88rem;
+}
+.planner-flow-judge-table th,
+.planner-flow-judge-table td {
+  padding: 0.28rem 0.45rem;
+  vertical-align: middle;
+}
+.planner-flow-judge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.planner-flow-tag-ok {
+  display: inline-block;
+  margin: 0;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.82rem;
+}
+.btn-sm-compact {
+  padding: 0.32rem 0.55rem;
+  font-size: 0.84rem;
+}
+.planner-flow-judge-slot-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.planner-flow-judge-slot-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.65rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border-light);
+}
+.planner-flow-judge-slot-list li:last-child {
+  border-bottom: none;
+}
+>>>>>>> Stashed changes
