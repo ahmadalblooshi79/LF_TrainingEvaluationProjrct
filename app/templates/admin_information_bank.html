@@ -1,18 +1,20 @@
 {% extends "base.html" %}
 {% block title %}بنك المعلومات{% endblock %}
 {% block content %}
-<p class="mt-tight" style="margin-bottom:0.75rem;">
-  <a class="btn btn-ghost" href="/dashboard"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> الصفحة الرئيسية</a>
-</p>
-<div class="page-header ibank-page-header">
-  <div class="ibank-page-header__title-row" dir="rtl">
-    <h1><i class="fa-solid fa-database fa-icon-title" aria-hidden="true"></i> بنك المعلومات</h1>
-    {% if ok_msg %}
-    <p class="form-ok-banner ibank-ok-toast" id="ibank-ok-toast" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
-    {% endif %}
+<div class="ibank-subheader" dir="rtl">
+  <div class="ibank-subheader__row">
+    <div class="page-header ibank-page-header">
+      <div class="ibank-page-header__title-row" dir="rtl">
+        <h1><i class="fa-solid fa-database fa-icon-title" aria-hidden="true"></i> بنك المعلومات</h1>
+        {% if ok_msg %}
+        <p class="form-ok-banner ibank-ok-toast" id="ibank-ok-toast" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
+        {% endif %}
+      </div>
+    </div>
+    <a class="btn btn-ghost ibank-subheader__back" href="/dashboard"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> الصفحة الرئيسية</a>
   </div>
   {% if not information_bank_can_manage %}
-  <p class="form-ok-banner" role="status" style="margin-top:0.65rem;"><i class="fa-solid fa-eye" aria-hidden="true"></i> <strong>عرض وتنزيل فقط</strong> — الإضافة والتعديل والحذف من صلاحية إدارة النظام فقط. يمكنك استخدام الروابط والسحب في أدوات التخطيط المرتبطة بالتمرين.</p>
+  <p class="form-ok-banner ibank-subheader__readonly-note" role="status"><i class="fa-solid fa-eye" aria-hidden="true"></i> <strong>عرض وتنزيل فقط</strong> — الإضافة والتعديل والحذف من صلاحية إدارة النظام فقط. يمكنك استخدام الروابط والسحب في أدوات التخطيط المرتبطة بالتمرين.</p>
   {% endif %}
 </div>
 {% if ok_msg %}
@@ -43,15 +45,11 @@
       <div class="ibank-tabpane{% if active_tab == 'phases' %} is-active{% endif %}" data-tab-pane="phases" role="tabpanel">
         <h2 class="h2-in-card"><i class="fa-solid fa-layer-group fa-icon-title" aria-hidden="true"></i> جدول بيانات مراحل التمرين</h2>
         {% if information_bank_can_manage %}
-        <div class="btn-group" style="margin-bottom:0.75rem;">
-          <form method="post" action="{{ url_for('views.admin_information_bank_phase_add') }}" style="display:flex;gap:0.45rem;flex-wrap:wrap;align-items:end;">
-            <div class="form-group" style="margin:0;min-width:16rem;">
-              <label for="ib-new-phase">اسم المرحلة</label>
-              <input id="ib-new-phase" name="phase_label" type="text" required>
-            </div>
-            <button type="submit" class="btn"><i class="fa-solid fa-plus" aria-hidden="true"></i> إضافة مرحلة</button>
-          </form>
-        </div>
+        <form method="post" action="{{ url_for('views.admin_information_bank_phase_add') }}" class="ibank-inline-add-form">
+          <label class="ibank-inline-add-form__label" for="ib-new-phase">اسم المرحلة</label>
+          <input id="ib-new-phase" class="ibank-inline-add-form__input" name="phase_label" type="text" required autocomplete="off">
+          <button type="submit" class="btn ibank-inline-add-form__submit"><i class="fa-solid fa-plus" aria-hidden="true"></i> إضافة مرحلة</button>
+        </form>
         {% else %}
         {% endif %}
         <div class="table-wrap">
@@ -84,15 +82,11 @@
       <div class="ibank-tabpane{% if active_tab == 'units' %} is-active{% endif %}" data-tab-pane="units" role="tabpanel">
         <h2 class="h2-in-card"><i class="fa-solid fa-sitemap fa-icon-title" aria-hidden="true"></i> جدول بيانات مستويات الوحدات</h2>
         {% if information_bank_can_manage %}
-        <div class="btn-group" style="margin-bottom:0.75rem;">
-          <form method="post" action="{{ url_for('views.admin_information_bank_unit_add') }}" style="display:flex;gap:0.45rem;flex-wrap:wrap;align-items:end;">
-            <div class="form-group" style="margin:0;min-width:16rem;">
-              <label for="ib-new-unit">اسم مستوى الوحدة</label>
-              <input id="ib-new-unit" name="unit_label" type="text" required>
-            </div>
-            <button type="submit" class="btn"><i class="fa-solid fa-plus" aria-hidden="true"></i> إضافة مستوى</button>
-          </form>
-        </div>
+        <form method="post" action="{{ url_for('views.admin_information_bank_unit_add') }}" class="ibank-inline-add-form">
+          <label class="ibank-inline-add-form__label" for="ib-new-unit">اسم مستوى الوحدة</label>
+          <input id="ib-new-unit" class="ibank-inline-add-form__input" name="unit_label" type="text" required autocomplete="off">
+          <button type="submit" class="btn ibank-inline-add-form__submit"><i class="fa-solid fa-plus" aria-hidden="true"></i> إضافة مستوى</button>
+        </form>
         {% else %}
         {% endif %}
         <div class="table-wrap ibank-table-scroll ibank-table-scroll--short">

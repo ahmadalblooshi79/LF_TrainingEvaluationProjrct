@@ -4488,6 +4488,38 @@ main:has(.timeline-word-root) .admin-shell__workspace {
     color: #2e2823 !important;
   }
 }
+/* بنك المعلومات — شريط العنوان الضيق وزر الصفحة الرئيسية */
+.ibank-subheader {
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border-light);
+}
+.ibank-subheader__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3rem 0.55rem;
+}
+.ibank-subheader .page-header.ibank-page-header {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+  flex: 1 1 auto;
+  min-width: min(100%, 10rem);
+}
+.ibank-subheader .ibank-page-header__title-row {
+  gap: 0.45rem 0.55rem;
+}
+.ibank-subheader__back {
+  flex: 0 0 auto;
+  padding-block: 0.45rem;
+  font-weight: 500;
+}
+.ibank-subheader__readonly-note {
+  margin-top: 0.3rem;
+  margin-bottom: 0;
+}
 
 /* بنك المعلومات — إدارة النظام */
 .ibank-card.ibank-card--tabbed {
@@ -4544,6 +4576,62 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .ibank-tab-body {
   padding: 0.85rem 1rem 1.05rem;
   background: var(--surface-card, #fff);
+}
+.ibank-tab-body .ibank-table thead th,
+.ibank-tab-body .ibank-table tbody th,
+.ibank-tab-body .ibank-table tbody td {
+  padding-top: 0.16rem;
+  padding-bottom: 0.16rem;
+  vertical-align: middle;
+}
+.ibank-tab-body .ibank-table thead th {
+  font-size: 0.875rem;
+  line-height: 1.25;
+}
+.ibank-tab-body .ibank-table td form {
+  margin: 0;
+}
+.ibank-tab-body .ibank-table td .btn {
+  padding: 0.32rem 0.55rem;
+  font-size: 0.86rem;
+  line-height: 1.25;
+}
+.ibank-tab-body .ibank-files-page table.ibank-files-compact tbody td {
+  padding-top: 0.14rem;
+  padding-bottom: 0.14rem;
+}
+.ibank-inline-add-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.4rem 0.48rem;
+  margin: 0 0 0.5rem;
+  direction: rtl;
+}
+.ibank-inline-add-form__label {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  align-self: center;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.ibank-inline-add-form__input {
+  flex: 1 1 12rem;
+  min-width: 10rem;
+  max-width: 22rem;
+  width: auto;
+  align-self: center;
+  padding: 0.52rem 0.72rem;
+  font-size: 0.92rem;
+  line-height: 1.25;
+  box-sizing: border-box;
+}
+.ibank-inline-add-form__submit {
+  flex: 0 0 auto;
+  align-self: center;
+  padding-inline: 0.9rem;
+  padding-block: 0.52rem;
 }
 .ibank-tabpane {
   display: none;
