@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}تفاصيل {{ unit.unit_label }} — {{ section_title }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-flag fa-icon-title" aria-hidden="true"></i> تفاصيل {{ unit.unit_label }}</h1>
+  <p class="muted">صفحة خاصة بجداول التقييم النهائي لهذه الوحدة.</p>
+  <p class="mt-tight">
+    <a class="btn btn-ghost" href="{{ url_for('views.analyst_hub_section', slug='final-evaluation') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى جدول التقرير النهائي</a>
+  </p>
+</div>
+
+<section class="card final-report-card">
+  <h2 class="h2-in-card"><i class="fa-solid fa-file-signature fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h2>
+  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
+    التمرين الحالي: <strong>{{ exercise.title }}</strong> — <code>{{ exercise.code }}</code>
+  </p>
+  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
+    مصدر النتائج: مساحة المحكمين / قوائم التقييم، وتشمل النتائج عند حفظها أو اعتمادها.
+    <span class="muted">المعتمدة: {{ n_approved_eval_lists }} | المحفوظة غير المعتمدة: {{ n_saved_pending_eval_lists }}</span>
+  </p>
+
+  {% macro detail_table(rows, summary, title, allocated_title, empty_text) -%}
+  <h3 class="h2-in-card" style="margin-top:0.85rem;"><i class="fa-solid fa-list-check fa-icon-title" aria-hidden="true"></i> {{ title }}</h3>
+  <div class="table-wrap final-report-table-wrap final-report-table-wrap--detail">
+    <table class="final-report-table final-report-table--detail" dir="rtl" aria-label="{{ title }}">
+      <thead>
+        <tr>
+          <th scope="col" rowspan="2">مرحلة التقييم</th>
+          <th scope="col" rowspan="2">المعايير</th>
+          <th scope="colgroup" colspan="4">{{ allocated_title }}</th>
+          <th scope="colgroup" colspan="2">العلامه حسب قوائم التقييم</th>
+        </tr>
+        <tr>
+          <th scope="col">القصوى</th>
+          <th scope="col">المكتسبه</th>
+          <th scope="col">النسبة</th>
+          <th scope="col">التقدير</th>
+          <th scope="col">القصوى</th>
+          <th scope="col">المكتسبة</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if rows %}
+        {% for row in rows %}
+        <tr>
+          <td>{{ row.phase_label }}</td>
+          <td>{{ row.criteria_text }}</td>
+          <td>{{ row.allocated_max_mark|round(2) }}</td>
+          <td>{{ row.allocated_acquired_mark|round(2) }}</td>
+          <td>{% if row.allocated_pct is not none %}{{ row.allocated_pct|round(2) }}%{% else %}—{% endif %}</td>
+          <td>{{ row.allocated_grade }}</td>
+          <td>{{ row.evaluation_list_max_mark|round(2) }}</td>
+          <td>{{ row.evaluation_list_acquired_mark|round(2) }}</td>
+        </tr>
+        {% endfor %}
+        {% else %}
+        <tr>
+          <td colspan="8" class="muted">{{ empty_text }}</td>
+        </tr>
+        {% endif %}
+      </tbody>
+      <tfoot>
+        <tr class="final-report-summary-row">
+          <th scope="row" colspan="2">النسبة المئوية التي حققتها الوحدة خلال المرحلة</th>
+          <td>{{ summary.allocated_max_mark|round(2) }}</td>
+          <td>{{ summary.allocated_acquired_mark|round(2) }}</td>
+          <td>{% if summary.allocated_pct is not none %}{{ summary.allocated_pct|round(2) }}%{% else %}—{% endif %}</td>
+          <td>{{ summary.allocated_grade }}</td>
+          <td>{{ summary.evaluation_list_max_mark|round(2) }}</td>
+          <td>{{ summary.evaluation_list_acquired_mark|round(2) }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {%- endmacro %}
+
+  <h3 class="h2-in-card" style="margin-top:0.85rem;"><i class="fa-solid fa-layer-group fa-icon-title" aria-hidden="true"></i> نتيجة تقييم الوحده في جميع المراحل</h3>
+  <div class="table-wrap final-report-table-wrap final-report-table-wrap--detail">
+    <table class="final-report-table final-report-table--phase" dir="rtl" aria-label="نتيجة تقييم {{ unit.unit_label }} في جميع المراحل">
+      <thead>
+        <tr>
+          <th scope="col">مراحل التمرين</th>
+          <th scope="col">القصوى</th>
+          <th scope="col">المكتسبة</th>
+          <th scope="col">النسبة المئويه</th>
+          <th scope="col">التقدير</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if unit.phase_rows %}
+        {% for row in unit.phase_rows %}
+        <tr>
+          <td>{{ row.phase_label }}</td>
+          <td>{{ row.max_mark|round(2) }}</td>
+          <td>{{ row.acquired_mark|round(2) }}</td>
+          <td>{% if row.phase_pct is not none %}{{ row.phase_pct|round(2) }}%{% else %}—{% endif %}</td>
+          <td>{{ row.phase_grade }}</td>
+        </tr>
+        {% endfor %}
+        {% else %}
+        <tr>
+          <td colspan="5" class="muted">لا توجد نتائج مراحل محفوظة لهذه الوحدة.</td>
+        </tr>
+        {% endif %}
+      </tbody>
+      <tfoot>
+        <tr class="final-report-summary-row">
+          <th scope="row">نتيجة الوحدة في جميع المراحل</th>
+          <td>{{ unit.phase_summary.max_mark|round(2) }}</td>
+          <td>{{ unit.phase_summary.acquired_mark|round(2) }}</td>
+          <td>{% if unit.phase_summary.pct is not none %}{{ unit.phase_summary.pct|round(2) }}%{% else %}—{% endif %}</td>
+          <td>{{ unit.phase_summary.grade }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  {{ detail_table(unit.preparation_detail_rows, unit.preparation_detail_summary, "نتيجة تقييم اجراءات الوحده في مرحلة التحضير", "العلامه المخصصه للوحده خلال مرحلة التحضير", "لا توجد بنود محفوظة لمرحلة التحضير.") }}
+  {{ detail_table(unit.opening_detail_rows, unit.opening_detail_summary, "نتيجة تقييم الوحده في مرحلة الانفتاح", "العلامه المخصصه للوحده خلال مرحلة الانفتاح", "لا توجد بنود محفوظة لمرحلة الانفتاح.") }}
+  {{ detail_table(unit.main_detail_rows, unit.main_detail_summary, "نتيجة تقييم الوحده في مرحلة التمرين الرئيسي", "العلامه المخصصه للوحده خلال مرحلة التمرين الرئيسي", "لا توجد بنود محفوظة لمرحلة التمرين الرئيسي.") }}
+  {% if unit.show_evaluation_tracks %}
+  {{ detail_table(unit.evaluation_tracks_detail_rows, unit.evaluation_tracks_detail_summary, "نتيجة تقييم الوحده في مرحلة مسارات التقييم", "العلامه المخصصه للوحده خلال مرحلة مسارات التقييم", "لا توجد بنود محفوظة لمرحلة مسارات التقييم.") }}
+  {% endif %}
+</section>
+{% endblock %}

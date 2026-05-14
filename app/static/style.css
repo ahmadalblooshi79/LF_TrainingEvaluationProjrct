@@ -4767,3 +4767,141 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .js-ibank-drag[draggable="true"] {
   cursor: grab;
 }
+
+/* التقرير النهائي: جدول رئيسي مضغوط بعرض الصفحة بدون تمرير داخلي */
+.final-report-card {
+  overflow: visible;
+}
+
+.final-report-table-wrap {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+}
+
+.final-report-table-wrap--main {
+  max-height: none;
+  overflow: visible;
+}
+
+.final-report-table-wrap--detail {
+  max-height: 54vh;
+  margin-top: 0.35rem;
+}
+
+.final-report-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.9rem;
+}
+
+.final-report-table th,
+.final-report-table td {
+  padding: 0.42rem 0.55rem;
+  line-height: 1.35;
+  vertical-align: middle;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-height: 2.35rem;
+  text-align: center;
+}
+
+.final-report-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--tint-100);
+}
+
+.final-report-table tbody th {
+  background: var(--tint-50);
+  font-weight: 700;
+}
+
+.final-report-table tfoot th,
+.final-report-table tfoot td {
+  background: var(--tint-200);
+  color: var(--brown-900);
+  font-weight: 800;
+  text-align: center;
+  border-top: 2px solid var(--border);
+}
+
+.final-report-summary-row th {
+  white-space: normal;
+}
+
+.final-report-table--main {
+  font-size: clamp(0.64rem, 0.78vw, 0.78rem);
+}
+
+.final-report-table--main th,
+.final-report-table--main td {
+  padding: 0.24rem 0.2rem;
+  line-height: 1.2;
+}
+
+.final-report-table--main .btn {
+  min-height: 0;
+  padding: 0.2rem 0.34rem;
+  font-size: 0.7em;
+  line-height: 1.15;
+}
+
+.final-report-table--detail {
+  width: max-content;
+  min-width: 100%;
+}
+
+.final-report-table--phase {
+  width: 100%;
+  min-width: 0;
+}
+
+.final-report-col-unit {
+  width: 16%;
+}
+
+.final-report-col-phase {
+  width: 13%;
+}
+
+.final-report-col-mark {
+  width: 7%;
+}
+
+.final-report-col-pct {
+  width: 13%;
+}
+
+.final-report-col-grade {
+  width: 10%;
+}
+
+.final-report-col-details {
+  width: 11%;
+}
+
+.final-report-table--detail th:nth-child(1),
+.final-report-table--detail td:nth-child(1) {
+  min-width: 10rem;
+}
+
+.final-report-table--detail th:nth-child(2),
+.final-report-table--detail td:nth-child(2) {
+  min-width: 24rem;
+  text-align: right;
+}
+
+.final-report-table--detail th:nth-child(n+3),
+.final-report-table--detail td:nth-child(n+3),
+.final-report-table--phase th:nth-child(n+2),
+.final-report-table--phase td:nth-child(n+2) {
+  min-width: 7.5rem;
+  text-align: center;
+}

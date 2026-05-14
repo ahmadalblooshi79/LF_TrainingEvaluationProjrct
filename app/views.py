@@ -625,6 +625,72 @@ def _evaluation_grade_from_payload_rows(rows: list) -> tuple[float | None, str]:
     return total_pct, grade_label_from_percent(total_pct)
 
 
+def _evaluation_payload_mark_totals(rows: list) -> tuple[float, float]:
+    """مجموع القصوى والمكتسبة لحمولة تقييم محفوظة، بنفس منطق حساب النسبة."""
+    safe = [r for r in rows[:2000] if isinstance(r, dict)]
+    if not safe:
+        return 0.0, 0.0
+    sum_max = 0.0
+    sum_acquired = 0.0
+    for r in safe:
+        if str(r.get("row_kind") or "").strip().lower() == "section":
+            continue
+        acq = r.get("acquired")
+        acq_s = ("" if acq is None else str(acq)).strip().lower()
+        if acq_s == "na":
+            continue
+        sum_max += _eval_row_effective_max(r)
+        if acq_s:
+            try:
+                sum_acquired += float(str(acq).replace(",", "."))
+            except (TypeError, ValueError):
+                pass
+    return sum_max, sum_acquired
+
+
+def _final_report_phase_summary(rows: list[dict]) -> dict:
+    max_mark = sum(float(r.get("max_mark") or 0.0) for r in rows)
+    acquired_mark = sum(float(r.get("acquired_mark") or 0.0) for r in rows)
+    pct = (acquired_mark / max_mark) * 100.0 if max_mark > 0 else None
+    return {
+        "max_mark": max_mark,
+        "acquired_mark": acquired_mark,
+        "pct": pct,
+        "grade": grade_label_from_percent(pct) if pct is not None else "—",
+    }
+
+
+def _final_report_detail_summary(rows: list[dict]) -> dict:
+    allocated_max_mark = sum(float(r.get("allocated_max_mark") or 0.0) for r in rows)
+    allocated_acquired_mark = sum(float(r.get("allocated_acquired_mark") or 0.0) for r in rows)
+    evaluation_list_max_mark = sum(float(r.get("evaluation_list_max_mark") or 0.0) for r in rows)
+    evaluation_list_acquired_mark = sum(float(r.get("evaluation_list_acquired_mark") or 0.0) for r in rows)
+    pct = (
+        (allocated_acquired_mark / allocated_max_mark) * 100.0
+        if allocated_max_mark > 0
+        else None
+    )
+    return {
+        "allocated_max_mark": allocated_max_mark,
+        "allocated_acquired_mark": allocated_acquired_mark,
+        "allocated_pct": pct,
+        "allocated_grade": grade_label_from_percent(pct) if pct is not None else "—",
+        "evaluation_list_max_mark": evaluation_list_max_mark,
+        "evaluation_list_acquired_mark": evaluation_list_acquired_mark,
+    }
+
+
+FINAL_EVALUATION_TRACK_UNIT_KEYS: set[str] = {
+    "mech_infantry_bn",
+    "mech_infantry_bn_3",
+    "mech_infantry_bn_13",
+    "tank_bn",
+    "tank_bn_4",
+}
+FINAL_EVALUATION_TRACK_PHASE_KEY = "reorg"
+FINAL_EVALUATION_TRACK_PHASE_LABEL = "مرحلة مسارات التقييم"
+
+
 def _evaluation_commit_payload_save(
     db,
     *,
@@ -1162,6 +1228,254 @@ def _build_analyst_evaluation_criteria_distribution(db, user: User) -> dict:
     }
 
 
+def _build_analyst_final_evaluation_report(db, user: User) -> dict:
+    """ملخص نهائي من مساحة المحكمين/قوائم التقييم، سواء كانت النتيجة محفوظة أو معتمدة."""
+    ex0 = _current_workspace_exercise(db, user)
+    if ex0 is None and is_system_admin(user):
+        ex0 = db.query(Exercise).order_by(Exercise.id.desc()).first()
+    if ex0 is None:
+        return {"has_exercise": False}
+    ex = db.query(Exercise).filter(Exercise.id == ex0.id).first()
+    if ex is None:
+        return {"has_exercise": False}
+
+    eval_items = (
+        db.query(EvaluationListPdfItem)
+        .filter(EvaluationListPdfItem.exercise_id == ex.id)
+        .order_by(
+            _unit_level_order_expr(EvaluationListPdfItem.unit_level_key),
+            _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
+            EvaluationListPdfItem.sort_order,
+            EvaluationListPdfItem.id,
+        )
+        .all()
+    )
+    latest_by_item = _evaluation_canonical_map_for_items(
+        db,
+        int(ex.id),
+        [int(it.id) for it in eval_items],
+    )
+    saved_source_rows = [
+        row
+        for row in latest_by_item.values()
+        if (getattr(row, "payload_json", "") or "").strip()
+    ]
+    approved_source_count = len([row for row in saved_source_rows if bool(getattr(row, "is_approved", False))])
+    saved_pending_source_count = len(saved_source_rows) - approved_source_count
+
+    phase_totals: dict[tuple[str, str], dict] = {}
+    detail_totals: dict[tuple[str, str, str], dict] = {}
+    for item in eval_items:
+        saved = latest_by_item.get(int(item.id))
+        if saved is None:
+            continue
+        rows = _parse_saved_eval_rows(saved.payload_json)
+        max_mark, acquired_mark = _evaluation_payload_mark_totals(rows)
+        if max_mark <= 0:
+            continue
+        unit_key = (item.unit_level_key or saved.unit_level_key or "").strip()
+        phase_key = _normalized_exercise_phase(getattr(item, "exercise_phase", None) or saved.exercise_phase)
+        block = phase_totals.setdefault(
+            (unit_key, phase_key),
+            {
+                "unit_key": unit_key,
+                "unit_label": label_for_unit_level_key(unit_key) or unit_key or "—",
+                "phase_key": phase_key,
+                "phase_label": _phase_label_ar(phase_key),
+                "max_mark": 0.0,
+                "acquired_mark": 0.0,
+            },
+        )
+        block["max_mark"] += max_mark
+        block["acquired_mark"] += acquired_mark
+
+        for r in rows[:2000]:
+            if not isinstance(r, dict):
+                continue
+            if str(r.get("row_kind") or "").strip().lower() == "section":
+                continue
+            criteria_text = (r.get("element") or "").strip()
+            if not criteria_text:
+                continue
+            acq = r.get("acquired")
+            acq_s = ("" if acq is None else str(acq)).strip().lower()
+            if acq_s in ("", "na"):
+                continue
+            try:
+                detail_acquired = float(str(acq).replace(",", "."))
+            except (TypeError, ValueError):
+                continue
+            detail_max = _eval_row_effective_max(r)
+            if detail_max <= 0:
+                continue
+            detail = detail_totals.setdefault(
+                (unit_key, phase_key, criteria_text),
+                {
+                    "unit_key": unit_key,
+                    "unit_label": label_for_unit_level_key(unit_key) or unit_key or "—",
+                    "phase_key": phase_key,
+                    "phase_label": _phase_label_ar(phase_key),
+                    "criteria_text": criteria_text,
+                    "allocated_max_mark": 0.0,
+                    "allocated_acquired_mark": 0.0,
+                    "evaluation_list_max_mark": 0.0,
+                    "evaluation_list_acquired_mark": 0.0,
+                },
+            )
+            detail["allocated_max_mark"] += detail_max
+            detail["allocated_acquired_mark"] += detail_acquired
+            detail["evaluation_list_max_mark"] += detail_max
+            detail["evaluation_list_acquired_mark"] += detail_acquired
+
+    unit_order = {row["key"]: idx for idx, row in enumerate(UNIT_LEVELS)}
+    phase_order = {key: idx for idx, key in enumerate(exercise_phase_keys())}
+    unit_phase_pcts: dict[str, list[float]] = {}
+    for block in phase_totals.values():
+        if block["max_mark"] <= 0:
+            continue
+        pct = (block["acquired_mark"] / block["max_mark"]) * 100.0
+        unit_phase_pcts.setdefault(block["unit_key"], []).append(pct)
+
+    final_rows: list[dict] = []
+    for block in sorted(
+        phase_totals.values(),
+        key=lambda x: (
+            unit_order.get(x["unit_key"], len(unit_order)),
+            phase_order.get(x["phase_key"], len(phase_order)),
+            x["unit_label"],
+        ),
+    ):
+        phase_pct = (
+            (block["acquired_mark"] / block["max_mark"]) * 100.0
+            if block["max_mark"] > 0
+            else None
+        )
+        unit_pcts = unit_phase_pcts.get(block["unit_key"]) or []
+        unit_pct = (sum(unit_pcts) / len(unit_pcts)) if unit_pcts else None
+        final_rows.append(
+            {
+                **block,
+                "phase_pct": phase_pct,
+                "unit_total_pct": unit_pct,
+                "phase_grade": grade_label_from_percent(phase_pct) if phase_pct is not None else "—",
+                "unit_grade": grade_label_from_percent(unit_pct) if unit_pct is not None else "—",
+            }
+        )
+
+    detail_rows: list[dict] = []
+    for detail in sorted(
+        detail_totals.values(),
+        key=lambda x: (
+            unit_order.get(x["unit_key"], len(unit_order)),
+            phase_order.get(x["phase_key"], len(phase_order)),
+            x["unit_label"],
+            x["criteria_text"],
+        ),
+    ):
+        pct = (
+            (detail["allocated_acquired_mark"] / detail["allocated_max_mark"]) * 100.0
+            if detail["allocated_max_mark"] > 0
+            else None
+        )
+        detail_rows.append(
+            {
+                **detail,
+                "allocated_pct": pct,
+                "allocated_grade": grade_label_from_percent(pct) if pct is not None else "—",
+            }
+        )
+
+    unit_keys: list[str] = []
+    for row in UNIT_LEVELS:
+        key = (row.get("key") or "").strip()
+        if key and key not in unit_keys:
+            unit_keys.append(key)
+    for item in eval_items:
+        key = (item.unit_level_key or "").strip()
+        if key and key not in unit_keys:
+            unit_keys.append(key)
+    for row in final_rows:
+        key = (row.get("unit_key") or "").strip()
+        if key and key not in unit_keys:
+            unit_keys.append(key)
+
+    rows_by_unit: dict[str, list[dict]] = {}
+    for row in final_rows:
+        rows_by_unit.setdefault(row["unit_key"], []).append(row)
+    details_by_unit_phase: dict[tuple[str, str], list[dict]] = {}
+    for row in detail_rows:
+        details_by_unit_phase.setdefault((row["unit_key"], row["phase_key"]), []).append(row)
+
+    report_units: list[dict] = []
+    final_rows_all: list[dict] = []
+    for idx, unit_key in enumerate(unit_keys):
+        anchor = f"final-unit-{idx + 1}"
+        unit_label = label_for_unit_level_key(unit_key) or unit_key or "—"
+        unit_phase_rows = rows_by_unit.get(unit_key) or []
+        if not unit_phase_rows:
+            unit_phase_rows = [
+                {
+                    "unit_key": unit_key,
+                    "unit_label": unit_label,
+                    "phase_key": "",
+                    "phase_label": "—",
+                    "max_mark": 0.0,
+                    "acquired_mark": 0.0,
+                    "phase_pct": None,
+                    "unit_total_pct": None,
+                    "phase_grade": "—",
+                    "unit_grade": "—",
+                }
+            ]
+        for row_idx, row in enumerate(unit_phase_rows):
+            row["unit_anchor"] = anchor
+            row["show_unit_total"] = row_idx == 0
+            row["unit_rowspan"] = len(unit_phase_rows)
+            final_rows_all.append(row)
+        phase_rows = [r for r in unit_phase_rows if r.get("phase_key")]
+        preparation_detail_rows = details_by_unit_phase.get((unit_key, "preparation"), [])
+        opening_detail_rows = details_by_unit_phase.get((unit_key, "opening"), [])
+        main_detail_rows = details_by_unit_phase.get((unit_key, "main"), [])
+        evaluation_tracks_detail_rows = [
+            {**r, "phase_label": FINAL_EVALUATION_TRACK_PHASE_LABEL}
+            for r in details_by_unit_phase.get((unit_key, FINAL_EVALUATION_TRACK_PHASE_KEY), [])
+        ]
+        report_units.append(
+            {
+                "unit_key": unit_key,
+                "unit_label": unit_label,
+                "anchor": anchor,
+                "show_evaluation_tracks": unit_key in FINAL_EVALUATION_TRACK_UNIT_KEYS,
+                "phase_rows": phase_rows,
+                "phase_summary": _final_report_phase_summary(phase_rows),
+                "preparation_detail_rows": preparation_detail_rows,
+                "preparation_detail_summary": _final_report_detail_summary(preparation_detail_rows),
+                "opening_detail_rows": opening_detail_rows,
+                "opening_detail_summary": _final_report_detail_summary(opening_detail_rows),
+                "main_detail_rows": main_detail_rows,
+                "main_detail_summary": _final_report_detail_summary(main_detail_rows),
+                "evaluation_tracks_detail_rows": evaluation_tracks_detail_rows,
+                "evaluation_tracks_detail_summary": _final_report_detail_summary(evaluation_tracks_detail_rows),
+            }
+        )
+
+    return {
+        "has_exercise": True,
+        "exercise": ex,
+        "final_rows": final_rows_all,
+        "report_units": report_units,
+        "all_phase_rows": final_rows_all,
+        "detail_rows": detail_rows,
+        "preparation_detail_rows": [r for r in detail_rows if r["phase_key"] == "preparation"],
+        "opening_detail_rows": [r for r in detail_rows if r["phase_key"] == "opening"],
+        "main_detail_rows": [r for r in detail_rows if r["phase_key"] == "main"],
+        "n_eval_lists": len(eval_items),
+        "n_saved_eval_lists": len(saved_source_rows),
+        "n_approved_eval_lists": approved_source_count,
+        "n_saved_pending_eval_lists": saved_pending_source_count,
+    }
+
+
 DEFAULT_ANALYST_EVALUATION_CRITERIA_UNITS: tuple[str, ...] = (
     "قيادة مجموعة اللواء",
     "كتيبة المشاة الآلية/1",
@@ -1518,13 +1832,13 @@ ANALYST_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("positives-negatives", "عرض الإيجابيات والسلبيات", "fa-plus-minus"),
     ("evaluation-results", "عرض نتائج التقييم", "fa-square-poll-vertical"),
     ("judges-eval-analysis", "تحليل وتقييم المحكمين", "fa-chart-column"),
-    ("final-evaluation", "إنشاء التقييم النهائي", "fa-file-signature"),
     ("incomplete-tasks", "مهام غير مكتملة", "fa-clipboard-list"),
     ("chat-rooms", "غرف محادثة", "fa-comments"),
     ("after-action-review", "إنشاء مراجعة ما بعد العمل", "fa-people-arrows"),
     ("notifications-log", "سجل الإشعارات", "fa-bell"),
     ("exercise-info", "معلومات التمرين", "fa-circle-info"),
     ("visual-documentation", "التوثيق المرئي", "fa-photo-film"),
+    ("final-evaluation", "التقييم نهائي", "fa-file-signature"),
 )
 ANALYST_HUB_SLUGS: dict[str, str] = {s: t for s, t, _ in ANALYST_HUB_ITEMS}
 
@@ -2023,9 +2337,72 @@ def analyst_hub_section(slug: str):
                 unit_tabs=unit_tabs,
             ),
         )
+    if slug_norm == "final-evaluation":
+        from flask import g
+
+        db = g.db
+        report = _build_analyst_final_evaluation_report(db, user)
+        if not report.get("has_exercise"):
+            return render_template(
+                "analyst_final_evaluation.html",
+                **_ctx(user, section_title=title, has_exercise=False),
+            )
+        return render_template(
+            "analyst_final_evaluation.html",
+            **_ctx(
+                user,
+                section_title=title,
+                has_exercise=True,
+                exercise=report["exercise"],
+                final_rows=report["final_rows"],
+                all_phase_rows=report["all_phase_rows"],
+                detail_rows=report["detail_rows"],
+                preparation_detail_rows=report["preparation_detail_rows"],
+                opening_detail_rows=report["opening_detail_rows"],
+                main_detail_rows=report["main_detail_rows"],
+                report_units=report["report_units"],
+                n_eval_lists=report["n_eval_lists"],
+                n_saved_eval_lists=report["n_saved_eval_lists"],
+                n_approved_eval_lists=report["n_approved_eval_lists"],
+                n_saved_pending_eval_lists=report["n_saved_pending_eval_lists"],
+            ),
+        )
     return render_template(
         "analyst_section_placeholder.html",
         **_ctx(user, section_title=title, section_slug=slug),
+    )
+
+
+@bp.route("/analyst/final-evaluation/<unit_key>")
+def analyst_final_evaluation_unit_detail(unit_key: str):
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/analyst/final-evaluation/{unit_key}")
+    if not can_access_analyst_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    report = _build_analyst_final_evaluation_report(db, user)
+    if not report.get("has_exercise"):
+        abort(404)
+    unit_key_norm = (unit_key or "").strip()
+    unit = next(
+        (u for u in report.get("report_units", []) if (u.get("unit_key") or "").strip() == unit_key_norm),
+        None,
+    )
+    if unit is None:
+        abort(404)
+    return render_template(
+        "analyst_final_evaluation_unit.html",
+        **_ctx(
+            user,
+            section_title=ANALYST_HUB_SLUGS.get("final-evaluation", "التقييم نهائي"),
+            exercise=report["exercise"],
+            unit=unit,
+            n_approved_eval_lists=report["n_approved_eval_lists"],
+            n_saved_pending_eval_lists=report["n_saved_pending_eval_lists"],
+        ),
     )
 
 

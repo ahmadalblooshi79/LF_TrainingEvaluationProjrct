@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ section_title }} — المحللين{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-file-signature fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+  <p class="muted">تقرير نهائي حسب الوحدة والمرحلة من نتائج قوائم التقييم المحفوظة.</p>
+  <p class="mt-tight">
+    <a class="btn btn-ghost" href="{{ url_for('views.analyst_hub') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى مساحة المحللين</a>
+  </p>
+</div>
+
+{% if not has_exercise %}
+<section class="card final-report-card" id="top">
+  <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل. افتح أو أنشئ تمريناً لعرض التقرير النهائي.</p>
+</section>
+{% else %}
+<section class="card">
+  <h2 class="h2-in-card"><i class="fa-solid fa-table-list fa-icon-title" aria-hidden="true"></i> التقرير النهائي</h2>
+  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
+    التمرين الحالي: <strong>{{ exercise.title }}</strong> — <code>{{ exercise.code }}</code>
+    <span class="muted"> | قوائم التقييم: {{ n_eval_lists }} | النتائج: {{ n_saved_eval_lists }} | المعتمدة: {{ n_approved_eval_lists }} | المحفوظة غير المعتمدة: {{ n_saved_pending_eval_lists }}</span>
+  </p>
+  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
+    مصدر النتائج: مساحة المحكمين / قوائم التقييم، وتشمل النتائج عند حفظها أو اعتمادها.
+  </p>
+
+  {% if final_rows %}
+  <div class="table-wrap final-report-table-wrap final-report-table-wrap--main">
+    <table class="final-report-table final-report-table--main" dir="rtl" aria-label="جدول التقرير النهائي">
+      <colgroup>
+        <col class="final-report-col-unit">
+        <col class="final-report-col-phase">
+        <col class="final-report-col-mark">
+        <col class="final-report-col-mark">
+        <col class="final-report-col-pct">
+        <col class="final-report-col-pct">
+        <col class="final-report-col-grade">
+        <col class="final-report-col-grade">
+        <col class="final-report-col-details">
+      </colgroup>
+      <thead>
+        <tr>
+          <th scope="col">الوحده</th>
+          <th scope="col">المرحله</th>
+          <th scope="col">القصوى</th>
+          <th scope="col">المكتسبه</th>
+          <th scope="col">النسبة المئوية لكل مرحله</th>
+          <th scope="col">النسبه المئوية الإجمالية للوحدة</th>
+          <th scope="col">تقدير كل مرحلة</th>
+          <th scope="col">التقدير العام</th>
+          <th scope="col">تفاصيل</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in final_rows %}
+        <tr>
+          {% if row.show_unit_total %}
+          <th scope="row" rowspan="{{ row.unit_rowspan }}">{{ row.unit_label }}</th>
+          {% endif %}
+          <td>{{ row.phase_label }}</td>
+          <td>{{ row.max_mark|round(2) }}</td>
+          <td>{{ row.acquired_mark|round(2) }}</td>
+          <td>{% if row.phase_pct is not none %}{{ row.phase_pct|round(2) }}%{% else %}—{% endif %}</td>
+          {% if row.show_unit_total %}
+          <td rowspan="{{ row.unit_rowspan }}">{% if row.unit_total_pct is not none %}{{ row.unit_total_pct|round(2) }}%{% else %}—{% endif %}</td>
+          {% endif %}
+          <td>{{ row.phase_grade }}</td>
+          {% if row.show_unit_total %}
+          <td rowspan="{{ row.unit_rowspan }}">{{ row.unit_grade }}</td>
+          <td rowspan="{{ row.unit_rowspan }}"><a class="btn btn-ghost" href="{{ url_for('views.analyst_final_evaluation_unit_detail', unit_key=row.unit_key) }}">عرض تفاصيل الوحدة</a></td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted" dir="rtl" style="margin:0;">لا توجد نتائج محفوظة بعد لعرض التقرير النهائي. احفظ نتائج قوائم التقييم أولاً.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}
