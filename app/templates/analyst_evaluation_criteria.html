@@ -28,6 +28,7 @@
       <table dir="rtl" aria-label="توزيع النسبة المئوية الاجماليه للتقييم">
         <thead>
           <tr>
+            <th scope="col" class="analyst-criteria-seq-th">ت</th>
             <th scope="col">الوحده</th>
             <th scope="col">مرحلة التحضير</th>
             <th scope="col">مرحلة العمليات التعرضية</th>
@@ -43,6 +44,7 @@
           {% set total_mark = row.total_mark|default(none) %}
           {% set allocated_pct = row.allocated_pct|default(none) %}
           <tr>
+            <td class="analyst-criteria-seq">{{ loop.index }}</td>
             <th scope="row">
               <input type="hidden" name="unit_ids" value="{{ row.unit_id }}">
               <input class="unit-level-select" style="min-width:18rem;" type="text" name="unit_label__{{ row.unit_id }}" value="{{ row.unit_label }}" maxlength="300" aria-label="اسم الوحدة">
@@ -66,6 +68,7 @@
         </tbody>
         <tfoot>
           <tr>
+            <td class="analyst-criteria-seq muted">—</td>
             <th scope="row">الإجمالي</th>
             <td>—</td>
             <td>—</td>

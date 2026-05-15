@@ -4768,7 +4768,6 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   cursor: grab;
 }
 
-<<<<<<< Updated upstream
 /* التقرير النهائي: جدول رئيسي مضغوط بعرض الصفحة بدون تمرير داخلي */
 .final-report-card {
   overflow: visible;
@@ -4864,8 +4863,13 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   min-width: 0;
 }
 
+.final-report-col-seq {
+  width: 4%;
+  max-width: 2.75rem;
+}
+
 .final-report-col-unit {
-  width: 16%;
+  width: 15%;
 }
 
 .final-report-col-phase {
@@ -4890,23 +4894,44 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 
 .final-report-table--detail th:nth-child(1),
 .final-report-table--detail td:nth-child(1) {
-  min-width: 10rem;
+  min-width: 2.75rem;
+  width: 2.75rem;
 }
 
 .final-report-table--detail th:nth-child(2),
 .final-report-table--detail td:nth-child(2) {
+  min-width: 10rem;
+}
+
+.final-report-table--detail th:nth-child(3),
+.final-report-table--detail td:nth-child(3) {
   min-width: 24rem;
   text-align: right;
 }
 
-.final-report-table--detail th:nth-child(n+3),
-.final-report-table--detail td:nth-child(n+3),
-.final-report-table--phase th:nth-child(n+2),
-.final-report-table--phase td:nth-child(n+2) {
+.final-report-table--detail th:nth-child(n+4),
+.final-report-table--detail td:nth-child(n+4) {
   min-width: 7.5rem;
   text-align: center;
 }
-=======
+
+.final-report-table--phase th:nth-child(1),
+.final-report-table--phase td:nth-child(1) {
+  min-width: 2.75rem;
+  width: 2.75rem;
+}
+
+.final-report-table--phase th:nth-child(2),
+.final-report-table--phase td:nth-child(2) {
+  min-width: 10rem;
+}
+
+.final-report-table--phase th:nth-child(n+3),
+.final-report-table--phase td:nth-child(n+3) {
+  min-width: 7.5rem;
+  text-align: center;
+}
+
 /* مساحة التخطيط — تخصيص وربط المجرى وتقييم الإجراءات */
 .planner-flow-toolbar__row {
   display: flex;
@@ -5167,4 +5192,13 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .planner-flow-judge-slot-list li:last-child {
   border-bottom: none;
 }
->>>>>>> Stashed changes
+
+/* مساحة المحللين — معايير التقييم: عمود الترقيم (ت) */
+.analyst-criteria-seq,
+.analyst-criteria-seq-th {
+  width: 2.75rem;
+  max-width: 3rem;
+  text-align: center;
+  white-space: nowrap;
+  vertical-align: middle;
+}
