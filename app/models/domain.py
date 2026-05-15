@@ -281,6 +281,12 @@ class ExercisePlannerFlowBundle(Base):
     )
 
     exercise = relationship("Exercise", back_populates="planner_flow_bundles")
+    event_flow_items = relationship(
+        "ExercisePlannerFlowBundleEventFlow",
+        back_populates="bundle",
+        order_by="ExercisePlannerFlowBundleEventFlow.slot_index",
+        cascade="all, delete-orphan",
+    )
     action_eval_slots = relationship(
         "ExercisePlannerFlowBundleActionEval",
         back_populates="bundle",
@@ -290,6 +296,31 @@ class ExercisePlannerFlowBundle(Base):
     judge_assignments = relationship(
         "JudgeTraineeAssignment",
         back_populates="planner_flow_bundle",
+    )
+
+
+class ExercisePlannerFlowBundleEventFlow(Base):
+    """ملف مجرى أحداث ومعاضل ضمن حزمة التخطيط (عدة ملفات لكل حزمة)."""
+
+    __tablename__ = "exercise_planner_flow_bundle_event_flows"
+    __table_args__ = (
+        UniqueConstraint("bundle_id", "slot_index", name="uq_bundle_event_flow_slot"),
+        Index("ix_bundle_event_flow_bundle", "bundle_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    bundle_id: Mapped[int] = mapped_column(
+        ForeignKey("exercise_planner_flow_bundles.id", ondelete="CASCADE"), index=True
+    )
+    slot_index: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(500), default="")
+    file_relpath: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    bundle = relationship("ExercisePlannerFlowBundle", back_populates="event_flow_items")
+    action_eval_slots = relationship(
+        "ExercisePlannerFlowBundleActionEval",
+        back_populates="event_flow_item",
     )
 
 
@@ -307,11 +338,20 @@ class ExercisePlannerFlowBundleActionEval(Base):
         ForeignKey("exercise_planner_flow_bundles.id", ondelete="CASCADE"), index=True
     )
     slot_index: Mapped[int] = mapped_column(Integer)
+    event_flow_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("exercise_planner_flow_bundle_event_flows.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     title: Mapped[str] = mapped_column(String(500), default="")
     file_relpath: Mapped[str] = mapped_column(String(500), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     bundle = relationship("ExercisePlannerFlowBundle", back_populates="action_eval_slots")
+    event_flow_item = relationship(
+        "ExercisePlannerFlowBundleEventFlow",
+        back_populates="action_eval_slots",
+    )
     eval_saved = relationship(
         "PlannerFlowBundleEvalSavedResult",
         back_populates="action_slot",
@@ -355,6 +395,17 @@ class PlannerFlowBundleEvalSavedResult(Base):
         ForeignKey("users.id"), nullable=True, index=True
     )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reopened_for_judge: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    is_chief_approved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    chief_approved_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    chief_approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    is_control_approved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    control_approved_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    control_approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
@@ -464,6 +515,17 @@ class EvaluationListSavedResult(Base):
     is_approved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     approved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reopened_for_judge: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    is_chief_approved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    chief_approved_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    chief_approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    is_control_approved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    control_approved_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    control_approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -846,6 +908,44 @@ class InformationBankUnitLevel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class InformationBankTreeNode(Base):
+    """عقدة شجرة بنك المعلومات — مجلد أو ملف ضمن مرحلة/وحدة/مجلد فرعي."""
+
+    __tablename__ = "information_bank_tree_nodes"
+    __table_args__ = (
+        Index("ix_ib_tree_kind_parent", "kind", "parent_id"),
+        Index("ix_ib_tree_kind_phase", "kind", "catalog_phase_key"),
+        Index("ix_ib_tree_kind_unit", "kind", "catalog_unit_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(32), index=True)
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("information_bank_tree_nodes.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(500), default="")
+    is_folder: Mapped[bool] = mapped_column(Boolean, default=False)
+    file_relpath: Mapped[str] = mapped_column(String(700), default="")
+    catalog_phase_key: Mapped[str] = mapped_column(String(64), default="", index=True)
+    catalog_unit_key: Mapped[str] = mapped_column(String(128), default="", index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    parent = relationship(
+        "InformationBankTreeNode",
+        remote_side="InformationBankTreeNode.id",
+        back_populates="children",
+    )
+    children = relationship(
+        "InformationBankTreeNode",
+        back_populates="parent",
+        cascade="all, delete-orphan",
     )
 
 

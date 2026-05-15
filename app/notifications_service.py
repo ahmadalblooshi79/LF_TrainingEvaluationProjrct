@@ -56,6 +56,30 @@ def create_notification(
     return row
 
 
+def _judge_user_ids_for_unit(db: Session, exercise_id: int, unit_key: str) -> list[int]:
+    uk = (unit_key or "").strip()
+    if not uk:
+        return []
+    rows = (
+        db.query(JudgeTraineeAssignment.judge_user_id)
+        .filter(
+            JudgeTraineeAssignment.exercise_id == int(exercise_id),
+            JudgeTraineeAssignment.unit_level_key == uk,
+        )
+        .all()
+    )
+    out: list[int] = []
+    seen: set[int] = set()
+    for (uid,) in rows:
+        if uid is None:
+            continue
+        i = int(uid)
+        if i not in seen:
+            seen.add(i)
+            out.append(i)
+    return out
+
+
 def _recipient_ids_for_unit(db: Session, exercise_id: int, unit_key: str) -> set[int]:
     uk = (unit_key or "").strip()
     out: set[int] = set()
@@ -182,6 +206,46 @@ def notify_evaluation_lists_added(
             message=body,
             action_url=action,
             priority=NotificationPriority.IMPORTANT,
+        )
+
+
+def notify_evaluation_reopened_by_chief_judge(
+    db: Session,
+    *,
+    exercise_id: int,
+    unit_key: str,
+    unit_label: str,
+    item_title: str,
+    item_id: int,
+    saved_by_user_id: int | None = None,
+    exclude_user_id: int | None = None,
+) -> None:
+    """تنبيه المحكم عند إعادة كبير المحكمين قائمة التقييم للتعديل."""
+    recipients: set[int] = set(_judge_user_ids_for_unit(db, exercise_id, unit_key))
+    if saved_by_user_id is not None:
+        recipients.add(int(saved_by_user_id))
+    if exclude_user_id is not None:
+        recipients.discard(int(exclude_user_id))
+    if not recipients:
+        return
+    ul = (unit_label or unit_key or "").strip()
+    title_s = (item_title or "قائمة التقييم").strip()
+    title = "إعادة التقييم مطلوبة"
+    body = (
+        f"أعاد كبير المحكمين قائمة «{title_s}» للتعديل — {ul}. "
+        "يرجى مراجعة القائمة وحفظ التعديلات ثم إرسالها للاعتماد."
+    )
+    action = f"/judge/evaluation-lists/{unit_key}/view/{int(item_id)}"
+    for uid in recipients:
+        create_notification(
+            db,
+            exercise_id=int(exercise_id),
+            user_id=int(uid),
+            type_=NotificationType.TASK,
+            title=title,
+            message=body,
+            action_url=action,
+            priority=NotificationPriority.URGENT,
         )
 
 

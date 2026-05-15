@@ -15,8 +15,17 @@
     </div>
 
     <div class="eval-top-messages eval-banner-row--compact" dir="ltr">
+      {% if eval_workflow_label|default('') and eval_workflow_label != '—' %}
+      <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-route" aria-hidden="true"></i> {{ eval_workflow_label }}</p>
+      {% endif %}
       {% if saved_is_approved %}
-      <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> اعتماد{% if saved_approved_at %} {{ saved_approved_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</p>
+      <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> اعتماد المحكم{% if saved_approved_at %} {{ saved_approved_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</p>
+      {% endif %}
+      {% if saved_is_chief_approved|default(false) %}
+      <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-stamp" aria-hidden="true"></i> اعتماد كبير المحكمين{% if saved_chief_approved_at %} {{ saved_chief_approved_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</p>
+      {% endif %}
+      {% if saved_reopened_for_judge|default(false) %}
+      <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> معاد للمحكم لإعادة التقييم</p>
       {% endif %}
       {% if saved_updated_at %}
       <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ {{ saved_updated_at.strftime('%Y-%m-%d %H:%M') }}</p>

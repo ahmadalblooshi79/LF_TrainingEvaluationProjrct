@@ -8,12 +8,13 @@ from app.database import Base
 
 
 class RoleKey(str, enum.Enum):
-    """الأدوار الستة الرئيسية في النظام"""
+    """الأدوار الرئيسية في النظام"""
 
     SYSTEM_ADMIN = "system_admin"  # إدارة النظام
     ANALYST = "analyst"  # المحللين
     PLANNER = "planner"  # التخطيط
     JUDGE = "judge"  # المحكمين
+    CHIEF_JUDGE = "chief_judge"  # كبير المحكمين
     STANDARDS_LIBRARY = "standards_library"  # مكتبة المراجع والمعايير
     CONTROL = "control"  # السيطرة
 

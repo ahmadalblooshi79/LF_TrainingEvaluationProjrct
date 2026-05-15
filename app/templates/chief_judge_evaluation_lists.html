@@ -2,18 +2,18 @@
 {% block title %}قوائم التقييم — {{ unit.label }}{% endblock %}
 {% block content %}
 <style>
-  .judge-eval-lists-table th,
-  .judge-eval-lists-table td {
+  .chief-eval-lists-table th,
+  .chief-eval-lists-table td {
     text-align: center;
     vertical-align: middle;
   }
-  .judge-eval-lists-table tr.eval-row-tone--pending td {
+  .chief-eval-lists-table tr.eval-row-tone--pending td {
     background: #fffbeb;
   }
-  .judge-eval-lists-table tr.eval-row-tone--sent td {
+  .chief-eval-lists-table tr.eval-row-tone--sent td {
     background: #ecfdf5;
   }
-  .judge-eval-lists-table tr.eval-row-tone--returned td {
+  .chief-eval-lists-table tr.eval-row-tone--returned td {
     background: #fef2f2;
   }
   .judge-eval-dispatch-badge {
@@ -40,45 +40,19 @@
     color: #991b1b;
     background: #fecaca;
   }
-  .judge-eval-lists-legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem 1rem;
-    margin: 0 0 0.65rem;
-    font-size: 0.82rem;
-    color: #5a514a;
-  }
-  .judge-eval-lists-legend span {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
-  .judge-eval-lists-legend i {
-    width: 0.85rem;
-    height: 0.85rem;
-    border-radius: 3px;
-    display: inline-block;
-  }
-  .judge-eval-lists-legend .swatch--pending { background: #fffbeb; border: 1px solid #fde68a; }
-  .judge-eval-lists-legend .swatch--sent { background: #ecfdf5; border: 1px solid #a7f3d0; }
-  .judge-eval-lists-legend .swatch--returned { background: #fef2f2; border: 1px solid #fecaca; }
 </style>
 <div class="page-header">
   <h1><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> قوائم التقييم — {{ unit.label }}</h1>
+  <p class="muted">الموقف (ينجز/لم ينجز) يعتمد على اعتماد المحكم فقط.</p>
   <p class="mt-tight">
-    <a class="btn btn-ghost" href="{{ eval_lists_parent_href | default(url_for('views.judge_evaluation_lists_home')) }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى مستويات الوحدات</a>
+    <a class="btn btn-ghost" href="{{ eval_lists_parent_href }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى مستويات الوحدات</a>
   </p>
 </div>
 
 <section class="card">
   {% if evaluation_lists_rows %}
-  <p class="judge-eval-lists-legend" dir="rtl">
-    <span><i class="swatch--pending" aria-hidden="true"></i> بانتظار الإعتماد (بعد الحفظ)</span>
-    <span><i class="swatch--sent" aria-hidden="true"></i> مرسل (بعد اعتماد المحكم)</span>
-    <span><i class="swatch--returned" aria-hidden="true"></i> معاد للتعديل (من كبير المحكمين)</span>
-  </p>
   <div class="table-wrap">
-    <table class="judge-eval-lists-table" dir="rtl" aria-label="قوائم التقييم">
+    <table class="chief-eval-lists-table" dir="rtl" aria-label="قوائم التقييم — كبير المحكمين">
       <thead>
         <tr>
           <th scope="col">التاريخ والوقت</th>
@@ -89,6 +63,7 @@
           <th scope="col">توقيت التسليم</th>
           <th scope="col">الموقف</th>
           <th scope="col">إرسال للاعتماد</th>
+          <th scope="col">مسار الاعتماد</th>
           <th scope="col">فتح</th>
         </tr>
       </thead>
@@ -105,7 +80,8 @@
           <td>
             <span class="judge-eval-dispatch-badge judge-eval-dispatch-badge--{{ r.row_tone | default('none') }}">{{ r.dispatch_label or "—" }}</span>
           </td>
-          <td><a href="{{ r.open_href }}">فتح التقييم</a></td>
+          <td>{{ r.chief_workflow_label or "—" }}</td>
+          <td><a href="{{ r.open_href }}">فتح</a></td>
         </tr>
         {% endfor %}
       </tbody>

@@ -46,6 +46,7 @@ from app.models import (
     ExerciseRosterKind,
     ExerciseRosterRow,
     ExercisePlannerFlowBundle,
+    ExercisePlannerFlowBundleEventFlow,
     ExercisePlannerFlowBundleActionEval,
     PlannerFlowBundleEvalSavedResult,
     ExerciseStatus,
@@ -61,6 +62,7 @@ from app.models import (
     InformationBankUnitNote,
     InformationBankTrainingPhase,
     InformationBankUnitLevel,
+    InformationBankTreeNode,
     InfoBankEventFlowPdf,
     InfoBankActionEvalXlsx,
     InfoBankDilemmaEvalXlsx,
@@ -71,16 +73,37 @@ from app.models import (
     RoleKey,
     User,
 )
+from app.evaluation_workflow import (
+    apply_chief_approve,
+    apply_chief_reopen,
+    apply_judge_save_after_reopen,
+    apply_judge_approve,
+    build_evaluation_list_row,
+    evaluation_unit_home_rows,
+    evaluation_unit_home_totals,
+    eval_chief_approved,
+    eval_chief_can_approve,
+    eval_chief_can_reopen,
+    eval_judge_approved,
+    eval_judge_can_approve,
+    eval_judge_can_edit,
+    eval_reopened_for_judge,
+    eval_workflow_label_ar,
+)
 from app.permissions import (
     can_access_analyst_hub,
+    can_access_chief_judge_hub,
     can_access_control_hub,
     can_access_judge_hub,
     can_access_planner_hub,
     can_approve_evaluation_results,
+    can_chief_approve_evaluation_results,
+    can_chief_reopen_evaluation_for_judge,
     can_edit_references,
     can_judge_exercise,
     can_manage_chat_rooms,
     can_manage_information_bank,
+    can_oversee_judge_planner_flow_materials,
     can_manage_users,
     can_plan_exercises,
     can_save_evaluation_results,
@@ -89,6 +112,7 @@ from app.permissions import (
     can_view_notifications_log,
     can_use_visual_documentation,
     is_analyst,
+    is_chief_judge,
     is_control,
     is_judge,
     is_planner,
@@ -803,8 +827,9 @@ def _evaluation_commit_payload_save(
         abort(400)
     total_pct, grade = _evaluation_grade_from_payload_rows(rows)
     saved = _evaluation_canonical_saved_row(db, current_exercise.id, item.id)
-    if saved is not None and bool(getattr(saved, "is_approved", False)):
+    if saved is not None and not eval_judge_can_edit(saved):
         abort(403)
+    was_reopened = eval_reopened_for_judge(saved) if saved is not None else False
     if saved is None:
         saved = EvaluationListSavedResult(
             evaluation_item_id=item.id,
@@ -819,6 +844,8 @@ def _evaluation_commit_payload_save(
     saved.total_pct = total_pct
     saved.grade_label = grade
     saved.saved_by_id = getattr(user, "id", None)
+    if was_reopened:
+        apply_judge_save_after_reopen(saved)
     db.flush()
     _evaluation_delete_duplicate_saves(db, exercise_id=current_exercise.id, evaluation_item_id=item.id, keep_id=saved.id)
     db.commit()
@@ -877,8 +904,9 @@ def _planner_bundle_eval_commit_payload_save(
     saved = _planner_bundle_eval_canonical_saved(
         db, current_exercise.id, action_row.id
     )
-    if saved is not None and bool(getattr(saved, "is_approved", False)):
+    if saved is not None and not eval_judge_can_edit(saved):
         abort(403)
+    was_reopened = eval_reopened_for_judge(saved) if saved is not None else False
     if saved is None:
         saved = PlannerFlowBundleEvalSavedResult(
             bundle_action_eval_id=action_row.id,
@@ -895,6 +923,8 @@ def _planner_bundle_eval_commit_payload_save(
     saved.saved_by_id = getattr(user, "id", None)
     saved.unit_level_key = bundle.unit_level_key or ""
     saved.exercise_phase = _normalized_exercise_phase(bundle.exercise_phase)
+    if was_reopened:
+        apply_judge_save_after_reopen(saved)
     db.flush()
     _planner_bundle_eval_delete_duplicate_saves(
         db,
@@ -911,11 +941,19 @@ def _judge_planner_flow_action_bundle_row(
     """حزمة المحكم وفتحة الإجراء إن وُجد الملف ومطابقة التخصيص."""
     if ex is None:
         return None
-    bundle = _judge_assigned_planner_bundle(db, user, ex)
+    oversee_jid = (
+        _planner_flow_oversee_judge_id_from_request()
+        if can_oversee_judge_planner_flow_materials(user)
+        else None
+    )
+    bundle = _judge_assigned_planner_bundle(
+        db, user, ex, judge_user_id=oversee_jid
+    )
     if bundle is None:
         return None
-    _enforce_judge_unit_scope(db, user, ex, bundle.unit_level_key)
-    _enforce_judge_has_assignment_for_unit(db, user, ex, bundle.unit_level_key)
+    if not can_oversee_judge_planner_flow_materials(user):
+        _enforce_judge_unit_scope(db, user, ex, bundle.unit_level_key)
+        _enforce_judge_has_assignment_for_unit(db, user, ex, bundle.unit_level_key)
     row = (
         db.query(ExercisePlannerFlowBundleActionEval)
         .filter(
@@ -981,6 +1019,28 @@ def _evaluation_payload_has_empty_acquired_for_approve(rows: list) -> bool:
         if not has_row_kind and _parse_saved_eval_max_positive(r.get("max_val")) is not None:
             return True
     return False
+
+
+def _eval_list_viewer_ctx(user: User, saved) -> dict:
+    """سياق مشترك لعرض/تعديل قائمة تقييم (محكم أو كبير محكمين)."""
+    return {
+        "saved_is_approved": eval_judge_approved(saved),
+        "saved_approved_at": getattr(saved, "approved_at", None) if saved else None,
+        "saved_is_chief_approved": eval_chief_approved(saved),
+        "saved_chief_approved_at": getattr(saved, "chief_approved_at", None) if saved else None,
+        "saved_reopened_for_judge": eval_reopened_for_judge(saved),
+        "eval_workflow_label": eval_workflow_label_ar(saved),
+        "eval_can_edit": bool(can_save_evaluation_results(user) and eval_judge_can_edit(saved)),
+        "show_eval_approve": bool(
+            can_approve_evaluation_results(user) and eval_judge_can_approve(saved)
+        ),
+        "show_chief_approve": bool(
+            can_chief_approve_evaluation_results(user) and eval_chief_can_approve(saved)
+        ),
+        "show_chief_reopen": bool(
+            can_chief_reopen_evaluation_for_judge(user) and eval_chief_can_reopen(saved)
+        ),
+    }
 
 
 def _eval_row_effective_max(row: dict) -> float:
@@ -1933,6 +1993,8 @@ def login():
     # للمحكمين: افتح مساحة المحكمين مباشرةً (ما لم يحدد النظام next)
     if (u.role_key or "") == RoleKey.JUDGE.value and not next_url:
         return redirect("/judge")
+    if (u.role_key or "") == RoleKey.CHIEF_JUDGE.value and not next_url:
+        return redirect("/chief-judge")
     return redirect(next_url or "/dashboard")
 
 
@@ -1960,6 +2022,8 @@ def _dashboard_role_card_target(role_key: str, user: User) -> tuple[str, str, st
         return ("/planner", "فتح مساحة التخطيط", "إبدأ")
     if role_key == RoleKey.JUDGE.value:
         return ("/judge", "فتح مساحة المحكمين", "إبدأ")
+    if role_key == RoleKey.CHIEF_JUDGE.value:
+        return ("/chief-judge", "فتح مساحة كبير المحكمين", "إبدأ")
     if role_key == RoleKey.STANDARDS_LIBRARY.value:
         return ("/library", "فتح مكتبة المراجع والمعايير", "إبدأ")
     return ("/library", "فتح المكتبة", "إبدأ")
@@ -1971,6 +2035,7 @@ _DASHBOARD_CARD_ORDER: tuple[str, ...] = (
     RoleKey.PLANNER.value,
     RoleKey.CONTROL.value,
     RoleKey.JUDGE.value,
+    RoleKey.CHIEF_JUDGE.value,
     RoleKey.ANALYST.value,
 )
 _DASHBOARD_CARD_ORDER_RANK: dict[str, int] = {rk: i for i, rk in enumerate(_DASHBOARD_CARD_ORDER)}
@@ -2700,6 +2765,145 @@ def _get_or_create_planner_bundle(
 
 
 _PLANNER_BUNDLE_MAX_ACTION_SLOTS = 200
+_PLANNER_BUNDLE_MAX_EVENT_FLOW_SLOTS = 200
+
+
+def _planner_upload_display_name(filename: str) -> str:
+    base = Path(filename or "").name.strip()
+    if not base:
+        return ""
+    return base[:500]
+
+
+def _planner_bundle_event_flow_rows(
+    db, bundle: ExercisePlannerFlowBundle
+) -> list[ExercisePlannerFlowBundleEventFlow]:
+    return (
+        db.query(ExercisePlannerFlowBundleEventFlow)
+        .filter(ExercisePlannerFlowBundleEventFlow.bundle_id == bundle.id)
+        .order_by(ExercisePlannerFlowBundleEventFlow.slot_index)
+        .all()
+    )
+
+
+def _migrate_legacy_bundle_event_flow(
+    db, bundle: ExercisePlannerFlowBundle
+) -> list[ExercisePlannerFlowBundleEventFlow]:
+    """ينقل المسار القديم الوحيد على الحزمة إلى جدول ملفات المجرى إن لزم."""
+    rows = _planner_bundle_event_flow_rows(db, bundle)
+    legacy_rel = (bundle.event_flow_file_relpath or "").strip()
+    if rows or not legacy_rel:
+        return rows
+    row = ExercisePlannerFlowBundleEventFlow(
+        bundle_id=bundle.id,
+        slot_index=1,
+        title=(bundle.event_flow_title or "")[:500],
+        file_relpath=legacy_rel.replace("\\", "/"),
+    )
+    db.add(row)
+    db.flush()
+    for slot_row in bundle.action_eval_slots:
+        if slot_row.event_flow_item_id is None:
+            slot_row.event_flow_item_id = row.id
+    db.commit()
+    return _planner_bundle_event_flow_rows(db, bundle)
+
+
+def _sync_bundle_legacy_event_flow_columns(
+    bundle: ExercisePlannerFlowBundle,
+    event_rows: list[ExercisePlannerFlowBundleEventFlow],
+) -> None:
+    """يبقي أعمدة الحزمة القديمة متوافقة مع أول ملف مجرى (واجهة المحكم)."""
+    primary = next(
+        (r for r in event_rows if (r.file_relpath or "").strip()),
+        None,
+    )
+    if primary is None:
+        bundle.event_flow_file_relpath = ""
+        bundle.event_flow_title = ""
+        return
+    bundle.event_flow_file_relpath = (primary.file_relpath or "").replace("\\", "/")
+    bundle.event_flow_title = (primary.title or "")[:500]
+
+
+def _sanitize_planner_bundle_orphan_event_flow_items(
+    db, bundle: ExercisePlannerFlowBundle | None
+) -> bool:
+    if bundle is None:
+        return False
+    changed = False
+    for row in _planner_bundle_event_flow_rows(db, bundle):
+        rel = (row.file_relpath or "").strip()
+        if rel and _planner_bundle_file_abspath(rel) is None:
+            _unlink_planner_bundle_file(rel)
+            row.file_relpath = ""
+            changed = True
+    if changed:
+        bundle.linked_at = None
+        bundle.updated_at = datetime.utcnow()
+        _sync_bundle_legacy_event_flow_columns(
+            bundle, _planner_bundle_event_flow_rows(db, bundle)
+        )
+        db.commit()
+    return changed
+
+
+def _planner_bundle_slot_view(
+    *,
+    slot_row: ExercisePlannerFlowBundleActionEval,
+    bundle: ExercisePlannerFlowBundle,
+    event_rows_by_id: dict[int, ExercisePlannerFlowBundleEventFlow],
+) -> dict:
+    rel = (slot_row.file_relpath or "").strip()
+    has_file = bool(rel) and _planner_bundle_file_abspath(rel) is not None
+    disp = _planner_blob_display_filename(
+        stored_title=slot_row.title or "",
+        relpath=rel,
+        fallback=f"قائمة {slot_row.slot_index}",
+    )
+    ef_id = slot_row.event_flow_item_id
+    ef_row = event_rows_by_id.get(int(ef_id)) if ef_id else None
+    ef_name = ""
+    if ef_row is not None:
+        ef_name = _planner_blob_display_filename(
+            stored_title=ef_row.title or "",
+            relpath=ef_row.file_relpath or "",
+            fallback=f"مجرى {ef_row.slot_index}",
+        )
+    linked = bool(bundle.linked_at) and has_file and ef_id is not None
+    return {
+        "id": int(slot_row.id),
+        "slot_index": int(slot_row.slot_index),
+        "title": disp,
+        "has_file": has_file,
+        "insert_label": "تم الإدراج" if has_file else "لم يُدرج",
+        "link_label": "مرتبط" if linked else ("جاهز للربط" if has_file else "—"),
+        "event_flow_item_id": int(ef_id) if ef_id else None,
+        "event_flow_name": ef_name,
+    }
+
+
+def _planner_bundle_event_flow_view(
+    *,
+    row: ExercisePlannerFlowBundleEventFlow,
+    bundle: ExercisePlannerFlowBundle,
+) -> dict:
+    rel = (row.file_relpath or "").strip()
+    has_file = bool(rel) and _planner_bundle_file_abspath(rel) is not None
+    disp = _planner_blob_display_filename(
+        stored_title=row.title or "",
+        relpath=rel,
+        fallback=f"مجرى {row.slot_index}",
+    )
+    linked = bool(bundle.linked_at) and has_file
+    return {
+        "id": int(row.id),
+        "slot_index": int(row.slot_index),
+        "title": disp,
+        "has_file": has_file,
+        "insert_label": "تم الإدراج" if has_file else "لم يُدرج",
+        "link_label": "مرتبط" if linked else ("جاهز للربط" if has_file else "—"),
+    }
 
 
 def _planner_bundle_sync_dilemma_count_from_slots(db, bundle: ExercisePlannerFlowBundle) -> None:
@@ -2737,6 +2941,10 @@ _UI_MSG_PLANNER_BUNDLE = {
     "link_ok": "تم تخصيص الربط بنجاح.",
     "upload_ok": "تم إدراج الملف.",
     "bulk_ok": "تم إدراج ملفات التقييم في الجدول — يمكنك الضغط على «تخصيص وربط» عند اكتمال الإدراج.",
+    "bulk_event_ok": "تم إدراج ملف(ات) مجرى الأحداث في الجدول.",
+    "bulk_event_limit": "تجاوز الحد الأقصى لعدد ملفات مجرى الأحداث في هذه الحزمة.",
+    "delete_event_ok": "تم حذف ملف المجرى.",
+    "delete_action_ok": "تم حذف قائمة تقييم الإجراءات.",
     "bulk_limit": "تجاوز الحد الأقصى لعدد قوائم تقييم الإجراءات في هذه الحزمة — احذف قوائم أو أنشئ حزمة أخرى.",
     "assign_ok": "تم ربط الحزمة بالمحكم.",
     "assign_clear_ok": "تمت إزالة ربط الحزمة عن المحكم.",
@@ -2775,7 +2983,9 @@ def planner_flow_bundle_workspace():
                 phase_label_display="",
                 unit_label_display="",
                 planner_event_flow_file_ok=False,
-                planner_event_flow_display_name="",
+                event_flow_rows=[],
+                action_slot_rows=[],
+                selected_event_flow_id=None,
             ),
         )
     phase_key = normalize_exercise_phase(request.args.get("phase") or DEFAULT_EXERCISE_PHASE)
@@ -2786,6 +2996,11 @@ def planner_flow_bundle_workspace():
         abort(404)
     bundle = _get_or_create_planner_bundle(db, ex.id, phase_key, unit_key, unit["label"])
     _sanitize_planner_bundle_orphan_event_flow(db, bundle)
+    _sanitize_planner_bundle_orphan_event_flow_items(db, bundle)
+    _migrate_legacy_bundle_event_flow(db, bundle)
+    event_db_rows = _planner_bundle_event_flow_rows(db, bundle)
+    _sync_bundle_legacy_event_flow_columns(bundle, event_db_rows)
+    db.commit()
     slots = (
         db.query(ExercisePlannerFlowBundleActionEval)
         .filter(ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id)
@@ -2797,19 +3012,23 @@ def planner_flow_bundle_workspace():
         bundle.updated_at = datetime.utcnow()
         db.commit()
     judges = _planner_bundle_judge_assignments(db, ex.id, unit_key)
-    ev_rel_pl = ((bundle.event_flow_file_relpath or "").strip()) if bundle else ""
-    planner_ef_ok = (
-        bool(ev_rel_pl) and _planner_bundle_file_abspath(ev_rel_pl) is not None
-    )
-    planner_ef_disp = (
-        _planner_blob_display_filename(
-            stored_title=bundle.event_flow_title or "",
-            relpath=ev_rel_pl,
-            fallback="ملف المجرى",
+    event_rows_by_id = {int(r.id): r for r in event_db_rows}
+    event_flow_rows = [
+        _planner_bundle_event_flow_view(row=r, bundle=bundle) for r in event_db_rows
+    ]
+    action_slot_rows = [
+        _planner_bundle_slot_view(
+            slot_row=s, bundle=bundle, event_rows_by_id=event_rows_by_id
         )
-        if bundle
-        else ""
-    )
+        for s in slots
+    ]
+    planner_ef_ok = any(r["has_file"] for r in event_flow_rows)
+    sel_raw = (request.args.get("event_flow") or "").strip()
+    selected_event_flow_id = int(sel_raw) if sel_raw.isdigit() else None
+    if selected_event_flow_id is not None and selected_event_flow_id not in event_rows_by_id:
+        selected_event_flow_id = None
+    if selected_event_flow_id is None and event_flow_rows:
+        selected_event_flow_id = event_flow_rows[0]["id"]
     return render_template(
         "planner_flow_bundle.html",
         **_ctx(
@@ -2828,7 +3047,12 @@ def planner_flow_bundle_workspace():
             phase_label_display=_phase_label_ar(phase_key),
             unit_label_display=unit["label"],
             planner_event_flow_file_ok=planner_ef_ok,
-            planner_event_flow_display_name=planner_ef_disp,
+            event_flow_rows=event_flow_rows,
+            action_slot_rows=action_slot_rows,
+            selected_event_flow_id=selected_event_flow_id,
+            can_oversee_judge_planner_flow=can_oversee_judge_planner_flow_materials(
+                user
+            ),
         ),
     )
 
@@ -2842,8 +3066,8 @@ def _redirect_planner_bundle_workspace(bundle: ExercisePlannerFlowBundle, *, err
     return redirect(url_for("views.planner_flow_bundle_workspace", **kw))
 
 
-@bp.route("/planner/create-flow/<int:bundle_id>/upload-event-flow", methods=["POST"])
-def planner_flow_bundle_upload_event(bundle_id: int):
+@bp.route("/planner/create-flow/<int:bundle_id>/upload-event-flow-bulk", methods=["POST"])
+def planner_flow_bundle_upload_event_flow_bulk(bundle_id: int):
     user = get_current_user_optional()
     if not user:
         abort(403)
@@ -2856,40 +3080,134 @@ def planner_flow_bundle_upload_event(bundle_id: int):
     bundle = db.get(ExercisePlannerFlowBundle, bundle_id)
     if ex is None or bundle is None or bundle.exercise_id != ex.id:
         abort(404)
-    f = request.files.get("file")
-    if not f or not getattr(f, "filename", ""):
+    raw_files = request.files.getlist("files")
+    files = [f for f in raw_files if f and getattr(f, "filename", "").strip()]
+    if not files:
         return _redirect_planner_bundle_workspace(bundle, err="no_file")
-    try:
-        data = f.read()
-    except Exception:
-        return _redirect_planner_bundle_workspace(bundle, err="save_err")
-    ext = _info_bank_event_flow_sniff_ext(data)
-    if not ext:
-        return _redirect_planner_bundle_workspace(bundle, err="bad_event_file")
+    rows = _planner_bundle_event_flow_rows(db, bundle)
+    empty_count = sum(1 for r in rows if not (r.file_relpath or "").strip())
+    need_new = max(0, len(files) - empty_count)
+    if len(rows) + need_new > _PLANNER_BUNDLE_MAX_EVENT_FLOW_SLOTS:
+        return _redirect_planner_bundle_workspace(bundle, err="bulk_event_limit")
     root = _planner_flow_bundle_root()
-    rel = f"{bundle.id}/event_flow{ext}"
-    dest = (root / rel).resolve()
+
+    def _assign_event_to_slot(
+        slot_row: ExercisePlannerFlowBundleEventFlow, fstor
+    ) -> str | None:
+        try:
+            data = fstor.read()
+        except Exception:
+            return "save_err"
+        ext = _info_bank_event_flow_sniff_ext(data)
+        if not ext:
+            return "bad_event_file"
+        sn = int(slot_row.slot_index)
+        rel = f"{bundle.id}/event_flow_{sn}{ext}"
+        dest = (root / rel).resolve()
+        try:
+            dest.relative_to(root)
+        except ValueError:
+            abort(400)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            dest.write_bytes(data)
+        except OSError:
+            return "save_err"
+        old_rp = (slot_row.file_relpath or "").strip()
+        old_nm = old_rp.replace("\\", "/")
+        nw_nm = rel.replace("\\", "/")
+        if old_nm and old_nm != nw_nm:
+            _unlink_planner_bundle_file(old_rp)
+        slot_row.file_relpath = nw_nm
+        disp = _planner_upload_display_name(getattr(fstor, "filename", "") or "")
+        slot_row.title = disp[:500] or slot_row.title
+        return None
+
     try:
-        dest.relative_to(root)
-    except ValueError:
-        abort(400)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        dest.write_bytes(data)
-    except OSError:
-        return _redirect_planner_bundle_workspace(bundle, err="save_err")
-    old_rel = (bundle.event_flow_file_relpath or "").strip()
-    old_norm = old_rel.replace("\\", "/")
-    new_norm = rel.replace("\\", "/")
-    # إعادة الرفع بنفس الاسم النسبي: لا نحذف بعد الكتابة وإلا نزيل الملف الذي أُنشئ للتو.
-    if old_norm and old_norm != new_norm:
-        _unlink_planner_bundle_file(old_rel)
-    bundle.event_flow_file_relpath = rel.replace("\\", "/")
-    bundle.event_flow_title = secure_filename(f.filename or "")[:500] or bundle.event_flow_title
+        fi = 0
+        for row in rows:
+            if fi >= len(files):
+                break
+            if not (row.file_relpath or "").strip():
+                err_k = _assign_event_to_slot(row, files[fi])
+                if err_k:
+                    db.rollback()
+                    return _redirect_planner_bundle_workspace(bundle, err=err_k)
+                fi += 1
+        mx = max((int(r.slot_index) for r in rows), default=0)
+        while fi < len(files):
+            mx += 1
+            fn = getattr(files[fi], "filename", "") or ""
+            title_base = _planner_upload_display_name(fn)
+            new_row = ExercisePlannerFlowBundleEventFlow(
+                bundle_id=bundle.id,
+                slot_index=mx,
+                title=title_base or f"مجرى الأحداث — {mx}",
+            )
+            db.add(new_row)
+            db.flush()
+            err_k = _assign_event_to_slot(new_row, files[fi])
+            if err_k:
+                db.rollback()
+                return _redirect_planner_bundle_workspace(bundle, err=err_k)
+            fi += 1
+        bundle.linked_at = None
+        bundle.updated_at = datetime.utcnow()
+        event_rows = _planner_bundle_event_flow_rows(db, bundle)
+        _sync_bundle_legacy_event_flow_columns(bundle, event_rows)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return _redirect_planner_bundle_workspace(bundle, ok="bulk_event_ok")
+
+
+@bp.route(
+    "/planner/create-flow/<int:bundle_id>/delete-event-flow/<int:item_id>",
+    methods=["POST"],
+)
+def planner_flow_bundle_delete_event_flow(bundle_id: int, item_id: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    bundle = db.get(ExercisePlannerFlowBundle, bundle_id)
+    if ex is None or bundle is None or bundle.exercise_id != ex.id:
+        abort(404)
+    row = (
+        db.query(ExercisePlannerFlowBundleEventFlow)
+        .filter(
+            ExercisePlannerFlowBundleEventFlow.bundle_id == bundle.id,
+            ExercisePlannerFlowBundleEventFlow.id == int(item_id),
+        )
+        .first()
+    )
+    if row is None:
+        abort(404)
+    rel = (row.file_relpath or "").strip()
+    if rel:
+        _unlink_planner_bundle_file(rel)
+    for slot_row in (
+        db.query(ExercisePlannerFlowBundleActionEval)
+        .filter(
+            ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id,
+            ExercisePlannerFlowBundleActionEval.event_flow_item_id == row.id,
+        )
+        .all()
+    ):
+        slot_row.event_flow_item_id = None
+    db.delete(row)
     bundle.linked_at = None
     bundle.updated_at = datetime.utcnow()
+    event_rows = _planner_bundle_event_flow_rows(db, bundle)
+    _sync_bundle_legacy_event_flow_columns(bundle, event_rows)
     db.commit()
-    return _redirect_planner_bundle_workspace(bundle, ok="upload_ok")
+    return _redirect_planner_bundle_workspace(bundle, ok="delete_event_ok")
 
 
 @bp.route("/planner/create-flow/<int:bundle_id>/upload-actions-bulk", methods=["POST"])
@@ -2910,6 +3228,27 @@ def planner_flow_bundle_upload_actions_bulk(bundle_id: int):
     files = [f for f in raw_files if f and getattr(f, "filename", "").strip()]
     if not files:
         return _redirect_planner_bundle_workspace(bundle, err="no_file")
+    ef_raw = (request.form.get("event_flow_item_id") or "").strip()
+    target_ef_id: int | None = int(ef_raw) if ef_raw.isdigit() else None
+    if target_ef_id is not None:
+        ef_row = (
+            db.query(ExercisePlannerFlowBundleEventFlow)
+            .filter(
+                ExercisePlannerFlowBundleEventFlow.bundle_id == bundle.id,
+                ExercisePlannerFlowBundleEventFlow.id == target_ef_id,
+            )
+            .first()
+        )
+        if ef_row is None:
+            target_ef_id = None
+    if target_ef_id is None:
+        ef_first = (
+            db.query(ExercisePlannerFlowBundleEventFlow)
+            .filter(ExercisePlannerFlowBundleEventFlow.bundle_id == bundle.id)
+            .order_by(ExercisePlannerFlowBundleEventFlow.slot_index)
+            .first()
+        )
+        target_ef_id = int(ef_first.id) if ef_first else None
 
     rows = (
         db.query(ExercisePlannerFlowBundleActionEval)
@@ -2950,7 +3289,10 @@ def planner_flow_bundle_upload_actions_bulk(bundle_id: int):
         if old_nm and old_nm != nw_nm:
             _unlink_planner_bundle_file(old_rp)
         slot_row.file_relpath = nw_nm
-        slot_row.title = secure_filename(getattr(fstor, "filename", "") or "")[:500] or slot_row.title
+        disp = _planner_upload_display_name(getattr(fstor, "filename", "") or "")
+        slot_row.title = disp[:500] or slot_row.title
+        if target_ef_id is not None:
+            slot_row.event_flow_item_id = target_ef_id
         return None
 
     try:
@@ -2969,11 +3311,12 @@ def planner_flow_bundle_upload_actions_bulk(bundle_id: int):
         while fi < len(files):
             mx += 1
             fn = getattr(files[fi], "filename", "") or ""
-            title_base = secure_filename(fn)[:500] if fn else ""
+            title_base = _planner_upload_display_name(fn)
             new_row = ExercisePlannerFlowBundleActionEval(
                 bundle_id=bundle.id,
                 slot_index=mx,
                 title=title_base or f"قائمة تقييم الإجراءات — {mx}",
+                event_flow_item_id=target_ef_id,
             )
             db.add(new_row)
             db.flush()
@@ -2992,6 +3335,44 @@ def planner_flow_bundle_upload_actions_bulk(bundle_id: int):
         raise
 
     return _redirect_planner_bundle_workspace(bundle, ok="bulk_ok")
+
+
+@bp.route(
+    "/planner/create-flow/<int:bundle_id>/delete-action/<int:slot_id>",
+    methods=["POST"],
+)
+def planner_flow_bundle_delete_action(bundle_id: int, slot_id: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    bundle = db.get(ExercisePlannerFlowBundle, bundle_id)
+    if ex is None or bundle is None or bundle.exercise_id != ex.id:
+        abort(404)
+    row = (
+        db.query(ExercisePlannerFlowBundleActionEval)
+        .filter(
+            ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id,
+            ExercisePlannerFlowBundleActionEval.id == int(slot_id),
+        )
+        .first()
+    )
+    if row is None:
+        abort(404)
+    rel = (row.file_relpath or "").strip()
+    if rel:
+        _unlink_planner_bundle_file(rel)
+    db.delete(row)
+    bundle.linked_at = None
+    bundle.updated_at = datetime.utcnow()
+    _planner_bundle_sync_dilemma_count_from_slots(db, bundle)
+    db.commit()
+    return _redirect_planner_bundle_workspace(bundle, ok="delete_action_ok")
 
 
 @bp.route("/planner/create-flow/<int:bundle_id>/upload-action/<int:slot>", methods=["POST"])
@@ -3045,7 +3426,8 @@ def planner_flow_bundle_upload_action(bundle_id: int, slot: int):
     if old_nm and old_nm != nw_nm:
         _unlink_planner_bundle_file(old_rp)
     row.file_relpath = nw_nm
-    row.title = secure_filename(f.filename or "")[:500] or row.title
+    disp = _planner_upload_display_name(f.filename or "")
+    row.title = disp[:500] or row.title
     bundle.linked_at = None
     bundle.updated_at = datetime.utcnow()
     db.commit()
@@ -3066,10 +3448,15 @@ def planner_flow_bundle_link(bundle_id: int):
     bundle = db.get(ExercisePlannerFlowBundle, bundle_id)
     if ex is None or bundle is None or bundle.exercise_id != ex.id:
         abort(404)
-    if not (bundle.event_flow_file_relpath or "").strip():
+    event_rows = _migrate_legacy_bundle_event_flow(db, bundle)
+    event_with_file = [
+        r
+        for r in event_rows
+        if (r.file_relpath or "").strip()
+        and _planner_bundle_file_abspath(r.file_relpath) is not None
+    ]
+    if not event_with_file:
         return _redirect_planner_bundle_workspace(bundle, err="link_master")
-    if _planner_bundle_file_abspath(bundle.event_flow_file_relpath) is None:
-        return _redirect_planner_bundle_workspace(bundle, err="link_master_disk")
     slots = (
         db.query(ExercisePlannerFlowBundleActionEval)
         .filter(ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id)
@@ -3084,6 +3471,9 @@ def planner_flow_bundle_link(bundle_id: int):
             return _redirect_planner_bundle_workspace(bundle, err="link_slots")
         if _planner_bundle_file_abspath(rel) is None:
             return _redirect_planner_bundle_workspace(bundle, err="link_slots_disk")
+        if s.event_flow_item_id is None and event_with_file:
+            s.event_flow_item_id = int(event_with_file[0].id)
+    _sync_bundle_legacy_event_flow_columns(bundle, event_rows)
     bundle.linked_at = datetime.utcnow()
     bundle.updated_at = datetime.utcnow()
     db.commit()
@@ -3127,12 +3517,88 @@ def planner_flow_bundle_assign_judge(bundle_id: int):
     )
 
 
+def _planner_flow_oversee_judge_id_from_request() -> int | None:
+    raw = (request.args.get("judge_user_id") or "").strip()
+    return int(raw) if raw.isdigit() else None
+
+
+def _planner_flow_materials_query_kwargs(viewer: User) -> dict[str, int]:
+    if not can_oversee_judge_planner_flow_materials(viewer):
+        return {}
+    jid = _planner_flow_oversee_judge_id_from_request()
+    if jid is not None:
+        return {"judge_user_id": jid}
+    return {}
+
+
+def _planner_flow_oversee_assignment_rows(db, ex: Exercise) -> list[dict]:
+    """محكمون لديهم حزمة مجرى مربوطة — لاختيار الإطلاع."""
+    rows = (
+        db.query(JudgeTraineeAssignment)
+        .filter(
+            JudgeTraineeAssignment.exercise_id == ex.id,
+            JudgeTraineeAssignment.planner_flow_bundle_id.isnot(None),
+        )
+        .options(joinedload(JudgeTraineeAssignment.judge_user))
+        .options(joinedload(JudgeTraineeAssignment.planner_flow_bundle))
+        .order_by(JudgeTraineeAssignment.unit_level_key, JudgeTraineeAssignment.id)
+        .all()
+    )
+    out: list[dict] = []
+    for ja in rows:
+        ju = ja.judge_user
+        bundle = ja.planner_flow_bundle
+        jlabel = (
+            (getattr(ju, "full_name", None) or "").strip()
+            or (getattr(ju, "username", None) or "").strip()
+            or f"محكم #{ja.judge_user_id}"
+        )
+        uk = (ja.unit_level_key or "").strip()
+        out.append(
+            {
+                "judge_user_id": int(ja.judge_user_id),
+                "judge_label": jlabel,
+                "trainee_name": (ja.trainee_name or "").strip() or "—",
+                "unit_label": label_for_unit_level_key(uk) or uk or "—",
+                "bundle_linked": bool(
+                    bundle and getattr(bundle, "linked_at", None)
+                ),
+                "view_href": url_for(
+                    "views.judge_planner_flow_materials",
+                    judge_user_id=int(ja.judge_user_id),
+                ),
+            }
+        )
+    return out
+
+
 def _judge_assigned_planner_bundle(
-    db, user: User, ex: Exercise | None
+    db,
+    user: User,
+    ex: Exercise | None,
+    *,
+    judge_user_id: int | None = None,
 ) -> ExercisePlannerFlowBundle | None:
     if ex is None:
         return None
-    ja = _judge_assignment_for_current_exercise(db, user, ex)
+    if can_oversee_judge_planner_flow_materials(user):
+        jid = (
+            judge_user_id
+            if judge_user_id is not None
+            else _planner_flow_oversee_judge_id_from_request()
+        )
+        if jid is None:
+            return None
+        ja = (
+            db.query(JudgeTraineeAssignment)
+            .filter(
+                JudgeTraineeAssignment.exercise_id == ex.id,
+                JudgeTraineeAssignment.judge_user_id == int(jid),
+            )
+            .first()
+        )
+    else:
+        ja = _judge_assignment_for_current_exercise(db, user, ex)
     if ja is None or not ja.planner_flow_bundle_id:
         return None
     b = db.get(ExercisePlannerFlowBundle, ja.planner_flow_bundle_id)
@@ -3152,23 +3618,90 @@ def judge_planner_flow_materials():
 
     db = g.db
     ex = _current_workspace_exercise(db, user)
-    bundle = _judge_assigned_planner_bundle(db, user, ex)
+    oversee = can_oversee_judge_planner_flow_materials(user)
+    oversee_jid = _planner_flow_oversee_judge_id_from_request() if oversee else None
+    if oversee and ex is not None and oversee_jid is None:
+        return render_template(
+            "judge_planner_flow_materials.html",
+            **_ctx(
+                user,
+                has_exercise=True,
+                exercise=ex,
+                bundle=None,
+                slots=[],
+                planner_eval_rows=[],
+                planner_flow_unit_label="",
+                planner_event_flow_file_ok=False,
+                planner_event_flow_display_name="",
+                planner_flow_oversee_picker=True,
+                planner_flow_oversee_rows=_planner_flow_oversee_assignment_rows(db, ex),
+                planner_flow_view_only=True,
+                planner_flow_viewing_judge_label="",
+                hub_back_href=(
+                    url_for("views.chief_judge_hub")
+                    if is_chief_judge(user) and not is_system_admin(user)
+                    else url_for("views.judge_hub")
+                ),
+            ),
+        )
+    bundle = _judge_assigned_planner_bundle(
+        db, user, ex, judge_user_id=oversee_jid
+    )
+    viewing_judge_label = ""
+    if oversee and oversee_jid is not None:
+        ja_view = (
+            db.query(JudgeTraineeAssignment)
+            .filter(
+                JudgeTraineeAssignment.exercise_id == ex.id,
+                JudgeTraineeAssignment.judge_user_id == int(oversee_jid),
+            )
+            .options(joinedload(JudgeTraineeAssignment.judge_user))
+            .first()
+            if ex is not None
+            else None
+        )
+        if ja_view and ja_view.judge_user:
+            ju = ja_view.judge_user
+            viewing_judge_label = (
+                (getattr(ju, "full_name", None) or "").strip()
+                or (getattr(ju, "username", None) or "").strip()
+                or f"محكم #{oversee_jid}"
+            )
+        else:
+            viewing_judge_label = f"محكم #{oversee_jid}"
+    pf_qs = _planner_flow_materials_query_kwargs(user)
     _sanitize_planner_bundle_orphan_event_flow(db, bundle)
+    _sanitize_planner_bundle_orphan_event_flow_items(db, bundle)
     slots = []
     planner_eval_rows: list[dict] = []
     unit_label_pf = ""
     planner_event_flow_file_ok = False
     planner_event_flow_display_name = ""
     if bundle:
-        ev_rel_j = (bundle.event_flow_file_relpath or "").strip()
+        _migrate_legacy_bundle_event_flow(db, bundle)
+        event_db_rows = _planner_bundle_event_flow_rows(db, bundle)
+        _sync_bundle_legacy_event_flow_columns(bundle, event_db_rows)
+        db.commit()
+        primary_ef = next((r for r in event_db_rows if (r.file_relpath or "").strip()), None)
+        if primary_ef is None:
+            ev_rel_j = (bundle.event_flow_file_relpath or "").strip()
+        else:
+            ev_rel_j = (primary_ef.file_relpath or "").strip()
         planner_event_flow_file_ok = bool(
             ev_rel_j and _planner_bundle_file_abspath(ev_rel_j) is not None
         )
-        planner_event_flow_display_name = _planner_blob_display_filename(
-            stored_title=bundle.event_flow_title or "",
-            relpath=ev_rel_j,
-            fallback="ملف المجرى",
-        )
+        if primary_ef is not None:
+            planner_event_flow_display_name = _planner_blob_display_filename(
+                stored_title=primary_ef.title or "",
+                relpath=ev_rel_j,
+                fallback="ملف المجرى",
+            )
+        else:
+            planner_event_flow_display_name = _planner_blob_display_filename(
+                stored_title=bundle.event_flow_title or "",
+                relpath=ev_rel_j,
+                fallback="ملف المجرى",
+            )
         slots = (
             db.query(ExercisePlannerFlowBundleActionEval)
             .filter(ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id)
@@ -3213,12 +3746,20 @@ def judge_planner_flow_materials():
                             url_for(
                                 "views.judge_planner_flow_materials_action_evaluate",
                                 slot=slot_row.slot_index,
+                                **pf_qs,
                             )
                             if has_xlsx
                             else ""
                         ),
                     }
                 )
+    if oversee and ex is not None and oversee_jid is not None and bundle is None:
+        abort(404)
+    hub_back = url_for("views.judge_hub")
+    if oversee:
+        hub_back = url_for("views.judge_planner_flow_materials")
+    elif is_chief_judge(user) and not is_system_admin(user):
+        hub_back = url_for("views.chief_judge_hub")
     return render_template(
         "judge_planner_flow_materials.html",
         **_ctx(
@@ -3231,6 +3772,12 @@ def judge_planner_flow_materials():
             planner_flow_unit_label=unit_label_pf,
             planner_event_flow_file_ok=planner_event_flow_file_ok,
             planner_event_flow_display_name=planner_event_flow_display_name,
+            planner_flow_oversee_picker=False,
+            planner_flow_oversee_rows=[],
+            planner_flow_view_only=oversee,
+            planner_flow_viewing_judge_label=viewing_judge_label,
+            planner_flow_url_kwargs=pf_qs,
+            hub_back_href=hub_back,
         ),
     )
 
@@ -3246,10 +3793,27 @@ def judge_planner_flow_materials_event_flow():
 
     db = g.db
     ex = _current_workspace_exercise(db, user)
-    bundle = _judge_assigned_planner_bundle(db, user, ex)
-    if bundle is None or not (bundle.event_flow_file_relpath or "").strip():
+    oversee_jid = (
+        _planner_flow_oversee_judge_id_from_request()
+        if can_oversee_judge_planner_flow_materials(user)
+        else None
+    )
+    bundle = _judge_assigned_planner_bundle(
+        db, user, ex, judge_user_id=oversee_jid
+    )
+    if bundle is None:
         abort(404)
-    path = _planner_bundle_file_abspath(bundle.event_flow_file_relpath)
+    _migrate_legacy_bundle_event_flow(db, bundle)
+    event_rows = _planner_bundle_event_flow_rows(db, bundle)
+    primary = next((r for r in event_rows if (r.file_relpath or "").strip()), None)
+    rel = (
+        (primary.file_relpath or "").strip()
+        if primary is not None
+        else (bundle.event_flow_file_relpath or "").strip()
+    )
+    if not rel:
+        abort(404)
+    path = _planner_bundle_file_abspath(rel)
     if path is None:
         abort(404)
     mt = _mimetype_info_bank_event_flow(path)
@@ -3267,7 +3831,14 @@ def judge_planner_flow_materials_action(slot: int):
 
     db = g.db
     ex = _current_workspace_exercise(db, user)
-    bundle = _judge_assigned_planner_bundle(db, user, ex)
+    oversee_jid = (
+        _planner_flow_oversee_judge_id_from_request()
+        if can_oversee_judge_planner_flow_materials(user)
+        else None
+    )
+    bundle = _judge_assigned_planner_bundle(
+        db, user, ex, judge_user_id=oversee_jid
+    )
     if bundle is None:
         abort(404)
     row = (
@@ -3320,14 +3891,13 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
         else (bundle.unit_level_label or "").strip() or unit_key
     )
     path = _planner_bundle_file_abspath(action_row.file_relpath)
+    pf_qs = _planner_flow_materials_query_kwargs(user)
     if path is None:
-        return redirect(url_for("views.judge_planner_flow_materials"))
+        return redirect(url_for("views.judge_planner_flow_materials", **pf_qs))
     ev = _evaluation_sheet_view_context(path)
 
     saved_payload = {}
     saved_updated_at = None
-    saved_is_approved = False
-    saved_approved_at = None
     saved_row_id = None
     canon = _planner_bundle_eval_canonical_saved(db, ex.id, action_row.id)
 
@@ -3343,9 +3913,16 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
     if canon is not None:
         saved_payload = _load_payload(canon)
         saved_updated_at = canon.updated_at
-        saved_is_approved = bool(getattr(canon, "is_approved", False))
-        saved_approved_at = getattr(canon, "approved_at", None)
         saved_row_id = canon.id
+    wf = _eval_list_viewer_ctx(user, canon)
+    if can_oversee_judge_planner_flow_materials(user):
+        wf = {
+            **wf,
+            "eval_can_edit": False,
+            "show_eval_approve": False,
+            "show_chief_approve": False,
+            "show_chief_reopen": False,
+        }
 
     item_title = _planner_blob_display_filename(
         stored_title=action_row.title or "",
@@ -3353,12 +3930,16 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
         fallback=f"قائمة تقييم إجراءات — {slot}",
     ).strip()
     eval_save_url = url_for(
-        "views.judge_planner_flow_materials_action_save_results", slot=int(slot)
+        "views.judge_planner_flow_materials_action_save_results",
+        slot=int(slot),
+        **pf_qs,
     )
     eval_approve_url = url_for(
-        "views.judge_planner_flow_materials_action_approve", slot=int(slot)
+        "views.judge_planner_flow_materials_action_approve",
+        slot=int(slot),
+        **pf_qs,
     )
-    eval_close_href = url_for("views.judge_planner_flow_materials")
+    eval_close_href = url_for("views.judge_planner_flow_materials", **pf_qs)
 
     shown_date = getattr(ex, "planned_start", None) or getattr(ex, "created_at", None)
     commander_name = "—"
@@ -3393,7 +3974,6 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
     if judge_row is not None:
         judge_name = (judge_row.full_name or "").strip() or judge_name
 
-    show_eval_approve = can_approve_evaluation_results(user)
     return render_template(
         "judge_evaluation_list_viewer.html",
         **_ctx(
@@ -3405,8 +3985,7 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
             item_title=item_title,
             saved_payload=saved_payload,
             saved_updated_at=saved_updated_at,
-            saved_is_approved=saved_is_approved,
-            saved_approved_at=saved_approved_at,
+            **wf,
             eval_close_href=eval_close_href,
             **ev,
             unit_label=unit_label_pf or "—",
@@ -3416,8 +3995,8 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
             has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
             eval_save_url=eval_save_url,
             eval_approve_url=eval_approve_url,
-            show_eval_approve=show_eval_approve,
-            eval_can_edit=not saved_is_approved,
+            eval_chief_approve_url="",
+            eval_chief_reopen_url="",
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int)
             == 1,
         ),
@@ -3431,6 +4010,8 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
 def judge_planner_flow_materials_action_save_results(slot: int):
     user = get_current_user_optional()
     if not user:
+        abort(403)
+    if can_oversee_judge_planner_flow_materials(user):
         abort(403)
     if not can_access_judge_hub(user):
         abort(403)
@@ -3473,6 +4054,8 @@ def judge_planner_flow_materials_action_approve(slot: int):
     user = get_current_user_optional()
     if not user:
         abort(403)
+    if can_oversee_judge_planner_flow_materials(user):
+        abort(403)
     if not can_approve_evaluation_results(user):
         abort(403)
     if not can_access_judge_hub(user):
@@ -3489,7 +4072,7 @@ def judge_planner_flow_materials_action_approve(slot: int):
     saved = _planner_bundle_eval_canonical_saved(db, ex.id, action_row.id)
     if saved is None or not (saved.payload_json or "").strip():
         abort(400)
-    if bool(getattr(saved, "is_approved", False)):
+    if not eval_judge_can_approve(saved):
         return redirect(
             url_for(
                 "views.judge_planner_flow_materials_action_evaluate",
@@ -3505,9 +4088,7 @@ def judge_planner_flow_materials_action_approve(slot: int):
                 eval_approve_incomplete=1,
             )
         )
-    saved.is_approved = True
-    saved.approved_by_id = getattr(user, "id", None)
-    saved.approved_at = datetime.utcnow()
+    apply_judge_approve(saved, getattr(user, "id", None))
     db.commit()
     return redirect(
         url_for("views.judge_planner_flow_materials_action_evaluate", slot=int(slot))
@@ -3587,13 +4168,17 @@ def planner_evaluation_lists_home():
 
     db = g.db
     ex = _admin_current_workspace_exercise(db, user)
+    units = list(UNIT_LEVELS)
+    unit_rows = evaluation_unit_home_rows(db, ex, units)
     return render_template(
         "judge_evaluation_lists_home.html",
         **_ctx(
             user,
             has_exercise=ex is not None,
             exercise=ex,
-            unit_levels=UNIT_LEVELS,
+            unit_levels=units,
+            unit_rows=unit_rows,
+            unit_totals=evaluation_unit_home_totals(unit_rows),
             hub_back_href=url_for("views.planner_hub"),
             unit_list_endpoint="views.planner_evaluation_lists",
         ),
@@ -3631,26 +4216,18 @@ def planner_evaluation_lists(unit_key: str):
 
     evaluation_lists_rows: list[dict] = []
     for it in items:
-        iid = int(it.id)
-        s = canonical_by_item.get(iid)
-        is_done = bool(s and getattr(s, "is_approved", False))
+        s = canonical_by_item.get(int(it.id))
         evaluation_lists_rows.append(
-            {
-                "item_id": int(it.id),
-                "item_title": (it.text or "تقييم").strip(),
-                "dt": (getattr(s, "updated_at", None) if s else None) or getattr(it, "created_at", None),
-                "exercise_type": (getattr(ex, "exercise_type", "") or "").strip(),
-                "trained_unit": (getattr(ex, "trained_unit", "") or "").strip(),
-                "delivery_dt": (
-                    getattr(s, "approved_at", None)
-                    if s is not None and bool(getattr(s, "is_approved", False))
-                    else None
+            build_evaluation_list_row(
+                item=it,
+                saved=s,
+                exercise=ex,
+                open_href=url_for(
+                    "views.planner_evaluation_list_file_viewer",
+                    unit_key=unit_key,
+                    item_id=it.id,
                 ),
-                "status_label": "ينجز" if is_done else "لم ينجز",
-                "status_done": is_done,
-                "grade_label": (getattr(s, "grade_label", "") or "").strip() if s else "",
-                "open_href": url_for("views.planner_evaluation_list_file_viewer", unit_key=unit_key, item_id=it.id),
-            }
+            )
         )
     return render_template(
         "judge_evaluation_lists.html",
@@ -3885,24 +4462,24 @@ def judge_hub():
         return redirect("/login?next=/judge")
     if not can_access_judge_hub(user):
         abort(403)
-    # للمحكمين (غير إدارة النظام): نظهر فقط مساحة "قوائم التقييم" وما يرتبط بها
+    # للمحكم الفردي (غير إدارة النظام): أدوات محددة بترتيب ثابت
     from flask import g
 
     db = g.db
     ex = _current_workspace_exercise(db, user)
     _ensure_judge_roster_synced(db, user, ex)
 
-    items_src = JUDGE_HUB_ITEMS if is_system_admin(user) else tuple(
-        x
-        for x in JUDGE_HUB_ITEMS
-        if x[0]
-        in (
-            "dilemmas",
-            "evaluation-lists",
-            "planner-flow-materials",
-            "incomplete-tasks",
-            "chat-rooms",
-        )
+    _judge_individual_slugs = (
+        "planner-flow-materials",
+        "evaluation-lists",
+        "incomplete-tasks",
+        "chat-rooms",
+    )
+    _hub_by_slug = {x[0]: x for x in JUDGE_HUB_ITEMS}
+    items_src = (
+        JUDGE_HUB_ITEMS
+        if is_system_admin(user)
+        else tuple(_hub_by_slug[s] for s in _judge_individual_slugs if s in _hub_by_slug)
     )
     hub_items = [{"slug": s, "title_ar": t, "icon": ic} for s, t, ic in items_src]
     return render_template(
@@ -6280,13 +6857,17 @@ def judge_evaluation_lists_home():
     assigned_uk = (getattr(a, "unit_level_key", "") or "").strip() if a else ""
     if assigned_uk and not is_system_admin(user):
         return redirect(url_for("views.judge_evaluation_lists", unit_key=assigned_uk))
+    units = [u for u in UNIT_LEVELS if not assigned_uk or u.get("key") == assigned_uk]
+    unit_rows = evaluation_unit_home_rows(db, ex, units)
     return render_template(
         "judge_evaluation_lists_home.html",
         **_ctx(
             user,
             has_exercise=ex is not None,
             exercise=ex,
-            unit_levels=[u for u in UNIT_LEVELS if not assigned_uk or u.get("key") == assigned_uk],
+            unit_levels=units,
+            unit_rows=unit_rows,
+            unit_totals=evaluation_unit_home_totals(unit_rows),
             hub_back_href=url_for("views.judge_hub"),
             unit_list_endpoint="views.judge_evaluation_lists",
         ),
@@ -6454,27 +7035,18 @@ def judge_evaluation_lists(unit_key: str):
 
     evaluation_lists_rows: list[dict] = []
     for it in items:
-        iid = int(it.id)
-        s = canonical_by_item.get(iid)
-        is_done = bool(s and getattr(s, "is_approved", False))
+        s = canonical_by_item.get(int(it.id))
         evaluation_lists_rows.append(
-            {
-                "item_id": int(it.id),
-                "item_title": (it.text or "تقييم").strip(),
-                # التاريخ والوقت: إن وُجد حفظ/اعتماد نعرضه، وإلا تاريخ إنشاء النموذج
-                "dt": (getattr(s, "updated_at", None) if s else None) or getattr(it, "created_at", None),
-                "exercise_type": (getattr(ex, "exercise_type", "") or "").strip(),
-                "trained_unit": (getattr(ex, "trained_unit", "") or "").strip(),
-                "delivery_dt": (
-                    getattr(s, "approved_at", None)
-                    if s is not None and bool(getattr(s, "is_approved", False))
-                    else None
+            build_evaluation_list_row(
+                item=it,
+                saved=s,
+                exercise=ex,
+                open_href=url_for(
+                    "views.judge_evaluation_list_file_viewer",
+                    unit_key=unit_key,
+                    item_id=it.id,
                 ),
-                "status_label": "ينجز" if is_done else "لم ينجز",
-                "status_done": is_done,
-                "grade_label": (getattr(s, "grade_label", "") or "").strip() if s else "",
-                "open_href": url_for("views.judge_evaluation_list_file_viewer", unit_key=unit_key, item_id=it.id),
-            }
+            )
         )
     return render_template(
         "judge_evaluation_lists.html",
@@ -6518,8 +7090,6 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
 
     saved_payload = {}
     saved_updated_at = None
-    saved_is_approved = False
-    saved_approved_at = None
     saved_row_id = None
     canon = _evaluation_canonical_saved_row(db, current_exercise.id, row.id)
 
@@ -6535,13 +7105,11 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
     if canon is not None:
         saved_payload = _load_payload(canon)
         saved_updated_at = canon.updated_at
-        saved_is_approved = bool(getattr(canon, "is_approved", False))
-        saved_approved_at = getattr(canon, "approved_at", None)
         saved_row_id = canon.id
 
     eval_save_url = url_for("views.judge_evaluation_list_save_results", unit_key=unit_key, item_id=item_id)
     eval_approve_url = url_for("views.judge_evaluation_list_approve", unit_key=unit_key, item_id=item_id)
-    show_eval_approve = can_approve_evaluation_results(user)
+    wf = _eval_list_viewer_ctx(user, canon)
 
     # معلومات إضافية أعلى مربع قائمة التقييم
     unit_label = (unit.get("label") or "").strip() if isinstance(unit, dict) else ""
@@ -6590,8 +7158,7 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
             saved_row_id=saved_row_id,
             saved_payload=saved_payload,
             saved_updated_at=saved_updated_at,
-            saved_is_approved=saved_is_approved,
-            saved_approved_at=saved_approved_at,
+            **wf,
             **ev,
             unit_label=unit_label or "—",
             shown_date=shown_date,
@@ -6600,8 +7167,8 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
             has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
             eval_save_url=eval_save_url,
             eval_approve_url=eval_approve_url,
-            show_eval_approve=show_eval_approve,
-            eval_can_edit=not saved_is_approved,
+            eval_chief_approve_url="",
+            eval_chief_reopen_url="",
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
         ),
     )
@@ -6675,7 +7242,7 @@ def judge_evaluation_list_approve(unit_key: str, item_id: int):
     saved = _evaluation_canonical_saved_row(db, current_exercise.id, item.id)
     if saved is None or not (saved.payload_json or "").strip():
         abort(400)
-    if bool(getattr(saved, "is_approved", False)):
+    if not eval_judge_can_approve(saved):
         return redirect(url_for("views.judge_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id))
     rows = _parse_saved_eval_rows(saved.payload_json)
     if _evaluation_payload_has_empty_acquired_for_approve(rows):
@@ -6687,11 +7254,345 @@ def judge_evaluation_list_approve(unit_key: str, item_id: int):
                 eval_approve_incomplete=1,
             )
         )
-    saved.is_approved = True
-    saved.approved_by_id = getattr(user, "id", None)
-    saved.approved_at = datetime.utcnow()
+    apply_judge_approve(saved, getattr(user, "id", None))
     db.commit()
     return redirect(url_for("views.judge_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id))
+
+
+# ——— مساحة كبير المحكمين ———
+CHIEF_JUDGE_ONLY_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
+    ("evaluation-lists-chief", "اعتماد قوائم التقييم (كبير المحكمين)", "fa-stamp"),
+)
+
+
+def _chief_judge_hub_items() -> tuple[tuple[str, str, str], ...]:
+    """امتيازات كبير المحكمين الخاصة + جميع أوامر مساحة المحكمين."""
+    return CHIEF_JUDGE_ONLY_HUB_ITEMS + JUDGE_HUB_ITEMS
+
+
+CHIEF_JUDGE_HUB_SLUGS: dict[str, str] = {s: t for s, t, _ in _chief_judge_hub_items()}
+
+
+@bp.route("/chief-judge")
+def chief_judge_hub():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/chief-judge")
+    if not can_access_chief_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    _ensure_judge_roster_synced(db, user, ex)
+    hub_items = [
+        {"slug": s, "title_ar": t, "icon": ic} for s, t, ic in _chief_judge_hub_items()
+    ]
+    return render_template("chief_judge_hub.html", **_ctx(user, hub_items=hub_items))
+
+
+@bp.route("/chief-judge/<slug>")
+def chief_judge_hub_section(slug: str):
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/chief-judge/{slug}")
+    if not can_access_chief_judge_hub(user):
+        abort(403)
+    slug_norm = (slug or "").strip().lower()
+    if slug_norm not in CHIEF_JUDGE_HUB_SLUGS:
+        abort(404)
+    if slug_norm == "evaluation-lists-chief":
+        return redirect(url_for("views.chief_judge_evaluation_lists_home"))
+    if slug_norm in JUDGE_HUB_SLUGS:
+        return judge_hub_section(slug_norm)
+    abort(404)
+
+
+@bp.route("/chief-judge/evaluation-lists", methods=["GET"])
+def chief_judge_evaluation_lists_home():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/chief-judge/evaluation-lists")
+    if not can_access_chief_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    units = list(UNIT_LEVELS)
+    unit_rows = evaluation_unit_home_rows(db, ex, units)
+    return render_template(
+        "judge_evaluation_lists_home.html",
+        **_ctx(
+            user,
+            has_exercise=ex is not None,
+            exercise=ex,
+            unit_levels=units,
+            unit_rows=unit_rows,
+            unit_totals=evaluation_unit_home_totals(unit_rows),
+            hub_back_href=url_for("views.chief_judge_hub"),
+            unit_list_endpoint="views.chief_judge_evaluation_lists",
+            page_title="قوائم التقييم — اعتماد كبير المحكمين",
+        ),
+    )
+
+
+@bp.route("/chief-judge/evaluation-lists/<unit_key>", methods=["GET"])
+def chief_judge_evaluation_lists(unit_key: str):
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/chief-judge/evaluation-lists/{unit_key}")
+    if not can_access_chief_judge_hub(user):
+        abort(403)
+    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
+    if not unit:
+        abort(404)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    if ex is None:
+        return redirect(url_for("views.chief_judge_evaluation_lists_home"))
+    items = (
+        db.query(EvaluationListPdfItem)
+        .filter(
+            EvaluationListPdfItem.exercise_id == ex.id,
+            EvaluationListPdfItem.unit_level_key == unit_key,
+        )
+        .order_by(
+            _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
+            EvaluationListPdfItem.sort_order,
+            EvaluationListPdfItem.id,
+        )
+        .all()
+    )
+    item_ids = [int(it.id) for it in items]
+    canonical_by_item = _evaluation_canonical_map_for_items(db, ex.id, item_ids)
+    evaluation_lists_rows: list[dict] = []
+    for it in items:
+        s = canonical_by_item.get(int(it.id))
+        evaluation_lists_rows.append(
+            build_evaluation_list_row(
+                item=it,
+                saved=s,
+                exercise=ex,
+                open_href=url_for(
+                    "views.chief_judge_evaluation_list_file_viewer",
+                    unit_key=unit_key,
+                    item_id=it.id,
+                ),
+                chief_workflow_label=eval_workflow_label_ar(s),
+            )
+        )
+    return render_template(
+        "chief_judge_evaluation_lists.html",
+        **_ctx(
+            user,
+            exercise=ex,
+            unit=unit,
+            unit_key=unit_key,
+            evaluation_lists_rows=evaluation_lists_rows,
+            eval_lists_parent_href=url_for("views.chief_judge_evaluation_lists_home"),
+        ),
+    )
+
+
+@bp.route("/chief-judge/evaluation-lists/<unit_key>/view/<int:item_id>", methods=["GET"])
+def chief_judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/chief-judge/evaluation-lists/{unit_key}/view/{item_id}")
+    if not can_access_chief_judge_hub(user):
+        abort(403)
+    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
+    if not unit:
+        abort(404)
+    from flask import g
+
+    db = g.db
+    row = db.get(EvaluationListPdfItem, item_id)
+    current_exercise = _current_workspace_exercise(db, user)
+    if not row or row.unit_level_key != unit_key or current_exercise is None or row.exercise_id != current_exercise.id:
+        abort(404)
+    list_url = url_for("views.chief_judge_evaluation_lists", unit_key=unit_key)
+    if not (row.pdf_relpath or "").strip():
+        return redirect(list_url)
+    fspath = _evaluation_list_file_abspath(row.pdf_relpath)
+    if fspath is None:
+        return redirect(list_url)
+    ev = _evaluation_sheet_view_context(fspath)
+    canon = _evaluation_canonical_saved_row(db, current_exercise.id, row.id)
+
+    def _load_payload(sr: EvaluationListSavedResult | None) -> dict:
+        if not sr or not (sr.payload_json or "").strip():
+            return {}
+        try:
+            p = json.loads(sr.payload_json)
+        except Exception:
+            return {}
+        return p if isinstance(p, dict) else {}
+
+    saved_payload = _load_payload(canon)
+    saved_updated_at = getattr(canon, "updated_at", None) if canon else None
+    saved_row_id = getattr(canon, "id", None) if canon else None
+    wf = _eval_list_viewer_ctx(user, canon)
+    wf = {
+        **wf,
+        "eval_can_edit": False,
+        "show_eval_approve": False,
+    }
+    unit_label = (unit.get("label") or "").strip() if isinstance(unit, dict) else ""
+    shown_date = getattr(current_exercise, "planned_start", None) or getattr(current_exercise, "created_at", None)
+    commander_name = "—"
+    commander_row = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == current_exercise.id,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.TRAINEE.value,
+            ExerciseRosterRow.unit_level_key == unit_key,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .first()
+    )
+    if commander_row is not None:
+        commander_name = (commander_row.full_name or "").strip() or commander_name
+    judge_name = "—"
+    judge_row = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == current_exercise.id,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+            ExerciseRosterRow.unit_level_key == unit_key,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .first()
+    )
+    if judge_row is not None:
+        judge_name = (judge_row.full_name or "").strip() or judge_name
+
+    return render_template(
+        "judge_evaluation_list_viewer.html",
+        **_ctx(
+            user,
+            unit_key=unit_key,
+            item_id=item_id,
+            item_title=row.text or "تقييم",
+            evaluation_item_id=row.id,
+            saved_row_id=saved_row_id,
+            saved_payload=saved_payload,
+            saved_updated_at=saved_updated_at,
+            **wf,
+            **ev,
+            unit_label=unit_label or "—",
+            shown_date=shown_date,
+            commander_name=commander_name or "—",
+            judge_name=judge_name or "—",
+            has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
+            eval_save_url="",
+            eval_approve_url="",
+            eval_chief_approve_url=url_for(
+                "views.chief_judge_evaluation_list_chief_approve",
+                unit_key=unit_key,
+                item_id=item_id,
+            ),
+            eval_chief_reopen_url=url_for(
+                "views.chief_judge_evaluation_list_chief_reopen",
+                unit_key=unit_key,
+                item_id=item_id,
+            ),
+            eval_close_href=list_url,
+            eval_approve_incomplete=False,
+            viewer_readonly_chief=True,
+        ),
+    )
+
+
+@bp.route(
+    "/chief-judge/evaluation-lists/<unit_key>/view/<int:item_id>/chief-approve",
+    methods=["POST"],
+)
+def chief_judge_evaluation_list_chief_approve(unit_key: str, item_id: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_chief_approve_evaluation_results(user):
+        abort(403)
+    if not can_access_chief_judge_hub(user):
+        abort(403)
+    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
+    if not unit:
+        abort(404)
+    from flask import g
+
+    db = g.db
+    item = db.get(EvaluationListPdfItem, item_id)
+    current_exercise = _current_workspace_exercise(db, user)
+    if (
+        not item
+        or item.unit_level_key != unit_key
+        or current_exercise is None
+        or item.exercise_id != current_exercise.id
+    ):
+        abort(404)
+    saved = _evaluation_canonical_saved_row(db, current_exercise.id, item.id)
+    if saved is None or not eval_chief_can_approve(saved):
+        abort(400)
+    apply_chief_approve(saved, getattr(user, "id", None))
+    db.commit()
+    return redirect(
+        url_for("views.chief_judge_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id)
+    )
+
+
+@bp.route(
+    "/chief-judge/evaluation-lists/<unit_key>/view/<int:item_id>/chief-reopen",
+    methods=["POST"],
+)
+def chief_judge_evaluation_list_chief_reopen(unit_key: str, item_id: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_chief_reopen_evaluation_for_judge(user):
+        abort(403)
+    if not can_access_chief_judge_hub(user):
+        abort(403)
+    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
+    if not unit:
+        abort(404)
+    from flask import g
+
+    db = g.db
+    item = db.get(EvaluationListPdfItem, item_id)
+    current_exercise = _current_workspace_exercise(db, user)
+    if (
+        not item
+        or item.unit_level_key != unit_key
+        or current_exercise is None
+        or item.exercise_id != current_exercise.id
+    ):
+        abort(404)
+    saved = _evaluation_canonical_saved_row(db, current_exercise.id, item.id)
+    if saved is None or not eval_chief_can_reopen(saved):
+        abort(400)
+    apply_chief_reopen(saved)
+    from app.notifications_service import notify_evaluation_reopened_by_chief_judge
+
+    unit_label = label_for_unit_level_key(unit_key) or unit.get("label") or unit_key
+    item_title = (getattr(item, "text", None) or "قائمة التقييم").strip()
+    notify_evaluation_reopened_by_chief_judge(
+        db,
+        exercise_id=int(current_exercise.id),
+        unit_key=unit_key,
+        unit_label=unit_label,
+        item_title=item_title,
+        item_id=int(item.id),
+        saved_by_user_id=getattr(saved, "saved_by_id", None),
+        exclude_user_id=getattr(user, "id", None),
+    )
+    db.commit()
+    return redirect(
+        url_for("views.chief_judge_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id)
+    )
 
 
 @bp.route("/admin/evaluation-lists/saved-results", methods=["GET"])
@@ -7571,36 +8472,12 @@ def admin_information_bank():
     info_bank_units = _information_bank_unit_levels(db)
     phase_notes = {r.phase_key: r.notes for r in db.query(InformationBankPhaseNote).all()}
     unit_notes = {r.unit_level_key: r.notes for r in db.query(InformationBankUnitNote).all()}
-    flows = (
-        db.query(InfoBankEventFlowPdf)
-        .order_by(
-            InfoBankEventFlowPdf.training_phase_key,
-            InfoBankEventFlowPdf.unit_level_key,
-            InfoBankEventFlowPdf.sort_order,
-            InfoBankEventFlowPdf.id,
-        )
-        .all()
-    )
-    actions = (
-        db.query(InfoBankActionEvalXlsx)
-        .order_by(
-            InfoBankActionEvalXlsx.training_phase_key,
-            InfoBankActionEvalXlsx.unit_level_key,
-            InfoBankActionEvalXlsx.sort_order,
-            InfoBankActionEvalXlsx.id,
-        )
-        .all()
-    )
-    dilemmas_x = (
-        db.query(InfoBankDilemmaEvalXlsx)
-        .order_by(
-            InfoBankDilemmaEvalXlsx.training_phase_key,
-            InfoBankDilemmaEvalXlsx.unit_level_key,
-            InfoBankDilemmaEvalXlsx.sort_order,
-            InfoBankDilemmaEvalXlsx.id,
-        )
-        .all()
-    )
+    from app.info_bank_tree import build_tree_payload, ensure_all_information_bank_trees
+
+    ensure_all_information_bank_trees(db)
+    tree_event_flow = build_tree_payload(db, "event_flow")
+    tree_action_eval = build_tree_payload(db, "action_eval")
+    tree_dilemma_eval = build_tree_payload(db, "dilemma_eval")
     err = (request.args.get("err") or "").strip()[:2000]
     ok = (request.args.get("ok") or "").strip()[:500]
     active_tab = (request.args.get("tab") or "phases").strip()
@@ -7614,9 +8491,9 @@ def admin_information_bank():
             info_bank_units=info_bank_units,
             phase_notes=phase_notes,
             unit_notes=unit_notes,
-            flows=flows,
-            actions=actions,
-            dilemmas_x=dilemmas_x,
+            tree_event_flow=tree_event_flow,
+            tree_action_eval=tree_action_eval,
+            tree_dilemma_eval=tree_dilemma_eval,
             training_phase_label=lambda key: _information_bank_training_phase_label(db, key),
             info_bank_unit_label=lambda key: _information_bank_unit_label(db, key),
             error=err,
@@ -7683,14 +8560,37 @@ def admin_information_bank_phase_add():
     _ensure_information_bank_catalog_rows(db)
     mx = db.query(func.max(InformationBankTrainingPhase.sort_order)).scalar()
     next_order = (int(mx) if mx is not None else -1) + 1
+    phase_key = _custom_catalog_key("phase")
     db.add(
         InformationBankTrainingPhase(
-            key=_custom_catalog_key("phase"),
+            key=phase_key,
             label=label,
             sort_order=next_order,
             is_system=False,
         )
     )
+    db.commit()
+    from app.info_bank_tree import INFO_BANK_TREE_KINDS, _unit_rows, ensure_information_bank_tree, get_or_create_folder
+
+    for k in INFO_BANK_TREE_KINDS:
+        ensure_information_bank_tree(db, k)
+        phase_node = get_or_create_folder(
+            db,
+            kind=k,
+            parent_id=None,
+            name=label,
+            is_system=False,
+            catalog_phase_key=phase_key,
+        )
+        for un in _unit_rows(db):
+            get_or_create_folder(
+                db,
+                kind=k,
+                parent_id=int(phase_node.id),
+                name=(un.label or un.key)[:500],
+                is_system=bool(un.is_system),
+                catalog_unit_key=un.key,
+            )
     db.commit()
     return redirect(url_for("views.admin_information_bank", tab="phases", ok="تمت إضافة مرحلة التمرين."))
 
@@ -7726,14 +8626,38 @@ def admin_information_bank_unit_add():
     _ensure_information_bank_catalog_rows(db)
     mx = db.query(func.max(InformationBankUnitLevel.sort_order)).scalar()
     next_order = (int(mx) if mx is not None else -1) + 1
+    unit_key = _custom_catalog_key("unit")
     db.add(
         InformationBankUnitLevel(
-            key=_custom_catalog_key("unit"),
+            key=unit_key,
             label=label,
             sort_order=next_order,
             is_system=False,
         )
     )
+    db.commit()
+    from app.info_bank_tree import INFO_BANK_TREE_KINDS, ensure_information_bank_tree, get_or_create_folder
+
+    for k in INFO_BANK_TREE_KINDS:
+        ensure_information_bank_tree(db, k)
+        phase_nodes = (
+            db.query(InformationBankTreeNode)
+            .filter(
+                InformationBankTreeNode.kind == k,
+                InformationBankTreeNode.parent_id.is_(None),
+                InformationBankTreeNode.is_folder.is_(True),
+            )
+            .all()
+        )
+        for ph in phase_nodes:
+            get_or_create_folder(
+                db,
+                kind=k,
+                parent_id=int(ph.id),
+                name=label,
+                is_system=False,
+                catalog_unit_key=unit_key,
+            )
     db.commit()
     return redirect(url_for("views.admin_information_bank", tab="units", ok="تمت إضافة مستوى الوحدة."))
 
@@ -7753,6 +8677,132 @@ def admin_information_bank_unit_delete():
     db.delete(row)
     db.commit()
     return redirect(url_for("views.admin_information_bank", tab="units", ok="تم حذف مستوى الوحدة."))
+
+
+@bp.route("/admin/information-bank/tree/folder", methods=["POST"])
+def admin_information_bank_tree_folder_add():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.info_bank_tree import add_custom_folder, ensure_information_bank_tree, kind_tab
+
+    db = g.db
+    kind = (request.form.get("kind") or "").strip()
+    if kind not in ("event_flow", "action_eval", "dilemma_eval"):
+        abort(400)
+    parent_raw = (request.form.get("parent_id") or "").strip()
+    parent_id = int(parent_raw) if parent_raw.isdigit() else None
+    name = (request.form.get("folder_name") or "").strip()
+    tab = kind_tab(kind)
+    if not name:
+        return redirect(url_for("views.admin_information_bank", tab=tab, err="أدخل اسم المجلد."))
+    ensure_information_bank_tree(db, kind)
+    try:
+        add_custom_folder(db, kind=kind, parent_id=parent_id, name=name)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        return redirect(url_for("views.admin_information_bank", tab=tab, err=str(exc) or "تعذر إنشاء المجلد."))
+    return redirect(url_for("views.admin_information_bank", tab=tab, ok="تم إنشاء المجلد."))
+
+
+@bp.route("/admin/information-bank/tree/upload", methods=["POST"])
+def admin_information_bank_tree_upload():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.info_bank_tree import (
+        ensure_information_bank_tree,
+        get_node,
+        kind_tab,
+        upload_files_to_parent,
+    )
+
+    db = g.db
+    kind = (request.form.get("kind") or "").strip()
+    tab = kind_tab(kind)
+    if kind not in ("event_flow", "action_eval", "dilemma_eval"):
+        abort(400)
+    parent_raw = (request.form.get("parent_id") or "").strip()
+    if not parent_raw.isdigit():
+        return redirect(
+            url_for("views.admin_information_bank", tab=tab, err="حدّد مجلداً مستهدفاً في الشجرة (زر تحديد).")
+        )
+    parent_id = int(parent_raw)
+    ensure_information_bank_tree(db, kind)
+    parent = get_node(db, parent_id, kind)
+    if parent is None or not parent.is_folder:
+        return redirect(url_for("views.admin_information_bank", tab=tab, err="المجلد المستهدف غير صالح."))
+    files = [x for x in request.files.getlist("files") if x and getattr(x, "filename", "").strip()]
+    if not files:
+        return redirect(url_for("views.admin_information_bank", tab=tab, err="اختر ملفاً أو مجلداً للإدراج."))
+    added, errors = upload_files_to_parent(db, kind=kind, parent_id=parent_id, file_storages=files)
+    if added:
+        db.commit()
+    else:
+        db.rollback()
+    err_q = " ".join(errors)[:2000] if errors else ""
+    if not added:
+        return redirect(url_for("views.admin_information_bank", tab=tab, err=err_q or "لم تُضف أي ملف."))
+    ok_msg = f"تم إدراج {added} ملف(ات)."
+    if err_q:
+        return redirect(
+            url_for("views.admin_information_bank", tab=tab, ok=ok_msg, err=f"تجاهل بعض الملفات: {err_q}")
+        )
+    return redirect(url_for("views.admin_information_bank", tab=tab, ok=ok_msg))
+
+
+@bp.route("/admin/information-bank/tree/<int:node_id>/delete", methods=["POST"])
+def admin_information_bank_tree_delete(node_id: int):
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.info_bank_tree import delete_node, kind_tab
+
+    db = g.db
+    row = db.get(InformationBankTreeNode, node_id)
+    if row is None:
+        abort(404)
+    tab = kind_tab(row.kind)
+    try:
+        delete_node(db, row)
+        db.commit()
+    except ValueError:
+        db.rollback()
+        return redirect(
+            url_for("views.admin_information_bank", tab=tab, err="لا يمكن حذف مجلدات النظام الأساسية.")
+        )
+    return redirect(url_for("views.admin_information_bank", tab=tab, ok="تم الحذف."))
+
+
+@bp.route("/admin/information-bank/tree/<int:node_id>/file", methods=["GET"])
+def admin_information_bank_tree_file(node_id: int):
+    user = get_current_user_optional()
+    if not user or not can_view_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.info_bank_tree import node_file_abspath
+
+    db = g.db
+    row = db.get(InformationBankTreeNode, node_id)
+    if row is None or row.is_folder or not (row.file_relpath or "").strip():
+        abort(404)
+    path = node_file_abspath(row.kind, row.file_relpath)
+    if path is None:
+        abort(404)
+    low = path.name.lower()
+    if low.endswith(".xlsx"):
+        mt = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        mt = _mimetype_info_bank_event_flow(path)
+    return send_file(path, mimetype=mt, as_attachment=False, download_name=row.name or path.name)
 
 
 @bp.route("/admin/information-bank/event-flow/upload", methods=["POST"])

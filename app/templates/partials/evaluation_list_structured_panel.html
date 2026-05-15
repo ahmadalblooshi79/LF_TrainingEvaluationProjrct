@@ -1,5 +1,5 @@
 {# جدول تعبئة قائمة التقييم — تمرير وسفلي ثابتان، مكتسبة كقائمة حسب القصوى #}
-<div class="eval-structured-layout" dir="rtl" id="eval-structured-root" data-approve-incomplete="{% if eval_approve_incomplete|default(false) %}1{% else %}0{% endif %}">
+<div class="eval-structured-layout{% if not eval_can_edit|default(false) %} eval-structured-layout--readonly{% endif %}" dir="rtl" id="eval-structured-root" data-approve-incomplete="{% if eval_approve_incomplete|default(false) %}1{% else %}0{% endif %}" data-readonly="{% if eval_can_edit|default(false) %}0{% else %}1{% endif %}">
   <div class="eval-structured-layout__scroll" id="eval-structured-scroll">
     <table class="eval-preview-table eval-structured eval-structured--tight" role="table" aria-label="جدول التقييم" id="eval-structured-table">
       <thead>
@@ -25,7 +25,7 @@
           <th scope="row" class="eval-preview-rowhead eval-row-section-num">{{ loop.index }}</th>
           <td class="eval-preview-td eval-section-banner" colspan="6"><strong>{{ row.element }}</strong></td>
           <td class="eval-preview-td eval-col--delete">
-            {% if eval_can_edit %}
+            {% if eval_can_edit|default(false) %}
             <button type="button" class="btn btn-icon eval-row-delete" title="حذف الصف" aria-label="حذف الصف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
             {% endif %}
           </td>
@@ -38,7 +38,8 @@
         {% else %}
           {% set cap_steps = 20 %}
         {% endif %}
-        <tr class="eval-structured-row eval-row--score" data-row-kind="score" data-max="{% if mxn is not none and mxn > 0 %}{{ mxn }}{% endif %}" data-max-text="{{ row.max_val | e }}">
+        {% set acq_display = acq_saved if acq_saved is not none and acq_saved != '' else init_aq %}
+        <tr class="eval-structured-row eval-row--score" data-row-kind="score" data-max="{% if mxn is not none and mxn > 0 %}{{ mxn }}{% endif %}" data-max-text="{{ row.max_val | e }}" data-acquired="{{ acq_display | string | e }}">
           <th scope="row" class="eval-preview-rowhead eval-row-num">{{ loop.index }}</th>
           <td class="eval-preview-td eval-col--element">{{ row.element }}</td>
           <td class="eval-preview-td eval-col--max eval-td-readonly" data-max-persist="{{ row.max_val | e }}">
@@ -65,7 +66,7 @@
             <textarea class="eval-notes-textarea eval-notes-textarea--compact" name="notes_{{ loop.index0 }}" rows="1" placeholder="ملاحظات" spellcheck="true" dir="rtl" {% if not eval_can_edit %}disabled{% endif %}>{{ (saved_row.get('notes') or '') if saved_row else '' }}</textarea>
           </td>
           <td class="eval-preview-td eval-col--delete">
-            {% if eval_can_edit %}
+            {% if eval_can_edit|default(false) %}
             <button type="button" class="btn btn-icon eval-row-delete" title="حذف الصف" aria-label="حذف الصف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
             {% endif %}
           </td>
@@ -90,7 +91,7 @@
       </div>
     </div>
     <div class="eval-sticky-footer__right">
-      {% if eval_can_edit %}
+      {% if eval_can_edit|default(false) and eval_save_url %}
       <form method="post" action="{{ eval_save_url }}" id="eval-save-form" style="margin:0;">
         <input type="hidden" name="payload_json" id="eval-save-payload" value="">
         <input type="hidden" name="saved_id" value="{{ saved_row_id or '' }}">
@@ -99,9 +100,19 @@
       {% else %}
       <span class="muted">عرض فقط</span>
       {% endif %}
-      {% if show_eval_approve and not saved_is_approved and has_saved_rows %}
+      {% if show_eval_approve|default(false) and has_saved_rows and eval_approve_url %}
       <form method="post" action="{{ eval_approve_url }}" id="eval-approve-form" style="margin:0;">
-        <button type="submit" class="btn btn-danger eval-btn-footer"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> اعتماد</button>
+        <button type="submit" class="btn btn-danger eval-btn-footer"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> اعتماد المحكم</button>
+      </form>
+      {% endif %}
+      {% if show_chief_approve|default(false) and eval_chief_approve_url %}
+      <form method="post" action="{{ eval_chief_approve_url }}" id="eval-chief-approve-form" style="margin:0;">
+        <button type="submit" class="btn eval-btn-footer" style="background:#1d4ed8;color:#fff;"><i class="fa-solid fa-stamp" aria-hidden="true"></i> اعتماد كبير المحكمين</button>
+      </form>
+      {% endif %}
+      {% if show_chief_reopen|default(false) and eval_chief_reopen_url %}
+      <form method="post" action="{{ eval_chief_reopen_url }}" id="eval-chief-reopen-form" style="margin:0;" onsubmit="return confirm('إعادة القائمة للمحكم لإعادة التقييم؟ سيُرسل إشعار للمحكم. يبقى الموقف «ينجز» حتى يحفظ المحكم تعديلاته، ثم يصبح «لم ينجز» و«بانتظار الإعتماد».');">
+        <button type="submit" class="btn btn-ghost eval-btn-footer"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> إعادة للمحكم</button>
       </form>
       {% endif %}
       <span class="muted eval-save-hint" id="eval-save-hint" aria-live="polite"></span>
@@ -205,7 +216,12 @@
 
   function getAcquiredFromRow(tr) {
     var sel = tr.querySelector('.eval-acquired-input');
-    if (sel && !sel.disabled) return (sel.value || '').trim();
+    if (sel) {
+      var v = (sel.value || '').trim();
+      if (v !== '') return v;
+    }
+    var da = tr.getAttribute('data-acquired');
+    if (da !== null && da !== undefined) return String(da).trim();
     return '';
   }
 

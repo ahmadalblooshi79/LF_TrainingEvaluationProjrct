@@ -29,6 +29,11 @@ ROLE_DUTIES: list[tuple[str, str, str]] = [
         "تطبيق قوائم التقييم بموضوعية، تدوين الملاحظات بسرعة ودقة، الالتزام بالتعليمات، وعدم اختلاق معايير جديدة خارج مكتبة المراجع المعتمدة.",
     ),
     (
+        RoleKey.CHIEF_JUDGE.value,
+        "كبير المحكمين",
+        "مراجعة قوائم التقييم بعد اعتماد المحكمين: الاعتماد الثاني أو إعادة القائمة للمحكم لإعادة التقييم قبل الاعتماد النهائي من هيئة السيطرة.",
+    ),
+    (
         RoleKey.STANDARDS_LIBRARY.value,
         "مكتبة المراجع والمعايير",
         "حفظ وصيانة وتحديث الأدلة، اللوائح، النماذج، وربط إصدارات المستندات بتمارين محددة. مسار الموافقات لإدخال مرجع جديد وتوثيق المصدر.",
@@ -54,6 +59,8 @@ def seed_all(db: Session) -> None:
         if row:
             row.title_ar = title
             row.duties_ar = duties
+        else:
+            db.add(RoleDef(role_key=rk, title_ar=title, duties_ar=duties))
     db.commit()
 
     if not db.query(User).first():
@@ -63,6 +70,7 @@ def seed_all(db: Session) -> None:
             (RoleKey.ANALYST, "analyst"),
             (RoleKey.PLANNER, "planner"),
             (RoleKey.JUDGE, "judge"),
+            (RoleKey.CHIEF_JUDGE, "chief_judge"),
             (RoleKey.STANDARDS_LIBRARY, "standards"),
             (RoleKey.CONTROL, "control"),
         ]
@@ -79,7 +87,19 @@ def seed_all(db: Session) -> None:
             )
         db.commit()
 
-    _demo_usernames = {"admin", "analyst", "planner", "judge", "standards", "control"}
+    ph_demo = hash_password(DEMO_PASSWORD)
+    if not db.query(User).filter(User.username == "chief_judge").first():
+        db.add(
+            User(
+                username="chief_judge",
+                full_name="كبير المحكمين",
+                password_hash=ph_demo,
+                role_key=RoleKey.CHIEF_JUDGE.value,
+            )
+        )
+        db.commit()
+
+    _demo_usernames = {"admin", "analyst", "planner", "judge", "chief_judge", "standards", "control"}
     for u in db.query(User).filter(User.username.in_(_demo_usernames)):
         t = next((pair[1] for pair in ROLE_DUTIES if pair[0] == u.role_key), None)
         if t:

@@ -193,6 +193,75 @@ def ensure_evaluation_saved_results_approval_columns() -> None:
             conn.execute(text(sql))
 
 
+_EVAL_WORKFLOW_COLUMN_SPECS: tuple[tuple[str, str], ...] = (
+    ("reopened_for_judge", "BOOLEAN DEFAULT 0"),
+    ("is_chief_approved", "BOOLEAN DEFAULT 0"),
+    ("chief_approved_by_id", "INTEGER"),
+    ("chief_approved_at", "DATETIME"),
+    ("is_control_approved", "BOOLEAN DEFAULT 0"),
+    ("control_approved_by_id", "INTEGER"),
+    ("control_approved_at", "DATETIME"),
+)
+
+
+def _ensure_table_workflow_columns(table_name: str) -> None:
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    try:
+        insp = inspect(engine)
+        if table_name not in insp.get_table_names():
+            return
+        cols = {c["name"] for c in insp.get_columns(table_name)}
+    except Exception:
+        return
+    stmts = [
+        f"ALTER TABLE {table_name} ADD COLUMN {name} {typ}"
+        for name, typ in _EVAL_WORKFLOW_COLUMN_SPECS
+        if name not in cols
+    ]
+    if not stmts:
+        return
+    with engine.begin() as conn:
+        for sql in stmts:
+            conn.execute(text(sql))
+
+
+def ensure_evaluation_workflow_columns() -> None:
+    """اعتماد المحكم → كبير المحكمين → السيطرة؛ وإعادة فتح التعديل للمحكم."""
+    _ensure_table_workflow_columns("evaluation_list_saved_results")
+    _ensure_table_workflow_columns("planner_flow_bundle_eval_saved_results")
+
+
+def ensure_information_bank_tree_nodes_table() -> None:
+    """جدول الشجرة يُنشأ عبر create_all؛ لا إجراء إضافي لـ SQLite."""
+    return
+
+
+def ensure_planner_bundle_action_eval_event_flow_column() -> None:
+    """ربط قائمة تقييم الإجراءات بملف مجرى أحداث محدد ضمن الحزمة."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    try:
+        insp = inspect(engine)
+        if "exercise_planner_flow_bundle_action_evals" not in insp.get_table_names():
+            return
+    except Exception:
+        return
+    cols = {
+        c["name"]
+        for c in insp.get_columns("exercise_planner_flow_bundle_action_evals")
+    }
+    if "event_flow_item_id" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE exercise_planner_flow_bundle_action_evals "
+                "ADD COLUMN event_flow_item_id INTEGER"
+            )
+        )
+
+
 def ensure_judge_trainee_assignment_planner_bundle_column() -> None:
     """ربط المحكم بحزمة مجرى الأحداث وتقييم الإجراءات (مساحة التخطيط)."""
     if not DATABASE_URL.startswith("sqlite"):

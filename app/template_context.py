@@ -9,15 +9,26 @@ from app.auth import get_current_user_optional
 from app.models import Exercise, ExerciseNotification
 from app.permissions import (
     can_access_analyst_hub,
+    can_access_chief_judge_hub,
     can_access_control_hub,
     can_access_judge_hub,
     can_access_planner_hub,
     can_manage_information_bank,
     can_view_information_bank,
     can_view_notifications_log,
+    is_chief_judge,
     is_judge,
     is_system_admin,
 )
+
+
+def _nav_show_judge_hub_link(user) -> bool:
+    """كبير المحكمين يدخل كل الأدوات من مساحته دون رابط منفصل للمحكمين."""
+    if not can_access_judge_hub(user):
+        return False
+    if is_chief_judge(user) and not is_system_admin(user):
+        return False
+    return True
 
 
 def inject_header_exercise():
@@ -51,15 +62,16 @@ def inject_header_exercise():
 
         _push_hub("/planner", "التخطيط", "fa-calendar-check", can_access_planner_hub)
         _push_hub("/control", "السيطرة", "fa-eye", can_access_control_hub)
-        _push_hub("/judge", "المحكمين", "fa-scale-balanced", can_access_judge_hub)
+        _push_hub("/judge", "المحكمين", "fa-scale-balanced", _nav_show_judge_hub_link)
+        _push_hub("/chief-judge", "كبير المحكمين", "fa-gavel", can_access_chief_judge_hub)
         _push_hub("/analyst", "المحللين", "fa-magnifying-glass-chart", can_access_analyst_hub)
         base["nav_role_hub_links"] = nav_hubs
         base["user_can_view_information_bank"] = bool(can_view_information_bank(u))
         base["user_can_manage_information_bank"] = bool(can_manage_information_bank(u))
 
-        if is_judge(u) and not is_system_admin(u):
+        if (is_judge(u) or is_chief_judge(u)) and not is_system_admin(u):
             nm = (getattr(u, "full_name", "") or "").strip() or (getattr(u, "username", "") or "").strip()
-            base["judge_welcome_name"] = nm or "محكم"
+            base["judge_welcome_name"] = nm or ("كبير المحكمين" if is_chief_judge(u) else "محكم")
 
         # التمرين الحالي في الشريط العلوي: نفس منطق _current_workspace_exercise — للجميع
         if is_system_admin(u):

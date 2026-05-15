@@ -21,6 +21,10 @@ def is_judge(user: User) -> bool:
     return _rk(user) == RoleKey.JUDGE
 
 
+def is_chief_judge(user: User) -> bool:
+    return _rk(user) == RoleKey.CHIEF_JUDGE
+
+
 def is_standards(user: User) -> bool:
     return _rk(user) == RoleKey.STANDARDS_LIBRARY
 
@@ -58,8 +62,18 @@ def can_access_planner_hub(user: User) -> bool:
 
 
 def can_access_judge_hub(user: User) -> bool:
-    """مساحة المحكمين — المحكم أو إدارة النظام."""
-    return is_judge(user) or is_system_admin(user)
+    """مساحة المحكمين — المحكم، كبير المحكمين، أو إدارة النظام."""
+    return is_judge(user) or is_chief_judge(user) or is_system_admin(user)
+
+
+def can_oversee_judge_planner_flow_materials(user: User) -> bool:
+    """الإطلاع على حزمة «مجرى الأحداث وتقييم الإجراءات» المربوطة بمحكم فردي."""
+    return is_system_admin(user) or is_chief_judge(user)
+
+
+def can_access_chief_judge_hub(user: User) -> bool:
+    """مساحة كبير المحكمين — الاعتماد الثاني وإعادة التقييم للمحكم."""
+    return is_chief_judge(user) or is_system_admin(user)
 
 
 def can_access_control_hub(user: User) -> bool:
@@ -72,7 +86,7 @@ def can_edit_references(user: User) -> bool:
 
 
 def can_judge_exercise(user: User) -> bool:
-    return is_system_admin(user) or is_judge(user) or is_control(user)
+    return is_system_admin(user) or is_judge(user) or is_chief_judge(user) or is_control(user)
 
 
 def can_edit_event_flow(user: User) -> bool:
@@ -80,7 +94,14 @@ def can_edit_event_flow(user: User) -> bool:
 
 
 def can_manage_problems(user: User) -> bool:
-    return is_system_admin(user) or is_planner(user) or is_judge(user) or is_control(user) or is_analyst(user)
+    return (
+        is_system_admin(user)
+        or is_planner(user)
+        or is_judge(user)
+        or is_chief_judge(user)
+        or is_control(user)
+        or is_analyst(user)
+    )
 
 
 def can_control_approve(user: User) -> bool:
@@ -88,13 +109,23 @@ def can_control_approve(user: User) -> bool:
 
 
 def can_save_evaluation_results(user: User) -> bool:
-    """حفظ نتائج التقييم — إدارة النظام، المحكم، المخطّط."""
-    return is_system_admin(user) or is_judge(user) or is_planner(user)
+    """حفظ نتائج التقييم — إدارة النظام، المحكم، كبير المحكمين، المخطّط."""
+    return is_system_admin(user) or is_judge(user) or is_chief_judge(user) or is_planner(user)
 
 
 def can_approve_evaluation_results(user: User) -> bool:
-    """اعتماد نتائج التقييم — إدارة النظام والمحكم فقط."""
+    """اعتماد المحكم (المرحلة الأولى) — إدارة النظام والمحكم فقط."""
     return is_system_admin(user) or is_judge(user)
+
+
+def can_chief_approve_evaluation_results(user: User) -> bool:
+    """اعتماد كبير المحكمين (المرحلة الثانية)."""
+    return is_system_admin(user) or is_chief_judge(user)
+
+
+def can_chief_reopen_evaluation_for_judge(user: User) -> bool:
+    """إعادة القائمة للمحكم لإعادة التقييم."""
+    return is_system_admin(user) or is_chief_judge(user)
 
 
 def can_manage_chat_rooms(user: User) -> bool:
@@ -103,10 +134,11 @@ def can_manage_chat_rooms(user: User) -> bool:
 
 
 def can_view_notifications_log(user: User) -> bool:
-    """سجل الإشعارات — المحكم، السيطرة، التخطيط، إدارة النظام."""
+    """سجل الإشعارات — المحكم، كبير المحكمين، السيطرة، التخطيط، إدارة النظام."""
     return (
         is_system_admin(user)
         or is_judge(user)
+        or is_chief_judge(user)
         or is_control(user)
         or is_planner(user)
     )
@@ -117,6 +149,7 @@ def can_use_chat_rooms(user: User) -> bool:
     return (
         is_system_admin(user)
         or is_judge(user)
+        or is_chief_judge(user)
         or is_planner(user)
         or is_control(user)
         or is_analyst(user)
@@ -124,5 +157,11 @@ def can_use_chat_rooms(user: User) -> bool:
 
 
 def can_use_visual_documentation(user: User) -> bool:
-    """التوثيق المرئي — المحكم/السيطرة/إدارة النظام (والتخطيط عند الحاجة)."""
-    return is_system_admin(user) or is_judge(user) or is_control(user) or is_planner(user)
+    """التوثيق المرئي — المحكم/كبير المحكمين/السيطرة/إدارة النظام (والتخطيط عند الحاجة)."""
+    return (
+        is_system_admin(user)
+        or is_judge(user)
+        or is_chief_judge(user)
+        or is_control(user)
+        or is_planner(user)
+    )

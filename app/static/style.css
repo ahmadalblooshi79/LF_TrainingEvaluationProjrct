@@ -3301,6 +3301,17 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   text-align: center;
   line-height: 1.15;
 }
+.eval-structured-layout--readonly .eval-acquired-input:disabled {
+  opacity: 1;
+  color: var(--text, #3a332d);
+  -webkit-text-fill-color: var(--text, #3a332d);
+  cursor: default;
+}
+.eval-structured-layout--readonly .eval-notes-textarea:disabled {
+  opacity: 1;
+  color: var(--text, #3a332d);
+  -webkit-text-fill-color: var(--text, #3a332d);
+}
 .eval-preview-table.eval-preview-table--raw .eval-preview-rowhead {
   padding: 0.22rem 0.35rem;
   line-height: 1.2;
@@ -4925,8 +4936,6 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   text-align: center;
 }
 
-<<<<<<< HEAD
-=======
 .final-report-table--phase th:nth-child(1),
 .final-report-table--phase td:nth-child(1) {
   min-width: 2.75rem;
@@ -4944,8 +4953,97 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   text-align: center;
 }
 
->>>>>>> 4ceb6ab1b0b6b2fc046e4a6d63fbdbecb4ece0a8
 /* مساحة التخطيط — تخصيص وربط المجرى وتقييم الإجراءات */
+.planner-flow-page-header {
+  margin-bottom: 0.35rem;
+}
+.planner-flow-page-header .planner-flow-back-row {
+  margin: 0.15rem 0 0;
+}
+.planner-flow-toolbar--compact {
+  padding: 0.45rem 0.65rem;
+  margin-bottom: 0.55rem;
+}
+.planner-flow-toolbar--compact .planner-flow-toolbar__row--phase-unit {
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+.planner-flow-field--inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  min-width: 0;
+}
+.planner-flow-field--inline label {
+  margin: 0;
+  white-space: nowrap;
+  font-size: 0.82rem;
+}
+.planner-flow-select-compact {
+  width: auto;
+  min-width: 9rem;
+  max-width: 14rem;
+  padding: 0.28rem 0.45rem;
+  font-size: 0.84rem;
+  line-height: 1.25;
+  min-height: 0;
+}
+.planner-flow-col-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem 0.65rem;
+  margin-bottom: 0.35rem;
+}
+.planner-flow-col-head .h2-in-card {
+  margin-bottom: 0;
+}
+.planner-flow-col-head__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+.planner-flow-bulk-form-inline {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+.planner-flow-table-note {
+  margin: 0 0 0.4rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+.planner-flow-filename-cell {
+  max-width: 14rem;
+  word-break: break-word;
+  font-weight: 600;
+}
+.planner-flow-status {
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+.planner-flow-status--ok {
+  color: var(--ok-text, #2d6a3e);
+  font-weight: 600;
+}
+.js-pf-event-row {
+  cursor: pointer;
+}
+.js-pf-event-row.is-selected {
+  background: rgba(196, 169, 144, 0.22);
+}
+.js-pf-event-row.is-selected td {
+  font-weight: 600;
+}
+.planner-flow-ef-ref {
+  font-size: 0.82rem;
+  max-width: 10rem;
+  word-break: break-word;
+}
 .planner-flow-toolbar__row {
   display: flex;
   flex-wrap: wrap;
@@ -4965,7 +5063,7 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   min-width: min(100%, 14rem);
 }
 .planner-flow-insert-actions-btn {
-  margin-top: 0.35rem;
+  margin-top: 0;
 }
 .planner-flow-field label {
   display: block;
@@ -5036,11 +5134,10 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   font-size: 0.95rem;
 }
 .planner-flow-actions-bulk-form {
-  margin-bottom: 0.65rem;
-  padding: 0.55rem 0.65rem;
-  border: 1px solid var(--border-soft, #c9bfb5);
-  border-radius: var(--radius-sm, 6px);
-  background: var(--surface-muted, #faf8f6);
+  margin-bottom: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
 }
 .planner-flow-excel-upload-toolbar {
   display: flex;
@@ -5101,6 +5198,129 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   margin: 0 0 0.65rem;
   font-size: 0.82rem;
   line-height: 1.45;
+}
+
+/* محكم — المجرى وتقييم الإجراءات: تبويبات بارتفاع الصفحة دون تمرير داخلي */
+main:has(.judge-pf-tabbed) {
+  overflow-x: hidden;
+  overflow-y: hidden;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-bottom: var(--space-md);
+}
+main:has(.judge-pf-tabbed) > .judge-pf-root {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+.judge-pf-root {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.judge-pf-page-header {
+  flex-shrink: 0;
+  margin-bottom: 0;
+}
+.judge-pf-page-header .judge-pf-unit-line {
+  margin: 0.25rem 0 0;
+  font-size: 0.95rem;
+  color: var(--text, #3a332d);
+}
+.judge-pf-page-header .judge-pf-unit-line strong {
+  font-weight: 700;
+}
+.judge-pf-tabbed {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+.judge-pf-tabbed .ibank-tabbed {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.judge-pf-tabbed .ibank-tabs-row {
+  flex-shrink: 0;
+}
+.judge-pf-tabbed .ibank-tab-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0.45rem 0.75rem 0.55rem;
+  overflow: hidden;
+}
+.judge-pf-tabbed .ibank-tabpane {
+  display: none;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+.judge-pf-tabbed .ibank-tabpane.is-active {
+  display: flex;
+}
+.judge-pf-tab-pane-inner {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.judge-pf-tab-pane-inner .planner-flow-event-filename,
+.judge-pf-tab-pane-inner .planner-flow-master-actions-row,
+.judge-pf-tab-pane-inner .judge-pf-hint {
+  flex-shrink: 0;
+}
+.judge-pf-tabbed .planner-flow-pdf-embed-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 0.35rem;
+  display: flex;
+  flex-direction: column;
+}
+.judge-pf-tabbed .planner-flow-pdf-iframe {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #525659;
+}
+.pf-judge-eval-table th,
+.pf-judge-eval-table td {
+  text-align: center;
+  vertical-align: middle;
+}
+.judge-pf-tab-pane-inner--eval .table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.judge-pf-btn-disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  pointer-events: none;
+}
+.judge-pf-hint {
+  font-size: 0.88rem;
+}
+.judge-pf-empty {
+  margin: 0;
+}
+@media (max-width: 960px) {
+  .judge-pf-tabbed .planner-flow-pdf-embed-wrap,
+  .judge-pf-tabbed .planner-flow-pdf-iframe {
+    min-height: 0;
+  }
 }
 @media (max-width: 960px) {
   .planner-flow-bundle-grid {
@@ -5217,9 +5437,6 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .planner-flow-judge-slot-list li:last-child {
   border-bottom: none;
 }
-<<<<<<< HEAD
-=======
-
 /* مساحة المحللين — معايير التقييم: عمود الترقيم (ت) */
 .analyst-criteria-seq,
 .analyst-criteria-seq-th {
@@ -5229,4 +5446,121 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   white-space: nowrap;
   vertical-align: middle;
 }
->>>>>>> 4ceb6ab1b0b6b2fc046e4a6d63fbdbecb4ece0a8
+
+/* بنك المعلومات — عرض شجري */
+.ibank-tree-card {
+  padding: 0.65rem 0.75rem;
+}
+.ibank-tree-note {
+  margin: 0 0 0.55rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.ibank-tree-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.55rem;
+  margin-bottom: 0.55rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border-soft, #c9bfb5);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface-muted, #faf8f6);
+}
+.ibank-tree-inline-form,
+.ibank-tree-upload-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+}
+.ibank-tree-folder-name-input {
+  min-width: 10rem;
+  max-width: 16rem;
+  padding: 0.28rem 0.45rem;
+  font-size: 0.84rem;
+}
+.ibank-tree-selection-label {
+  flex: 1 1 12rem;
+  font-size: 0.8rem;
+}
+.ibank-tree-scroll {
+  max-height: min(62vh, 28rem);
+  overflow: auto;
+  border: 1px solid var(--border-soft, #c9bfb5);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.35rem 0.25rem;
+  background: #fff;
+}
+.ibank-tree-root,
+.ibank-tree-children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ibank-tree-children {
+  margin-inline-start: 0.15rem;
+}
+.ibank-tree-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.4rem;
+  padding: 0.22rem 0.35rem;
+  padding-inline-start: calc(0.35rem + var(--ibank-depth, 0) * 1.1rem);
+  border-radius: 4px;
+}
+.ibank-tree-row:hover {
+  background: rgba(196, 169, 144, 0.12);
+}
+.ibank-tree-node--system > .ibank-tree-row .ibank-tree-label {
+  font-weight: 600;
+}
+.ibank-tree-toggle,
+.ibank-tree-toggle-spacer {
+  width: 1.1rem;
+  flex-shrink: 0;
+}
+.ibank-tree-toggle {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+}
+.ibank-tree-icon {
+  width: 1.1rem;
+  text-align: center;
+  color: var(--brown-soft, #a08060);
+}
+.ibank-tree-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-word;
+  font-size: 0.88rem;
+}
+.ibank-tree-open {
+  font-size: 0.82rem;
+}
+.ibank-tree-delete-form {
+  margin: 0;
+}
+.js-ibank-tree-select-target.is-active {
+  font-weight: 700;
+  text-decoration: underline;
+}
+.ibank-tree-empty {
+  padding: 0.65rem;
+  list-style: none;
+}
+.ibank-tree-file-input {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+}
+.ibank-tree-node[aria-expanded="false"] > .ibank-tree-children {
+  display: none;
+}

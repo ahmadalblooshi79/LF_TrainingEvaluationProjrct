@@ -1,4 +1,10 @@
-"""تشغيل الخادم: python run.py"""
+"""تشغيل الخادم من مجلد المشروع:
+
+  run.bat
+  أو: .venv\\Scripts\\python.exe run.py
+
+لا تشغّل ملفات داخل app/ مباشرة (مثل info_bank_tree.py).
+"""
 import os
 import shutil
 import subprocess
