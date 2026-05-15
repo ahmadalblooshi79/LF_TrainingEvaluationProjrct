@@ -4768,7 +4768,13 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   cursor: grab;
 }
 
-<<<<<<< Updated upstream
+.ibank-col-num {
+  width: 2.6rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-footnote, #6b6560);
+}
+
 /* التقرير النهائي: جدول رئيسي مضغوط بعرض الصفحة بدون تمرير داخلي */
 .final-report-card {
   overflow: visible;
@@ -4906,7 +4912,7 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   min-width: 7.5rem;
   text-align: center;
 }
-=======
+
 /* مساحة التخطيط — تخصيص وربط المجرى وتقييم الإجراءات */
 .planner-flow-toolbar__row {
   display: flex;
@@ -5167,4 +5173,3 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .planner-flow-judge-slot-list li:last-child {
   border-bottom: none;
 }
->>>>>>> Stashed changes

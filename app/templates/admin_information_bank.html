@@ -56,6 +56,7 @@
           <table dir="rtl" class="ibank-table ibank-table--compact-notes" aria-label="مراحل التمرين للعرض">
             <thead>
               <tr>
+                <th scope="col" class="ibank-col-num">رقم</th>
                 <th scope="col">مرحلة التمرين</th>
                 {% if information_bank_can_manage %}<th scope="col">حذف</th>{% endif %}
               </tr>
@@ -63,6 +64,7 @@
             <tbody>
               {% for p in training_phases %}
               <tr>
+                <td class="ibank-col-num">{{ loop.index }}</td>
                 <th scope="row">{{ p.label }}</th>
                 {% if information_bank_can_manage %}
                 <td>
@@ -93,6 +95,7 @@
           <table dir="rtl" class="ibank-table ibank-table--compact-notes" aria-label="مستويات الوحدات للعرض">
             <thead>
               <tr>
+                <th scope="col" class="ibank-col-num">رقم</th>
                 <th scope="col">مستوى الوحدة</th>
                 {% if information_bank_can_manage %}<th scope="col">حذف</th>{% endif %}
               </tr>
@@ -100,6 +103,7 @@
             <tbody>
               {% for u in info_bank_units %}
               <tr>
+                <td class="ibank-col-num">{{ loop.index }}</td>
                 <th scope="row">{{ u.label }}</th>
                 {% if information_bank_can_manage %}
                 <td>
@@ -141,16 +145,18 @@
                 <table dir="rtl" class="ibank-table ibank-files-compact" aria-label="ملفات مجرى الأحداث">
                   <thead>
                     <tr>
-                      <th>العنوان</th>
-                      <th>المرحلة</th>
-                      <th>المستوى</th>
-                      <th>فتح</th>
-                      {% if information_bank_can_manage %}<th>حذف</th>{% endif %}
+                      <th scope="col" class="ibank-col-num">رقم</th>
+                      <th scope="col">العنوان</th>
+                      <th scope="col">المرحلة</th>
+                      <th scope="col">المستوى</th>
+                      <th scope="col">فتح</th>
+                      {% if information_bank_can_manage %}<th scope="col">حذف</th>{% endif %}
                     </tr>
                   </thead>
                   <tbody>
                     {% for f in flows %}
                     <tr class="js-ibank-filter-row" data-phase="{{ f.training_phase_key }}" data-unit="{{ f.unit_level_key }}">
+                      <td class="ibank-col-num js-ibank-row-num">{{ loop.index }}</td>
                       <td>{{ f.title }}</td>
                       <td>{{ training_phase_label(f.training_phase_key) }}</td>
                       <td>{{ info_bank_unit_label(f.unit_level_key) }}</td>
@@ -170,10 +176,10 @@
                       {% endif %}
                     </tr>
                     {% else %}
-                    <tr class="js-ibank-filter-row js-ibank-filter-empty"><td colspan="{% if information_bank_can_manage %}5{% else %}4{% endif %}" class="muted">لا توجد سجلات.</td></tr>
+                    <tr class="js-ibank-filter-row js-ibank-filter-empty"><td colspan="{% if information_bank_can_manage %}6{% else %}5{% endif %}" class="muted">لا توجد سجلات.</td></tr>
                     {% endfor %}
                     {% if flows %}
-                    <tr class="js-ibank-filter-nohits" style="display:none"><td colspan="{% if information_bank_can_manage %}5{% else %}4{% endif %}" class="muted">لا توجد ملفات مطابقة للتصفية.</td></tr>
+                    <tr class="js-ibank-filter-nohits" style="display:none"><td colspan="{% if information_bank_can_manage %}6{% else %}5{% endif %}" class="muted">لا توجد ملفات مطابقة للتصفية.</td></tr>
                     {% endif %}
                   </tbody>
                 </table>
@@ -243,16 +249,18 @@
                 <table dir="rtl" class="ibank-table ibank-files-compact" aria-label="ملفات Excel للإجراءات">
                   <thead>
                     <tr>
-                      <th>العنوان</th>
-                      <th>المرحلة</th>
-                      <th>المستوى</th>
-                      <th>فتح</th>
-                      {% if information_bank_can_manage %}<th>حذف</th>{% endif %}
+                      <th scope="col" class="ibank-col-num">رقم</th>
+                      <th scope="col">العنوان</th>
+                      <th scope="col">المرحلة</th>
+                      <th scope="col">المستوى</th>
+                      <th scope="col">فتح</th>
+                      {% if information_bank_can_manage %}<th scope="col">حذف</th>{% endif %}
                     </tr>
                   </thead>
                   <tbody>
                     {% for a in actions %}
                     <tr class="js-ibank-filter-row" data-phase="{{ a.training_phase_key }}" data-unit="{{ a.unit_level_key }}">
+                      <td class="ibank-col-num js-ibank-row-num">{{ loop.index }}</td>
                       <td>{{ a.title }}</td>
                       <td>{{ training_phase_label(a.training_phase_key) }}</td>
                       <td>{{ info_bank_unit_label(a.unit_level_key) }}</td>
@@ -270,10 +278,10 @@
                       {% endif %}
                     </tr>
                     {% else %}
-                    <tr class="js-ibank-filter-row js-ibank-filter-empty"><td colspan="{% if information_bank_can_manage %}5{% else %}4{% endif %}" class="muted">لا توجد سجلات.</td></tr>
+                    <tr class="js-ibank-filter-row js-ibank-filter-empty"><td colspan="{% if information_bank_can_manage %}6{% else %}5{% endif %}" class="muted">لا توجد سجلات.</td></tr>
                     {% endfor %}
                     {% if actions %}
-                    <tr class="js-ibank-filter-nohits" style="display:none"><td colspan="{% if information_bank_can_manage %}5{% else %}4{% endif %}" class="muted">لا توجد ملفات مطابقة للتصفية.</td></tr>
+                    <tr class="js-ibank-filter-nohits" style="display:none"><td colspan="{% if information_bank_can_manage %}6{% else %}5{% endif %}" class="muted">لا توجد ملفات مطابقة للتصفية.</td></tr>
                     {% endif %}
                   </tbody>
                 </table>
@@ -343,16 +351,18 @@
                 <table dir="rtl" class="ibank-table ibank-files-compact" aria-label="قوائم تقييم المعاضل">
                   <thead>
                     <tr>
-                      <th>العنوان</th>
-                      <th>المرحلة</th>
-                      <th>المستوى</th>
-                      <th>فتح</th>
-                      {% if information_bank_can_manage %}<th>حذف</th>{% endif %}
+                      <th scope="col" class="ibank-col-num">رقم</th>
+                      <th scope="col">العنوان</th>
+                      <th scope="col">المرحلة</th>
+                      <th scope="col">المستوى</th>
+                      <th scope="col">فتح</th>
+                      {% if information_bank_can_manage %}<th scope="col">حذف</th>{% endif %}
                     </tr>
                   </thead>
                   <tbody>
                     {% for d in dilemmas_x %}
                     <tr class="js-ibank-filter-row" data-phase="{{ d.training_phase_key }}" data-unit="{{ d.unit_level_key }}">
+                      <td class="ibank-col-num js-ibank-row-num">{{ loop.index }}</td>
                       <td>{{ d.title }}</td>
                       <td>{{ training_phase_label(d.training_phase_key) }}</td>
                       <td>{{ info_bank_unit_label(d.unit_level_key) }}</td>
@@ -370,10 +380,10 @@
                       {% endif %}
                     </tr>
                     {% else %}
-                    <tr class="js-ibank-filter-row js-ibank-filter-empty"><td colspan="{% if information_bank_can_manage %}5{% else %}4{% endif %}" class="muted">لا توجد سجلات.</td></tr>
+                    <tr class="js-ibank-filter-row js-ibank-filter-empty"><td colspan="{% if information_bank_can_manage %}6{% else %}5{% endif %}" class="muted">لا توجد سجلات.</td></tr>
                     {% endfor %}
                     {% if dilemmas_x %}
-                    <tr class="js-ibank-filter-nohits" style="display:none"><td colspan="{% if information_bank_can_manage %}5{% else %}4{% endif %}" class="muted">لا توجد ملفات مطابقة للتصفية.</td></tr>
+                    <tr class="js-ibank-filter-nohits" style="display:none"><td colspan="{% if information_bank_can_manage %}6{% else %}5{% endif %}" class="muted">لا توجد ملفات مطابقة للتصفية.</td></tr>
                     {% endif %}
                   </tbody>
                 </table>
@@ -476,7 +486,11 @@
           var matchU = uk === '__all__' || tr.getAttribute('data-unit') === uk;
           var show = matchP && matchU;
           tr.style.display = show ? '' : 'none';
-          if (show) visibleData += 1;
+          if (show) {
+            visibleData += 1;
+            var rn = tr.querySelector('.js-ibank-row-num');
+            if (rn) rn.textContent = String(visibleData);
+          }
         });
         if (nohits) {
           nohits.style.display = (hasAnyDataRow && visibleData === 0) ? '' : 'none';

@@ -7501,8 +7501,14 @@ def _info_bank_next_sort_order(db, model, phase: str, unit: str) -> int:
 
 
 def _ensure_information_bank_catalog_rows(db) -> None:
-    if db.query(InformationBankTrainingPhase).first() is None:
-        for idx, row in enumerate(TRAINING_PHASES):
+    """يجب أن تكون صفوف الكتالوج الافتراضي مطابقة لـ ``TRAINING_PHASES`` و ``INFO_BANK_UNIT_LEVELS``.
+
+    تنشئ أي مفاتيح ناقصة عند أول تشغيل، وتُحدّث التسمية وترتيب العرض عند كل طلب لتظهر تحديثات الكتالوج البرمجي في الواجهة دون تهيئة قاعدة يدوياً.
+    """
+    changed = False
+    for idx, row in enumerate(TRAINING_PHASES):
+        r = db.get(InformationBankTrainingPhase, row["key"])
+        if r is None:
             db.add(
                 InformationBankTrainingPhase(
                     key=row["key"],
@@ -7511,8 +7517,15 @@ def _ensure_information_bank_catalog_rows(db) -> None:
                     is_system=True,
                 )
             )
-    if db.query(InformationBankUnitLevel).first() is None:
-        for idx, row in enumerate(INFO_BANK_UNIT_LEVELS):
+            changed = True
+        elif r.label != row["label"] or r.sort_order != idx:
+            r.label = row["label"]
+            r.sort_order = idx
+            r.is_system = True
+            changed = True
+    for idx, row in enumerate(INFO_BANK_UNIT_LEVELS):
+        r = db.get(InformationBankUnitLevel, row["key"])
+        if r is None:
             db.add(
                 InformationBankUnitLevel(
                     key=row["key"],
@@ -7521,7 +7534,14 @@ def _ensure_information_bank_catalog_rows(db) -> None:
                     is_system=True,
                 )
             )
-    db.commit()
+            changed = True
+        elif r.label != row["label"] or r.sort_order != idx:
+            r.label = row["label"]
+            r.sort_order = idx
+            r.is_system = True
+            changed = True
+    if changed:
+        db.commit()
 
 
 def _information_bank_training_phases(db) -> list[dict[str, str]]:
