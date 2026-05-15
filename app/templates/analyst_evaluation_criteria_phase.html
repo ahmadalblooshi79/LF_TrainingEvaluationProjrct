@@ -27,6 +27,7 @@
       <table dir="rtl" id="criteria-phase-table" aria-label="جدول {{ phase_label }}">
         <thead>
           <tr>
+            <th scope="col" class="analyst-criteria-seq-th">ت</th>
             <th scope="col">المعايير</th>
             <th scope="col">العلامه المخصصه</th>
             <th scope="col">النسبة المئويه المخصصة</th>
@@ -39,6 +40,7 @@
             {% set allocated_mark = item.allocated_mark|default(none) %}
             {% set allocated_pct = item.allocated_pct|default(none) %}
             <tr>
+              <td class="analyst-criteria-seq criteria-seq-cell">{{ loop.index }}</td>
               <td><input class="unit-level-select criteria-text" style="min-width:24rem;width:100%;" type="text" name="criteria_text" value="{{ item.criteria_text }}" maxlength="1000" placeholder="اكتب المعيار"></td>
               <td><input class="unit-level-select mark-input" style="max-width:9rem;" type="number" name="allocated_mark" min="0" step="0.01" value="{% if allocated_mark is number %}{{ allocated_mark|round(2) }}{% endif %}"></td>
               <td class="pct-cell">{% if allocated_pct is number %}{{ allocated_pct|round(2) }}%{% else %}—{% endif %}</td>
@@ -47,6 +49,7 @@
             {% endfor %}
           {% else %}
             <tr>
+              <td class="analyst-criteria-seq criteria-seq-cell">1</td>
               <td><input class="unit-level-select criteria-text" style="min-width:24rem;width:100%;" type="text" name="criteria_text" value="" maxlength="1000" placeholder="اكتب المعيار"></td>
               <td><input class="unit-level-select mark-input" style="max-width:9rem;" type="number" name="allocated_mark" min="0" step="0.01" value=""></td>
               <td class="pct-cell">—</td>
@@ -56,6 +59,7 @@
         </tbody>
         <tfoot>
           <tr>
+            <td class="analyst-criteria-seq muted">—</td>
             <th scope="row">الإجمالي</th>
             <td id="total-mark-cell">{% if total_mark is number %}{{ total_mark|round(2) }}{% else %}0{% endif %}</td>
             <td id="total-pct-cell">{% if total_mark is number %}100%{% else %}0%{% endif %}</td>
@@ -86,6 +90,13 @@
 
   function rows() {
     return Array.from(body.querySelectorAll("tr"));
+  }
+
+  function renumberSeq() {
+    rows().forEach((row, idx) => {
+      const cell = row.querySelector(".criteria-seq-cell");
+      if (cell) cell.textContent = String(idx + 1);
+    });
   }
 
   function recalc() {
@@ -120,6 +131,7 @@
         } else {
           row.remove();
         }
+        renumberSeq();
         recalc();
       });
     }
@@ -128,17 +140,20 @@
   addBtn.addEventListener("click", () => {
     const tr = document.createElement("tr");
     tr.innerHTML =
+      '<td class="analyst-criteria-seq criteria-seq-cell"></td>' +
       '<td><input class="unit-level-select criteria-text" style="min-width:24rem;width:100%;" type="text" name="criteria_text" value="" maxlength="1000" placeholder="اكتب المعيار"></td>' +
       '<td><input class="unit-level-select mark-input" style="max-width:9rem;" type="number" name="allocated_mark" min="0" step="0.01" value=""></td>' +
       '<td class="pct-cell">—</td>' +
       '<td><button class="btn btn-ghost delete-row-btn" type="button"><i class="fa-solid fa-trash" aria-hidden="true"></i></button></td>';
     body.appendChild(tr);
     wireRow(tr);
+    renumberSeq();
     const first = tr.querySelector(".criteria-text");
     if (first) first.focus();
   });
 
   rows().forEach(wireRow);
+  renumberSeq();
   recalc();
 })();
 </script>

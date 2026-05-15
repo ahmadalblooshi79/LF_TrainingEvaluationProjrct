@@ -25,6 +25,7 @@
     <table class="final-report-table final-report-table--detail" dir="rtl" aria-label="{{ title }}">
       <thead>
         <tr>
+          <th scope="col" rowspan="2">ت</th>
           <th scope="col" rowspan="2">مرحلة التقييم</th>
           <th scope="col" rowspan="2">المعايير</th>
           <th scope="colgroup" colspan="4">{{ allocated_title }}</th>
@@ -43,6 +44,7 @@
         {% if rows %}
         {% for row in rows %}
         <tr>
+          <td>{{ loop.index }}</td>
           <td>{{ row.phase_label }}</td>
           <td>{{ row.criteria_text }}</td>
           <td>{{ row.allocated_max_mark|round(2) }}</td>
@@ -55,12 +57,13 @@
         {% endfor %}
         {% else %}
         <tr>
-          <td colspan="8" class="muted">{{ empty_text }}</td>
+          <td colspan="9" class="muted">{{ empty_text }}</td>
         </tr>
         {% endif %}
       </tbody>
       <tfoot>
         <tr class="final-report-summary-row">
+          <td class="muted">—</td>
           <th scope="row" colspan="2">النسبة المئوية التي حققتها الوحدة خلال المرحلة</th>
           <td>{{ summary.allocated_max_mark|round(2) }}</td>
           <td>{{ summary.allocated_acquired_mark|round(2) }}</td>
@@ -79,6 +82,7 @@
     <table class="final-report-table final-report-table--phase" dir="rtl" aria-label="نتيجة تقييم {{ unit.unit_label }} في جميع المراحل">
       <thead>
         <tr>
+          <th scope="col">ت</th>
           <th scope="col">مراحل التمرين</th>
           <th scope="col">القصوى</th>
           <th scope="col">المكتسبة</th>
@@ -90,6 +94,7 @@
         {% if unit.phase_rows %}
         {% for row in unit.phase_rows %}
         <tr>
+          <td>{{ loop.index }}</td>
           <td>{{ row.phase_label }}</td>
           <td>{{ row.max_mark|round(2) }}</td>
           <td>{{ row.acquired_mark|round(2) }}</td>
@@ -99,12 +104,13 @@
         {% endfor %}
         {% else %}
         <tr>
-          <td colspan="5" class="muted">لا توجد نتائج مراحل محفوظة لهذه الوحدة.</td>
+          <td colspan="6" class="muted">لا توجد نتائج مراحل محفوظة لهذه الوحدة.</td>
         </tr>
         {% endif %}
       </tbody>
       <tfoot>
         <tr class="final-report-summary-row">
+          <td class="muted">—</td>
           <th scope="row">نتيجة الوحدة في جميع المراحل</th>
           <td>{{ unit.phase_summary.max_mark|round(2) }}</td>
           <td>{{ unit.phase_summary.acquired_mark|round(2) }}</td>
