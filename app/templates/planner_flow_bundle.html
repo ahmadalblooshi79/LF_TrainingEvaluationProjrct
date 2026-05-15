@@ -5,7 +5,6 @@
   <div class="ibank-page-header__title-row" dir="rtl">
     <h1><i class="fa-solid fa-diagram-project fa-icon-title" aria-hidden="true"></i> تخصيص وربط قوائم تقييم الإجراءات بمجرى الأحداث والمعاضل</h1>
   </div>
-  <p class="muted" style="margin:0.35rem 0 0;">لمستوى وحدة محدد ومرحلة تمرين: يُرفع ملف واحد لمجرى الأحداث، وعدد ملفات Excel مساوٍ لعدد المعاضل في ذلك المجرى، ثم تخصيص الربط وتوجيه الحزمة للمحكم المناسب.</p>
   <p class="mt-tight"><a class="btn btn-ghost" href="{{ url_for('views.planner_hub') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> مساحة التخطيط</a></p>
 </div>
 
@@ -20,11 +19,11 @@
 <p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ err_msg }}</p>
 {% endif %}
 
-<form method="post" action="{{ url_for('views.planner_flow_bundle_set_context') }}" class="planner-flow-toolbar card" dir="rtl">
-  <div class="planner-flow-toolbar__row">
+<div class="planner-flow-toolbar card" dir="rtl">
+  <div class="planner-flow-toolbar__row planner-flow-toolbar__row--phase-unit">
     <div class="planner-flow-field">
       <label class="muted" for="pf-phase">مرحلة التمرين</label>
-      <select id="pf-phase" name="phase" class="unit-level-select">
+      <select id="pf-phase" name="phase" class="unit-level-select" autocomplete="off">
         {% for pk, pl in phase_options %}
         <option value="{{ pk }}" {% if pk == phase_key %}selected{% endif %}>{{ pl }}</option>
         {% endfor %}
@@ -32,30 +31,34 @@
     </div>
     <div class="planner-flow-field">
       <label class="muted" for="pf-unit">مستوى الوحدة</label>
-      <select id="pf-unit" name="unit_level_key" class="unit-level-select">
+      <select id="pf-unit" name="unit_level_key" class="unit-level-select" autocomplete="off">
         {% for u in unit_levels %}
         <option value="{{ u.key }}" {% if u.key == unit_key %}selected{% endif %}>{{ u.label }}</option>
         {% endfor %}
       </select>
     </div>
-    <button type="submit" class="btn btn-ghost planner-flow-toolbar__apply"><i class="fa-solid fa-filter" aria-hidden="true"></i> تطبيق</button>
   </div>
-</form>
+</div>
 
-<form method="post" action="{{ url_for('views.planner_flow_bundle_set_dilemma_count', bundle_id=bundle.id) }}" class="card planner-flow-count-row" dir="rtl">
-  <div class="planner-flow-toolbar__row planner-flow-toolbar__row--tight">
-    <label class="muted" for="pf-dcount">عدد المعاضل في مجرى الأحداث (= عدد قوائم تقييم الإجراءات)</label>
-    <input id="pf-dcount" name="dilemma_count" type="number" min="0" max="40" value="{{ bundle.dilemma_count }}" class="planner-flow-count-input">
-    <button type="submit" class="btn btn-ghost"><i class="fa-solid fa-table-list" aria-hidden="true"></i> حفظ عدد القوائم</button>
-  </div>
-</form>
+<script>
+(function () {
+  var base = {{ url_for('views.planner_flow_bundle_workspace') | tojson }};
+  var ps = document.getElementById('pf-phase');
+  var us = document.getElementById('pf-unit');
+  function go() {
+    if (!ps || !us) return;
+    var q = '?phase=' + encodeURIComponent(ps.value) + '&unit=' + encodeURIComponent(us.value);
+    window.location.href = base + q;
+  }
+  if (ps) ps.addEventListener('change', go);
+  if (us) us.addEventListener('change', go);
+})();
+</script>
 
-<p class="muted planner-flow-scope-hint" dir="rtl"><i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i> القائمة المعروضة مخصّصة لـ <strong>{{ phase_label_display }}</strong> — <strong>{{ unit_label_display }}</strong></p>
-
-{% set _n = bundle.dilemma_count|int %}
-{% set _master_ok = planner_event_flow_file_ok %}
+{% set _n = slots|length %}
 {% set _slots_with_file = slots|selectattr('file_relpath')|list|length %}
-{% set _all_actions_ok = _n >= 1 and (slots|length == _n) and (_slots_with_file == _n) %}
+{% set _master_ok = planner_event_flow_file_ok %}
+{% set _all_actions_ok = _n >= 1 and (_slots_with_file == _n) %}
 {% set link_ready = _master_ok and _all_actions_ok %}
 
 <div class="planner-flow-bundle-grid" dir="rtl">
@@ -75,14 +78,16 @@
 
   <div class="planner-flow-center-actions">
     <form method="post" action="{{ url_for('views.planner_flow_bundle_link', bundle_id=bundle.id) }}">
-      <button type="submit" class="btn planner-flow-link-btn" {% if not link_ready %}disabled title="أكمل إدراج ملف المجرى وجميع ملفات Excel لقوائم التقييم ثم ارجع للضغط هنا."{% endif %}>
+      <button type="submit" class="btn planner-flow-link-btn" {% if not link_ready %}disabled title="أكمل إدراج ملف المجرى وجميع ملفات Excel لقوائم التقييم ثم اضغط هنا للربط."{% endif %}>
         <i class="fa-solid fa-link" aria-hidden="true"></i> تخصيص وربط
       </button>
     </form>
-    {% if bundle.dilemma_count >= 1 and not link_ready %}
+    {% if not link_ready %}
     <p class="muted planner-flow-link-hint" role="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i>
-      {% if not _master_ok %}أدرِج ملف مجرى الأحداث والمعاضل. {% endif %}
-      {% if _master_ok and not _all_actions_ok %}ثم استخدم «اختيار ملفات Excel» لإدراج جميع ملفات قوائم التقييم ({{ _slots_with_file }} / {{ _n }}).{% endif %}
+      {% if not _master_ok %}أدرِج ملف مجرى الأحداث والمعاضل.
+      {% elif _n < 1 %}أدرِج ملفاً واحداً أو أكثر لقوائم تقييم الإجراءات عبر «إدراج».
+      {% elif _master_ok and not _all_actions_ok %}أدرِج ملف Excel لكل قائمة في الجدول ({{ _slots_with_file }} / {{ _n }}).
+      {% endif %}
     </p>
     {% endif %}
     {% if bundle.linked_at %}
@@ -92,17 +97,9 @@
 
   <section class="card planner-flow-col planner-flow-col--actions">
     <h2 class="h2-in-card"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> قوائم تقييم الإجراءات</h2>
-    {% if bundle.dilemma_count < 1 %}
-    <p class="muted">حدّد عدد المعاضل واحفظ عدد القوائم لإظهار الجدول والإدراج.</p>
-    {% else %}
-    <p class="muted planner-flow-bulk-hint">رُتِّب ملفاتك قبل الاختيار: الملف الأول يُطبَّق على القائمة&nbsp;1، ثم 2، … لا يمكن اختيار عدد ملفات أكبر من عدد القوائم؛ يمكنك إدراج دفعات حتى يكتمل العدد.</p>
-    <form method="post" action="{{ url_for('views.planner_flow_bundle_upload_actions_bulk', bundle_id=bundle.id) }}" enctype="multipart/form-data" class="planner-flow-actions-bulk-form">
-      <p class="planner-flow-upload-callout-title"><i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i> إدراج قوائم التقييم (Excel)</p>
-      <div class="planner-flow-excel-upload-toolbar">
-        <input id="pf-actions-files" type="file" name="files" multiple accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="planner-flow-file-input-hidden">
-        <label for="pf-actions-files" class="btn btn-ghost planner-flow-file-pick-btn"><i class="fa-regular fa-folder-open" aria-hidden="true"></i> اختيار ملفات Excel</label>
-        <button type="submit" class="btn planner-flow-excel-submit-btn"><i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i> إدراج في القوائم</button>
-      </div>
+    <form method="post" action="{{ url_for('views.planner_flow_bundle_upload_actions_bulk', bundle_id=bundle.id) }}" enctype="multipart/form-data" id="pf-actions-bulk-form" class="planner-flow-actions-bulk-form">
+      <input id="pf-actions-files" type="file" name="files" multiple accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="planner-flow-file-input-hidden" tabindex="-1" aria-hidden="true">
+      <button type="button" class="btn btn-ghost planner-flow-insert-actions-btn" id="pf-actions-insert-btn"><i class="fa-solid fa-file-import" aria-hidden="true"></i> إدراج</button>
       <p id="pf-excel-picker-status" class="muted planner-flow-pick-status" aria-live="polite"></p>
     </form>
     <div class="table-wrap planner-flow-slot-table-wrap">
@@ -125,24 +122,33 @@
               {% endif %}
             </td>
           </tr>
+          {% else %}
+          <tr>
+            <td colspan="2" class="muted">لا توجد قوائم بعد — اضغط «إدراج» واختر ملفاً واحداً أو أكثر (.xlsx).</td>
+          </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
     <script>
     (function () {
-      var inp = document.getElementById("pf-actions-files");
-      var st = document.getElementById("pf-excel-picker-status");
-      if (!inp || !st) return;
-      function sync() {
+      var form = document.getElementById('pf-actions-bulk-form');
+      var inp = document.getElementById('pf-actions-files');
+      var btn = document.getElementById('pf-actions-insert-btn');
+      var st = document.getElementById('pf-excel-picker-status');
+      if (!form || !inp || !btn) return;
+      btn.addEventListener('click', function () { inp.click(); });
+      inp.addEventListener('change', function () {
         var n = inp.files ? inp.files.length : 0;
-        st.textContent = n ? ("تم اختيار " + n + " ملف — اضغط «إدراج في القوائم».") : "";
-      }
-      inp.addEventListener("change", sync);
-      sync();
+        if (n === 0) {
+          if (st) st.textContent = '';
+          return;
+        }
+        if (st) st.textContent = 'جاري إدراج ' + n + ' ملف…';
+        form.submit();
+      });
     })();
     </script>
-    {% endif %}
   </section>
 </div>
 

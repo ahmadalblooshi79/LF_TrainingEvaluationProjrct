@@ -2699,39 +2699,17 @@ def _get_or_create_planner_bundle(
     return row
 
 
-def _sync_planner_bundle_slots(db, bundle: ExercisePlannerFlowBundle, new_count: int) -> None:
-    new_count = max(0, min(int(new_count), 40))
-    slots = (
+_PLANNER_BUNDLE_MAX_ACTION_SLOTS = 200
+
+
+def _planner_bundle_sync_dilemma_count_from_slots(db, bundle: ExercisePlannerFlowBundle) -> None:
+    """يُحدّث ``dilemma_count`` من عدد صفوف قوائم تقييم الإجراءات الفعلي."""
+    n = (
         db.query(ExercisePlannerFlowBundleActionEval)
         .filter(ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id)
-        .order_by(ExercisePlannerFlowBundleActionEval.slot_index)
-        .all()
+        .count()
     )
-    for s in slots:
-        if int(s.slot_index) > new_count:
-            if (s.file_relpath or "").strip():
-                _unlink_planner_bundle_file(s.file_relpath)
-            db.delete(s)
-    db.flush()
-    remaining = (
-        db.query(ExercisePlannerFlowBundleActionEval)
-        .filter(ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id)
-        .all()
-    )
-    indices = {int(s.slot_index) for s in remaining}
-    for i in range(1, new_count + 1):
-        if i not in indices:
-            db.add(
-                ExercisePlannerFlowBundleActionEval(
-                    bundle_id=bundle.id,
-                    slot_index=i,
-                    title=f"قائمة تقييم الإجراءات — {i}",
-                )
-            )
-    bundle.dilemma_count = new_count
-    bundle.linked_at = None
-    bundle.updated_at = datetime.utcnow()
-    db.commit()
+    bundle.dilemma_count = int(n)
 
 
 def _planner_bundle_judge_assignments(db, exercise_id: int, unit_level_key: str):
@@ -2751,16 +2729,15 @@ _UI_MSG_PLANNER_BUNDLE = {
     "bad_event_file": "يُقبل ملف PDF أو Word (.doc/.docx) فقط.",
     "bad_xlsx": "يُقبل ملف Excel (.xlsx) فقط.",
     "no_file": "لم يُحدد ملف.",
-    "link_count": "حدّد عدد المعاضل في المجرى (1–40) واحفظ عدد القوائم قبل الربط.",
+    "link_count": "أدرِج ملفاً واحداً على الأقل لقائمة تقييم الإجراءات (Excel) قبل الربط.",
     "link_master": "أدرج ملف مجرى الأحداث والمعاضل أولاً.",
     "link_master_disk": "مسار ملف المجرى مسجّل لكن الملف غير موجود على الخادم — أعد إدراج الملف.",
     "link_slots": "يجب إدراج ملف Excel لكل قائمة تقييم إجراءات.",
     "link_slots_disk": "يُشار إلى ملفات تقييم مسجّلة لكن أحدها غير موجود على الخادم — أعد إدراج ملفات Excel.",
     "link_ok": "تم تخصيص الربط بنجاح.",
-    "slots_ok": "تم تحديث عدد قوائم تقييم الإجراءات.",
     "upload_ok": "تم إدراج الملف.",
-    "bulk_ok": "تم إدراج ملفات التقييم وتوزيعها على القوائم بالترتيب (يمكنك بعدها الضغط على «تخصيص وربط»).",
-    "bulk_too_many": "عدد الملفات المختارة أكبر من عدد قوائم تقييم الإجراءات المحدد.",
+    "bulk_ok": "تم إدراج ملفات التقييم في الجدول — يمكنك الضغط على «تخصيص وربط» عند اكتمال الإدراج.",
+    "bulk_limit": "تجاوز الحد الأقصى لعدد قوائم تقييم الإجراءات في هذه الحزمة — احذف قوائم أو أنشئ حزمة أخرى.",
     "assign_ok": "تم ربط الحزمة بالمحكم.",
     "assign_clear_ok": "تمت إزالة ربط الحزمة عن المحكم.",
     "save_err": "تعذر حفظ الملف.",
@@ -2815,6 +2792,10 @@ def planner_flow_bundle_workspace():
         .order_by(ExercisePlannerFlowBundleActionEval.slot_index)
         .all()
     )
+    if int(bundle.dilemma_count or 0) != len(slots):
+        bundle.dilemma_count = len(slots)
+        bundle.updated_at = datetime.utcnow()
+        db.commit()
     judges = _planner_bundle_judge_assignments(db, ex.id, unit_key)
     ev_rel_pl = ((bundle.event_flow_file_relpath or "").strip()) if bundle else ""
     planner_ef_ok = (
@@ -2849,50 +2830,6 @@ def planner_flow_bundle_workspace():
             planner_event_flow_file_ok=planner_ef_ok,
             planner_event_flow_display_name=planner_ef_disp,
         ),
-    )
-
-
-@bp.route("/planner/create-flow/context", methods=["POST"])
-def planner_flow_bundle_set_context():
-    user = get_current_user_optional()
-    if not user:
-        abort(403)
-    if not can_access_planner_hub(user):
-        abort(403)
-    phase = normalize_exercise_phase(request.form.get("phase") or DEFAULT_EXERCISE_PHASE)
-    unit_key = (request.form.get("unit_level_key") or "").strip()
-    if not unit_key:
-        unit_key = UNIT_LEVELS[0]["key"] if UNIT_LEVELS else ""
-    return redirect(url_for("views.planner_flow_bundle_workspace", phase=phase, unit=unit_key))
-
-
-@bp.route("/planner/create-flow/<int:bundle_id>/dilemma-count", methods=["POST"])
-def planner_flow_bundle_set_dilemma_count(bundle_id: int):
-    user = get_current_user_optional()
-    if not user:
-        abort(403)
-    if not can_access_planner_hub(user):
-        abort(403)
-    from flask import g
-
-    db = g.db
-    ex = _current_workspace_exercise(db, user)
-    bundle = db.get(ExercisePlannerFlowBundle, bundle_id)
-    if ex is None or bundle is None or bundle.exercise_id != ex.id:
-        abort(404)
-    raw = (request.form.get("dilemma_count") or "0").strip()
-    try:
-        n = int(raw)
-    except ValueError:
-        n = 0
-    _sync_planner_bundle_slots(db, bundle, n)
-    return redirect(
-        url_for(
-            "views.planner_flow_bundle_workspace",
-            phase=bundle.exercise_phase,
-            unit=bundle.unit_level_key,
-            ok="slots_ok",
-        )
     )
 
 
@@ -2969,58 +2906,86 @@ def planner_flow_bundle_upload_actions_bulk(bundle_id: int):
     bundle = db.get(ExercisePlannerFlowBundle, bundle_id)
     if ex is None or bundle is None or bundle.exercise_id != ex.id:
         abort(404)
-    dc = int(bundle.dilemma_count or 0)
-    if dc < 1:
-        return _redirect_planner_bundle_workspace(bundle, err="link_count")
     raw_files = request.files.getlist("files")
     files = [f for f in raw_files if f and getattr(f, "filename", "").strip()]
     if not files:
         return _redirect_planner_bundle_workspace(bundle, err="no_file")
-    if len(files) > dc:
-        return _redirect_planner_bundle_workspace(bundle, err="bulk_too_many")
+
+    rows = (
+        db.query(ExercisePlannerFlowBundleActionEval)
+        .filter(ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id)
+        .order_by(ExercisePlannerFlowBundleActionEval.slot_index)
+        .all()
+    )
+    empty_count = sum(1 for r in rows if not (r.file_relpath or "").strip())
+    need_new = max(0, len(files) - empty_count)
+    if len(rows) + need_new > _PLANNER_BUNDLE_MAX_ACTION_SLOTS:
+        return _redirect_planner_bundle_workspace(bundle, err="bulk_limit")
 
     root = _planner_flow_bundle_root()
 
+    def _assign_xlsx_to_slot(slot_row: ExercisePlannerFlowBundleActionEval, fstor) -> str | None:
+        """يكتب ملف xlsx على الصف؛ تعيد مفتاح رسالة خطأ أو None."""
+        try:
+            data = fstor.read()
+        except Exception:
+            return "save_err"
+        if not _is_xlsx_bytes(data):
+            return "bad_xlsx"
+        sn = int(slot_row.slot_index)
+        rel = f"{bundle.id}/action_{sn}.xlsx"
+        dest = (root / rel).resolve()
+        try:
+            dest.relative_to(root)
+        except ValueError:
+            abort(400)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            dest.write_bytes(data)
+        except OSError:
+            return "save_err"
+        old_rp = (slot_row.file_relpath or "").strip()
+        old_nm = old_rp.replace("\\", "/")
+        nw_nm = rel.replace("\\", "/")
+        if old_nm and old_nm != nw_nm:
+            _unlink_planner_bundle_file(old_rp)
+        slot_row.file_relpath = nw_nm
+        slot_row.title = secure_filename(getattr(fstor, "filename", "") or "")[:500] or slot_row.title
+        return None
+
     try:
-        for idx, f in enumerate(files):
-            slot_num = idx + 1
-            row = (
-                db.query(ExercisePlannerFlowBundleActionEval)
-                .filter(
-                    ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id,
-                    ExercisePlannerFlowBundleActionEval.slot_index == int(slot_num),
-                )
-                .first()
+        fi = 0
+        for row in rows:
+            if fi >= len(files):
+                break
+            if not (row.file_relpath or "").strip():
+                err_k = _assign_xlsx_to_slot(row, files[fi])
+                if err_k:
+                    db.rollback()
+                    return _redirect_planner_bundle_workspace(bundle, err=err_k)
+                fi += 1
+
+        mx = max((int(r.slot_index) for r in rows), default=0)
+        while fi < len(files):
+            mx += 1
+            fn = getattr(files[fi], "filename", "") or ""
+            title_base = secure_filename(fn)[:500] if fn else ""
+            new_row = ExercisePlannerFlowBundleActionEval(
+                bundle_id=bundle.id,
+                slot_index=mx,
+                title=title_base or f"قائمة تقييم الإجراءات — {mx}",
             )
-            if row is None:
-                return _redirect_planner_bundle_workspace(bundle, err="link_slots")
-            try:
-                data = f.read()
-            except Exception:
-                return _redirect_planner_bundle_workspace(bundle, err="save_err")
-            if not _is_xlsx_bytes(data):
-                return _redirect_planner_bundle_workspace(bundle, err="bad_xlsx")
-            rel = f"{bundle.id}/action_{int(slot_num)}.xlsx"
-            dest = (root / rel).resolve()
-            try:
-                dest.relative_to(root)
-            except ValueError:
-                abort(400)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                dest.write_bytes(data)
-            except OSError:
-                return _redirect_planner_bundle_workspace(bundle, err="save_err")
-            old_rp = (row.file_relpath or "").strip()
-            old_nm = old_rp.replace("\\", "/")
-            nw_nm = rel.replace("\\", "/")
-            if old_nm and old_nm != nw_nm:
-                _unlink_planner_bundle_file(old_rp)
-            row.file_relpath = nw_nm
-            row.title = secure_filename(f.filename or "")[:500] or row.title
+            db.add(new_row)
+            db.flush()
+            err_k = _assign_xlsx_to_slot(new_row, files[fi])
+            if err_k:
+                db.rollback()
+                return _redirect_planner_bundle_workspace(bundle, err=err_k)
+            fi += 1
 
         bundle.linked_at = None
         bundle.updated_at = datetime.utcnow()
+        _planner_bundle_sync_dilemma_count_from_slots(db, bundle)
         db.commit()
     except Exception:
         db.rollback()
@@ -3101,8 +3066,6 @@ def planner_flow_bundle_link(bundle_id: int):
     bundle = db.get(ExercisePlannerFlowBundle, bundle_id)
     if ex is None or bundle is None or bundle.exercise_id != ex.id:
         abort(404)
-    if int(bundle.dilemma_count or 0) < 1:
-        return _redirect_planner_bundle_workspace(bundle, err="link_count")
     if not (bundle.event_flow_file_relpath or "").strip():
         return _redirect_planner_bundle_workspace(bundle, err="link_master")
     if _planner_bundle_file_abspath(bundle.event_flow_file_relpath) is None:
@@ -3113,8 +3076,8 @@ def planner_flow_bundle_link(bundle_id: int):
         .order_by(ExercisePlannerFlowBundleActionEval.slot_index)
         .all()
     )
-    if len(slots) != int(bundle.dilemma_count):
-        return _redirect_planner_bundle_workspace(bundle, err="link_slots")
+    if len(slots) < 1:
+        return _redirect_planner_bundle_workspace(bundle, err="link_count")
     for s in slots:
         rel = (s.file_relpath or "").strip()
         if not rel:

@@ -4955,6 +4955,18 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .planner-flow-toolbar__row--tight {
   align-items: center;
 }
+.planner-flow-toolbar__row--phase-unit {
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.65rem 1.25rem;
+}
+.planner-flow-toolbar__row--phase-unit .planner-flow-field {
+  flex: 0 1 auto;
+  min-width: min(100%, 14rem);
+}
+.planner-flow-insert-actions-btn {
+  margin-top: 0.35rem;
+}
 .planner-flow-field label {
   display: block;
   margin-bottom: 0.2rem;
