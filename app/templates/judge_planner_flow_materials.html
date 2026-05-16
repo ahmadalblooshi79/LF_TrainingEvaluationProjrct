@@ -1,170 +1,102 @@
 {% extends "base.html" %}
 {% block title %}المجرى وتقييم الإجراءات{% endblock %}
-{% block body_class %}judge-pf-layout{% endblock %}
 {% block content %}
-<div class="judge-pf-root">
-  <div class="page-header judge-pf-page-header">
-    <h1><i class="fa-solid fa-diagram-project fa-icon-title" aria-hidden="true"></i> المجرى وتقييم الإجراءات</h1>
-    {% if bundle and planner_flow_unit_label %}
-    <p class="judge-pf-unit-line"><i class="fa-solid fa-layer-group" aria-hidden="true"></i> مستوى الوحدة: <strong>{{ planner_flow_unit_label }}</strong></p>
-    {% endif %}
-    {% if planner_flow_view_only and planner_flow_viewing_judge_label %}
-    <p class="muted judge-pf-oversee-line" dir="rtl"><i class="fa-solid fa-eye" aria-hidden="true"></i> إطلاع على حزمة المحكم: <strong>{{ planner_flow_viewing_judge_label }}</strong> <span class="judge-pf-oversee-badge">عرض فقط</span></p>
-    {% endif %}
-    <p class="mt-tight"><a class="btn btn-ghost" href="{{ hub_back_href | default(url_for('views.judge_hub')) }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> {% if planner_flow_view_only and planner_flow_viewing_judge_label %}اختيار محكم آخر{% elif user and user.role_key == 'chief_judge' %}مساحة كبير المحكمين{% else %}مساحة المحكمين{% endif %}</a></p>
-  </div>
+<style>
+  .pf-judge-eval-table th,
+  .pf-judge-eval-table td {
+    text-align: center;
+    vertical-align: middle;
+  }
+</style>
+<div class="page-header">
+  <h1><i class="fa-solid fa-diagram-project fa-icon-title" aria-hidden="true"></i> المجرى وتقييم الإجراءات</h1>
+  <p class="muted">المواد المخصّصة لك من فريق التخطيط لمستوى وحدتك في التمرين الحالي — التقييم داخل المتصفح مثل صفحة «قوائم التقييم».</p>
+  <p class="mt-tight"><a class="btn btn-ghost" href="{{ url_for('views.judge_hub') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> مساحة المحكمين</a></p>
+</div>
 
-  {% if not has_exercise %}
-  <p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يوجد تمرين حالي.</p>
-  {% elif planner_flow_oversee_picker %}
-  <section class="card" dir="rtl">
-    <h2 class="h2-in-card"><i class="fa-solid fa-users fa-icon-title" aria-hidden="true"></i> اختيار محكم للإطلاع</h2>
-    {% if planner_flow_oversee_rows %}
-    <p class="muted">اختر المحكم المرتبط بحزمة «مجرى الأحداث وتقييم الإجراءات» لعرض الملفات ونتائج التقييم كما يراها.</p>
+{% if not has_exercise %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يوجد تمرين حالي.</p>
+{% elif bundle is none %}
+<p class="muted">لم يتم بعد ربط حزمة «مجرى الأحداث وتقييم الإجراءات» بحسابك من قبل التخطيط. عند الإسناد ستظهر الملفات هنا.</p>
+{% else %}
+{% set ev_rel = bundle.event_flow_file_relpath or '' %}
+{# RTL عمودين: الأول يميناً = المجرى، الثاني يساراً = قوائم التقييم (نفس شبكة مساحة التخطيط) #}
+<div class="planner-flow-bundle-grid planner-flow-judge-page-grid" dir="rtl">
+  <section class="card planner-flow-col planner-flow-col--master">
+    <h2 class="h2-in-card"><i class="fa-solid fa-file-pdf fa-icon-title" aria-hidden="true"></i> مجرى الأحداث والمعاضل</h2>
+    {% if ev_rel|trim %}
+    <p class="planner-flow-event-filename" title="{{ planner_event_flow_display_name | e }}"><i class="fa-solid fa-file-lines" aria-hidden="true"></i> <strong>{{ planner_event_flow_display_name or 'ملف المجرى' }}</strong></p>
+    <div class="planner-flow-master-actions-row">
+      {% if planner_event_flow_file_ok %}
+      <a class="btn btn-ghost btn-sm-compact" href="{{ url_for('views.judge_planner_flow_materials_event_flow') }}" target="_blank" rel="noopener"><i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i> فتح في نافذة جديدة</a>
+      {% else %}
+      <span class="btn btn-ghost btn-sm-compact muted" title="الملف غير متاح على الخادم" style="cursor:not-allowed;opacity:0.6;pointer-events:none;"><i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i> فتح في نافذة جديدة</span>
+      {% endif %}
+    </div>
+    {% if planner_event_flow_file_ok and ('.pdf' in ev_rel|lower) %}
+    <div class="planner-flow-pdf-embed-wrap">
+      <iframe class="planner-flow-pdf-iframe" src="{{ url_for('views.judge_planner_flow_materials_event_flow') }}" title="معاينة مجرى الأحداث"></iframe>
+    </div>
+    {% elif planner_event_flow_file_ok and ('.doc' in ev_rel|lower) %}
+    <p class="muted" style="font-size:0.88rem;"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> ملف Word: استخدم «فتح في نافذة جديدة» أعلاه.</p>
+    {% elif planner_event_flow_file_ok %}
+    <p class="muted" style="font-size:0.88rem;"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> لفتح المعاينة استخدم زر «فتح في نافذة جديدة».</p>
+    {% endif %}
+    {% else %}
+    <p class="muted">لا يوجد ملف مجرى مرفوع ضمن هذه الحزمة.</p>
+    {% endif %}
+  </section>
+
+  <section class="card planner-flow-col planner-flow-col--actions">
+    <h2 class="h2-in-card"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> قوائم تقييم الإجراءات</h2>
+    {% if bundle.linked_at %}
+    <p class="muted" style="font-size:0.88rem;"><i class="fa-solid fa-link" aria-hidden="true"></i> تم اعتماد الربط في التخطيط {{ bundle.linked_at.strftime('%Y-%m-%d %H:%M') }}</p>
+    {% endif %}
+    {% if planner_flow_unit_label %}
+    <p class="muted" style="margin:0.25rem 0 0.65rem;"><i class="fa-solid fa-layer-group" aria-hidden="true"></i> مستوى الوحدة المعروض: <strong>{{ planner_flow_unit_label }}</strong></p>
+    {% endif %}
+    <p class="muted planner-flow-judge-eval-note" dir="rtl"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i> إدراج ملفات Excel يكون من مساحة <strong>التخطيط</strong>؛ من هنا تفتح التقييم وحفظه واعتماده.</p>
+    {% if planner_eval_rows %}
     <div class="table-wrap">
-      <table class="ibank-table" aria-label="محكمون مرتبطون بحزم المجرى">
+      <table class="pf-judge-eval-table ibank-table" dir="rtl" aria-label="قوائم تقييم الإجراءات">
         <thead>
           <tr>
-            <th scope="col">المحكم</th>
-            <th scope="col">المتدرب</th>
-            <th scope="col">مستوى الوحدة</th>
-            <th scope="col">إجراء</th>
+            <th scope="col">التاريخ والوقت</th>
+            <th scope="col">نوع التمرين</th>
+            <th scope="col">الوحدة المقيمة</th>
+            <th scope="col">قائمة التقييم</th>
+            <th scope="col">توقيت التسليم</th>
+            <th scope="col">الموقف</th>
+            <th scope="col">التقدير العام</th>
+            <th scope="col">فتح</th>
           </tr>
         </thead>
         <tbody>
-          {% for row in planner_flow_oversee_rows %}
+          {% for r in planner_eval_rows %}
           <tr>
-            <td>{{ row.judge_label }}</td>
-            <td>{{ row.trainee_name }}</td>
-            <td>{{ row.unit_label }}</td>
-            <td><a href="{{ row.view_href }}">إطلاع</a></td>
+            <td>{% if r.dt %}{{ r.dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+            <td>{{ r.exercise_type or "—" }}</td>
+            <td>{{ r.trained_unit or "—" }}</td>
+            <td>{{ r.item_title }}</td>
+            <td>{% if r.delivery_dt %}{{ r.delivery_dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+            <td>{% if r.status_done %}<span class="badge badge--done">ينجز</span>{% else %}<span class="badge badge--not-done">لم ينجز</span>{% endif %}</td>
+            <td>{{ r.grade_label or "—" }}</td>
+            <td>
+              {% if r.open_href %}
+              <a href="{{ r.open_href }}">فتح التقييم</a>
+              {% else %}
+              <span class="muted">—</span>
+              {% endif %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
     {% else %}
-    <p class="muted">لا يوجد محكم مرتبط بحزمة مجرى وتقييم إجراءات في التمرين الحالي بعد.</p>
+    <p class="muted" style="margin:0;">لا توجد قوائم في هذه الحزمة بعد أو لم يُرفع ملف Excel للقوائم.</p>
     {% endif %}
   </section>
-  {% elif bundle is none %}
-  <p class="muted">لم يتم بعد ربط حزمة «مجرى الأحداث وتقييم الإجراءات» بحسابك من قبل التخطيط. عند الإسناد ستظهر الملفات هنا.</p>
-  {% else %}
-  {% set ev_rel = bundle.event_flow_file_relpath or '' %}
-  {% set pf_qs = planner_flow_url_kwargs | default({}) %}
-  <section class="card ibank-card ibank-card--tabbed judge-pf-tabbed" dir="rtl">
-    <div class="ibank-tabbed">
-      <div class="ibank-tabs-row" role="tablist" aria-label="مجرى الأحداث وقوائم التقييم">
-        <button type="button" class="ibank-tab is-active" data-tab-btn="event-flow" role="tab" aria-selected="true">مجرى الأحداث والمعاضل</button>
-        <button type="button" class="ibank-tab" data-tab-btn="action-eval" role="tab" aria-selected="false">قوائم تقييم الإجراءات</button>
-      </div>
-      <div class="ibank-tab-body">
-        <div class="ibank-tabpane is-active" data-tab-pane="event-flow" role="tabpanel">
-          <div class="judge-pf-tab-pane-inner judge-pf-tab-pane-inner--event">
-            {% if ev_rel|trim %}
-            <p class="planner-flow-event-filename" title="{{ planner_event_flow_display_name | e }}"><i class="fa-solid fa-file-lines" aria-hidden="true"></i> <strong>{{ planner_event_flow_display_name or 'ملف المجرى' }}</strong></p>
-            <div class="planner-flow-master-actions-row">
-              {% if planner_event_flow_file_ok %}
-              <a class="btn btn-ghost btn-sm-compact" href="{{ url_for('views.judge_planner_flow_materials_event_flow', **pf_qs) }}" target="_blank" rel="noopener"><i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i> فتح في نافذة جديدة</a>
-              {% else %}
-              <span class="btn btn-ghost btn-sm-compact muted judge-pf-btn-disabled" title="الملف غير متاح على الخادم"><i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i> فتح في نافذة جديدة</span>
-              {% endif %}
-            </div>
-            {% if planner_event_flow_file_ok and ('.pdf' in ev_rel|lower) %}
-            <div class="planner-flow-pdf-embed-wrap">
-              <iframe class="planner-flow-pdf-iframe" src="{{ url_for('views.judge_planner_flow_materials_event_flow', **pf_qs) }}" title="معاينة مجرى الأحداث"></iframe>
-            </div>
-            {% elif planner_event_flow_file_ok and ('.doc' in ev_rel|lower) %}
-            <p class="muted judge-pf-hint"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> ملف Word: استخدم «فتح في نافذة جديدة» أعلاه.</p>
-            {% elif planner_event_flow_file_ok %}
-            <p class="muted judge-pf-hint"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> لفتح المعاينة استخدم زر «فتح في نافذة جديدة».</p>
-            {% endif %}
-            {% else %}
-            <p class="muted">لا يوجد ملف مجرى مرفوع ضمن هذه الحزمة.</p>
-            {% endif %}
-          </div>
-        </div>
-
-        <div class="ibank-tabpane" data-tab-pane="action-eval" role="tabpanel">
-          <div class="judge-pf-tab-pane-inner judge-pf-tab-pane-inner--eval">
-            {% if planner_eval_rows %}
-            <div class="table-wrap">
-              <table class="pf-judge-eval-table ibank-table" dir="rtl" aria-label="قوائم تقييم الإجراءات">
-                <thead>
-                  <tr>
-                    <th scope="col">التاريخ والوقت</th>
-                    <th scope="col">نوع التمرين</th>
-                    <th scope="col">الوحدة المقيمة</th>
-                    <th scope="col">قائمة التقييم</th>
-                    <th scope="col">توقيت التسليم</th>
-                    <th scope="col">الموقف</th>
-                    <th scope="col">التقدير العام</th>
-                    <th scope="col">فتح</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for r in planner_eval_rows %}
-                  <tr>
-                    <td>{% if r.dt %}{{ r.dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
-                    <td>{{ r.exercise_type or "—" }}</td>
-                    <td>{{ r.trained_unit or "—" }}</td>
-                    <td>{{ r.item_title }}</td>
-                    <td>{% if r.delivery_dt %}{{ r.delivery_dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
-                    <td>{% if r.status_done %}<span class="badge badge--done">ينجز</span>{% else %}<span class="badge badge--not-done">لم ينجز</span>{% endif %}</td>
-                    <td>{{ r.grade_label or "—" }}</td>
-                    <td>
-                      {% if r.open_href %}
-                      <a href="{{ r.open_href }}">{% if planner_flow_view_only %}عرض{% else %}فتح التقييم{% endif %}</a>
-                      {% else %}
-                      <span class="muted">—</span>
-                      {% endif %}
-                    </td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-            {% else %}
-            <p class="muted judge-pf-empty">لا توجد قوائم في هذه الحزمة بعد أو لم يُرفع ملف Excel للقوائم.</p>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-    </div>
-    <script>
-    (function () {
-      var root = document.querySelector('.judge-pf-tabbed');
-      if (!root) return;
-      var btns = root.querySelectorAll('[data-tab-btn]');
-      var panes = root.querySelectorAll('[data-tab-pane]');
-      btns.forEach(function (b) {
-        b.addEventListener('click', function () {
-          var id = b.getAttribute('data-tab-btn');
-          btns.forEach(function (x) {
-            var on = x.getAttribute('data-tab-btn') === id;
-            x.classList.toggle('is-active', on);
-            x.setAttribute('aria-selected', on ? 'true' : 'false');
-          });
-          panes.forEach(function (p) {
-            p.classList.toggle('is-active', p.getAttribute('data-tab-pane') === id);
-          });
-        });
-      });
-    })();
-    </script>
-  </section>
-  {% endif %}
 </div>
-<style>
-  .judge-pf-oversee-line { margin: 0.35rem 0 0; font-size: 0.92rem; }
-  .judge-pf-oversee-badge {
-    display: inline-block;
-    margin-inline-start: 0.35rem;
-    padding: 0.1rem 0.45rem;
-    border-radius: 4px;
-    font-size: 0.78rem;
-    background: #f5f0eb;
-    color: #6b5c4f;
-  }
-</style>
+{% endif %}
 {% endblock %}

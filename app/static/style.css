@@ -113,9 +113,16 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  flex-wrap: nowrap;
   padding: var(--space-sm) var(--space-md);
+  min-width: 0;
+}
+
+.header-main > nav {
+  flex: 1 1 auto;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .nav-icon-actions {
@@ -295,23 +302,55 @@ header {
   border-radius: 4px;
 }
 
-.header-brand-row {
+.header-start {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem 1rem;
+  flex-wrap: nowrap;
+  gap: 0.5rem 0.85rem;
   min-width: 0;
-  flex: 1 1 12rem;
+  flex-shrink: 0;
+}
+
+.header-home-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0 0.85rem;
+  min-height: var(--header-nav-control-height);
+  border-radius: 999px;
+  color: var(--brown-600);
+  font-size: 0.9rem;
+  box-sizing: border-box;
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.header-home-link i {
+  font-size: var(--icon-nav-size);
+  color: var(--brown-soft);
+  width: 1.1em;
+  text-align: center;
+}
+
+.header-home-link:hover {
+  background: var(--tint-200);
+  text-decoration: none;
+  color: var(--brown-800);
+}
+
+.header-home-link:hover i {
+  color: var(--brown-500);
 }
 
 .header-workspace-exercise {
   display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.4rem 0.65rem;
   min-width: 0;
-  max-width: 100%;
-  flex: 1 1 140px;
+  max-width: min(22rem, 42vw);
+  flex: 0 1 auto;
   padding: 0.28rem 0.65rem 0.32rem;
   border-radius: 999px;
   background: linear-gradient(135deg, var(--tint-100) 0%, var(--tint-200) 100%);
@@ -1886,6 +1925,35 @@ h2.h2-icon .fa-icon-title {
   background: var(--tint-200);
   border-color: var(--brown-300);
   color: var(--brown-900);
+}
+.admin-shell__divider {
+  border: none;
+  border-top: 1px dashed var(--border-light);
+  margin: 0.85rem 0 0.35rem;
+}
+button.admin-action-btn {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+  text-align: start;
+}
+.admin-action-btn--finish {
+  border-color: #d4a574;
+  background: #fdf8f3;
+  color: #7a4a20;
+}
+.admin-action-btn--finish:hover {
+  background: #f5ebe0;
+  color: #5c3618;
+}
+.btn-finish-exercise {
+  background: #8b4513;
+  border-color: #6d3610;
+  color: #fff;
+}
+.btn-finish-exercise:hover {
+  background: #6d3610;
+  color: #fff;
 }
 
 /* تنظيم المعركة — عمود بيانات بجانب الشجرة داخل البطاقة */
@@ -4330,6 +4398,86 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 }
 .control-table-wrap {
   overflow: auto;
+}
+.cr-detail-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  text-align: center;
+}
+.cr-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+  color: var(--text);
+}
+.cr-detail-table thead th {
+  padding: 0.5rem 0.45rem;
+  border: 1px solid #1a4f86;
+  background: #1e5a9a;
+  color: #fff;
+  font-weight: 800;
+  text-align: center;
+  white-space: nowrap;
+}
+.cr-detail-table tbody th.cr-detail-table__unit {
+  min-width: 9.5rem;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--border-light);
+  background: var(--tint-50);
+  color: var(--brown-800);
+  font-weight: 700;
+  text-align: right;
+  vertical-align: top;
+  white-space: normal;
+  line-height: 1.35;
+}
+.cr-detail-table tbody tr:nth-child(even) .cr-detail-table__cell,
+.cr-detail-table tbody tr:nth-child(even) .cr-detail-table__unit {
+  background: #f3f8fd;
+}
+.cr-detail-table__cell {
+  padding: 0.35rem 0.4rem;
+  border: 1px solid var(--border-light);
+  vertical-align: top;
+  min-width: 5.5rem;
+}
+.cr-detail-cell {
+  display: flex;
+  flex-direction: row-reverse;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-content: flex-start;
+  align-items: center;
+  gap: 0.28rem 0.38rem;
+  min-height: 1.65rem;
+}
+.cr-detail-dot-wrap {
+  display: inline-flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
+}
+.cr-detail-dot {
+  display: block;
+  width: 0.82rem;
+  height: 0.82rem;
+  padding: 0;
+  border: 1px solid rgba(30, 40, 55, 0.22);
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(30, 40, 55, 0.18);
+  cursor: pointer;
+}
+.cr-detail-dot:hover,
+.cr-detail-dot:focus-visible {
+  outline: 2px solid var(--series);
+  outline-offset: 2px;
+}
+.cr-detail-dot-pct {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  line-height: 1;
+  white-space: nowrap;
 }
 .control-perf-table {
   width: 100%;

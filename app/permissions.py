@@ -114,8 +114,8 @@ def can_save_evaluation_results(user: User) -> bool:
 
 
 def can_approve_evaluation_results(user: User) -> bool:
-    """اعتماد المحكم (المرحلة الأولى) — إدارة النظام والمحكم فقط."""
-    return is_system_admin(user) or is_judge(user)
+    """اعتماد المحكم (المرحلة الأولى) — إدارة النظام، المحكم، وكبير المحكمين."""
+    return is_system_admin(user) or is_judge(user) or is_chief_judge(user)
 
 
 def can_chief_approve_evaluation_results(user: User) -> bool:

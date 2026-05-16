@@ -144,8 +144,17 @@ class Exercise(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     owner = relationship("User", back_populates="exercises_owned", foreign_keys=[owner_id])
-    events = relationship("EventFlow", back_populates="exercise", order_by="EventFlow.order_index")
-    problems = relationship("Problem", back_populates="exercise")
+    events = relationship(
+        "EventFlow",
+        back_populates="exercise",
+        order_by="EventFlow.order_index",
+        cascade="all, delete-orphan",
+    )
+    problems = relationship(
+        "Problem",
+        back_populates="exercise",
+        cascade="all, delete-orphan",
+    )
     checklists = relationship("Checklist", back_populates="exercise", cascade="all, delete-orphan")
     eval_notes = relationship("EvaluationNote", back_populates="exercise", cascade="all, delete-orphan")
     objectives = relationship(
@@ -528,6 +537,40 @@ class EvaluationListSavedResult(Base):
     control_approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class EvaluationCriterionMedia(Base):
+    """صورة أو فيديو يوثّق بنداً في قائمة التقييم (صف جدول المعايير)."""
+
+    __tablename__ = "evaluation_criterion_media"
+    __table_args__ = (
+        Index("ix_eval_crit_media_ex_list_row", "exercise_id", "evaluation_list_item_id", "row_index"),
+        Index("ix_eval_crit_media_ex_bundle_row", "exercise_id", "bundle_action_eval_id", "row_index"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    exercise_id: Mapped[int] = mapped_column(
+        ForeignKey("exercises.id", ondelete="CASCADE"), index=True
+    )
+    unit_level_key: Mapped[str] = mapped_column(String(64), default="", index=True)
+    evaluation_list_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("evaluation_list_pdf_items.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    bundle_action_eval_id: Mapped[int | None] = mapped_column(
+        ForeignKey("exercise_planner_flow_bundle_action_evals.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    row_index: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    media_kind: Mapped[str] = mapped_column(String(16), default="photo", index=True)
+    mime_type: Mapped[str] = mapped_column(String(120), default="")
+    file_relpath: Mapped[str] = mapped_column(String(700), default="")
+    uploaded_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
 class AnalystEvaluationCriteriaResult(Base):

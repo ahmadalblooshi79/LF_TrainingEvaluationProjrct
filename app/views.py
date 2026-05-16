@@ -84,6 +84,7 @@ from app.evaluation_workflow import (
     eval_chief_approved,
     eval_chief_can_approve,
     eval_chief_can_reopen,
+    eval_control_approved,
     eval_judge_approved,
     eval_judge_can_approve,
     eval_judge_can_edit,
@@ -145,6 +146,7 @@ from app.evaluation_list_columns import (
 from app.evaluation_sheet_parser import read_evaluation_list_sheet
 from app.roster_import import parse_roster_rows_from_upload
 from app.exercise_store import (
+    archive_and_clear_current_exercise,
     export_directory,
     extract_create_form_prefill_from_export_json,
     import_exercise_bundle_from_dict,
@@ -470,12 +472,9 @@ def _require_planner_hub_catalog_access(user: User | None) -> None:
 
 def _admin_exercise_form_ctx() -> dict:
     return {
-        "exercise_names": ex_opts.EXERCISE_NAMES,
         "exercise_types": ex_opts.EXERCISE_TYPES,
         "exercise_levels": ex_opts.EXERCISE_LEVELS,
         "missions": ex_opts.MISSIONS,
-        "trained_units": ex_opts.TRAINED_UNITS,
-        "exercise_locations": ex_opts.EXERCISE_LOCATIONS,
     }
 
 
@@ -500,6 +499,10 @@ def _dt_for_datetime_local(dt: datetime | None) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M")
 
 
+def _clip_create_text(val: str | None, max_len: int) -> str:
+    return (val or "").strip()[:max_len]
+
+
 def _prefill_create_form_from_exercise(ex: Exercise) -> dict[str, str]:
     out = _empty_create_form_prefill()
 
@@ -507,9 +510,9 @@ def _prefill_create_form_from_exercise(ex: Exercise) -> dict[str, str]:
         v = (val or "").strip()
         return v if v in allowed else ""
 
-    out["trained_unit"] = pick(ex.trained_unit, ex_opts.TRAINED_UNITS)
-    out["location_label"] = pick(ex.location_label, ex_opts.EXERCISE_LOCATIONS)
-    out["exercise_name"] = pick(ex.title, ex_opts.EXERCISE_NAMES)
+    out["trained_unit"] = _clip_create_text(ex.trained_unit, 400)
+    out["location_label"] = _clip_create_text(ex.location_label, 400)
+    out["exercise_name"] = _clip_create_text(ex.title, 500)
     out["exercise_type"] = pick(ex.exercise_type, ex_opts.EXERCISE_TYPES)
     out["exercise_level"] = pick(ex.exercise_level, ex_opts.EXERCISE_LEVELS)
     out["mission"] = pick(ex.mission_label, ex_opts.MISSIONS)
@@ -525,9 +528,9 @@ def _prefill_create_form_from_request() -> dict[str, str]:
         v = (request.form.get(field) or "").strip()
         return v if v in allowed else ""
 
-    out["trained_unit"] = pick("trained_unit", ex_opts.TRAINED_UNITS)
-    out["location_label"] = pick("location_label", ex_opts.EXERCISE_LOCATIONS)
-    out["exercise_name"] = pick("exercise_name", ex_opts.EXERCISE_NAMES)
+    out["trained_unit"] = _clip_create_text(request.form.get("trained_unit"), 400)
+    out["location_label"] = _clip_create_text(request.form.get("location_label"), 400)
+    out["exercise_name"] = _clip_create_text(request.form.get("exercise_name"), 500)
     out["exercise_type"] = pick("exercise_type", ex_opts.EXERCISE_TYPES)
     out["exercise_level"] = pick("exercise_level", ex_opts.EXERCISE_LEVELS)
     out["mission"] = pick("mission", ex_opts.MISSIONS)
@@ -671,23 +674,175 @@ def _evaluation_canonical_saved_row(db, exercise_id: int, evaluation_item_id: in
 
 
 def _evaluation_canonical_map_for_items(db, exercise_id: int, item_ids: list[int]) -> dict[int, EvaluationListSavedResult]:
+    """أحدث نتيجة محفوظة لكل عنصر — مع تفضيل السجلات المرتبطة بالتمرين الحالي."""
     if not item_ids:
         return {}
     rows = (
         db.query(EvaluationListSavedResult)
-        .filter(
-            EvaluationListSavedResult.exercise_id == exercise_id,
-            EvaluationListSavedResult.evaluation_item_id.in_(item_ids),
-        )
+        .filter(EvaluationListSavedResult.evaluation_item_id.in_(item_ids))
         .order_by(EvaluationListSavedResult.updated_at.desc(), EvaluationListSavedResult.id.desc())
         .all()
     )
     out: dict[int, EvaluationListSavedResult] = {}
     for r in rows:
         iid = int(r.evaluation_item_id)
-        if iid not in out:
+        prev = out.get(iid)
+        if prev is None:
+            out[iid] = r
+            continue
+        rid = int(getattr(r, "exercise_id", 0) or 0)
+        pid = int(getattr(prev, "exercise_id", 0) or 0)
+        if rid == int(exercise_id) and pid != int(exercise_id):
             out[iid] = r
     return out
+
+
+def _evaluation_saved_total_pct(sr: EvaluationListSavedResult | None) -> float | None:
+    if sr is None:
+        return None
+    v = getattr(sr, "total_pct", None)
+    if v is not None:
+        return float(v)
+    rows = _parse_saved_eval_rows(getattr(sr, "payload_json", None))
+    pcts = [float(x) for x in (_eval_row_score_pct(r) for r in rows) if x is not None]
+    return (sum(pcts) / len(pcts)) if pcts else None
+
+
+_CONTROL_REPORT_PHASE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("preparation", "مرحلة التحضير"),
+    ("opening", "مرحلة الانفتاح"),
+    ("main", "مرحلة العمليات التعرضية"),
+)
+
+
+def _control_report_dot_color(pct: float) -> str:
+    p = float(pct)
+    if p >= 90:
+        return "#22c55e"
+    if p >= 80:
+        return "#38bdf8"
+    if p >= 70:
+        return "#eab308"
+    if p >= 60:
+        return "#f97316"
+    return "#ef4444"
+
+
+def _control_report_approval_location_ar(saved: EvaluationListSavedResult | None) -> str:
+    if saved is None or not (getattr(saved, "payload_json", None) or "").strip():
+        return "—"
+    if eval_control_approved(saved):
+        return "موقع الاعتماد: هيئة السيطرة"
+    if eval_chief_approved(saved):
+        return "موقع الاعتماد: كبير المحكمين"
+    if eval_judge_approved(saved):
+        return "موقع الاعتماد: المحكم"
+    if eval_reopened_for_judge(saved):
+        return "معاد للمحكم — بانتظار الاعتماد"
+    return "محفوظ — بانتظار اعتماد المحكم"
+
+
+def _control_build_unit_detail_rows(
+    db,
+    exercise_id: int,
+    eval_items: list,
+    saved_by_item: dict[int, EvaluationListSavedResult],
+) -> list[dict]:
+    """صفوف جدول أداء الوحدات التفصيلي: نقطة ملونة لكل قائمة تقييم محفوظة ضمن مرحلة."""
+    phase_keys = {pk for pk, _ in _CONTROL_REPORT_PHASE_COLUMNS}
+    dots_by_unit_phase: dict[tuple[str, str], list[dict]] = {}
+
+    user_ids = {
+        int(sr.saved_by_id)
+        for sr in saved_by_item.values()
+        if getattr(sr, "saved_by_id", None) is not None
+    }
+    users_by_id: dict[int, str] = {}
+    if user_ids:
+        for u in db.query(User).filter(User.id.in_(user_ids)).all():
+            users_by_id[int(u.id)] = (getattr(u, "full_name", "") or "").strip() or f"مستخدم #{u.id}"
+
+    judge_roster: dict[str, str] = {}
+    for jr in (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == exercise_id,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .all()
+    ):
+        uk = (jr.unit_level_key or "").strip()
+        if uk and uk not in judge_roster:
+            judge_roster[uk] = (jr.full_name or "").strip() or "—"
+
+    for it in eval_items:
+        iid = int(getattr(it, "id", 0) or 0)
+        sr = saved_by_item.get(iid)
+        if sr is None:
+            continue
+        pct_f = _evaluation_saved_total_pct(sr)
+        if pct_f is None:
+            continue
+        uk = (getattr(it, "unit_level_key", None) or "").strip()
+        ph = _normalized_exercise_phase(getattr(it, "exercise_phase", None))
+        if not uk or ph not in phase_keys:
+            continue
+        title = (getattr(it, "text", None) or "قائمة تقييم").strip()
+        jid = getattr(sr, "saved_by_id", None)
+        jname = users_by_id.get(int(jid)) if jid is not None else None
+        if not jname:
+            jname = judge_roster.get(uk, "—")
+        approval_loc = _control_report_approval_location_ar(sr)
+        pv = int(round(float(pct_f)))
+        dot = {
+            "item_id": iid,
+            "unit_key": uk,
+            "pct": pv,
+            "color": _control_report_dot_color(pv),
+            "list_title": title,
+            "judge_name": jname,
+            "approval_location": approval_loc,
+            "view_url": url_for(
+                "views.control_evaluation_list_file_viewer",
+                unit_key=uk,
+                item_id=iid,
+            ),
+        }
+        dots_by_unit_phase.setdefault((uk, ph), []).append(dot)
+
+    units_with_data: list[str] = []
+    seen_uk: set[str] = set()
+    for ul in UNIT_LEVELS:
+        uk = (ul.get("key") or "").strip()
+        if not uk or uk in seen_uk:
+            continue
+        if any(dots_by_unit_phase.get((uk, pk)) for pk, _ in _CONTROL_REPORT_PHASE_COLUMNS):
+            units_with_data.append(uk)
+            seen_uk.add(uk)
+    for uk in sorted({k[0] for k in dots_by_unit_phase}):
+        if uk not in seen_uk:
+            units_with_data.append(uk)
+
+    unit_rows: list[dict] = []
+    for uk in units_with_data:
+        phases_out = []
+        for pk, plbl in _CONTROL_REPORT_PHASE_COLUMNS:
+            phases_out.append(
+                {
+                    "key": pk,
+                    "label": plbl,
+                    "dots": dots_by_unit_phase.get((uk, pk)) or [],
+                }
+            )
+        unit_rows.append(
+            {
+                "unit_key": uk,
+                "unit_label": label_for_unit_level_key(uk) or uk,
+                "phases": phases_out,
+            }
+        )
+    return unit_rows
 
 
 def _evaluation_delete_duplicate_saves(db, *, exercise_id: int, evaluation_item_id: int, keep_id: int) -> None:
@@ -3522,6 +3677,47 @@ def _planner_flow_oversee_judge_id_from_request() -> int | None:
     return int(raw) if raw.isdigit() else None
 
 
+def _planner_flow_is_readonly_oversee(
+    user: User, *, oversee_judge_id: int | None = None
+) -> bool:
+    """عرض فقط عند إطلاع إدارة النظام/كبير المحكمين على حزمة محكم آخر (وليس حزمتهم)."""
+    if not can_oversee_judge_planner_flow_materials(user):
+        return False
+    jid = (
+        oversee_judge_id
+        if oversee_judge_id is not None
+        else _planner_flow_oversee_judge_id_from_request()
+    )
+    if jid is None:
+        return True
+    return int(jid) != int(getattr(user, "id", 0) or 0)
+
+
+def _planner_flow_action_lists_editable(user: User) -> bool:
+    """المحكم وكبير المحكمين (وإدارة النظام) يقيّمون ويحفظون ويعتمدون قوائم إجراءات الحزمة."""
+    return bool(can_save_evaluation_results(user))
+
+
+def _planner_flow_eval_list_viewer_ctx(user: User, saved) -> dict:
+    """سياق واجهة تقييم قائمة إجراءات الحزمة — صلاحية كاملة للمحكم/كبير المحكمين."""
+    wf = _eval_list_viewer_ctx(user, saved)
+    if not _planner_flow_action_lists_editable(user):
+        return wf
+    return {
+        **wf,
+        "eval_can_edit": True,
+        "show_eval_approve": bool(
+            can_approve_evaluation_results(user) and eval_judge_can_approve(saved)
+        ),
+        "show_chief_approve": bool(
+            can_chief_approve_evaluation_results(user) and eval_chief_can_approve(saved)
+        ),
+        "show_chief_reopen": bool(
+            can_chief_reopen_evaluation_for_judge(user) and eval_chief_can_reopen(saved)
+        ),
+    }
+
+
 def _planner_flow_materials_query_kwargs(viewer: User) -> dict[str, int]:
     if not can_oversee_judge_planner_flow_materials(viewer):
         return {}
@@ -3774,7 +3970,7 @@ def judge_planner_flow_materials():
             planner_event_flow_display_name=planner_event_flow_display_name,
             planner_flow_oversee_picker=False,
             planner_flow_oversee_rows=[],
-            planner_flow_view_only=oversee,
+            planner_flow_view_only=_planner_flow_is_readonly_oversee(user, oversee_judge_id=oversee_jid),
             planner_flow_viewing_judge_label=viewing_judge_label,
             planner_flow_url_kwargs=pf_qs,
             hub_back_href=hub_back,
@@ -3914,15 +4110,7 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
         saved_payload = _load_payload(canon)
         saved_updated_at = canon.updated_at
         saved_row_id = canon.id
-    wf = _eval_list_viewer_ctx(user, canon)
-    if can_oversee_judge_planner_flow_materials(user):
-        wf = {
-            **wf,
-            "eval_can_edit": False,
-            "show_eval_approve": False,
-            "show_chief_approve": False,
-            "show_chief_reopen": False,
-        }
+    wf = _planner_flow_eval_list_viewer_ctx(user, canon)
 
     item_title = _planner_blob_display_filename(
         stored_title=action_row.title or "",
@@ -4011,7 +4199,7 @@ def judge_planner_flow_materials_action_save_results(slot: int):
     user = get_current_user_optional()
     if not user:
         abort(403)
-    if can_oversee_judge_planner_flow_materials(user):
+    if _planner_flow_is_readonly_oversee(user):
         abort(403)
     if not can_access_judge_hub(user):
         abort(403)
@@ -4054,7 +4242,7 @@ def judge_planner_flow_materials_action_approve(slot: int):
     user = get_current_user_optional()
     if not user:
         abort(403)
-    if can_oversee_judge_planner_flow_materials(user):
+    if _planner_flow_is_readonly_oversee(user):
         abort(403)
     if not can_approve_evaluation_results(user):
         abort(403)
@@ -5127,8 +5315,10 @@ def _control_exercise_performance_report(db, user: User) -> dict:
             "group_scores": [],
             "timeline": [],
             "distribution": [],
-            "table_rows": [],
-            "table_headers": [],
+            "unit_detail_rows": [],
+            "unit_detail_phase_headers": [lbl for _, lbl in _CONTROL_REPORT_PHASE_COLUMNS],
+            "n_saved_eval": 0,
+            "n_eval_lists_total": 0,
             "radar_series": [],
         }
 
@@ -5147,10 +5337,15 @@ def _control_exercise_performance_report(db, user: User) -> dict:
 
     item_ids = [int(it.id) for it in eval_items if getattr(it, "id", None) is not None]
     canon_by_item = _evaluation_canonical_map_for_items(db, ex0.id, item_ids) if item_ids else {}
+    saved_by_item = {
+        iid: sr
+        for iid, sr in canon_by_item.items()
+        if (getattr(sr, "payload_json", None) or "").strip()
+    }
     approved_by_item = {iid: sr for iid, sr in canon_by_item.items() if bool(getattr(sr, "is_approved", False))}
 
     n_eval_lists = len(eval_items)
-    n_saved = len(canon_by_item)
+    n_saved = len(saved_by_item)
     n_approved = len(approved_by_item)
 
     # متوسط زمن التنفيذ لكل تقييم (تقريب من إنشاء السجل حتى آخر تحديث/اعتماد)
@@ -5440,8 +5635,114 @@ def _control_exercise_performance_report(db, user: User) -> dict:
         "distribution": distribution,
         "table_rows": table_rows,
         "table_headers": table_headers,
+        "unit_detail_rows": _control_build_unit_detail_rows(
+            db, ex0.id, eval_items, saved_by_item
+        ),
+        "unit_detail_phase_headers": [lbl for _, lbl in _CONTROL_REPORT_PHASE_COLUMNS],
+        "n_saved_eval": n_saved,
+        "n_eval_lists_total": n_eval_lists,
         "radar_series": radar_series,
     }
+
+
+@bp.route("/control/evaluation-lists/<unit_key>/view/<int:item_id>", methods=["GET"])
+def control_evaluation_list_file_viewer(unit_key: str, item_id: int):
+    """عرض قائمة تقييم للسيطرة (قراءة فقط) من تقرير النتائج."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/control/evaluation-lists/{unit_key}/view/{item_id}")
+    if not can_access_control_hub(user):
+        abort(403)
+    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
+    if not unit:
+        abort(404)
+    from flask import g
+
+    db = g.db
+    row = db.get(EvaluationListPdfItem, item_id)
+    ex = _current_workspace_exercise(db, user)
+    if not row or row.unit_level_key != unit_key:
+        abort(404)
+    if ex is not None and row.exercise_id not in (None, ex.id):
+        abort(404)
+    if not (row.pdf_relpath or "").strip():
+        abort(404)
+    fspath = _evaluation_list_file_abspath(row.pdf_relpath)
+    if fspath is None:
+        abort(404)
+
+    ev = _evaluation_sheet_view_context(fspath)
+    saved_payload = {}
+    saved_updated_at = None
+    saved_row_id = None
+    saved_is_approved = False
+    saved_approved_at = None
+    if ex is not None:
+        saved_row = _evaluation_canonical_map_for_items(db, ex.id, [int(row.id)]).get(int(row.id))
+        if saved_row and (saved_row.payload_json or "").strip():
+            try:
+                saved_payload = json.loads(saved_row.payload_json)
+            except Exception:
+                saved_payload = {}
+            saved_updated_at = saved_row.updated_at
+            saved_row_id = saved_row.id
+            saved_is_approved = bool(getattr(saved_row, "is_approved", False))
+            saved_approved_at = getattr(saved_row, "approved_at", None)
+
+    unit_label = (unit.get("label") or "").strip() if isinstance(unit, dict) else ""
+    shown_date = None
+    commander_name = "—"
+    judge_name = "—"
+    if ex is not None:
+        shown_date = getattr(ex, "planned_start", None) or getattr(ex, "created_at", None)
+        commander_row = (
+            db.query(ExerciseRosterRow)
+            .filter(
+                ExerciseRosterRow.exercise_id == ex.id,
+                ExerciseRosterRow.roster_kind == ExerciseRosterKind.TRAINEE.value,
+                ExerciseRosterRow.unit_level_key == unit_key,
+            )
+            .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+            .first()
+        )
+        if commander_row is not None:
+            commander_name = (commander_row.full_name or "").strip() or commander_name
+        judge_row = (
+            db.query(ExerciseRosterRow)
+            .filter(
+                ExerciseRosterRow.exercise_id == ex.id,
+                ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+                ExerciseRosterRow.unit_level_key == unit_key,
+            )
+            .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+            .first()
+        )
+        if judge_row is not None:
+            judge_name = (judge_row.full_name or "").strip() or judge_name
+
+    return render_template(
+        "admin_evaluation_list_viewer.html",
+        **_ctx(
+            user,
+            unit_key=unit_key,
+            item_id=item_id,
+            item_title=row.text or "تقييم",
+            evaluation_item_id=row.id,
+            can_edit=False,
+            close_href=url_for("views.control_hub_section", slug="evaluation-results"),
+            close_label="إغلاق والعودة للتقرير",
+            saved_row_id=saved_row_id,
+            saved_payload=saved_payload,
+            saved_updated_at=saved_updated_at,
+            saved_is_approved=saved_is_approved,
+            saved_approved_at=saved_approved_at,
+            unit_label=unit_label or "—",
+            shown_date=shown_date,
+            commander_name=commander_name,
+            judge_name=judge_name,
+            **ev,
+        ),
+    )
 
 
 @bp.route("/control")
@@ -5747,61 +6048,95 @@ def admin_exercise_create():
 
     db = g.db
 
-    def _render_create_page(*, error: str):
+    def _render_create_page(*, error: str = "", success: str = ""):
         ex_cur = _admin_current_workspace_exercise(db, user)
         if request.method == "GET":
-            form_prefill = (
-                _prefill_create_form_from_exercise(ex_cur)
-                if ex_cur
-                else _empty_create_form_prefill()
-            )
+            form_prefill = _empty_create_form_prefill()
+            if ex_cur:
+                from_ex = _prefill_create_form_from_exercise(ex_cur)
+                for key in (
+                    "exercise_type",
+                    "exercise_level",
+                    "mission",
+                    "planned_start",
+                    "planned_end",
+                ):
+                    if from_ex.get(key):
+                        form_prefill[key] = from_ex[key]
         else:
             form_prefill = _prefill_create_form_from_request()
-        return render_template(
-            "admin_exercise_create.html",
-            **_ctx(
-                user,
-                error=error,
-                export_dir=str(export_directory()),
-                form_prefill=form_prefill,
-                has_current_exercise=ex_cur is not None,
-                **_admin_exercise_form_ctx(),
-            ),
+        from flask import make_response
+
+        resp = make_response(
+            render_template(
+                "admin_exercise_create.html",
+                **_ctx(
+                    user,
+                    error=error,
+                    success=success,
+                    export_dir=str(export_directory()),
+                    form_prefill=form_prefill,
+                    has_current_exercise=ex_cur is not None,
+                    form_build_tag="20260516-create-v2",
+                    **_admin_exercise_form_ctx(),
+                ),
+            )
         )
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        return resp
 
     if request.method == "GET":
         qerr = (request.args.get("err") or "").strip()
-        return _render_create_page(error=qerr)
+        qok = (request.args.get("ok") or "").strip()
+        return _render_create_page(error=qerr, success=qok)
 
     def _pick(field: str, allowed: list[str]) -> str | None:
         v = (request.form.get(field) or "").strip()
         return v if v in allowed else None
+
+    def _text(field: str, max_len: int) -> str | None:
+        v = (request.form.get(field) or "").strip()
+        return v[:max_len] if v else None
 
     def _parse_dt_local(field: str):
         raw = (request.form.get(field) or "").strip()
         if not raw:
             return None
         try:
-            # صيغة input datetime-local: 2026-04-30T13:45
             return datetime.fromisoformat(raw)
         except Exception:
             return None
 
-    title = _pick("exercise_name", ex_opts.EXERCISE_NAMES)
+    title = _text("exercise_name", 500)
     et = _pick("exercise_type", ex_opts.EXERCISE_TYPES)
     el = _pick("exercise_level", ex_opts.EXERCISE_LEVELS)
     mission = _pick("mission", ex_opts.MISSIONS)
-    unit = _pick("trained_unit", ex_opts.TRAINED_UNITS)
-    loc = _pick("location_label", ex_opts.EXERCISE_LOCATIONS)
+    unit = _text("trained_unit", 400)
+    loc = _text("location_label", 400)
     planned_start = _parse_dt_local("planned_start")
     planned_end = _parse_dt_local("planned_end")
 
     if planned_start and planned_end and planned_end < planned_start:
         return _render_create_page(error="تاريخ/وقت النهاية يجب أن يكون بعد البداية."), 400
 
-    if not all([title, et, el, mission, unit, loc]):
+    missing: list[str] = []
+    if not title:
+        missing.append("اسم التمرين")
+    if not et:
+        missing.append("نوع التمرين")
+    if not el:
+        missing.append("مستوى التمرين")
+    if not mission:
+        missing.append("المهمة")
+    if not unit:
+        missing.append("اسم الوحدة المتدربة")
+    if not loc:
+        missing.append("مكان التمرين")
+    if missing:
         return (
-            _render_create_page(error="يرجى اختيار قيمة صحيحة لكل حقل من القوائم."),
+            _render_create_page(
+                error="يرجى تعبئة الحقول التالية: " + "، ".join(missing)
+            ),
             400,
         )
 
@@ -5893,6 +6228,54 @@ def admin_exercise_import_full_json():
         db.rollback()
         return _import_full_json_error("حدث خطأ أثناء استيراد التمرين.")
     return _import_full_json_ok(eid)
+
+
+@bp.route("/admin/exercises/finish", methods=["GET", "POST"])
+def admin_exercise_finish():
+    """إنهاء التمرين الحالي: أرشفة JSON كامل ثم مسح بيانات التمرين (يبقى بنك المعلومات)."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/admin/exercises/create")
+    if not can_manage_users(user):
+        abort(403)
+    from flask import g
+    from urllib.parse import quote
+
+    db = g.db
+    ex = _admin_current_workspace_exercise(db, user)
+    if ex is None:
+        return redirect(
+            "/admin/exercises/create?err="
+            + quote("لا يوجد تمرين حالي لإنهائه.", safe="")
+        )
+    pwd = (request.form.get("system_admin_password") or "").strip()
+    if not pwd:
+        return redirect(
+            "/admin/exercises/create?err="
+            + quote("يجب إدخال كلمة مرور إدارة النظام لإنهاء التمرين.", safe="")
+        )
+    if not verify_password(pwd, user.password_hash):
+        return redirect(
+            "/admin/exercises/create?err="
+            + quote("كلمة مرور إدارة النظام غير صحيحة.", safe="")
+        )
+    try:
+        path = archive_and_clear_current_exercise(db, ex.id, finished_by_id=user.id)
+        if path is None:
+            db.rollback()
+            return redirect(
+                "/admin/exercises/create?err="
+                + quote("تعذر أرشفة التمرين الحالي.", safe="")
+            )
+        db.commit()
+    except Exception:
+        db.rollback()
+        return redirect(
+            "/admin/exercises/create?err="
+            + quote("حدث خطأ أثناء إنهاء التمرين.", safe="")
+        )
+    msg = f"تم إنهاء التمرين وحفظه في: {path}"
+    return redirect("/admin/exercises/create?ok=" + quote(msg, safe=""))
 
 
 @bp.route("/admin/exercises/open-export-dir", methods=["POST"])

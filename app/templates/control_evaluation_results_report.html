@@ -93,32 +93,55 @@
   </section>
 
   <section class="control-report__grid control-report__grid--bottom">
-    <article class="control-panel control-panel--wide">
-      <h2>أداء الوحدات التفصيلي</h2>
+    <article class="control-panel control-panel--table-span">
+      <h2>أداء الوحدات التفصيلي (مراحل التمرين)</h2>
+      <p class="cr-detail-hint muted">
+        كل نقطة ملونة = قائمة تقييم محفوظة (لا يشترط الاعتماد). مرّر المؤشر للتفاصيل، انقر مرتين للاطلاع.
+        {% if report.n_saved_eval is defined %}
+        — محمّل للعرض: <strong>{{ report.n_saved_eval }}</strong> من <strong>{{ report.n_eval_lists_total }}</strong> قائمة.
+        {% endif %}
+      </p>
       <div class="control-table-wrap">
-        <table class="control-perf-table">
+        {% if report.unit_detail_rows | default([]) %}
+        <table class="cr-detail-table" dir="rtl">
           <thead>
             <tr>
-              {% for header in report.table_headers %}
-              <th>{{ header }}</th>
+              <th scope="col">الوحدة</th>
+              {% for header in report.unit_detail_phase_headers | default([]) %}
+              <th scope="col">{{ header }}</th>
               {% endfor %}
             </tr>
           </thead>
           <tbody>
-            {% for row in report.table_rows %}
+            {% for urow in report.unit_detail_rows %}
             <tr>
-              <th>{{ row[0] }}</th>
-              {% for value in row[1:] %}
-              <td>
-                <span class="control-score control-score--{% if value >= 85 %}high{% elif value >= 70 %}good{% elif value >= 60 %}mid{% else %}low{% endif %}">
-                  {{ value }}%
-                </span>
+              <th scope="row" class="cr-detail-table__unit">{{ urow.unit_label }}</th>
+              {% for phase in urow.phases %}
+              <td class="cr-detail-table__cell">
+                <div class="cr-detail-cell" aria-label="{{ phase.label }} — {{ urow.unit_label }}">
+                  {% for dot in phase.dots %}
+                  <span class="cr-detail-dot-wrap">
+                    <button
+                      type="button"
+                      class="cr-detail-dot"
+                      style="background-color: {{ dot.color }};"
+                      data-href="{{ dot.view_url }}"
+                      title="قائمة التقييم: {{ dot.list_title }}&#10;المحكم: {{ dot.judge_name }}&#10;{{ dot.approval_location }}"
+                      aria-label="{{ dot.list_title }} — {{ dot.pct }}%"
+                    ></button>
+                    <span class="cr-detail-dot-pct">{{ dot.pct }}%</span>
+                  </span>
+                  {% endfor %}
+                </div>
               </td>
               {% endfor %}
             </tr>
             {% endfor %}
           </tbody>
         </table>
+        {% else %}
+        <p class="muted" style="margin:0.5rem 0;">لا توجد قوائم تقييم محفوظة لعرضها — يُعرض الجدول بعد حفظ المحكمين لنتائج القوائم.</p>
+        {% endif %}
       </div>
     </article>
 
@@ -139,4 +162,14 @@
 
   <footer class="control-report__foot">نسخة ويب - Windows و Android و iOS</footer>
 </div>
+<script>
+(function () {
+  document.querySelectorAll(".cr-detail-dot[data-href]").forEach(function (btn) {
+    btn.addEventListener("dblclick", function () {
+      var href = btn.getAttribute("data-href");
+      if (href) window.location.href = href;
+    });
+  });
+})();
+</script>
 {% endblock %}

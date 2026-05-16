@@ -1,9 +1,9 @@
 {
   "schema_version": 2,
-  "exported_at": "2026-05-07T03:52:31.147165",
+  "exported_at": "2026-05-16T12:11:16.093817",
   "exercise": {
     "id": 1,
-    "code": "EX-E5F73205",
+    "code": "EX-BCFF2F12",
     "title": "تمرين/2",
     "description": "نوع التمرين: تمرين جاهزية المهمة\nمستوى التمرين: مجموعة لواء\nالمهمة: عملية تعرضيه\nاسم الوحدة المتدربة: مجموعة اللواء/101\nمكان التمرين: مركز تدريب المنطقة الغربية",
     "exercise_type": "تمرين جاهزية المهمة",
@@ -16,33 +16,27 @@
     "planned_start": "2026-05-05T16:47:00",
     "planned_end": "2026-06-04T16:47:00",
     "control_approved": false,
-    "created_at": "2026-05-06T16:13:33.388927",
-    "updated_at": "2026-05-06T16:13:33.388927"
+    "created_at": "2026-05-16T11:45:47.701131",
+    "updated_at": "2026-05-16T11:45:47.701131"
   },
   "objectives": [
     {
       "id": 411,
       "sort_order": 0,
-      "text": "الهدف الأول",
-      "created_at": "2026-05-06T15:10:50.116782"
+      "text": "تنفيذ عملية صنع القرار العسكري لتجهيز خطط وأوامر العمليات.",
+      "created_at": "2026-05-16T12:10:20.309641"
     },
     {
       "id": 412,
       "sort_order": 1,
-      "text": "الهدف الثاني",
-      "created_at": "2026-05-06T15:10:50.116782"
+      "text": "التأكد من إلمام الوحدة المتدربة بالعقائد والإجراءات والأساليب التعبوية",
+      "created_at": "2026-05-16T12:10:20.309641"
     },
     {
       "id": 413,
       "sort_order": 2,
-      "text": "الهدف الثالث",
-      "created_at": "2026-05-06T15:10:50.116782"
-    },
-    {
-      "id": 414,
-      "sort_order": 3,
-      "text": "الهدف الرابع",
-      "created_at": "2026-05-06T15:10:50.116782"
+      "text": "تقييم القادة وهيئة ركن مجموعة اللواء المتدرب",
+      "created_at": "2026-05-16T12:10:20.309641"
     }
   ],
   "trainee_unit_roster": [
@@ -51,27 +45,36 @@
       "military_number": "1111",
       "rank_ar": "مدني/5",
       "full_name": "خليفة عبدالله مبارك البلوشي",
-      "unit_level_key": "brigade_group",
-      "position_ar": "مجموعة لواء",
-      "created_at": "2026-05-06T15:21:49.434826"
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-05-16T12:11:16.085689"
     },
     {
       "sort_order": 1,
       "military_number": "2222",
       "rank_ar": "مدني/6",
       "full_name": "راشد سيف راشد الجابري",
-      "unit_level_key": "mech_infantry_bn",
-      "position_ar": "كتيبة مشاة آلية",
-      "created_at": "2026-05-06T15:21:49.434832"
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-05-16T12:11:16.085689"
     },
     {
       "sort_order": 2,
       "military_number": "3333",
       "rank_ar": "مدني/7",
       "full_name": "زايد أحمد عبدالله البلوشي",
-      "unit_level_key": "tank_bn",
-      "position_ar": "كتيبة دبابات",
-      "created_at": "2026-05-06T15:21:49.434834"
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-05-16T12:11:16.085689"
+    },
+    {
+      "sort_order": 3,
+      "military_number": "4444",
+      "rank_ar": "مدني/8",
+      "full_name": "حمدان خالد حمدان السويدي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-05-16T12:11:16.085689"
     }
   ],
   "judge_unit_roster": [
@@ -80,336 +83,43 @@
       "military_number": "123456",
       "rank_ar": "مدني/1",
       "full_name": "أحمد عبدالله مبارك البلوشي",
-      "unit_level_key": "brigade_group",
-      "position_ar": "مجموعة لواء",
-      "created_at": "2026-05-07T03:52:30.931316"
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-05-16T12:11:00.532655"
     },
     {
       "sort_order": 1,
       "military_number": "654321",
       "rank_ar": "مدني/2",
       "full_name": "عارف عيضة الجابري",
-      "unit_level_key": "mech_infantry_bn",
-      "position_ar": "كتيبة مشاة آلية",
-      "created_at": "2026-05-07T03:52:30.931316"
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-05-16T12:11:00.532655"
     },
     {
       "sort_order": 2,
       "military_number": "456789",
       "rank_ar": "مدني/3",
       "full_name": "عبدالله أحمد مبارك آل علي",
-      "unit_level_key": "tank_bn",
-      "position_ar": "كتيبة دبابات",
-      "created_at": "2026-05-07T03:52:30.931316"
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-05-16T12:11:00.532655"
     },
     {
       "sort_order": 3,
-      "military_number": "206206",
-      "rank_ar": "مدني/5",
-      "full_name": "سعود محمد النقبي",
-      "unit_level_key": "mech_infantry_bn",
-      "position_ar": "كتيبة مشاة آلية",
-      "created_at": "2026-05-07T03:52:30.931316"
+      "military_number": "987654",
+      "rank_ar": "مدني/3",
+      "full_name": "سعيد سالم سعيد الحنطوبي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-05-16T12:11:00.532655"
     }
   ],
-  "event_flows": [
-    {
-      "id": 1,
-      "order_index": 0,
-      "title": "إحاطة",
-      "description": "",
-      "scheduled_at": null,
-      "event_type": "briefing",
-      "created_at": "2026-04-29T08:30:13.855387"
-    },
-    {
-      "id": 3,
-      "order_index": 0,
-      "title": "إحاطة",
-      "description": "",
-      "scheduled_at": null,
-      "event_type": "briefing",
-      "created_at": "2026-04-29T08:30:13.855387"
-    },
-    {
-      "id": 2,
-      "order_index": 1,
-      "title": "تنفيذ المرحلة",
-      "description": "",
-      "scheduled_at": null,
-      "event_type": "stage",
-      "created_at": "2026-04-29T08:30:13.855389"
-    },
-    {
-      "id": 4,
-      "order_index": 1,
-      "title": "تنفيذ المرحلة",
-      "description": "",
-      "scheduled_at": null,
-      "event_type": "stage",
-      "created_at": "2026-04-29T08:30:13.855389"
-    }
-  ],
-  "problems": [
-    {
-      "id": 1,
-      "title": "نقص مرفق إحاطة",
-      "description": "إدراج مرفق للإحاطة لاحقاً",
-      "severity": 1,
-      "status": "open",
-      "reported_by_id": 3,
-      "created_at": "2026-04-29T08:30:13.870641",
-      "updated_at": "2026-04-29T08:30:13.870643"
-    },
-    {
-      "id": 2,
-      "title": "نقص مرفق إحاطة",
-      "description": "إدراج مرفق للإحاطة لاحقاً",
-      "severity": 1,
-      "status": "open",
-      "reported_by_id": 3,
-      "created_at": "2026-04-29T08:30:13.870641",
-      "updated_at": "2026-04-29T08:30:13.870643"
-    }
-  ],
-  "checklists": [
-    {
-      "id": 1,
-      "title": "قائمة تقييم — الأداء العام",
-      "created_by_id": 3,
-      "created_at": "2026-04-29T08:30:13.854342",
-      "items": [
-        {
-          "id": 1,
-          "sort_order": 0,
-          "text": "وضوح التعليمات",
-          "weight": 1.0,
-          "is_done": false,
-          "judge_note": ""
-        },
-        {
-          "id": 2,
-          "sort_order": 1,
-          "text": "الدقة",
-          "weight": 1.0,
-          "is_done": false,
-          "judge_note": ""
-        },
-        {
-          "id": 3,
-          "sort_order": 2,
-          "text": "توقيت الاستجابة",
-          "weight": 1.0,
-          "is_done": false,
-          "judge_note": ""
-        }
-      ]
-    },
-    {
-      "id": 2,
-      "title": "قائمة تقييم — الأداء العام",
-      "created_by_id": 3,
-      "created_at": "2026-04-29T08:30:13.854342",
-      "items": [
-        {
-          "id": 4,
-          "sort_order": 0,
-          "text": "وضوح التعليمات",
-          "weight": 1.0,
-          "is_done": false,
-          "judge_note": ""
-        },
-        {
-          "id": 5,
-          "sort_order": 1,
-          "text": "الدقة",
-          "weight": 1.0,
-          "is_done": false,
-          "judge_note": ""
-        },
-        {
-          "id": 6,
-          "sort_order": 2,
-          "text": "توقيت الاستجابة",
-          "weight": 1.0,
-          "is_done": false,
-          "judge_note": ""
-        }
-      ]
-    }
-  ],
+  "event_flows": [],
+  "problems": [],
+  "checklists": [],
   "evaluation_notes": [],
   "exercise_ref_links": [],
-  "dilemma_items": [
-    {
-      "unit_level_key": "brigade_group",
-      "unit_level_label": "مجموعة لواء",
-      "exercise_phase": "main",
-      "sort_order": 0,
-      "text": "مجرى اليوم الاول_1.pdf",
-      "pdf_relpath": "brigade_group/7ea3275b8208436eb37eae5923dc9d5a.pdf"
-    },
-    {
-      "unit_level_key": "brigade_group",
-      "unit_level_label": "مجموعة لواء",
-      "exercise_phase": "main",
-      "sort_order": 1,
-      "text": "مجرى اليوم الاول_2.pdf",
-      "pdf_relpath": "brigade_group/fffc8b5fbec8485698cf300b83a3ddb4.pdf"
-    },
-    {
-      "unit_level_key": "brigade_group",
-      "unit_level_label": "مجموعة لواء",
-      "exercise_phase": "main",
-      "sort_order": 2,
-      "text": "مجرى اليوم الاول_3.pdf",
-      "pdf_relpath": "brigade_group/14d83dfd579e4e0693113bf02fb68660.pdf"
-    },
-    {
-      "unit_level_key": "mech_infantry_bn",
-      "unit_level_label": "كتيبة مشاة آلية",
-      "exercise_phase": "main",
-      "sort_order": 0,
-      "text": "مجرى اليوم الثاني_1.pdf",
-      "pdf_relpath": "mech_infantry_bn/7a1d805cc4f54b6fa30544481aead865.pdf"
-    },
-    {
-      "unit_level_key": "mech_infantry_bn",
-      "unit_level_label": "كتيبة مشاة آلية",
-      "exercise_phase": "main",
-      "sort_order": 1,
-      "text": "مجرى اليوم الثاني_2.pdf",
-      "pdf_relpath": "mech_infantry_bn/f55171704c7b46e5b5ad28b7eae469f8.pdf"
-    },
-    {
-      "unit_level_key": "mech_infantry_bn",
-      "unit_level_label": "كتيبة مشاة آلية",
-      "exercise_phase": "main",
-      "sort_order": 2,
-      "text": "مجرى اليوم الثاني_3.pdf",
-      "pdf_relpath": "mech_infantry_bn/fb05385159ab4f15b39534a9c15c77d6.pdf"
-    },
-    {
-      "unit_level_key": "tank_bn",
-      "unit_level_label": "كتيبة دبابات",
-      "exercise_phase": "main",
-      "sort_order": 0,
-      "text": "مجرى اليوم الثالث_1.pdf",
-      "pdf_relpath": "tank_bn/8be2c922fec04b0e9b65b6b1aeb0376f.pdf"
-    },
-    {
-      "unit_level_key": "tank_bn",
-      "unit_level_label": "كتيبة دبابات",
-      "exercise_phase": "main",
-      "sort_order": 1,
-      "text": "مجرى اليوم الثالث_2.pdf",
-      "pdf_relpath": "tank_bn/797b99ca24cf4c40a1e085b6ae325b14.pdf"
-    },
-    {
-      "unit_level_key": "tank_bn",
-      "unit_level_label": "كتيبة دبابات",
-      "exercise_phase": "main",
-      "sort_order": 2,
-      "text": "مجرى اليوم الثالث_3.pdf",
-      "pdf_relpath": "tank_bn/25dd238c57224b7b959df630471cbda4.pdf"
-    }
-  ],
-  "evaluation_list_items": [
-    {
-      "unit_level_key": "brigade_group",
-      "unit_level_label": "مجموعة لواء",
-      "exercise_phase": "main",
-      "sort_order": 0,
-      "text": "قائمة تقييم مجموعة لواء_1.xlsx",
-      "pdf_relpath": "brigade_group/fcf3fdb2d2fb432dbc0514703245700b.xlsx"
-    },
-    {
-      "unit_level_key": "brigade_group",
-      "unit_level_label": "مجموعة لواء",
-      "exercise_phase": "main",
-      "sort_order": 1,
-      "text": "قائمة تقييم مجموعة لواء_2.xlsx",
-      "pdf_relpath": "brigade_group/fd1516ff95674dcb807252c39a035b20.xlsx"
-    },
-    {
-      "unit_level_key": "brigade_group",
-      "unit_level_label": "مجموعة لواء",
-      "exercise_phase": "main",
-      "sort_order": 2,
-      "text": "قائمة تقييم مجموعة لواء_3.xlsx",
-      "pdf_relpath": "brigade_group/53611ae98a384a959667b408d8f437cb.xlsx"
-    },
-    {
-      "unit_level_key": "brigade_group",
-      "unit_level_label": "مجموعة لواء",
-      "exercise_phase": "main",
-      "sort_order": 3,
-      "text": "قائمة تقييم مجموعة لواء_4.xlsx",
-      "pdf_relpath": "brigade_group/0c35013c2e1541a79cc4dd046d0c80da.xlsx"
-    },
-    {
-      "unit_level_key": "mech_infantry_bn",
-      "unit_level_label": "كتيبة مشاة آلية",
-      "exercise_phase": "main",
-      "sort_order": 0,
-      "text": "قائمة تقييم كتيبة المشاة الآلية_1.xlsx",
-      "pdf_relpath": "mech_infantry_bn/51d7df30aec641a58a1a3ab695b2107a.xlsx"
-    },
-    {
-      "unit_level_key": "mech_infantry_bn",
-      "unit_level_label": "كتيبة مشاة آلية",
-      "exercise_phase": "main",
-      "sort_order": 1,
-      "text": "قائمة تقييم كتيبة المشاة الآلية_2.xlsx",
-      "pdf_relpath": "mech_infantry_bn/a8b88c306df243a2ab92fbe7eb06330a.xlsx"
-    },
-    {
-      "unit_level_key": "mech_infantry_bn",
-      "unit_level_label": "كتيبة مشاة آلية",
-      "exercise_phase": "main",
-      "sort_order": 2,
-      "text": "قائمة تقييم كتيبة المشاة الآلية_3.xlsx",
-      "pdf_relpath": "mech_infantry_bn/6bccfc4fb2f74c0189fda0fab630f39b.xlsx"
-    },
-    {
-      "unit_level_key": "mech_infantry_bn",
-      "unit_level_label": "كتيبة مشاة آلية",
-      "exercise_phase": "main",
-      "sort_order": 3,
-      "text": "قائمة تقييم كتيبة المشاة الآلية_4.xlsx",
-      "pdf_relpath": "mech_infantry_bn/965f250e79154fd9833a96dce0f2591d.xlsx"
-    },
-    {
-      "unit_level_key": "tank_bn",
-      "unit_level_label": "كتيبة دبابات",
-      "exercise_phase": "main",
-      "sort_order": 0,
-      "text": "قائمة تقييم كتيبة الدبابات_1.xlsx",
-      "pdf_relpath": "tank_bn/fb3169663bd94a43b110b56151b30a78.xlsx"
-    },
-    {
-      "unit_level_key": "tank_bn",
-      "unit_level_label": "كتيبة دبابات",
-      "exercise_phase": "main",
-      "sort_order": 1,
-      "text": "قائمة تقييم كتيبة الدبابات_2.xlsx",
-      "pdf_relpath": "tank_bn/893c40d13d304435925b0fc667494bfd.xlsx"
-    },
-    {
-      "unit_level_key": "tank_bn",
-      "unit_level_label": "كتيبة دبابات",
-      "exercise_phase": "main",
-      "sort_order": 2,
-      "text": "قائمة تقييم كتيبة الدبابات_3.xlsx",
-      "pdf_relpath": "tank_bn/621a9a81f0c045ff9f33ba88063e926a.xlsx"
-    },
-    {
-      "unit_level_key": "tank_bn",
-      "unit_level_label": "كتيبة دبابات",
-      "exercise_phase": "main",
-      "sort_order": 3,
-      "text": "قائمة تقييم كتيبة الدبابات_4.xlsx",
-      "pdf_relpath": "tank_bn/2354ca536f2742399853ef09e28d740f.xlsx"
-    }
-  ]
+  "dilemma_items": [],
+  "evaluation_list_items": []
 }

@@ -46,6 +46,80 @@
       <i class="fa-solid fa-list-check" aria-hidden="true"></i>
       <span>Checklist محتويات النظام</span>
     </a>
+    {% if workspace_exercise %}
+    <hr class="admin-shell__divider" aria-hidden="true">
+    <button type="button" class="admin-action-btn admin-action-btn--finish" id="btn-finish-exercise" title="حفظ أرشيف التمرين ثم إفراغ بيانات التمرين من النظام">
+      <i class="fa-solid fa-flag-checkered" aria-hidden="true"></i>
+      <span>إنهاء التمرين</span>
+    </button>
+    {% endif %}
   </aside>
 </div>
+
+{% if workspace_exercise %}
+<form id="form-finish-exercise" method="post" action="/admin/exercises/finish" class="sr-only">
+  <input type="hidden" name="system_admin_password" id="finish-exercise-password-field" value="">
+</form>
+<div id="finish-exercise-overlay" class="import-password-overlay" role="dialog" aria-modal="true" aria-labelledby="finish-exercise-title" aria-hidden="true">
+  <div class="import-password-dialog card">
+    <h2 id="finish-exercise-title" class="h2-in-card" style="margin-top:0;"><i class="fa-solid fa-flag-checkered fa-icon-title" aria-hidden="true"></i> إنهاء التمرين</h2>
+    <p class="muted">سيتم حفظ التمرين الحالي (<strong>{{ workspace_exercise.title }}</strong>) وجميع بياناته في ملف JSON، ثم إفراغ جميع صفحات التمرين من النظام. <strong>بنك المعلومات يبقى دون تغيير.</strong></p>
+    <p class="muted">أدخل كلمة مرور حساب إدارة النظام للتأكيد.</p>
+    <div class="form-group">
+      <label for="finish-exercise-password-input">كلمة المرور</label>
+      <input type="password" id="finish-exercise-password-input" autocomplete="current-password" class="import-password-field">
+    </div>
+    <div class="btn-group" style="margin-top:1rem;justify-content:flex-start;">
+      <button type="button" class="btn btn-finish-exercise" id="finish-exercise-confirm"><i class="fa-solid fa-check" aria-hidden="true"></i> تأكيد الإنهاء</button>
+      <button type="button" class="btn btn-ghost" id="finish-exercise-cancel">إلغاء</button>
+    </div>
+  </div>
+</div>
+<script>
+(() => {
+  const btn = document.getElementById("btn-finish-exercise");
+  const overlay = document.getElementById("finish-exercise-overlay");
+  const pwdInput = document.getElementById("finish-exercise-password-input");
+  const pwdHidden = document.getElementById("finish-exercise-password-field");
+  const form = document.getElementById("form-finish-exercise");
+  const confirmBtn = document.getElementById("finish-exercise-confirm");
+  const cancelBtn = document.getElementById("finish-exercise-cancel");
+  if (!btn || !overlay || !pwdInput || !form || !pwdHidden) return;
+
+  const MSG_CONFIRM = "هل تريد إنهاء التمرين الحالي؟\n\nسيتم:\n• حفظ نسخة كاملة (بيانات، قوائم، نتائج، محادثات، إشعارات…) في مجلد التصدير\n• إفراغ جميع صفحات التمرين من النظام\n• الإبقاء على بنك المعلومات فقط\n\nلا يمكن التراجع عن الإفراغ داخل النظام.";
+
+  function openOverlay() {
+    pwdInput.value = "";
+    overlay.classList.add("is-open");
+    overlay.setAttribute("aria-hidden", "false");
+    pwdInput.focus();
+  }
+  function closeOverlay() {
+    overlay.classList.remove("is-open");
+    overlay.setAttribute("aria-hidden", "true");
+    pwdInput.value = "";
+  }
+
+  btn.addEventListener("click", () => {
+    if (!window.confirm(MSG_CONFIRM)) return;
+    openOverlay();
+  });
+  if (cancelBtn) cancelBtn.addEventListener("click", closeOverlay);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) closeOverlay();
+  });
+  if (confirmBtn) confirmBtn.addEventListener("click", () => {
+    const pw = (pwdInput.value || "").trim();
+    if (!pw) {
+      window.alert("يرجى إدخال كلمة المرور.");
+      pwdInput.focus();
+      return;
+    }
+    pwdHidden.value = pw;
+    confirmBtn.disabled = true;
+    form.submit();
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

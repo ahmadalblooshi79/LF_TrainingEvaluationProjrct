@@ -30,6 +30,13 @@ CHAT_UPLOAD_DIR = Path(
 VISUAL_DOC_DIR = Path(
     os.getenv("VISUAL_DOC_DIR", str(BASE_DIR / "instance" / "visual_docs"))
 ).resolve()
+# صور/فيديو توثيق بنود قوائم التقييم (صف جدول المعايير) — خارج /static
+EVAL_CRITERION_MEDIA_DIR = Path(
+    os.getenv(
+        "EVAL_CRITERION_MEDIA_DIR",
+        str(BASE_DIR / "instance" / "eval_criterion_media"),
+    )
+).resolve()
 # بنك المعلومات (PDF/Excel) — خارج /static
 INFO_BANK_DIR = Path(
     os.getenv("INFO_BANK_DIR", str(BASE_DIR / "instance" / "information_bank"))

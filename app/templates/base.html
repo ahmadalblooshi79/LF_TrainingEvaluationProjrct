@@ -9,27 +9,34 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=header1">
 </head>
 <body class="{% block body_class %}{% endblock %}">
 <div class="layout">
   <header>
     <div class="header-main">
-    <div class="header-brand-row">
-    <div class="brand">
-      <i class="fa-solid fa-clipboard-list fa-icon-brand" aria-hidden="true"></i>
-      <span>نظام إدارة التمارين</span>
-    </div>
-    {% if user and workspace_exercise %}
-    <div class="header-workspace-exercise" role="status" title="{{ workspace_exercise.code }} — {{ workspace_exercise.title }}">
-      <span class="header-workspace-exercise__tag">التمرين الحالي</span>
-      <a class="header-workspace-exercise__title" href="/exercises/{{ workspace_exercise.id }}">{{ workspace_exercise.title }}</a>
-    </div>
-    {% endif %}
+    <div class="header-start">
+      <div class="brand">
+        <i class="fa-solid fa-clipboard-list fa-icon-brand" aria-hidden="true"></i>
+        <span>نظام إدارة التمارين</span>
+      </div>
+      {% if user and workspace_exercise %}
+      <div class="header-workspace-exercise" role="status" title="{{ workspace_exercise.code }} — {{ workspace_exercise.title }}">
+        <span class="header-workspace-exercise__tag">التمرين الحالي</span>
+        <a class="header-workspace-exercise__title" href="/exercises/{{ workspace_exercise.id }}">{{ workspace_exercise.title }}</a>
+      </div>
+      {% elif header_exercise %}
+      <div class="header-workspace-exercise" role="status" title="{{ header_exercise.code }} — {{ header_exercise.title }}">
+        <span class="header-workspace-exercise__tag">التمرين</span>
+        <a class="header-workspace-exercise__title" href="/exercises/{{ header_exercise.id }}">{{ header_exercise.title }}</a>
+      </div>
+      {% endif %}
+      {% if user %}
+      <a class="header-home-link" href="/dashboard" title="الصفحة الرئيسية"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
+      {% endif %}
     </div>
     <nav>
       {% if user %}
-        <a href="/dashboard" title="الصفحة الرئيسية"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
         {% if user.role_key == 'system_admin' %}
         <div class="nav-dd" tabindex="0">
           <button type="button" class="nav-dd__toggle" aria-haspopup="true" aria-label="إدارة النظام">
@@ -74,14 +81,6 @@
     <div class="header-sub header-sub--welcome" role="status" style="background:linear-gradient(90deg, #f0f9ff 0%, #fff 100%);border-bottom:1px solid #e0f2fe;">
       <i class="fa-solid fa-hand-sparkles header-sub__icon" aria-hidden="true"></i>
       <span>مرحباً، <strong>{{ judge_welcome_name }}</strong></span>
-    </div>
-    {% endif %}
-    {% if header_exercise %}
-    <div class="header-sub" role="status">
-      <i class="fa-solid fa-dumbbell header-sub__icon" aria-hidden="true"></i>
-      <span class="header-sub__label">التمرين:</span>
-      <a class="header-sub__title" href="/exercises/{{ header_exercise.id }}">{{ header_exercise.title }}</a>
-      <span class="header-sub__code"><code>{{ header_exercise.code }}</code></span>
     </div>
     {% endif %}
   </header>

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import uuid
@@ -15,33 +16,65 @@ from sqlalchemy import delete
 from sqlalchemy.orm import Session, joinedload
 
 from app import exercise_options as ex_opts
-from app.config import EXERCISE_EXPORT_DIR
+from app.config import (
+    CHAT_UPLOAD_DIR,
+    DILEMMA_PDF_DIR,
+    EVAL_CRITERION_MEDIA_DIR,
+    EVALUATION_LIST_XLSX_DIR,
+    EXERCISE_EXPORT_DIR,
+    PLANNER_FLOW_BUNDLE_DIR,
+    VISUAL_DOC_DIR,
+)
 from app.exercise_phase_catalog import normalize_exercise_phase
 from app.unit_levels_catalog import label_for_unit_level_key, normalize_unit_level_key
 from app.models import (
+    AnalystEvaluationCriteriaPhaseItem,
+    AnalystEvaluationCriteriaResult,
+    AnalystEvaluationCriteriaUnit,
+    ChatMessage,
+    ChatRoom,
+    ChatRoomMember,
     Checklist,
     ChecklistItem,
     DilemmaItem,
+    EvaluationCriterionMedia,
     EvaluationListPdfItem,
-    AnalystEvaluationCriteriaResult,
-    AnalystEvaluationCriteriaUnit,
-    AnalystEvaluationCriteriaPhaseItem,
+    EvaluationListSavedResult,
     EvaluationNote,
     EventFlow,
     EventFlowType,
     Exercise,
+    ExerciseBattleUnitPersonnel,
+    ExerciseNotification,
     ExerciseObjective,
-    ExerciseRosterRow,
+    ExercisePlannerFlowBundle,
+    ExercisePlannerFlowBundleActionEval,
+    ExercisePlannerFlowBundleEventFlow,
     ExerciseRefLink,
-    ExerciseTimelineItem,
+    ExerciseRosterRow,
     ExerciseStatus,
+    ExerciseTimelineItem,
+    JudgeIncompleteTaskStatus,
+    JudgeTraineeAssignment,
+    PlannerFlowBundleEvalSavedResult,
     Problem,
     ProblemStatus,
     Reference,
     User,
+    VisualDocument,
 )
 
-EXPORT_SCHEMA_VERSION = 2
+EXPORT_SCHEMA_VERSION = 3
+
+# أسماء مجلدات داخل حزمة الملفات `{اسم_التمرين}_files/` — تطابق مجلدات instance
+FILE_BUCKET_ROOTS: dict[str, Path] = {
+    "dilemma_pdfs": DILEMMA_PDF_DIR,
+    "evaluation_list_xlsx": EVALUATION_LIST_XLSX_DIR,
+    "planner_flow_bundles": PLANNER_FLOW_BUNDLE_DIR,
+    "chat_uploads": CHAT_UPLOAD_DIR,
+    "visual_docs": VISUAL_DOC_DIR,
+    "eval_criterion_media": EVAL_CRITERION_MEDIA_DIR,
+}
 
 
 def export_directory() -> Path:
@@ -54,6 +87,33 @@ def _iso(dt: datetime | None) -> str | None:
     if dt is None:
         return None
     return dt.isoformat()
+
+
+def _eval_saved_export_row(s: EvaluationListSavedResult | PlannerFlowBundleEvalSavedResult) -> dict[str, Any]:
+    return {
+        "id": s.id,
+        "evaluation_item_id": getattr(s, "evaluation_item_id", None),
+        "bundle_action_eval_id": getattr(s, "bundle_action_eval_id", None),
+        "exercise_id": s.exercise_id,
+        "exercise_phase": normalize_exercise_phase(getattr(s, "exercise_phase", None)),
+        "unit_level_key": s.unit_level_key or "",
+        "payload_json": s.payload_json or "",
+        "total_pct": s.total_pct,
+        "grade_label": s.grade_label or "",
+        "saved_by_id": s.saved_by_id,
+        "is_approved": bool(s.is_approved),
+        "approved_by_id": s.approved_by_id,
+        "approved_at": _iso(s.approved_at),
+        "reopened_for_judge": bool(getattr(s, "reopened_for_judge", False)),
+        "is_chief_approved": bool(getattr(s, "is_chief_approved", False)),
+        "chief_approved_by_id": getattr(s, "chief_approved_by_id", None),
+        "chief_approved_at": _iso(getattr(s, "chief_approved_at", None)),
+        "is_control_approved": bool(getattr(s, "is_control_approved", False)),
+        "control_approved_by_id": getattr(s, "control_approved_by_id", None),
+        "control_approved_at": _iso(getattr(s, "control_approved_at", None)),
+        "created_at": _iso(s.created_at),
+        "updated_at": _iso(getattr(s, "updated_at", None)),
+    }
 
 
 def _sanitize_filename_stem(name: str, fallback: str) -> str:
@@ -121,6 +181,89 @@ def exercise_to_export_dict(ex: Exercise, db: Session) -> dict[str, Any]:
         db.query(EvaluationListPdfItem)
         .filter(EvaluationListPdfItem.exercise_id == ex.id)
         .order_by(EvaluationListPdfItem.unit_level_key, EvaluationListPdfItem.sort_order, EvaluationListPdfItem.id)
+        .all()
+    )
+    timeline_rows = (
+        db.query(ExerciseTimelineItem)
+        .filter(ExerciseTimelineItem.exercise_id == ex.id)
+        .order_by(ExerciseTimelineItem.sort_order, ExerciseTimelineItem.id)
+        .all()
+    )
+    battle_personnel = (
+        db.query(ExerciseBattleUnitPersonnel)
+        .filter(ExerciseBattleUnitPersonnel.exercise_id == ex.id)
+        .order_by(ExerciseBattleUnitPersonnel.unit_id)
+        .all()
+    )
+    planner_bundles = (
+        db.query(ExercisePlannerFlowBundle)
+        .options(
+            joinedload(ExercisePlannerFlowBundle.event_flow_items),
+            joinedload(ExercisePlannerFlowBundle.action_eval_slots).joinedload(
+                ExercisePlannerFlowBundleActionEval.eval_saved
+            ),
+        )
+        .filter(ExercisePlannerFlowBundle.exercise_id == ex.id)
+        .order_by(
+            ExercisePlannerFlowBundle.exercise_phase,
+            ExercisePlannerFlowBundle.unit_level_key,
+        )
+        .all()
+    )
+    eval_saved_rows = (
+        db.query(EvaluationListSavedResult)
+        .filter(EvaluationListSavedResult.exercise_id == ex.id)
+        .all()
+    )
+    judge_assignments = (
+        db.query(JudgeTraineeAssignment)
+        .filter(JudgeTraineeAssignment.exercise_id == ex.id)
+        .all()
+    )
+    analyst_units = (
+        db.query(AnalystEvaluationCriteriaUnit)
+        .filter(AnalystEvaluationCriteriaUnit.exercise_id == ex.id)
+        .order_by(AnalystEvaluationCriteriaUnit.sort_order, AnalystEvaluationCriteriaUnit.id)
+        .all()
+    )
+    analyst_phase_items = (
+        db.query(AnalystEvaluationCriteriaPhaseItem)
+        .filter(AnalystEvaluationCriteriaPhaseItem.exercise_id == ex.id)
+        .order_by(AnalystEvaluationCriteriaPhaseItem.criteria_unit_id, AnalystEvaluationCriteriaPhaseItem.sort_order)
+        .all()
+    )
+    analyst_results = (
+        db.query(AnalystEvaluationCriteriaResult)
+        .filter(AnalystEvaluationCriteriaResult.exercise_id == ex.id)
+        .all()
+    )
+    judge_tasks = (
+        db.query(JudgeIncompleteTaskStatus)
+        .filter(JudgeIncompleteTaskStatus.exercise_id == ex.id)
+        .all()
+    )
+    crit_media = (
+        db.query(EvaluationCriterionMedia)
+        .filter(EvaluationCriterionMedia.exercise_id == ex.id)
+        .all()
+    )
+    visual_docs = (
+        db.query(VisualDocument)
+        .filter(VisualDocument.exercise_id == ex.id)
+        .order_by(VisualDocument.created_at)
+        .all()
+    )
+    chat_rooms = (
+        db.query(ChatRoom)
+        .options(joinedload(ChatRoom.members), joinedload(ChatRoom.messages))
+        .filter(ChatRoom.exercise_id == ex.id)
+        .order_by(ChatRoom.id)
+        .all()
+    )
+    notifications = (
+        db.query(ExerciseNotification)
+        .filter(ExerciseNotification.exercise_id == ex.id)
+        .order_by(ExerciseNotification.created_at)
         .all()
     )
 
@@ -237,40 +380,545 @@ def exercise_to_export_dict(ex: Exercise, db: Session) -> dict[str, Any]:
         ],
         "dilemma_items": [
             {
+                "id": d.id,
                 "unit_level_key": d.unit_level_key,
                 "unit_level_label": d.unit_level_label or "",
                 "exercise_phase": normalize_exercise_phase(getattr(d, "exercise_phase", None)),
                 "sort_order": d.sort_order,
                 "text": d.text,
                 "pdf_relpath": d.pdf_relpath or "",
+                "created_at": _iso(d.created_at),
             }
             for d in dilemma_rows
         ],
         "evaluation_list_items": [
             {
+                "id": e.id,
                 "unit_level_key": e.unit_level_key,
                 "unit_level_label": e.unit_level_label or "",
                 "exercise_phase": normalize_exercise_phase(getattr(e, "exercise_phase", None)),
                 "sort_order": e.sort_order,
                 "text": e.text,
                 "pdf_relpath": e.pdf_relpath or "",
+                "created_at": _iso(e.created_at),
             }
             for e in evaluation_list_rows
+        ],
+        "timeline_items": [
+            {
+                "id": t.id,
+                "parent_id": t.parent_id,
+                "sort_order": t.sort_order,
+                "row_kind": t.row_kind or "",
+                "sequence_no": t.sequence_no,
+                "child_sequence_no": t.child_sequence_no,
+                "title": t.title or "",
+                "time_from": t.time_from or "",
+                "time_to": t.time_to or "",
+                "reporting_systems": t.reporting_systems or "",
+                "description": t.description or "",
+                "expected_reaction": t.expected_reaction or "",
+                "training_objective": t.training_objective or "",
+                "notes": t.notes or "",
+                "created_at": _iso(t.created_at),
+                "updated_at": _iso(t.updated_at),
+            }
+            for t in timeline_rows
+        ],
+        "battle_unit_personnel": [
+            {
+                "unit_id": p.unit_id,
+                "trainee_name": p.trainee_name or "",
+                "trainee_military_number": p.trainee_military_number or "",
+                "rank_ar": p.rank_ar or "",
+                "position_ar": p.position_ar or "",
+                "judge_trainee_name": p.judge_trainee_name or "",
+                "judge_military_number": p.judge_military_number or "",
+                "judge_rank_ar": p.judge_rank_ar or "",
+                "judge_position_ar": p.judge_position_ar or "",
+                "updated_at": _iso(p.updated_at),
+            }
+            for p in battle_personnel
+        ],
+        "planner_flow_bundles": [
+            {
+                "id": b.id,
+                "exercise_phase": normalize_exercise_phase(b.exercise_phase),
+                "unit_level_key": b.unit_level_key,
+                "unit_level_label": b.unit_level_label or "",
+                "event_flow_title": b.event_flow_title or "",
+                "event_flow_file_relpath": b.event_flow_file_relpath or "",
+                "dilemma_count": b.dilemma_count,
+                "linked_at": _iso(b.linked_at),
+                "created_at": _iso(b.created_at),
+                "updated_at": _iso(b.updated_at),
+                "event_flow_items": [
+                    {
+                        "id": ef.id,
+                        "slot_index": ef.slot_index,
+                        "title": ef.title or "",
+                        "file_relpath": ef.file_relpath or "",
+                        "created_at": _iso(ef.created_at),
+                    }
+                    for ef in sorted(b.event_flow_items or [], key=lambda x: x.slot_index)
+                ],
+                "action_eval_slots": [
+                    {
+                        "id": ae.id,
+                        "slot_index": ae.slot_index,
+                        "event_flow_item_id": ae.event_flow_item_id,
+                        "title": ae.title or "",
+                        "file_relpath": ae.file_relpath or "",
+                        "created_at": _iso(ae.created_at),
+                        "eval_saved": (
+                            _eval_saved_export_row(ae.eval_saved)
+                            if ae.eval_saved is not None
+                            else None
+                        ),
+                    }
+                    for ae in sorted(b.action_eval_slots or [], key=lambda x: x.slot_index)
+                ],
+            }
+            for b in planner_bundles
+        ],
+        "evaluation_list_saved_results": [
+            _eval_saved_export_row(s) for s in eval_saved_rows
+        ],
+        "judge_trainee_assignments": [
+            {
+                "id": a.id,
+                "judge_user_id": a.judge_user_id,
+                "unit_level_key": a.unit_level_key or "",
+                "trainee_name": a.trainee_name or "",
+                "trainee_military_number": a.trainee_military_number or "",
+                "planner_flow_bundle_id": a.planner_flow_bundle_id,
+                "created_at": _iso(a.created_at),
+            }
+            for a in judge_assignments
+        ],
+        "analyst_evaluation_criteria_units": [
+            {
+                "id": u.id,
+                "sort_order": u.sort_order,
+                "label": u.label or "",
+                "created_at": _iso(u.created_at),
+                "updated_at": _iso(u.updated_at),
+            }
+            for u in analyst_units
+        ],
+        "analyst_evaluation_criteria_phase_items": [
+            {
+                "id": pi.id,
+                "criteria_unit_id": pi.criteria_unit_id,
+                "phase_key": pi.phase_key or "",
+                "sort_order": pi.sort_order,
+                "criteria_text": pi.criteria_text or "",
+                "allocated_mark": pi.allocated_mark,
+                "created_at": _iso(pi.created_at),
+                "updated_at": _iso(pi.updated_at),
+            }
+            for pi in analyst_phase_items
+        ],
+        "analyst_evaluation_criteria_results": [
+            {
+                "id": r.id,
+                "unit_level_key": r.unit_level_key or "",
+                "preparation_pct": r.preparation_pct,
+                "operations_pct": r.operations_pct,
+                "updated_by_id": r.updated_by_id,
+                "updated_at": _iso(r.updated_at),
+            }
+            for r in analyst_results
+        ],
+        "judge_incomplete_task_status": [
+            {
+                "id": t.id,
+                "judge_id": t.judge_id,
+                "unit_level_key": t.unit_level_key or "",
+                "exercise_phase": normalize_exercise_phase(t.exercise_phase),
+                "pair_index": t.pair_index,
+                "dilemma_id": t.dilemma_id,
+                "evaluation_item_id": t.evaluation_item_id,
+                "status_key": t.status_key or "",
+                "updated_at": _iso(t.updated_at),
+            }
+            for t in judge_tasks
+        ],
+        "evaluation_criterion_media": [
+            {
+                "id": m.id,
+                "unit_level_key": m.unit_level_key or "",
+                "evaluation_list_item_id": m.evaluation_list_item_id,
+                "bundle_action_eval_id": m.bundle_action_eval_id,
+                "row_index": m.row_index,
+                "media_kind": m.media_kind or "",
+                "mime_type": m.mime_type or "",
+                "file_relpath": m.file_relpath or "",
+                "uploaded_by_id": m.uploaded_by_id,
+                "created_at": _iso(m.created_at),
+            }
+            for m in crit_media
+        ],
+        "visual_documents": [
+            {
+                "id": v.id,
+                "event_id": v.event_id,
+                "dilemma_id": v.dilemma_id,
+                "unit_level_key": v.unit_level_key or "",
+                "uploaded_by_id": v.uploaded_by_id,
+                "file_type": v.file_type or "",
+                "file_relpath": v.file_relpath or "",
+                "description": v.description or "",
+                "location_label": v.location_label or "",
+                "created_at": _iso(v.created_at),
+            }
+            for v in visual_docs
+        ],
+        "chat_rooms": [
+            {
+                "id": room.id,
+                "title": room.title or "",
+                "description": room.description or "",
+                "room_kind": room.room_kind or "",
+                "unit_level_key": room.unit_level_key or "",
+                "created_by_id": room.created_by_id,
+                "created_at": _iso(room.created_at),
+                "last_activity_at": _iso(room.last_activity_at),
+                "is_archived": bool(room.is_archived),
+                "members": [
+                    {
+                        "user_id": mem.user_id,
+                        "role_in_room": mem.role_in_room or "",
+                        "joined_at": _iso(mem.joined_at),
+                    }
+                    for mem in sorted(room.members or [], key=lambda x: x.joined_at or datetime.min)
+                ],
+                "messages": [
+                    {
+                        "id": msg.id,
+                        "sender_id": msg.sender_id,
+                        "message_type": msg.message_type or "",
+                        "body_text": msg.body_text or "",
+                        "file_relpath": msg.file_relpath or "",
+                        "original_filename": msg.original_filename or "",
+                        "mime_type": msg.mime_type or "",
+                        "file_size": msg.file_size,
+                        "created_at": _iso(msg.created_at),
+                    }
+                    for msg in sorted(room.messages or [], key=lambda x: x.created_at or datetime.min)
+                ],
+            }
+            for room in chat_rooms
+        ],
+        "exercise_notifications": [
+            {
+                "id": n.id,
+                "user_id": n.user_id,
+                "type": n.type or "",
+                "title": n.title or "",
+                "body": n.body or "",
+                "priority": n.priority or "",
+                "is_read": bool(n.is_read),
+                "related_file": n.related_file or "",
+                "related_room_id": n.related_room_id,
+                "action_url": n.action_url or "",
+                "created_at": _iso(n.created_at),
+            }
+            for n in notifications
         ],
     }
 
 
-def write_exercise_json_file(db: Session, exercise_id: int) -> Path | None:
+def _normalize_storage_relpath(relpath: str) -> str:
+    return (relpath or "").replace("\\", "/").lstrip("/")
+
+
+def archive_bundle_dir_for_json(json_path: Path) -> Path:
+    return json_path.parent / f"{json_path.stem}_files"
+
+
+def _resolve_exercise_file_source(relpath: str) -> tuple[str, Path] | None:
+    """يُرجع (اسم_المجلد، المسار_الكامل) إن وُجد الملف في أحد مجلدات التخزين."""
+    rel = _normalize_storage_relpath(relpath)
+    if not rel or ".." in rel.split("/"):
+        return None
+    for bucket, root in FILE_BUCKET_ROOTS.items():
+        src = (root / rel).resolve()
+        try:
+            src.relative_to(root.resolve())
+        except ValueError:
+            continue
+        if src.is_file():
+            return bucket, src
+    return None
+
+
+def sync_exercise_files_to_archive_bundle(
+    db: Session, exercise_id: int, bundle_dir: Path
+) -> list[dict[str, str]]:
+    """نسخ كل ملفات التمرين إلى مجلد الأرشيف بجانب JSON."""
+    entries: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for relpath in _collect_exercise_file_relpaths(db, exercise_id):
+        resolved = _resolve_exercise_file_source(relpath)
+        if not resolved:
+            continue
+        bucket, src = resolved
+        rel = _normalize_storage_relpath(relpath)
+        key = (bucket, rel)
+        if key in seen:
+            continue
+        seen.add(key)
+        dest = bundle_dir / bucket / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copy2(src, dest)
+        except OSError:
+            continue
+        entries.append({"bucket": bucket, "relpath": rel})
+    return entries
+
+
+def _archive_entries_from_bundle_scan(bundle_dir: Path) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
+    if not bundle_dir.is_dir():
+        return entries
+    for bucket in FILE_BUCKET_ROOTS:
+        bucket_path = bundle_dir / bucket
+        if not bucket_path.is_dir():
+            continue
+        for f in bucket_path.rglob("*"):
+            if not f.is_file():
+                continue
+            rel = f.relative_to(bucket_path).as_posix()
+            entries.append({"bucket": bucket, "relpath": rel})
+    return entries
+
+
+def restore_exercise_files_from_archive(
+    bundle_dir: Path, data: dict[str, Any] | None = None
+) -> int:
+    """استعادة ملفات التمرين من حزمة الأرشيف إلى مجلدات instance."""
+    if not bundle_dir.is_dir():
+        return 0
+    entries: list[dict[str, Any]] = []
+    if isinstance(data, dict):
+        af = data.get("archive_files")
+        if isinstance(af, dict) and isinstance(af.get("entries"), list):
+            entries = [e for e in af["entries"] if isinstance(e, dict)]
+    if not entries:
+        entries = _archive_entries_from_bundle_scan(bundle_dir)
+    restored = 0
+    for row in entries:
+        bucket = str(row.get("bucket") or "").strip()
+        rel = _normalize_storage_relpath(str(row.get("relpath") or ""))
+        if not bucket or not rel or bucket not in FILE_BUCKET_ROOTS:
+            continue
+        src = bundle_dir / bucket / rel
+        if not src.is_file():
+            continue
+        root = FILE_BUCKET_ROOTS[bucket]
+        dest = root / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copy2(src, dest)
+            restored += 1
+        except OSError:
+            continue
+    return restored
+
+
+def resolve_archive_bundle_dir_for_import(data: dict[str, Any]) -> Path | None:
+    """تحديد مجلد `_files` المرافق لملف JSON في مجلد التصدير."""
+    directory = export_directory()
+    if isinstance(data.get("archive_files"), dict):
+        bundle_name = str(data["archive_files"].get("bundle_dir") or "").strip()
+        if bundle_name:
+            candidate = (directory / bundle_name).resolve()
+            try:
+                candidate.relative_to(directory.resolve())
+            except ValueError:
+                candidate = None  # type: ignore[assignment]
+            if candidate is not None and candidate.is_dir():
+                return candidate
+    exj = data.get("exercise")
+    if isinstance(exj, dict):
+        try:
+            eid = int(exj.get("id")) if exj.get("id") is not None else 0
+        except (TypeError, ValueError):
+            eid = 0
+        json_path = _export_path_for_exercise(
+            directory,
+            str(exj.get("title") or ""),
+            str(exj.get("code") or ""),
+            eid,
+        )
+        bundle = archive_bundle_dir_for_json(json_path)
+        if bundle.is_dir():
+            return bundle
+        for p in sorted(directory.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
+            try:
+                j = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if not isinstance(j, dict):
+                continue
+            jex = j.get("exercise")
+            if not isinstance(jex, dict):
+                continue
+            if eid and jex.get("id") == eid:
+                b = archive_bundle_dir_for_json(p)
+                if b.is_dir():
+                    return b
+            if (
+                not eid
+                and str(jex.get("title") or "").strip() == str(exj.get("title") or "").strip()
+                and str(jex.get("code") or "").strip() == str(exj.get("code") or "").strip()
+            ):
+                b = archive_bundle_dir_for_json(p)
+                if b.is_dir():
+                    return b
+    return None
+
+
+def write_exercise_json_file(
+    db: Session,
+    exercise_id: int,
+    *,
+    mark_closed: bool = False,
+    archive_meta: dict[str, Any] | None = None,
+    sync_file_bundle: bool = True,
+) -> Path | None:
     ex = load_exercise_for_export(db, exercise_id)
     if not ex:
         return None
-    payload = exercise_to_export_dict(ex, db)
     directory = export_directory()
     path = _export_path_for_exercise(directory, ex.title, ex.code, ex.id)
+    file_entries: list[dict[str, str]] = []
+    if sync_file_bundle:
+        bundle_dir = archive_bundle_dir_for_json(path)
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        file_entries = sync_exercise_files_to_archive_bundle(db, exercise_id, bundle_dir)
+    payload = exercise_to_export_dict(ex, db)
+    if mark_closed:
+        payload.setdefault("exercise", {})["status"] = ExerciseStatus.CLOSED.value
+    if archive_meta:
+        payload["archive"] = archive_meta
+    if sync_file_bundle:
+        payload["archive_files"] = {
+            "bundle_dir": f"{path.stem}_files",
+            "entries": file_entries,
+            "file_count": len(file_entries),
+        }
     path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    return path
+
+
+def _safe_unlink_under(root: Path, relpath: str) -> None:
+    if not relpath or not isinstance(relpath, str):
+        return
+    rel = relpath.replace("\\", "/").lstrip("/")
+    if ".." in rel.split("/"):
+        return
+    target = (root / rel).resolve()
+    try:
+        target.relative_to(root.resolve())
+    except ValueError:
+        return
+    if target.is_file():
+        try:
+            target.unlink()
+        except OSError:
+            pass
+
+
+def _collect_exercise_file_relpaths(db: Session, exercise_id: int) -> set[str]:
+    rels: set[str] = set()
+    for row in db.query(DilemmaItem.pdf_relpath).filter(DilemmaItem.exercise_id == exercise_id):
+        if row[0]:
+            rels.add(row[0])
+    for row in db.query(EvaluationListPdfItem.pdf_relpath).filter(
+        EvaluationListPdfItem.exercise_id == exercise_id
+    ):
+        if row[0]:
+            rels.add(row[0])
+    bundles = (
+        db.query(ExercisePlannerFlowBundle)
+        .options(
+            joinedload(ExercisePlannerFlowBundle.event_flow_items),
+            joinedload(ExercisePlannerFlowBundle.action_eval_slots),
+        )
+        .filter(ExercisePlannerFlowBundle.exercise_id == exercise_id)
+        .all()
+    )
+    for b in bundles:
+        if b.event_flow_file_relpath:
+            rels.add(b.event_flow_file_relpath)
+        for ef in b.event_flow_items or []:
+            if ef.file_relpath:
+                rels.add(ef.file_relpath)
+        for ae in b.action_eval_slots or []:
+            if ae.file_relpath:
+                rels.add(ae.file_relpath)
+    for row in db.query(ChatMessage.file_relpath).join(ChatRoom).filter(
+        ChatRoom.exercise_id == exercise_id, ChatMessage.file_relpath != ""
+    ):
+        if row[0]:
+            rels.add(row[0])
+    for row in db.query(VisualDocument.file_relpath).filter(
+        VisualDocument.exercise_id == exercise_id
+    ):
+        if row[0]:
+            rels.add(row[0])
+    for row in db.query(EvaluationCriterionMedia.file_relpath).filter(
+        EvaluationCriterionMedia.exercise_id == exercise_id
+    ):
+        if row[0]:
+            rels.add(row[0])
+    for row in db.query(ExerciseNotification.related_file).filter(
+        ExerciseNotification.exercise_id == exercise_id
+    ):
+        if row[0]:
+            rels.add(row[0])
+    return rels
+
+
+def _remove_exercise_upload_files(db: Session, exercise_id: int) -> None:
+    rels = _collect_exercise_file_relpaths(db, exercise_id)
+    for rel in rels:
+        _safe_unlink_under(DILEMMA_PDF_DIR, rel)
+        _safe_unlink_under(EVALUATION_LIST_XLSX_DIR, rel)
+        _safe_unlink_under(PLANNER_FLOW_BUNDLE_DIR, rel)
+        _safe_unlink_under(CHAT_UPLOAD_DIR, rel)
+        _safe_unlink_under(VISUAL_DOC_DIR, rel)
+        _safe_unlink_under(EVAL_CRITERION_MEDIA_DIR, rel)
+
+
+def archive_and_clear_current_exercise(
+    db: Session, exercise_id: int, *, finished_by_id: int
+) -> Path | None:
+    """حفظ نسخة أرشيف كاملة (JSON + ملفات) ثم حذف التمرين وكل بياناته (دون بنك المعلومات)."""
+    ex = db.get(Exercise, exercise_id)
+    if not ex:
+        return None
+    path = write_exercise_json_file(
+        db,
+        exercise_id,
+        mark_closed=True,
+        archive_meta={
+            "finished_at": datetime.utcnow().isoformat(),
+            "finished_by_id": finished_by_id,
+            "reason": "end_exercise",
+        },
+        sync_file_bundle=True,
+    )
+    _remove_exercise_upload_files(db, exercise_id)
+    # حذف عبر SQL لتفعيل ON DELETE CASCADE (تجنّب ORM الذي يُفرّغ exercise_id)
+    db.execute(delete(Exercise).where(Exercise.id == exercise_id))
+    db.flush()
     return path
 
 
@@ -339,6 +987,14 @@ def extract_create_form_prefill_from_export_json(
         warnings.append(f"قيمة غير معتمدة في القائمة ({label_ar})، وتُركت: {snippet}")
         return None
 
+    def _text(val: Any, max_len: int) -> str | None:
+        if val is None:
+            return None
+        s = str(val).strip()
+        if not s:
+            return None
+        return s[:max_len]
+
     if not isinstance(data, dict):
         return {}, ["ملف JSON غير صالح (الجذر ليس كائناً)."]
     ex = data.get("exercise")
@@ -346,12 +1002,12 @@ def extract_create_form_prefill_from_export_json(
         return {}, ["الملف لا يحتوي على كائن «exercise» كما في ملفات التصدير."]
 
     fields: dict[str, str | None] = {
-        "exercise_name": _pick(ex.get("title"), ex_opts.EXERCISE_NAMES, "اسم التمرين"),
+        "exercise_name": _text(ex.get("title"), 500),
         "exercise_type": _pick(ex.get("exercise_type"), ex_opts.EXERCISE_TYPES, "نوع التمرين"),
         "exercise_level": _pick(ex.get("exercise_level"), ex_opts.EXERCISE_LEVELS, "مستوى التمرين"),
         "mission": _pick(ex.get("mission_label"), ex_opts.MISSIONS, "المهمة"),
-        "trained_unit": _pick(ex.get("trained_unit"), ex_opts.TRAINED_UNITS, "اسم الوحدة المتدربة"),
-        "location_label": _pick(ex.get("location_label"), ex_opts.EXERCISE_LOCATIONS, "مكان التمرين"),
+        "trained_unit": _text(ex.get("trained_unit"), 400),
+        "location_label": _text(ex.get("location_label"), 400),
         "planned_start": _iso_to_datetime_local_value(ex.get("planned_start")),
         "planned_end": _iso_to_datetime_local_value(ex.get("planned_end")),
     }
@@ -433,6 +1089,483 @@ def _uid_or(db: Session, uid: Any, fallback: int) -> int:
     except (TypeError, ValueError):
         return fallback
     return i if db.get(User, i) is not None else fallback
+
+
+def _import_saved_eval_row(
+    db: Session,
+    ex: Exercise,
+    row: dict[str, Any],
+    *,
+    evaluation_item_id: int | None,
+    bundle_action_eval_id: int | None,
+) -> None:
+    if evaluation_item_id is None and bundle_action_eval_id is None:
+        return
+    try:
+        total_pct = float(row["total_pct"]) if row.get("total_pct") is not None else None
+    except (TypeError, ValueError):
+        total_pct = None
+    phase = normalize_exercise_phase(str(row.get("exercise_phase") or ""))
+    common = dict(
+        exercise_id=ex.id,
+        exercise_phase=phase,
+        unit_level_key=str(row.get("unit_level_key") or "")[:64],
+        payload_json=str(row.get("payload_json") or ""),
+        total_pct=total_pct,
+        grade_label=str(row.get("grade_label") or "")[:64],
+        saved_by_id=_uid_or(db, row.get("saved_by_id"), ex.owner_id),
+        is_approved=bool(row.get("is_approved")),
+        approved_by_id=_uid_or(db, row.get("approved_by_id"), ex.owner_id)
+        if row.get("approved_by_id")
+        else None,
+        approved_at=_parse_dt(row.get("approved_at")),
+        reopened_for_judge=bool(row.get("reopened_for_judge")),
+        is_chief_approved=bool(row.get("is_chief_approved")),
+        chief_approved_by_id=_uid_or(db, row.get("chief_approved_by_id"), ex.owner_id)
+        if row.get("chief_approved_by_id")
+        else None,
+        chief_approved_at=_parse_dt(row.get("chief_approved_at")),
+        is_control_approved=bool(row.get("is_control_approved")),
+        control_approved_by_id=_uid_or(db, row.get("control_approved_by_id"), ex.owner_id)
+        if row.get("control_approved_by_id")
+        else None,
+        control_approved_at=_parse_dt(row.get("control_approved_at")),
+        created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
+        updated_at=_parse_dt(row.get("updated_at")) or datetime.utcnow(),
+    )
+    if bundle_action_eval_id is not None:
+        db.add(
+            PlannerFlowBundleEvalSavedResult(
+                bundle_action_eval_id=bundle_action_eval_id,
+                **common,
+            )
+        )
+    elif evaluation_item_id is not None:
+        db.add(
+            EvaluationListSavedResult(
+                evaluation_item_id=evaluation_item_id,
+                **common,
+            )
+        )
+
+
+def _import_v3_exercise_bundle(
+    db: Session,
+    ex: Exercise,
+    data: dict[str, Any],
+    owner_id: int,
+    *,
+    eval_item_old_to_new: dict[int, int],
+    dilemma_old_to_new: dict[int, int],
+    timeline_old_to_new: dict[int, int],
+) -> None:
+    """استيراد أقسام مخطط التصدير 3 (نتائج، حزم مجرى، محادثات، …)."""
+    personnel = data.get("battle_unit_personnel") or []
+    if isinstance(personnel, list):
+        for row in personnel:
+            if not isinstance(row, dict):
+                continue
+            uid = str(row.get("unit_id") or "").strip()[:64]
+            if not uid:
+                continue
+            db.add(
+                ExerciseBattleUnitPersonnel(
+                    exercise_id=ex.id,
+                    unit_id=uid,
+                    trainee_name=str(row.get("trainee_name") or "")[:256],
+                    trainee_military_number=str(row.get("trainee_military_number") or "")[:128],
+                    rank_ar=str(row.get("rank_ar") or "")[:256],
+                    position_ar=str(row.get("position_ar") or "")[:512],
+                    judge_trainee_name=str(row.get("judge_trainee_name") or "")[:256],
+                    judge_military_number=str(row.get("judge_military_number") or "")[:128],
+                    judge_rank_ar=str(row.get("judge_rank_ar") or "")[:256],
+                    judge_position_ar=str(row.get("judge_position_ar") or "")[:512],
+                    updated_at=_parse_dt(row.get("updated_at")) or datetime.utcnow(),
+                )
+            )
+
+    bundle_old_to_new: dict[int, int] = {}
+    event_flow_old_to_new: dict[int, int] = {}
+    action_old_to_new: dict[int, int] = {}
+    bundles = data.get("planner_flow_bundles") or []
+    if isinstance(bundles, list):
+        for row in bundles:
+            if not isinstance(row, dict):
+                continue
+            try:
+                old_bid = int(row.get("id")) if row.get("id") is not None else 0
+            except (TypeError, ValueError):
+                old_bid = 0
+            b = ExercisePlannerFlowBundle(
+                exercise_id=ex.id,
+                exercise_phase=normalize_exercise_phase(str(row.get("exercise_phase") or "")),
+                unit_level_key=str(row.get("unit_level_key") or "")[:64],
+                unit_level_label=str(row.get("unit_level_label") or "")[:200],
+                event_flow_title=str(row.get("event_flow_title") or "")[:500],
+                event_flow_file_relpath=str(row.get("event_flow_file_relpath") or "")[:500],
+                dilemma_count=int(row.get("dilemma_count") or 0),
+                linked_at=_parse_dt(row.get("linked_at")),
+                created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
+                updated_at=_parse_dt(row.get("updated_at")) or datetime.utcnow(),
+            )
+            db.add(b)
+            db.flush()
+            if old_bid:
+                bundle_old_to_new[old_bid] = b.id
+            for ef in row.get("event_flow_items") or []:
+                if not isinstance(ef, dict):
+                    continue
+                try:
+                    old_ef = int(ef.get("id")) if ef.get("id") is not None else 0
+                except (TypeError, ValueError):
+                    old_ef = 0
+                try:
+                    slot_i = int(ef.get("slot_index") or 0)
+                except (TypeError, ValueError):
+                    slot_i = 0
+                ef_row = ExercisePlannerFlowBundleEventFlow(
+                    bundle_id=b.id,
+                    slot_index=slot_i,
+                    title=str(ef.get("title") or "")[:500],
+                    file_relpath=str(ef.get("file_relpath") or "")[:500],
+                    created_at=_parse_dt(ef.get("created_at")) or datetime.utcnow(),
+                )
+                db.add(ef_row)
+                db.flush()
+                if old_ef:
+                    event_flow_old_to_new[old_ef] = ef_row.id
+            for ae in row.get("action_eval_slots") or []:
+                if not isinstance(ae, dict):
+                    continue
+                try:
+                    old_ae = int(ae.get("id")) if ae.get("id") is not None else 0
+                except (TypeError, ValueError):
+                    old_ae = 0
+                try:
+                    slot_i = int(ae.get("slot_index") or 0)
+                except (TypeError, ValueError):
+                    slot_i = 0
+                try:
+                    old_ef_ref = int(ae.get("event_flow_item_id")) if ae.get("event_flow_item_id") else 0
+                except (TypeError, ValueError):
+                    old_ef_ref = 0
+                new_ef_ref = event_flow_old_to_new.get(old_ef_ref) if old_ef_ref else None
+                ae_row = ExercisePlannerFlowBundleActionEval(
+                    bundle_id=b.id,
+                    slot_index=slot_i,
+                    event_flow_item_id=new_ef_ref,
+                    title=str(ae.get("title") or "")[:500],
+                    file_relpath=str(ae.get("file_relpath") or "")[:500],
+                    created_at=_parse_dt(ae.get("created_at")) or datetime.utcnow(),
+                )
+                db.add(ae_row)
+                db.flush()
+                if old_ae:
+                    action_old_to_new[old_ae] = ae_row.id
+                es = ae.get("eval_saved")
+                if isinstance(es, dict):
+                    _import_saved_eval_row(
+                        db,
+                        ex,
+                        es,
+                        evaluation_item_id=None,
+                        bundle_action_eval_id=ae_row.id,
+                    )
+
+    saved_list = data.get("evaluation_list_saved_results") or []
+    if isinstance(saved_list, list):
+        for row in saved_list:
+            if not isinstance(row, dict):
+                continue
+            try:
+                old_eid = int(row.get("evaluation_item_id")) if row.get("evaluation_item_id") else 0
+            except (TypeError, ValueError):
+                old_eid = 0
+            new_eid = eval_item_old_to_new.get(old_eid)
+            if not new_eid:
+                continue
+            _import_saved_eval_row(
+                db,
+                ex,
+                row,
+                evaluation_item_id=new_eid,
+                bundle_action_eval_id=None,
+            )
+
+    assignments = data.get("judge_trainee_assignments") or []
+    if isinstance(assignments, list):
+        for row in assignments:
+            if not isinstance(row, dict):
+                continue
+            try:
+                old_pb = int(row.get("planner_flow_bundle_id")) if row.get("planner_flow_bundle_id") else 0
+            except (TypeError, ValueError):
+                old_pb = 0
+            db.add(
+                JudgeTraineeAssignment(
+                    exercise_id=ex.id,
+                    judge_user_id=_uid_or(db, row.get("judge_user_id"), owner_id),
+                    unit_level_key=str(row.get("unit_level_key") or "")[:64],
+                    trainee_name=str(row.get("trainee_name") or "")[:256],
+                    trainee_military_number=str(row.get("trainee_military_number") or "")[:128],
+                    planner_flow_bundle_id=bundle_old_to_new.get(old_pb) if old_pb else None,
+                    created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
+                )
+            )
+
+    unit_old_to_new: dict[int, int] = {}
+    analyst_units = data.get("analyst_evaluation_criteria_units") or []
+    if isinstance(analyst_units, list):
+        for row in analyst_units:
+            if not isinstance(row, dict):
+                continue
+            try:
+                old_uid = int(row.get("id")) if row.get("id") is not None else 0
+            except (TypeError, ValueError):
+                old_uid = 0
+            try:
+                so = int(row.get("sort_order") or 0)
+            except (TypeError, ValueError):
+                so = 0
+            u = AnalystEvaluationCriteriaUnit(
+                exercise_id=ex.id,
+                sort_order=so,
+                label=str(row.get("label") or "")[:300],
+                created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
+                updated_at=_parse_dt(row.get("updated_at")) or datetime.utcnow(),
+            )
+            db.add(u)
+            db.flush()
+            if old_uid:
+                unit_old_to_new[old_uid] = u.id
+
+    phase_items = data.get("analyst_evaluation_criteria_phase_items") or []
+    if isinstance(phase_items, list):
+        for row in phase_items:
+            if not isinstance(row, dict):
+                continue
+            try:
+                old_cuid = int(row.get("criteria_unit_id")) if row.get("criteria_unit_id") else 0
+            except (TypeError, ValueError):
+                old_cuid = 0
+            new_cuid = unit_old_to_new.get(old_cuid)
+            if not new_cuid:
+                continue
+            try:
+                so = int(row.get("sort_order") or 0)
+            except (TypeError, ValueError):
+                so = 0
+            try:
+                mark = float(row["allocated_mark"]) if row.get("allocated_mark") is not None else None
+            except (TypeError, ValueError):
+                mark = None
+            db.add(
+                AnalystEvaluationCriteriaPhaseItem(
+                    exercise_id=ex.id,
+                    criteria_unit_id=new_cuid,
+                    phase_key=str(row.get("phase_key") or "")[:32],
+                    sort_order=so,
+                    criteria_text=str(row.get("criteria_text") or "")[:1000],
+                    allocated_mark=mark,
+                    created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
+                    updated_at=_parse_dt(row.get("updated_at")) or datetime.utcnow(),
+                )
+            )
+
+    analyst_results = data.get("analyst_evaluation_criteria_results") or []
+    if isinstance(analyst_results, list):
+        for row in analyst_results:
+            if not isinstance(row, dict):
+                continue
+            try:
+                prep = float(row["preparation_pct"]) if row.get("preparation_pct") is not None else None
+            except (TypeError, ValueError):
+                prep = None
+            try:
+                ops = float(row["operations_pct"]) if row.get("operations_pct") is not None else None
+            except (TypeError, ValueError):
+                ops = None
+            db.add(
+                AnalystEvaluationCriteriaResult(
+                    exercise_id=ex.id,
+                    unit_level_key=str(row.get("unit_level_key") or "")[:64],
+                    preparation_pct=prep,
+                    operations_pct=ops,
+                    updated_by_id=_uid_or(db, row.get("updated_by_id"), owner_id)
+                    if row.get("updated_by_id")
+                    else None,
+                    updated_at=_parse_dt(row.get("updated_at")) or datetime.utcnow(),
+                )
+            )
+
+    tasks = data.get("judge_incomplete_task_status") or []
+    if isinstance(tasks, list):
+        for row in tasks:
+            if not isinstance(row, dict):
+                continue
+            try:
+                pair_i = int(row.get("pair_index") or 0)
+            except (TypeError, ValueError):
+                pair_i = 0
+            try:
+                old_did = int(row.get("dilemma_id")) if row.get("dilemma_id") else 0
+            except (TypeError, ValueError):
+                old_did = 0
+            try:
+                old_eid = int(row.get("evaluation_item_id")) if row.get("evaluation_item_id") else 0
+            except (TypeError, ValueError):
+                old_eid = 0
+            db.add(
+                JudgeIncompleteTaskStatus(
+                    exercise_id=ex.id,
+                    judge_id=_uid_or(db, row.get("judge_id"), owner_id),
+                    unit_level_key=str(row.get("unit_level_key") or "")[:64],
+                    exercise_phase=normalize_exercise_phase(str(row.get("exercise_phase") or "")),
+                    pair_index=pair_i,
+                    dilemma_id=dilemma_old_to_new.get(old_did) if old_did else None,
+                    evaluation_item_id=eval_item_old_to_new.get(old_eid) if old_eid else None,
+                    status_key=str(row.get("status_key") or "ontime")[:16],
+                    updated_at=_parse_dt(row.get("updated_at")) or datetime.utcnow(),
+                )
+            )
+
+    for row in data.get("evaluation_criterion_media") or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            old_eid = int(row.get("evaluation_list_item_id")) if row.get("evaluation_list_item_id") else 0
+        except (TypeError, ValueError):
+            old_eid = 0
+        try:
+            old_ae = int(row.get("bundle_action_eval_id")) if row.get("bundle_action_eval_id") else 0
+        except (TypeError, ValueError):
+            old_ae = 0
+        try:
+            ri = int(row.get("row_index") or 0)
+        except (TypeError, ValueError):
+            ri = 0
+        db.add(
+            EvaluationCriterionMedia(
+                exercise_id=ex.id,
+                unit_level_key=str(row.get("unit_level_key") or "")[:64],
+                evaluation_list_item_id=eval_item_old_to_new.get(old_eid) if old_eid else None,
+                bundle_action_eval_id=action_old_to_new.get(old_ae) if old_ae else None,
+                row_index=ri,
+                media_kind=str(row.get("media_kind") or "photo")[:16],
+                mime_type=str(row.get("mime_type") or "")[:120],
+                file_relpath=str(row.get("file_relpath") or "")[:700],
+                uploaded_by_id=_uid_or(db, row.get("uploaded_by_id"), owner_id)
+                if row.get("uploaded_by_id")
+                else None,
+                created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
+            )
+        )
+
+    for row in data.get("visual_documents") or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            old_ev = int(row.get("event_id")) if row.get("event_id") else 0
+        except (TypeError, ValueError):
+            old_ev = 0
+        try:
+            old_did = int(row.get("dilemma_id")) if row.get("dilemma_id") else 0
+        except (TypeError, ValueError):
+            old_did = 0
+        db.add(
+            VisualDocument(
+                exercise_id=ex.id,
+                event_id=timeline_old_to_new.get(old_ev) if old_ev else None,
+                dilemma_id=dilemma_old_to_new.get(old_did) if old_did else None,
+                unit_level_key=str(row.get("unit_level_key") or "")[:64],
+                uploaded_by_id=_uid_or(db, row.get("uploaded_by_id"), owner_id),
+                file_type=str(row.get("file_type") or "image")[:16],
+                file_relpath=str(row.get("file_relpath") or "")[:700],
+                description=str(row.get("description") or ""),
+                location_label=str(row.get("location_label") or "")[:400],
+                created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
+            )
+        )
+
+    room_old_to_new: dict[int, int] = {}
+    for row in data.get("chat_rooms") or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            old_rid = int(row.get("id")) if row.get("id") is not None else 0
+        except (TypeError, ValueError):
+            old_rid = 0
+        room = ChatRoom(
+            exercise_id=ex.id,
+            title=str(row.get("title") or "")[:500],
+            description=str(row.get("description") or ""),
+            room_kind=str(row.get("room_kind") or "custom")[:64],
+            unit_level_key=str(row.get("unit_level_key") or "")[:64],
+            created_by_id=_uid_or(db, row.get("created_by_id"), owner_id)
+            if row.get("created_by_id")
+            else None,
+            created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
+            last_activity_at=_parse_dt(row.get("last_activity_at")),
+            is_archived=bool(row.get("is_archived")),
+        )
+        db.add(room)
+        db.flush()
+        if old_rid:
+            room_old_to_new[old_rid] = room.id
+        for mem in row.get("members") or []:
+            if not isinstance(mem, dict):
+                continue
+            db.add(
+                ChatRoomMember(
+                    room_id=room.id,
+                    user_id=_uid_or(db, mem.get("user_id"), owner_id),
+                    role_in_room=str(mem.get("role_in_room") or "member")[:32],
+                    joined_at=_parse_dt(mem.get("joined_at")) or datetime.utcnow(),
+                )
+            )
+        for msg in row.get("messages") or []:
+            if not isinstance(msg, dict):
+                continue
+            try:
+                fsize = int(msg.get("file_size") or 0)
+            except (TypeError, ValueError):
+                fsize = 0
+            db.add(
+                ChatMessage(
+                    room_id=room.id,
+                    sender_id=_uid_or(db, msg.get("sender_id"), owner_id),
+                    message_type=str(msg.get("message_type") or "text")[:32],
+                    body_text=str(msg.get("body_text") or ""),
+                    file_relpath=str(msg.get("file_relpath") or "")[:600],
+                    original_filename=str(msg.get("original_filename") or "")[:500],
+                    mime_type=str(msg.get("mime_type") or "")[:200],
+                    file_size=fsize,
+                    created_at=_parse_dt(msg.get("created_at")) or datetime.utcnow(),
+                )
+            )
+
+    for row in data.get("exercise_notifications") or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            old_rr = int(row.get("related_room_id")) if row.get("related_room_id") else 0
+        except (TypeError, ValueError):
+            old_rr = 0
+        db.add(
+            ExerciseNotification(
+                exercise_id=ex.id,
+                user_id=_uid_or(db, row.get("user_id"), owner_id),
+                type=str(row.get("type") or "system")[:32],
+                title=str(row.get("title") or "")[:500],
+                body=str(row.get("body") or ""),
+                priority=str(row.get("priority") or "normal")[:32],
+                is_read=bool(row.get("is_read")),
+                related_file=str(row.get("related_file") or "")[:600],
+                related_room_id=room_old_to_new.get(old_rr) if old_rr else None,
+                action_url=str(row.get("action_url") or "")[:500],
+                created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
+            )
+        )
 
 
 def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id: int) -> int | None:
@@ -553,9 +1686,9 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
             )
 
 
+    timeline_old_to_new: dict[int, int] = {}
     timeline = data.get("timeline_items") or []
     if isinstance(timeline, list):
-        old_to_new: dict[int, int] = {}
         pending_parent: list[tuple[ExerciseTimelineItem, int]] = []
         for i, row in enumerate(timeline):
             if not isinstance(row, dict):
@@ -603,11 +1736,11 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
             db.add(item)
             db.flush()
             if old_id:
-                old_to_new[old_id] = item.id
+                timeline_old_to_new[old_id] = item.id
             if old_parent:
                 pending_parent.append((item, old_parent))
         for item, old_parent in pending_parent:
-            new_parent = old_to_new.get(old_parent)
+            new_parent = timeline_old_to_new.get(old_parent)
             if new_parent:
                 item.parent_id = new_parent
 
@@ -702,6 +1835,7 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
                 continue
             db.add(ExerciseRefLink(exercise_id=ex.id, reference_id=ref_id))
 
+    dilemma_old_to_new: dict[int, int] = {}
     dilemmas = data.get("dilemma_items")
     if isinstance(dilemmas, list) and dilemmas:
         db.execute(delete(DilemmaItem))
@@ -715,23 +1849,29 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
                 so = int(row.get("sort_order") or 0)
             except (TypeError, ValueError):
                 so = 0
+            try:
+                old_did = int(row.get("id")) if row.get("id") is not None else 0
+            except (TypeError, ValueError):
+                old_did = 0
             exercise_phase = normalize_exercise_phase(
                 str(row.get("exercise_phase") or "").strip()[:32]
             )
-            db.add(
-                DilemmaItem(
-                    exercise_id=ex.id,
-                    exercise_phase=exercise_phase,
-                    unit_level_key=uk,
-                    unit_level_label=str(row.get("unit_level_label") or "")[:200],
-                    sort_order=so,
-                    text=str(row.get("text") or "")[:2000],
-                    pdf_relpath=str(row.get("pdf_relpath") or "")[:500],
-                    created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
-                )
+            d_row = DilemmaItem(
+                exercise_id=ex.id,
+                exercise_phase=exercise_phase,
+                unit_level_key=uk,
+                unit_level_label=str(row.get("unit_level_label") or "")[:200],
+                sort_order=so,
+                text=str(row.get("text") or "")[:2000],
+                pdf_relpath=str(row.get("pdf_relpath") or "")[:500],
+                created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
             )
+            db.add(d_row)
+            db.flush()
+            if old_did:
+                dilemma_old_to_new[old_did] = d_row.id
 
-
+    eval_item_old_to_new: dict[int, int] = {}
     evaluation_lists = data.get("evaluation_list_items") or data.get("evaluation_lists")
     if isinstance(evaluation_lists, list) and evaluation_lists:
         db.execute(delete(EvaluationListPdfItem).where(EvaluationListPdfItem.exercise_id == ex.id))
@@ -745,21 +1885,41 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
                 so = int(row.get("sort_order") or 0)
             except (TypeError, ValueError):
                 so = 0
+            try:
+                old_eid = int(row.get("id")) if row.get("id") is not None else 0
+            except (TypeError, ValueError):
+                old_eid = 0
             exercise_phase = normalize_exercise_phase(
                 str(row.get("exercise_phase") or "").strip()[:32]
             )
-            db.add(
-                EvaluationListPdfItem(
-                    exercise_id=ex.id,
-                    exercise_phase=exercise_phase,
-                    unit_level_key=uk,
-                    unit_level_label=str(row.get("unit_level_label") or "")[:200],
-                    sort_order=so,
-                    text=str(row.get("text") or "")[:2000],
-                    pdf_relpath=str(row.get("pdf_relpath") or "")[:500],
-                    created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
-                )
+            e_row = EvaluationListPdfItem(
+                exercise_id=ex.id,
+                exercise_phase=exercise_phase,
+                unit_level_key=uk,
+                unit_level_label=str(row.get("unit_level_label") or "")[:200],
+                sort_order=so,
+                text=str(row.get("text") or "")[:2000],
+                pdf_relpath=str(row.get("pdf_relpath") or "")[:500],
+                created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
             )
+            db.add(e_row)
+            db.flush()
+            if old_eid:
+                eval_item_old_to_new[old_eid] = e_row.id
+
+    _import_v3_exercise_bundle(
+        db,
+        ex,
+        data,
+        owner_id,
+        eval_item_old_to_new=eval_item_old_to_new,
+        dilemma_old_to_new=dilemma_old_to_new,
+        timeline_old_to_new=timeline_old_to_new,
+    )
+
+    bundle_dir = resolve_archive_bundle_dir_for_import(data)
+    if bundle_dir is not None:
+        restore_exercise_files_from_archive(bundle_dir, data)
 
     db.flush()
     db.refresh(ex)
