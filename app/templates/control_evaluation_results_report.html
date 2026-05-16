@@ -4,14 +4,15 @@
 {% block content %}
 <div class="control-report" dir="rtl">
   <section class="control-report__head">
-    <div>
+    <div class="control-report__head-main">
       <h1>{{ report.report_title }}</h1>
+      {% if report.meta %}
       <p class="control-report__meta">
-        <span>{{ report.exercise_label }} - {{ report.exercise_code }}</span>
         {% for item in report.meta %}
         <span>{{ item }}</span>
         {% endfor %}
       </p>
+      {% endif %}
     </div>
     <div class="control-report__actions">
       <button type="button" class="btn btn-ghost control-report__export" onclick="window.print()">
@@ -34,51 +35,8 @@
     {% endfor %}
   </section>
 
-  <section class="control-report__grid control-report__grid--top">
-    <article class="control-panel">
-      <h2>أداء الوحدات حسب المحاور الرئيسية</h2>
-      <div class="control-radar">
-        <svg viewBox="0 0 400 250" role="img" aria-label="مخطط راداري لأداء الوحدات">
-          <g class="control-radar__grid">
-            <polygon points="200,35 285,80 285,170 200,220 115,170 115,80"></polygon>
-            <polygon points="200,72 253,100 253,155 200,187 147,155 147,100"></polygon>
-            <polygon points="200,108 225,119 225,143 200,156 175,143 175,119"></polygon>
-            <line x1="200" y1="35" x2="200" y2="220"></line>
-            <line x1="115" y1="80" x2="285" y2="170"></line>
-            <line x1="285" y1="80" x2="115" y2="170"></line>
-          </g>
-          <text x="200" y="24">القيادة والسيطرة</text>
-          <text x="304" y="83">التخطيط</text>
-          <text x="312" y="174">جمع المعلومات</text>
-          <text x="200" y="242">العمليات</text>
-          <text x="58" y="177">الاستطلاع</text>
-          <text x="65" y="84">الأمن والدفاع</text>
-          {% for series in report.radar_series %}
-          <polygon class="control-radar__series" points="{{ series.points }}" style="--series: {{ series.color }}"></polygon>
-          {% endfor %}
-        </svg>
-      </div>
-      <div class="control-legend">
-        {% for series in report.radar_series %}
-        <span><i style="background: {{ series.color }}"></i>{{ series.label }}</span>
-        {% endfor %}
-      </div>
-    </article>
-
-    <article class="control-panel">
-      <h2>المتوسط العام حسب المحاور</h2>
-      <div class="control-bars control-bars--horizontal">
-        {% for item in report.axis_scores %}
-        <div class="control-hbar">
-          <span>{{ item.label }}</span>
-          <div><i style="width: {{ item.value }}%; background: {{ item.color }}"></i></div>
-          <strong>{{ item.value }}%</strong>
-        </div>
-        {% endfor %}
-      </div>
-    </article>
-
-    <article class="control-panel">
+  <section class="control-report__layout">
+    <article class="control-panel control-panel--groups">
       <h2>أداء المجموعات (متوسط النسبة العامة)</h2>
       <div class="control-columns">
         {% for item in report.group_scores %}
@@ -90,17 +48,23 @@
         {% endfor %}
       </div>
     </article>
-  </section>
 
-  <section class="control-report__grid control-report__grid--bottom">
-    <article class="control-panel control-panel--table-span">
+    <article class="control-panel control-panel--donut">
+      <h2>توزيع نتائج التقييم</h2>
+      <div class="control-donut-layout">
+        <div class="control-donut">
+          <span>إجمالي<br><strong>{{ report.criteria_count }}</strong><br>معيار</span>
+        </div>
+        <div class="control-donut-legend">
+          {% for item in report.distribution %}
+          <span><i style="background: {{ item.color }}"></i>{{ item.label }} <b>{{ item.pct }}%</b> ({{ item.count }})</span>
+          {% endfor %}
+        </div>
+      </div>
+    </article>
+
+    <article class="control-panel control-panel--detail">
       <h2>أداء الوحدات التفصيلي (مراحل التمرين)</h2>
-      <p class="cr-detail-hint muted">
-        كل نقطة ملونة = قائمة تقييم محفوظة (لا يشترط الاعتماد). مرّر المؤشر للتفاصيل، انقر مرتين للاطلاع.
-        {% if report.n_saved_eval is defined %}
-        — محمّل للعرض: <strong>{{ report.n_saved_eval }}</strong> من <strong>{{ report.n_eval_lists_total }}</strong> قائمة.
-        {% endif %}
-      </p>
       <div class="control-table-wrap">
         {% if report.unit_detail_rows | default([]) %}
         <table class="cr-detail-table" dir="rtl">
@@ -108,18 +72,19 @@
             <tr>
               <th scope="col">الوحدة</th>
               {% for header in report.unit_detail_phase_headers | default([]) %}
-              <th scope="col">{{ header }}</th>
+              <th scope="col" class="cr-detail-table__phase">{{ header }}</th>
               {% endfor %}
             </tr>
           </thead>
           <tbody>
             {% for urow in report.unit_detail_rows %}
             <tr>
-              <th scope="row" class="cr-detail-table__unit">{{ urow.unit_label }}</th>
+              <th scope="row" class="cr-detail-table__unit" title="{{ urow.unit_label }}">{{ urow.unit_label }}</th>
               {% for phase in urow.phases %}
-              <td class="cr-detail-table__cell">
-                <div class="cr-detail-cell" aria-label="{{ phase.label }} — {{ urow.unit_label }}">
+              <td class="cr-detail-table__cell cr-detail-table__phase-cell">
+                <div class="cr-detail-cell" aria-label="{{ phase.label }} — {{ urow.unit_label }}" style="--dot-count: {{ phase.dots | length }};">
                   {% for dot in phase.dots %}
+                  {% if not loop.first %}<span class="cr-detail-sep" aria-hidden="true"></span>{% endif %}
                   <span class="cr-detail-dot-wrap">
                     <button
                       type="button"
@@ -142,20 +107,6 @@
         {% else %}
         <p class="muted" style="margin:0.5rem 0;">لا توجد قوائم تقييم محفوظة لعرضها — يُعرض الجدول بعد حفظ المحكمين لنتائج القوائم.</p>
         {% endif %}
-      </div>
-    </article>
-
-    <article class="control-panel">
-      <h2>توزيع نتائج التقييم</h2>
-      <div class="control-donut-layout">
-        <div class="control-donut">
-          <span>إجمالي<br><strong>{{ report.criteria_count }}</strong><br>معيار</span>
-        </div>
-        <div class="control-donut-legend">
-          {% for item in report.distribution %}
-          <span><i style="background: {{ item.color }}"></i>{{ item.label }} <b>{{ item.pct }}%</b> ({{ item.count }})</span>
-          {% endfor %}
-        </div>
       </div>
     </article>
   </section>

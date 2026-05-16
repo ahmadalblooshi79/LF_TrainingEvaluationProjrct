@@ -9,13 +9,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/static/style.css?v=header1">
+  <link rel="stylesheet" href="/static/style.css?v=header2">
 </head>
 <body class="{% block body_class %}{% endblock %}">
 <div class="layout">
   <header>
-    <div class="header-main">
-    <div class="header-start">
+    <div class="header-bar">
       <div class="brand">
         <i class="fa-solid fa-clipboard-list fa-icon-brand" aria-hidden="true"></i>
         <span>نظام إدارة التمارين</span>
@@ -31,12 +30,15 @@
         <a class="header-workspace-exercise__title" href="/exercises/{{ header_exercise.id }}">{{ header_exercise.title }}</a>
       </div>
       {% endif %}
-      {% if user %}
-      <a class="header-home-link" href="/dashboard" title="الصفحة الرئيسية"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
+      {% if judge_welcome_name %}
+      <span class="header-welcome" role="status">
+        <i class="fa-solid fa-hand-sparkles" aria-hidden="true"></i>
+        مرحباً، <strong>{{ judge_welcome_name }}</strong>
+      </span>
       {% endif %}
-    </div>
-    <nav>
       {% if user %}
+      <nav class="header-nav" aria-label="التنقل الرئيسي">
+        <a href="/dashboard" title="الصفحة الرئيسية"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
         {% if user.role_key == 'system_admin' %}
         <div class="nav-dd" tabindex="0">
           <button type="button" class="nav-dd__toggle" aria-haspopup="true" aria-label="إدارة النظام">
@@ -74,15 +76,9 @@
         {% endif %}
         <a href="/library" title="المكتبة"><i class="fa-solid fa-book-open" aria-hidden="true"></i> المكتبة</a>
         <a class="btn btn-ghost btn-nav-logout" href="/logout"><i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i> خروج</a>
+      </nav>
       {% endif %}
-    </nav>
     </div>
-    {% if judge_welcome_name %}
-    <div class="header-sub header-sub--welcome" role="status" style="background:linear-gradient(90deg, #f0f9ff 0%, #fff 100%);border-bottom:1px solid #e0f2fe;">
-      <i class="fa-solid fa-hand-sparkles header-sub__icon" aria-hidden="true"></i>
-      <span>مرحباً، <strong>{{ judge_welcome_name }}</strong></span>
-    </div>
-    {% endif %}
   </header>
   <main>
     {% block content %}{% endblock %}
