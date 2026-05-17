@@ -845,6 +845,39 @@ def _control_build_unit_detail_rows(
     return unit_rows
 
 
+def _control_phase_max_dot_counts(unit_detail_rows: list[dict]) -> list[int]:
+    """أقصى عدد نقاط تقييم لكل عمود مرحلة — لضبط عرض العمود في التقرير."""
+    n_phases = len(_CONTROL_REPORT_PHASE_COLUMNS)
+    maxes = [0] * n_phases
+    for urow in unit_detail_rows:
+        for i, ph in enumerate(urow.get("phases") or []):
+            if i < n_phases:
+                maxes[i] = max(maxes[i], len(ph.get("dots") or []))
+    return [max(1, m) for m in maxes]
+
+
+def _control_group_label_lines(label: str) -> tuple[str, str]:
+    """تقسيم اسم الوحدة لسطرين في رسم «أداء المجموعات»."""
+    s = (label or "").strip() or "—"
+    parts = [p.strip() for p in re.split(r"\s*/\s*", s) if p.strip()]
+    if len(parts) >= 3:
+        mid = (len(parts) + 1) // 2
+        return (" / ".join(parts[:mid]), " / ".join(parts[mid:]))
+    if len(parts) == 2:
+        return (parts[0], parts[1])
+    words = s.split()
+    if len(words) >= 2:
+        best_idx = 1
+        best_diff = len(s)
+        for i in range(1, len(words)):
+            diff = abs(len(" ".join(words[:i])) - len(" ".join(words[i:])))
+            if diff < best_diff:
+                best_diff = diff
+                best_idx = i
+        return (" ".join(words[:best_idx]), " ".join(words[best_idx:]))
+    return (s, "\u00a0")
+
+
 def _evaluation_delete_duplicate_saves(db, *, exercise_id: int, evaluation_item_id: int, keep_id: int) -> None:
     db.query(EvaluationListSavedResult).filter(
         EvaluationListSavedResult.exercise_id == exercise_id,
@@ -5317,6 +5350,7 @@ def _control_exercise_performance_report(db, user: User) -> dict:
             "distribution": [],
             "unit_detail_rows": [],
             "unit_detail_phase_headers": [lbl for _, lbl in _CONTROL_REPORT_PHASE_COLUMNS],
+            "unit_detail_phase_max_dots": _control_phase_max_dot_counts([]),
             "n_saved_eval": 0,
             "n_eval_lists_total": 0,
             "radar_series": [],
@@ -5437,7 +5471,17 @@ def _control_exercise_performance_report(db, user: User) -> dict:
             continue
         by_unit_vals.setdefault(uk, []).append(float(v))
 
-    palette = ["#7bd86f", "#38bdf8", "#a855f7", "#f59e0b", "#67e8f9", "#ef4444", "#84cc16", "#fb923c"]
+    # ألوان هادئة موحّدة مع تقرير السيطرة (تُطبَّق أيضاً عبر CSS للأعمدة)
+    palette = [
+        "#6b8cae",
+        "#7a9a7e",
+        "#9a8bb8",
+        "#b89a6e",
+        "#5f9a9f",
+        "#a67f72",
+        "#8a8f7a",
+        "#7d8fa8",
+    ]
     unit_avg_rows: list[dict] = []
     for i, ul in enumerate(UNIT_LEVELS):
         uk = (ul.get("key") or "").strip()
@@ -5459,7 +5503,17 @@ def _control_exercise_performance_report(db, user: User) -> dict:
     unit_avg_rows.sort(key=lambda r: float(r.get("raw", 0.0)), reverse=True)
     top_unit = unit_avg_rows[0] if unit_avg_rows else None
     bottom_unit = unit_avg_rows[-1] if unit_avg_rows else None
-    group_scores = [{"label": r["label"], "value": r["value"], "color": r["color"]} for r in unit_avg_rows[:6]]
+    group_scores = []
+    for r in unit_avg_rows[:6]:
+        line1, line2 = _control_group_label_lines(r["label"])
+        group_scores.append(
+            {
+                "label": r["label"],
+                "label_lines": [line1, line2],
+                "value": r["value"],
+                "color": r["color"],
+            }
+        )
 
     # محور/جدول: نستخدم مصفوفة الأهداف إن وجدت لتوليد 8 محاور بنفس عناوين الصورة.
     axis_labels = [
@@ -5620,6 +5674,10 @@ def _control_exercise_performance_report(db, user: User) -> dict:
         {"label": "معايير التقييم", "value": str(criteria_count), "hint": "إجمالي المعايير", "icon": "fa-list", "tone": "indigo"},
     ]
 
+    unit_detail_rows = _control_build_unit_detail_rows(
+        db, ex0.id, eval_items, saved_by_item
+    )
+
     return {
         "exercise": ex,
         "crumb": crumb,
@@ -5635,10 +5693,9 @@ def _control_exercise_performance_report(db, user: User) -> dict:
         "distribution": distribution,
         "table_rows": table_rows,
         "table_headers": table_headers,
-        "unit_detail_rows": _control_build_unit_detail_rows(
-            db, ex0.id, eval_items, saved_by_item
-        ),
+        "unit_detail_rows": unit_detail_rows,
         "unit_detail_phase_headers": [lbl for _, lbl in _CONTROL_REPORT_PHASE_COLUMNS],
+        "unit_detail_phase_max_dots": _control_phase_max_dot_counts(unit_detail_rows),
         "n_saved_eval": n_saved,
         "n_eval_lists_total": n_eval_lists,
         "radar_series": radar_series,

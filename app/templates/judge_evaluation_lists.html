@@ -1,76 +1,15 @@
 {% extends "base.html" %}
 {% block title %}قوائم التقييم — {{ unit.label }}{% endblock %}
+{% block body_class %}judge-eval-lists-page-layout{% endblock %}
 {% block content %}
-<style>
-  .judge-eval-lists-table th,
-  .judge-eval-lists-table td {
-    text-align: center;
-    vertical-align: middle;
-  }
-  .judge-eval-lists-table tr.eval-row-tone--pending td {
-    background: #fffbeb;
-  }
-  .judge-eval-lists-table tr.eval-row-tone--sent td {
-    background: #ecfdf5;
-  }
-  .judge-eval-lists-table tr.eval-row-tone--returned td {
-    background: #fef2f2;
-  }
-  .judge-eval-dispatch-badge {
-    display: inline-block;
-    padding: 0.2rem 0.55rem;
-    border-radius: 999px;
-    font-size: 0.82rem;
-    font-weight: 600;
-    line-height: 1.35;
-  }
-  .judge-eval-dispatch-badge--none {
-    color: #6b7280;
-    background: #f3f4f6;
-  }
-  .judge-eval-dispatch-badge--pending {
-    color: #92400e;
-    background: #fde68a;
-  }
-  .judge-eval-dispatch-badge--sent {
-    color: #065f46;
-    background: #a7f3d0;
-  }
-  .judge-eval-dispatch-badge--returned {
-    color: #991b1b;
-    background: #fecaca;
-  }
-  .judge-eval-lists-legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem 1rem;
-    margin: 0 0 0.65rem;
-    font-size: 0.82rem;
-    color: #5a514a;
-  }
-  .judge-eval-lists-legend span {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
-  .judge-eval-lists-legend i {
-    width: 0.85rem;
-    height: 0.85rem;
-    border-radius: 3px;
-    display: inline-block;
-  }
-  .judge-eval-lists-legend .swatch--pending { background: #fffbeb; border: 1px solid #fde68a; }
-  .judge-eval-lists-legend .swatch--sent { background: #ecfdf5; border: 1px solid #a7f3d0; }
-  .judge-eval-lists-legend .swatch--returned { background: #fef2f2; border: 1px solid #fecaca; }
-</style>
-<div class="page-header">
+<div class="page-header page-header--judge-eval-lists">
   <h1><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> قوائم التقييم — {{ unit.label }}</h1>
   <p class="mt-tight">
     <a class="btn btn-ghost" href="{{ eval_lists_parent_href | default(url_for('views.judge_evaluation_lists_home')) }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى مستويات الوحدات</a>
   </p>
 </div>
 
-<section class="card">
+<section class="card judge-eval-lists-fill-card">
   {% if evaluation_lists_rows %}
   <p class="judge-eval-lists-legend" dir="rtl">
     <span><i class="swatch--pending" aria-hidden="true"></i> بانتظار الإعتماد (بعد الحفظ)</span>
@@ -81,6 +20,7 @@
     <table class="judge-eval-lists-table" dir="rtl" aria-label="قوائم التقييم">
       <thead>
         <tr>
+          <th scope="col" class="eval-lists-table__seq">ت</th>
           <th scope="col">التاريخ والوقت</th>
           <th scope="col">نوع التمرين</th>
           <th scope="col">الوحدة المقيمة</th>
@@ -95,6 +35,7 @@
       <tbody>
         {% for r in evaluation_lists_rows %}
         <tr class="{% if r.row_tone and r.row_tone != 'none' %}eval-row-tone--{{ r.row_tone }}{% endif %}">
+          <td class="eval-lists-table__seq">{{ loop.index }}</td>
           <td>{% if r.dt %}{{ r.dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
           <td>{{ r.exercise_type or "—" }}</td>
           <td>{{ r.trained_unit or "—" }}</td>

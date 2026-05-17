@@ -3445,6 +3445,53 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 }
 
 /* —— صفحة قائمة التقييم: رأس وسفل ثابتان، جدول منزلق —— */
+.eval-list-page-layout main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: var(--space-sm);
+  padding-bottom: var(--space-sm);
+}
+.eval-list-page-layout .eval-list-page.dilemma-viewer-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  height: auto;
+  gap: 0;
+  overflow: hidden;
+}
+.eval-list-page-layout .dilemma-viewer-page.eval-list-page {
+  min-height: 0;
+}
+.eval-list-page-layout .eval-list-page__main {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.eval-list-page-layout .eval-structured-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.eval-list-page-layout .eval-structured-layout__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none !important;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.eval-list-page-layout .eval-sticky-footer--bar {
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  margin-top: 0;
+}
+.eval-list-page-layout footer {
+  display: none;
+}
 .eval-list-page {
   display: flex;
   flex-direction: column;
@@ -3454,14 +3501,136 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   max-height: calc(100vh - 5rem);
   overflow: hidden;
 }
+.eval-list-page-layout .eval-list-page {
+  max-height: none;
+}
 .eval-list-page__sticky-top {
   flex: 0 0 auto;
   position: sticky;
   top: 0;
   z-index: 30;
   background: linear-gradient(180deg, var(--tint-50, #faf8f6) 0%, var(--white) 100%);
-  padding-bottom: 0.25rem;
+  padding-bottom: 0.15rem;
   border-bottom: 1px solid var(--border-light);
+}
+.eval-list-page .dilemma-viewer-toolbar {
+  padding: 0.3rem 0.5rem !important;
+  gap: 0.45rem;
+}
+.eval-list-page .dilemma-viewer-title {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.25;
+}
+.eval-list-page .dilemma-viewer-close-btn {
+  padding: 0.24rem 0.55rem;
+  font-size: 0.82rem;
+}
+.eval-list-page .eval-structured-layout__scroll {
+  --eval-structured-thead-approx: 1.7rem;
+  --eval-structured-body-row-approx: 1.38rem;
+}
+.eval-list-page .eval-preview-table.eval-structured.eval-structured--tight .eval-preview-td,
+.eval-list-page .eval-preview-table.eval-structured.eval-structured--tight .eval-preview-th {
+  padding: 0.02rem 0.18rem;
+  line-height: 1.06;
+  font-size: 0.76rem;
+  vertical-align: middle;
+}
+.eval-list-page .eval-preview-table.eval-structured.eval-structured--tight thead tr > th.eval-preview-th {
+  min-height: 1.65rem !important;
+  padding: 0.16rem 0.26rem !important;
+  line-height: 1.12 !important;
+  font-size: 0.78rem !important;
+}
+.eval-list-page .eval-preview-table.eval-structured.eval-structured--tight thead tr > th.eval-preview-th--index {
+  min-height: 1.65rem !important;
+  padding: 0.14rem 0.2rem !important;
+  font-size: 0.74rem !important;
+}
+.eval-list-page .eval-preview-table.eval-structured.eval-structured--tight td.eval-col--element {
+  font-size: 0.76rem;
+  line-height: 1.08;
+  padding: 0.06rem 0.28rem !important;
+  vertical-align: middle;
+}
+.eval-list-page .eval-preview-table.eval-structured.eval-structured--tight .eval-section-banner {
+  padding: 0.1rem 0.3rem !important;
+  font-size: 0.76rem;
+  line-height: 1.12;
+}
+.eval-list-page .eval-preview-table.eval-structured thead tr > th:nth-child(8) {
+  min-height: 1.65rem !important;
+  padding: 0.12rem 0.06rem !important;
+}
+.eval-list-page .eval-preview-table.eval-structured td.eval-col--max,
+.eval-list-page .eval-preview-table.eval-structured td.eval-col--pct,
+.eval-list-page .eval-preview-table.eval-structured td.eval-col--grade,
+.eval-list-page .eval-preview-table.eval-structured td.eval-col--acq {
+  padding: 0.04rem 0.14rem !important;
+  font-size: 0.74rem !important;
+  line-height: 1.08 !important;
+}
+.eval-list-page .eval-preview-table.eval-structured .eval-pct-out,
+.eval-list-page .eval-preview-table.eval-structured .eval-grade-out {
+  font-size: 0.74rem;
+  line-height: 1.08;
+}
+.eval-list-page .eval-preview-table.eval-structured td.eval-col--notes {
+  vertical-align: middle;
+  padding: 0.03rem 0.2rem !important;
+}
+.eval-list-page .eval-structured .eval-preview-acquired-select {
+  padding: 0.04rem 0.18rem !important;
+  font-size: 0.74rem !important;
+  line-height: 1.08 !important;
+  min-height: 1.25rem;
+  height: 1.25rem;
+}
+.eval-list-page .eval-structured .eval-notes-textarea,
+.eval-list-page .eval-notes-textarea--compact {
+  min-height: 1.28rem !important;
+  min-block-size: 1.28rem !important;
+  max-height: 2rem;
+  padding: 0.08rem 0.28rem !important;
+  font-size: 0.74rem !important;
+  line-height: 1.12 !important;
+  field-sizing: fixed;
+  resize: none;
+  overflow-y: auto;
+}
+@supports not (field-sizing: fixed) {
+  .eval-list-page .eval-structured .eval-notes-textarea,
+  .eval-list-page .eval-notes-textarea--compact {
+    field-sizing: content;
+    max-height: 1.45rem;
+  }
+}
+.eval-list-page .eval-preview-table.eval-structured .eval-row-delete.btn.btn-icon {
+  min-width: 1.1rem;
+  min-height: 1.1rem;
+  padding: 0.04rem 0.08rem;
+  font-size: 0.6rem;
+}
+.eval-list-page .eval-preview-table.eval-structured .eval-row-delete.btn.btn-icon i {
+  font-size: 0.62rem;
+}
+.eval-list-page .eval-preview-table.eval-structured .eval-preview-rowhead {
+  padding: 0.04rem 0.15rem !important;
+  font-size: 0.74rem;
+  line-height: 1.08;
+  vertical-align: middle;
+}
+.eval-list-page .eval-info-card--compact {
+  padding: 0.28rem 0.45rem !important;
+  margin: 0 0 0.25rem !important;
+}
+.eval-list-page .eval-banner-row--compact {
+  margin: 0 0 0.15rem !important;
+  gap: 0.25rem !important;
+}
+.eval-list-page .eval-preview-sheet-title--inline {
+  margin: 0.08rem 0 0.15rem !important;
 }
 .eval-list-page__main {
   flex: 1 1 auto;
@@ -3682,6 +3851,223 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   font-size: 0.78rem;
   line-height: 1.25;
   resize: vertical;
+}
+
+/* مساحة المحكمين — صفحة جدول قوائم التقييم (مستويات / قوائم الوحدة) */
+.judge-eval-lists-page-layout main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: var(--space-sm);
+  padding-bottom: var(--space-sm);
+}
+.judge-eval-lists-page-layout footer {
+  display: none;
+}
+.judge-eval-lists-page-layout .page-header--judge-eval-lists {
+  flex-shrink: 0;
+  margin-bottom: 0.4rem;
+}
+.judge-eval-lists-page-layout .judge-eval-lists-fill-card {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.judge-eval-lists-page-layout .judge-eval-lists-fill-card .judge-eval-lists-legend,
+.judge-eval-lists-page-layout .judge-eval-lists-fill-card .judge-eval-units-summary {
+  flex-shrink: 0;
+}
+.judge-eval-lists-page-layout .judge-eval-lists-fill-card > .table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+}
+.judge-eval-lists-page-layout .judge-eval-lists-table thead th,
+.judge-eval-lists-page-layout .chief-eval-lists-table thead th,
+.judge-eval-lists-page-layout .judge-eval-units-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--tint-100);
+  box-shadow: 0 1px 0 var(--border-light);
+}
+.judge-eval-lists-page-layout .judge-eval-lists-fill-card > .muted {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+}
+
+/* مساحة المحكمين / كبير المحكمين — قوائم التقييم */
+.page-header--judge-eval-lists {
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.3rem;
+}
+.page-header--judge-eval-lists h1 {
+  margin-bottom: 0.12rem;
+}
+.page-header--judge-eval-lists .muted {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.28;
+}
+.page-header--judge-eval-lists .muted + .muted,
+.page-header--judge-eval-lists .mt-tight {
+  margin-top: 0.18rem;
+}
+.eval-lists-table__seq {
+  width: 2.25rem;
+  min-width: 2.25rem;
+  max-width: 2.25rem;
+  padding-inline: 0.35rem !important;
+  text-align: center;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--brown-600);
+  background: var(--tint-50);
+}
+.judge-eval-lists-table thead th.eval-lists-table__seq,
+.chief-eval-lists-table thead th.eval-lists-table__seq,
+.judge-eval-units-table thead th.eval-lists-table__seq {
+  background: var(--tint-150, var(--tint-100));
+}
+.judge-eval-units-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.28rem 0.45rem;
+  margin: 0 0 0.4rem;
+  padding: 0.3rem 0.15rem 0.35rem;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-light);
+}
+.judge-eval-units-summary__item strong {
+  font-weight: 700;
+  color: var(--brown-800);
+}
+.judge-eval-units-summary__sep {
+  color: var(--border);
+  font-weight: 300;
+  user-select: none;
+}
+.judge-eval-units-summary__item--not-done strong {
+  color: #991b1b;
+}
+.judge-eval-lists-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.85rem;
+  margin: 0 0 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.judge-eval-lists-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.judge-eval-lists-legend i {
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 3px;
+  display: inline-block;
+}
+.judge-eval-lists-legend .swatch--pending {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+}
+.judge-eval-lists-legend .swatch--sent {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+}
+.judge-eval-lists-legend .swatch--returned {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+.judge-eval-lists-table th,
+.judge-eval-lists-table td,
+.chief-eval-lists-table th,
+.chief-eval-lists-table td {
+  padding: 0.2rem 0.38rem;
+  font-size: 0.81rem;
+  line-height: 1.16;
+  text-align: center;
+  vertical-align: middle;
+}
+.judge-eval-lists-table thead th,
+.chief-eval-lists-table thead th {
+  padding: 0.24rem 0.38rem;
+  font-size: 0.83rem;
+}
+.judge-eval-units-table th,
+.judge-eval-units-table td {
+  padding: 0.2rem 0.38rem;
+  font-size: 0.81rem;
+  line-height: 1.16;
+  text-align: center;
+  vertical-align: middle;
+}
+.judge-eval-units-table thead th {
+  padding: 0.24rem 0.38rem;
+  font-size: 0.83rem;
+}
+.judge-eval-units-table td.judge-eval-unit-label {
+  text-align: right;
+}
+.judge-eval-units-table a {
+  font-size: 0.81rem;
+}
+.judge-eval-lists-table tr.eval-row-tone--pending td,
+.chief-eval-lists-table tr.eval-row-tone--pending td {
+  background: #fffbeb;
+}
+.judge-eval-lists-table tr.eval-row-tone--sent td,
+.chief-eval-lists-table tr.eval-row-tone--sent td {
+  background: #ecfdf5;
+}
+.judge-eval-lists-table tr.eval-row-tone--returned td,
+.chief-eval-lists-table tr.eval-row-tone--returned td {
+  background: #fef2f2;
+}
+.judge-eval-dispatch-badge {
+  display: inline-block;
+  padding: 0.1rem 0.42rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.18;
+}
+.judge-eval-dispatch-badge--none {
+  color: #6b7280;
+  background: #f3f4f6;
+}
+.judge-eval-dispatch-badge--pending {
+  color: #92400e;
+  background: #fde68a;
+}
+.judge-eval-dispatch-badge--sent {
+  color: #065f46;
+  background: #a7f3d0;
+}
+.judge-eval-dispatch-badge--returned {
+  color: #991b1b;
+  background: #fecaca;
+}
+.judge-eval-unit-not-done-cell {
+  background: #fef2f2;
+  color: #991b1b;
+  font-weight: 700;
 }
 
 .eval-td-readonly {
@@ -4188,19 +4574,20 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 }
 .control-report-page main {
   background: transparent;
+  padding-top: 0.25rem;
 }
 .control-report {
   min-height: calc(100dvh - 4rem);
-  padding: 1rem 1.1rem 1.4rem;
+  padding: 0.35rem 1.1rem 1.4rem;
   color: var(--text);
 }
 .control-report__head {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.4rem;
-  padding-bottom: 0.35rem;
+  gap: 0.65rem;
+  margin-bottom: 0.35rem;
+  padding-bottom: 0.22rem;
   border-bottom: 1px solid var(--border-light);
 }
 .control-report__head-main {
@@ -4229,7 +4616,7 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   gap: 0.5rem;
   flex-wrap: wrap;
 }
-.control-report__export {
+.control-report__back {
   color: var(--brown-600) !important;
   border-color: var(--border-light) !important;
   background: var(--tint-50) !important;
@@ -4249,6 +4636,34 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
+.control-kpi--green {
+  background: linear-gradient(165deg, #f4faf5 0%, #e8f5ea 100%);
+  border-color: #c8e6ce;
+}
+.control-kpi--blue {
+  background: linear-gradient(165deg, #f3f7fb 0%, #e6eef7 100%);
+  border-color: #c5d8eb;
+}
+.control-kpi--cyan {
+  background: linear-gradient(165deg, #f0f9fa 0%, #e3f3f5 100%);
+  border-color: #b8dfe5;
+}
+.control-kpi--indigo {
+  background: linear-gradient(165deg, #f4f3fa 0%, #e9e7f5 100%);
+  border-color: #cec9e8;
+}
+.control-kpi--violet {
+  background: linear-gradient(165deg, #f7f3fa 0%, #ede6f4 100%);
+  border-color: #d8c9e8;
+}
+.control-kpi--purple {
+  background: linear-gradient(165deg, #f6f3f9 0%, #ebe4f2 100%);
+  border-color: #d4c4e4;
+}
+.control-kpi--red {
+  background: linear-gradient(165deg, #faf5f4 0%, #f3e8e6 100%);
+  border-color: #e4c8c4;
+}
 .control-kpi__icon {
   position: absolute;
   top: 0.42rem;
@@ -4262,6 +4677,13 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   color: var(--brown-500);
   font-size: 0.78rem;
 }
+.control-kpi--green .control-kpi__icon { background: #d8eedc; color: #15803d; }
+.control-kpi--blue .control-kpi__icon { background: #d4e4f2; color: #1d4ed8; }
+.control-kpi--cyan .control-kpi__icon { background: #cce9ee; color: #0e7490; }
+.control-kpi--indigo .control-kpi__icon { background: #d8d4ef; color: #4338ca; }
+.control-kpi--violet .control-kpi__icon { background: #e2d4f0; color: #6d28d9; }
+.control-kpi--purple .control-kpi__icon { background: #e0d0ed; color: #7e22ce; }
+.control-kpi--red .control-kpi__icon { background: #edd4cf; color: #b91c1c; }
 .control-kpi__label,
 .control-kpi__hint {
   display: block;
@@ -4420,42 +4842,124 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   color: var(--brown-800);
   text-align: left;
 }
-.control-columns {
+/* رسم «أداء المجموعات» — أعمدة ثم خط فاصل ثم تسميات بسطرين */
+.control-group-chart {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-around;
-  gap: 0.6rem;
-  height: 13.6rem;
-  padding: 0.5rem 0.35rem 0;
+  flex-direction: column;
   border-right: 1px solid var(--border-light);
   border-bottom: 1px solid var(--border-light);
 }
-.control-column {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  align-items: end;
-  justify-items: center;
-  width: 3.2rem;
+.control-group-chart__plot {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-around;
+  gap: 0.35rem;
+  height: 10.5rem;
+  padding: 0.35rem 0.3rem 0;
+}
+.control-group-chart__col {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 3.1rem;
+  max-width: none;
   height: 100%;
-  color: var(--text-muted);
-  font-size: 0.66rem;
-  text-align: center;
 }
-.control-column strong {
-  margin-bottom: 0.25rem;
-  color: var(--brown-800);
-  font-size: 0.75rem;
+.control-group-chart__bar-track {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 2.35rem;
+  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
 }
-.control-column i {
+.control-group-chart__bar {
   display: block;
-  width: 2.15rem;
-  min-height: 1.4rem;
+  width: 100%;
+  height: calc(var(--bar-pct, 0) * 1%);
+  min-height: 0.55rem;
+  max-height: 100%;
   border-radius: 0.35rem 0.35rem 0 0;
-  box-shadow: 0 1px 4px rgba(60, 48, 40, 0.12);
+  box-shadow: 0 1px 4px rgba(60, 48, 40, 0.1);
 }
-.control-column span {
-  min-height: 2rem;
-  margin-top: 0.35rem;
+.control-group-chart__bar-value {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--bar-pct, 0) * 1% + 0.28rem);
+  transform: translateX(-50%);
+  color: var(--brown-800);
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow: 0 0 3px var(--white), 0 0 2px var(--white);
+}
+.control-group-chart__rule {
+  flex-shrink: 0;
+  margin: 0 0.4rem;
+  border-top: 1px solid var(--border-light);
+}
+.control-group-chart__captions {
+  display: flex;
+  justify-content: space-around;
+  gap: 0.45rem;
+  padding: 0.42rem 0.35rem 0.28rem;
+}
+.control-group-chart__caption {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.14rem;
+  min-width: 3.1rem;
+  max-width: none;
+  min-height: 2.65em;
+  padding: 0 0.12rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  line-height: 1.3;
+}
+.control-group-chart__caption-line {
+  display: block;
+  width: 100%;
+  min-height: 1.3em;
+  overflow: visible;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  hyphens: auto;
+}
+/* ألوان موحّدة لهادئة لأعمدة «أداء المجموعات» */
+.control-panel--groups .control-group-chart__col:nth-child(1) .control-group-chart__bar {
+  background: linear-gradient(180deg, #6b8cae 0%, #a8c4da 100%);
+}
+.control-panel--groups .control-group-chart__col:nth-child(2) .control-group-chart__bar {
+  background: linear-gradient(180deg, #7a9a7e 0%, #b5cdb8 100%);
+}
+.control-panel--groups .control-group-chart__col:nth-child(3) .control-group-chart__bar {
+  background: linear-gradient(180deg, #9a8bb8 0%, #c9bdd8 100%);
+}
+.control-panel--groups .control-group-chart__col:nth-child(4) .control-group-chart__bar {
+  background: linear-gradient(180deg, #b89a6e 0%, #dcc9a8 100%);
+}
+.control-panel--groups .control-group-chart__col:nth-child(5) .control-group-chart__bar {
+  background: linear-gradient(180deg, #5f9a9f 0%, #9cc8cc 100%);
+}
+.control-panel--groups .control-group-chart__col:nth-child(6) .control-group-chart__bar {
+  background: linear-gradient(180deg, #a67f72 0%, #d4b5ab 100%);
+}
+.control-panel--groups .control-group-chart__col:nth-child(7) .control-group-chart__bar {
+  background: linear-gradient(180deg, #8a8f7a 0%, #bcc0b0 100%);
+}
+.control-panel--groups .control-group-chart__col:nth-child(8) .control-group-chart__bar {
+  background: linear-gradient(180deg, #7d8fa8 0%, #b4c0d4 100%);
 }
 .control-table-wrap {
   overflow: auto;
@@ -4479,8 +4983,11 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .cr-detail-table thead th:first-child {
   text-align: right;
 }
-.cr-detail-table thead th.cr-detail-table__phase {
+.cr-detail-table thead th.cr-detail-table__phase,
+.cr-detail-table__phase-cell {
+  --phase-max-dots: 1;
   width: auto;
+  min-width: max(3.25rem, calc(var(--phase-max-dots) * 1.72rem + 1.15rem));
 }
 .cr-detail-table tbody th.cr-detail-table__unit {
   width: 1%;
@@ -4502,28 +5009,23 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   background: var(--tint-50);
 }
 .cr-detail-table__cell {
-  padding: 0.26rem 0.45rem;
+  padding: 0.26rem 0.35rem;
   border: 1px solid var(--border-light);
   vertical-align: middle;
   text-align: center;
-  width: auto;
-  min-width: 3.25rem;
   white-space: nowrap;
   line-height: 1.1;
 }
 .cr-detail-cell {
-  --dot-count: 1;
-  --dot-gap: clamp(0.2rem, calc(0.58rem - (var(--dot-count) - 1) * 0.032rem), 0.5rem);
-  display: inline-flex;
+  display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
-  justify-content: center;
+  justify-content: space-evenly;
   align-items: center;
   gap: 0;
-  min-height: 0;
-  width: max-content;
-  max-width: none;
-  margin-inline: auto;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 1.3rem;
 }
 .cr-detail-sep {
   display: block;
@@ -4531,7 +5033,7 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   align-self: center;
   width: 1px;
   height: 1.2rem;
-  margin-inline: var(--dot-gap);
+  margin-inline: 0;
   background: var(--border);
 }
 .cr-detail-dot-wrap {
@@ -4540,8 +5042,7 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   align-items: center;
   justify-content: center;
   gap: 0.06rem;
-  flex-shrink: 0;
-  padding-inline: clamp(0.06rem, calc(var(--dot-gap) * 0.35), 0.18rem);
+  flex: 0 0 auto;
 }
 .cr-detail-dot {
   display: block;

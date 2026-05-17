@@ -1,55 +1,8 @@
 {% extends "base.html" %}
 {% block title %}قوائم التقييم{% endblock %}
+{% block body_class %}judge-eval-lists-page-layout{% endblock %}
 {% block content %}
-<style>
-  .judge-eval-units-summary {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.35rem 0.5rem;
-    margin: 0 0 0.55rem;
-    padding: 0.45rem 0.2rem 0.5rem;
-    font-size: 0.9rem;
-    color: #5a514a;
-    border-bottom: 1px solid var(--border-soft, #e5dfd8);
-  }
-  .judge-eval-units-summary__item strong {
-    font-weight: 700;
-    color: #3a332d;
-  }
-  .judge-eval-units-summary__sep {
-    color: #c9bfb5;
-    font-weight: 300;
-    user-select: none;
-  }
-  .judge-eval-units-summary__item--not-done strong {
-    color: #991b1b;
-  }
-  .judge-eval-units-table th,
-  .judge-eval-units-table td {
-    text-align: center;
-    vertical-align: middle;
-    padding: 0.28rem 0.45rem;
-    font-size: 0.84rem;
-    line-height: 1.22;
-  }
-  .judge-eval-units-table thead th {
-    padding: 0.32rem 0.45rem;
-    font-size: 0.86rem;
-  }
-  .judge-eval-units-table td.judge-eval-unit-label {
-    text-align: right;
-  }
-  .judge-eval-units-table a {
-    font-size: 0.84rem;
-  }
-  .judge-eval-unit-not-done-cell {
-    background: #fef2f2;
-    color: #991b1b;
-    font-weight: 700;
-  }
-</style>
-<div class="page-header">
+<div class="page-header page-header--judge-eval-lists">
   <h1><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ page_title | default('قوائم التقييم') }}</h1>
   <p class="mt-tight">
     <a class="btn btn-ghost" href="{{ hub_back_href | default('/judge') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى مساحة المحكمين</a>
@@ -57,11 +10,11 @@
 </div>
 
 {% if not has_exercise %}
-<section class="card">
+<section class="card judge-eval-lists-fill-card">
   <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل لهذا المستخدم. افتح/أنشئ تمريناً أولاً.</p>
 </section>
 {% else %}
-<section class="card">
+<section class="card judge-eval-lists-fill-card">
   <p class="judge-eval-units-summary" dir="rtl" role="status">
     <span class="judge-eval-units-summary__item">قوائم التقييم: <strong>{{ unit_totals.total }}</strong></span>
     <span class="judge-eval-units-summary__sep" aria-hidden="true">|</span>
@@ -71,6 +24,7 @@
     <table class="judge-eval-units-table" dir="rtl" aria-label="مستويات الوحدات">
       <thead>
         <tr>
+          <th scope="col" class="eval-lists-table__seq">ت</th>
           <th scope="col">مستوى الوحدة</th>
           <th scope="col">عدد قوائم التقييم</th>
           <th scope="col">غير منجزة</th>
@@ -80,6 +34,7 @@
       <tbody>
         {% for r in unit_rows %}
         <tr>
+          <td class="eval-lists-table__seq">{{ loop.index }}</td>
           <td class="judge-eval-unit-label">{{ r.label }}</td>
           <td>{{ r.total_count }}</td>
           <td{% if r.not_done_count > 0 %} class="judge-eval-unit-not-done-cell"{% endif %}>{{ r.not_done_count }}</td>

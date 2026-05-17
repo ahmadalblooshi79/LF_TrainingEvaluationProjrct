@@ -1,47 +1,8 @@
 {% extends "base.html" %}
 {% block title %}قوائم التقييم — {{ unit.label }}{% endblock %}
+{% block body_class %}judge-eval-lists-page-layout{% endblock %}
 {% block content %}
-<style>
-  .chief-eval-lists-table th,
-  .chief-eval-lists-table td {
-    text-align: center;
-    vertical-align: middle;
-  }
-  .chief-eval-lists-table tr.eval-row-tone--pending td {
-    background: #fffbeb;
-  }
-  .chief-eval-lists-table tr.eval-row-tone--sent td {
-    background: #ecfdf5;
-  }
-  .chief-eval-lists-table tr.eval-row-tone--returned td {
-    background: #fef2f2;
-  }
-  .judge-eval-dispatch-badge {
-    display: inline-block;
-    padding: 0.2rem 0.55rem;
-    border-radius: 999px;
-    font-size: 0.82rem;
-    font-weight: 600;
-    line-height: 1.35;
-  }
-  .judge-eval-dispatch-badge--none {
-    color: #6b7280;
-    background: #f3f4f6;
-  }
-  .judge-eval-dispatch-badge--pending {
-    color: #92400e;
-    background: #fde68a;
-  }
-  .judge-eval-dispatch-badge--sent {
-    color: #065f46;
-    background: #a7f3d0;
-  }
-  .judge-eval-dispatch-badge--returned {
-    color: #991b1b;
-    background: #fecaca;
-  }
-</style>
-<div class="page-header">
+<div class="page-header page-header--judge-eval-lists">
   <h1><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> قوائم التقييم — {{ unit.label }}</h1>
   <p class="muted">الموقف (ينجز/لم ينجز) يعتمد على اعتماد المحكم فقط.</p>
   <p class="mt-tight">
@@ -49,12 +10,13 @@
   </p>
 </div>
 
-<section class="card">
+<section class="card judge-eval-lists-fill-card">
   {% if evaluation_lists_rows %}
   <div class="table-wrap">
     <table class="chief-eval-lists-table" dir="rtl" aria-label="قوائم التقييم — كبير المحكمين">
       <thead>
         <tr>
+          <th scope="col" class="eval-lists-table__seq">ت</th>
           <th scope="col">التاريخ والوقت</th>
           <th scope="col">نوع التمرين</th>
           <th scope="col">الوحدة المقيمة</th>
@@ -70,6 +32,7 @@
       <tbody>
         {% for r in evaluation_lists_rows %}
         <tr class="{% if r.row_tone and r.row_tone != 'none' %}eval-row-tone--{{ r.row_tone }}{% endif %}">
+          <td class="eval-lists-table__seq">{{ loop.index }}</td>
           <td>{% if r.dt %}{{ r.dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
           <td>{{ r.exercise_type or "—" }}</td>
           <td>{{ r.trained_unit or "—" }}</td>

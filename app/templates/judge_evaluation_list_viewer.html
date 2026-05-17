@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}تقييم — {{ item_title }}{% endblock %}
+{% block body_class %}eval-list-page-layout{% endblock %}
 {% block content %}
 {% set eval_back_href = eval_close_href if eval_close_href is defined else url_for('views.judge_evaluation_lists', unit_key=unit_key) %}
 {% if header_row and eval_structured %}

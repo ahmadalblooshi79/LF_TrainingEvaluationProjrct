@@ -15,10 +15,7 @@
       {% endif %}
     </div>
     <div class="control-report__actions">
-      <button type="button" class="btn btn-ghost control-report__export" onclick="window.print()">
-        <i class="fa-solid fa-download" aria-hidden="true"></i> تصدير التقرير
-      </button>
-      <a class="btn btn-ghost control-report__export" href="{{ url_for('views.control_hub') }}">
+      <a class="btn btn-ghost control-report__back" href="{{ url_for('views.control_hub') }}">
         <i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة
       </a>
     </div>
@@ -38,14 +35,26 @@
   <section class="control-report__layout">
     <article class="control-panel control-panel--groups">
       <h2>أداء المجموعات (متوسط النسبة العامة)</h2>
-      <div class="control-columns">
-        {% for item in report.group_scores %}
-        <div class="control-column">
-          <strong>{{ item.value }}%</strong>
-          <i style="height: {{ item.value }}%; background: linear-gradient(180deg, {{ item.color }}, rgba(14, 165, 233, 0.45));"></i>
-          <span>{{ item.label }}</span>
+      <div class="control-group-chart" dir="rtl">
+        <div class="control-group-chart__plot">
+          {% for item in report.group_scores %}
+          <div class="control-group-chart__col">
+            <div class="control-group-chart__bar-track" style="--bar-pct: {{ item.value }};">
+              <i class="control-group-chart__bar" aria-hidden="true"></i>
+              <span class="control-group-chart__bar-value">{{ item.value }}%</span>
+            </div>
+          </div>
+          {% endfor %}
         </div>
-        {% endfor %}
+        <div class="control-group-chart__rule" role="presentation" aria-hidden="true"></div>
+        <div class="control-group-chart__captions">
+          {% for item in report.group_scores %}
+          <div class="control-group-chart__caption">
+            <span class="control-group-chart__caption-line">{{ (item.label_lines | default([item.label, '']))[0] }}</span>
+            <span class="control-group-chart__caption-line">{{ (item.label_lines | default([item.label, '']))[1] }}</span>
+          </div>
+          {% endfor %}
+        </div>
       </div>
     </article>
 
@@ -67,12 +76,13 @@
       <h2>أداء الوحدات التفصيلي (مراحل التمرين)</h2>
       <div class="control-table-wrap">
         {% if report.unit_detail_rows | default([]) %}
+        {% set phase_max_dots = report.get('unit_detail_phase_max_dots', [1, 1, 1]) %}
         <table class="cr-detail-table" dir="rtl">
           <thead>
             <tr>
               <th scope="col">الوحدة</th>
               {% for header in report.unit_detail_phase_headers | default([]) %}
-              <th scope="col" class="cr-detail-table__phase">{{ header }}</th>
+              <th scope="col" class="cr-detail-table__phase" style="--phase-max-dots: {{ phase_max_dots[loop.index0] | default(1) }};">{{ header }}</th>
               {% endfor %}
             </tr>
           </thead>
@@ -81,8 +91,8 @@
             <tr>
               <th scope="row" class="cr-detail-table__unit" title="{{ urow.unit_label }}">{{ urow.unit_label }}</th>
               {% for phase in urow.phases %}
-              <td class="cr-detail-table__cell cr-detail-table__phase-cell">
-                <div class="cr-detail-cell" aria-label="{{ phase.label }} — {{ urow.unit_label }}" style="--dot-count: {{ phase.dots | length }};">
+              <td class="cr-detail-table__cell cr-detail-table__phase-cell" style="--phase-max-dots: {{ phase_max_dots[loop.index0] | default(1) }};">
+                <div class="cr-detail-cell" aria-label="{{ phase.label }} — {{ urow.unit_label }}">
                   {% for dot in phase.dots %}
                   {% if not loop.first %}<span class="cr-detail-sep" aria-hidden="true"></span>{% endif %}
                   <span class="cr-detail-dot-wrap">
