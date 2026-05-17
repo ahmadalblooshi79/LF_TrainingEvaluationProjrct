@@ -1047,11 +1047,32 @@ def open_export_directory_in_os() -> tuple[bool, str]:
         return False, str(e)
 
 
-def purge_all_exercises_and_dilemmas(db: Session) -> None:
-    """حذف جميع التمارين وما يتبعها من قاعدة البيانات، وجميع عناصر المعاضل (دون commit)."""
-    import shutil
+def _reset_upload_directory(root: Path) -> None:
+    """إفراغ مجلد رفع ملفات التمرين وإعادة إنشائه."""
+    if root.exists():
+        shutil.rmtree(root, ignore_errors=True)
+    root.mkdir(parents=True, exist_ok=True)
 
-    from app.config import DILEMMA_PDF_DIR, EVALUATION_LIST_XLSX_DIR
+
+def purge_exercise_export_archives() -> None:
+    """حذف ملفات JSON وأرشيفات _files في مجلد تصدير التمارين (نموذج إنشاء/فتح تمرين)."""
+    d = export_directory()
+    d.mkdir(parents=True, exist_ok=True)
+    for p in list(d.iterdir()):
+        if p.is_file() and p.suffix.lower() == ".json":
+            try:
+                p.unlink()
+            except OSError:
+                pass
+        elif p.is_dir() and p.name.endswith("_files"):
+            shutil.rmtree(p, ignore_errors=True)
+
+
+def purge_all_exercises_and_dilemmas(db: Session) -> None:
+    """حذف جميع التمارين وملفاتها وملفات التصدير (دون commit). يبقى بنك المعلومات والمستخدمون."""
+    exercise_ids = [int(row[0]) for row in db.query(Exercise.id).all()]
+    for eid in exercise_ids:
+        _remove_exercise_upload_files(db, eid)
 
     db.execute(delete(DilemmaItem))
     db.execute(delete(EvaluationListPdfItem))
@@ -1059,10 +1080,11 @@ def purge_all_exercises_and_dilemmas(db: Session) -> None:
     db.execute(delete(AnalystEvaluationCriteriaUnit))
     db.execute(delete(AnalystEvaluationCriteriaResult))
     db.execute(delete(Exercise))
-    if DILEMMA_PDF_DIR.exists():
-        shutil.rmtree(DILEMMA_PDF_DIR, ignore_errors=True)
-    if EVALUATION_LIST_XLSX_DIR.exists():
-        shutil.rmtree(EVALUATION_LIST_XLSX_DIR, ignore_errors=True)
+
+    for root in FILE_BUCKET_ROOTS.values():
+        _reset_upload_directory(root)
+
+    purge_exercise_export_archives()
 
 
 def _parse_dt(val: Any) -> datetime | None:

@@ -9,12 +9,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/static/style.css?v=header2">
+  <link rel="stylesheet" href="/static/style.css?v=header4">
 </head>
 <body class="{% block body_class %}{% endblock %}">
 <div class="layout">
   <header>
     <div class="header-bar">
+      <div class="header-bar__scroll">
       <div class="brand">
         <i class="fa-solid fa-clipboard-list fa-icon-brand" aria-hidden="true"></i>
         <span>نظام إدارة التمارين</span>
@@ -36,6 +37,7 @@
         مرحباً، <strong>{{ judge_welcome_name }}</strong>
       </span>
       {% endif %}
+      </div>
       {% if user %}
       <nav class="header-nav" aria-label="التنقل الرئيسي">
         <a href="/dashboard" title="الصفحة الرئيسية"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
@@ -171,5 +173,56 @@
 })();
 </script>
 {% endif %}
+<script>
+(function () {
+  document.querySelectorAll(".nav-dd").forEach(function (dd) {
+    var menu = dd.querySelector(".nav-dd__menu");
+    var btn = dd.querySelector(".nav-dd__toggle");
+    if (!menu) return;
+    var closeTimer = null;
+
+    function openMenu() {
+      if (closeTimer) {
+        clearTimeout(closeTimer);
+        closeTimer = null;
+      }
+      dd.classList.add("is-open");
+    }
+
+    function closeMenu() {
+      dd.classList.remove("is-open");
+    }
+
+    function scheduleClose() {
+      if (closeTimer) clearTimeout(closeTimer);
+      closeTimer = setTimeout(closeMenu, 160);
+    }
+
+    dd.addEventListener("mouseenter", openMenu);
+    dd.addEventListener("mouseleave", scheduleClose);
+    menu.addEventListener("mouseenter", openMenu);
+    menu.addEventListener("mouseleave", scheduleClose);
+
+    if (btn) {
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        dd.classList.toggle("is-open");
+      });
+    }
+
+    menu.querySelectorAll("a[href]").forEach(function (link) {
+      link.addEventListener("click", closeMenu);
+    });
+
+    document.addEventListener("click", function (e) {
+      if (!dd.contains(e.target)) closeMenu();
+    });
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") closeMenu();
+    });
+  });
+})();
+</script>
 </body>
 </html>

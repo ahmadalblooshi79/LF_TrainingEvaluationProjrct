@@ -5670,12 +5670,10 @@ def _control_exercise_performance_report(db, user: User) -> dict:
     top_unit = unit_avg_rows[0] if unit_avg_rows else None
     bottom_unit = unit_avg_rows[-1] if unit_avg_rows else None
     group_scores = []
-    for r in unit_avg_rows[:6]:
-        line1, line2 = _control_group_label_lines(r["label"])
+    for r in unit_avg_rows:
         group_scores.append(
             {
                 "label": r["label"],
-                "label_lines": [line1, line2],
                 "value": r["value"],
                 "color": r["color"],
             }

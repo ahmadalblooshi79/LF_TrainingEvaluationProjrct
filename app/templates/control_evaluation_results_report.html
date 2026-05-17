@@ -35,12 +35,13 @@
   <section class="control-report__layout">
     <article class="control-panel control-panel--groups">
       <h2>أداء المجموعات (متوسط النسبة العامة)</h2>
-      <div class="control-group-chart" dir="rtl">
+      <div class="control-group-chart" dir="rtl" style="--group-count: {{ report.group_scores | length }};">
+        <div class="control-group-chart__scroll">
         <div class="control-group-chart__plot">
           {% for item in report.group_scores %}
           <div class="control-group-chart__col">
             <div class="control-group-chart__bar-track" style="--bar-pct: {{ item.value }};">
-              <i class="control-group-chart__bar" aria-hidden="true"></i>
+              <i class="control-group-chart__bar" style="background: linear-gradient(180deg, {{ item.color }} 0%, color-mix(in srgb, {{ item.color }} 72%, #fff) 100%);" aria-hidden="true"></i>
               <span class="control-group-chart__bar-value">{{ item.value }}%</span>
             </div>
           </div>
@@ -50,10 +51,10 @@
         <div class="control-group-chart__captions">
           {% for item in report.group_scores %}
           <div class="control-group-chart__caption">
-            <span class="control-group-chart__caption-line">{{ (item.label_lines | default([item.label, '']))[0] }}</span>
-            <span class="control-group-chart__caption-line">{{ (item.label_lines | default([item.label, '']))[1] }}</span>
+            <span class="control-group-chart__caption-label" title="{{ item.label }}">{{ item.label }}</span>
           </div>
           {% endfor %}
+        </div>
         </div>
       </div>
     </article>
