@@ -301,20 +301,20 @@
 
   function gradeFromPct(p) {
     if (p === null || typeof p !== 'number' || isNaN(p)) return 'غير محسوب';
-    if (p < 50) return 'راسب';
-    if (p < 65) return 'مقبول';
-    if (p < 75) return 'جيد';
+    if (p < 60) return 'راسب';
+    if (p < 70) return 'متوسط';
+    if (p < 80) return 'جيد';
     if (p < 90) return 'جيد جدا';
     return 'ممتاز';
   }
-  var GRADE_CELL_BG = { na: '#ffffff', fail: '#fecaca', accept: '#fed7aa', good: '#fef08a', vgood: '#bbf7d0', excellent: '#bae6fd' };
+  var GRADE_CELL_BG = { na: '#ffffff', fail: '#fecaca', mid: '#fed7aa', good: '#fef08a', vgood: '#bae6fd', excellent: '#bbf7d0' };
   function setResultCellBackground(gradeTd, pct) {
     if (!gradeTd) return;
     var bg;
     if (pct === null || typeof pct !== 'number' || isNaN(pct)) bg = GRADE_CELL_BG.na;
-    else if (pct < 50) bg = GRADE_CELL_BG.fail;
-    else if (pct < 65) bg = GRADE_CELL_BG.accept;
-    else if (pct < 75) bg = GRADE_CELL_BG.good;
+    else if (pct < 60) bg = GRADE_CELL_BG.fail;
+    else if (pct < 70) bg = GRADE_CELL_BG.mid;
+    else if (pct < 80) bg = GRADE_CELL_BG.good;
     else if (pct < 90) bg = GRADE_CELL_BG.vgood;
     else bg = GRADE_CELL_BG.excellent;
     gradeTd.style.backgroundColor = bg;

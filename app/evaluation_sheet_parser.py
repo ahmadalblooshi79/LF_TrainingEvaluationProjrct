@@ -181,13 +181,13 @@ def read_evaluation_list_sheet(path: Path, *, sheet_index: int = 0) -> dict[str,
 
 
 def ratio_to_performance_band(ratio: float) -> str:
-    """نطاق أداء البند من النسبة المكتسبة/القصوى (0..1) — يطابق حدود النتائج الشائعة."""
+    """نطاق أداء البند من النسبة المكتسبة/القصوى (0..1) — يطابق grade_label_from_percent."""
     pct = max(0.0, min(100.0, float(ratio) * 100.0))
-    if pct < 50:
+    if pct < 60:
         return "راسب"
-    if pct < 65:
-        return "مقبول"
-    if pct < 75:
+    if pct < 70:
+        return "متوسط"
+    if pct < 80:
         return "جيد"
     if pct < 90:
         return "جيد_جدا"

@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ section_title }} — المحللين{% endblock %}
+{% block body_class %}final-eval-page-layout{% endblock %}
 {% block content %}
-<div class="page-header">
-  <h1><i class="fa-solid fa-file-signature fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
-  <p class="muted">تقرير نهائي حسب الوحدة والمرحلة من نتائج قوائم التقييم المحفوظة.</p>
-  <p class="mt-tight">
-    <a class="btn btn-ghost" href="{{ url_for('views.analyst_hub') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى مساحة المحللين</a>
-  </p>
+<div class="page-header page-header--final-eval">
+  <div class="page-header__row">
+    <h1><i class="fa-solid fa-file-signature fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+    <a class="btn btn-ghost page-header__back" href="{{ url_for('views.analyst_hub') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى مساحة المحللين</a>
+  </div>
 </div>
 
 {% if not has_exercise %}
@@ -14,15 +14,30 @@
   <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل. افتح أو أنشئ تمريناً لعرض التقرير النهائي.</p>
 </section>
 {% else %}
-<section class="card">
-  <h2 class="h2-in-card"><i class="fa-solid fa-table-list fa-icon-title" aria-hidden="true"></i> التقرير النهائي</h2>
-  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
-    التمرين الحالي: <strong>{{ exercise.title }}</strong> — <code>{{ exercise.code }}</code>
-    <span class="muted"> | قوائم التقييم: {{ n_eval_lists }} | النتائج: {{ n_saved_eval_lists }} | المعتمدة: {{ n_approved_eval_lists }} | المحفوظة غير المعتمدة: {{ n_saved_pending_eval_lists }}</span>
-  </p>
-  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
-    مصدر النتائج: مساحة المحكمين / قوائم التقييم، وتشمل النتائج عند حفظها أو اعتمادها.
-  </p>
+<section class="card final-report-card">
+  <div class="final-report-box" dir="rtl">
+    <div class="final-report-box__sticky">
+      <div class="final-report-box__head">
+        <h2 class="final-report-box__title"><i class="fa-solid fa-table-list fa-icon-title" aria-hidden="true"></i> التقرير النهائي</h2>
+        {% if report_summary and report_summary.phase_summaries %}
+        <div class="final-report-box__head-vrule" aria-hidden="true"></div>
+        <div class="final-report-summary-bar" aria-label="مجاميع نسب المراحل والمجموع العام">
+          {% for ps in report_summary.phase_summaries %}
+          <span class="final-report-summary-chip final-report-summary-chip--phase final-report-summary-chip--{{ ps.phase_key }}">
+            <span class="final-report-summary-chip__label">{{ ps.phase_label }}</span>
+            <strong>{% if ps.pct is not none %}{{ ps.pct|round(2) }}%{% else %}—{% endif %}</strong>
+          </span>
+          {% endfor %}
+          <span class="final-report-summary-chip final-report-summary-chip--total">
+            <span class="final-report-summary-chip__label">المجموع العام</span>
+            <strong>{% if report_summary.exercise_pct is not none %}{{ report_summary.exercise_pct|round(2) }}%{% else %}—{% endif %}</strong>
+            <span class="final-report-summary-chip__grade">{{ report_summary.exercise_grade }}</span>
+          </span>
+        </div>
+        {% endif %}
+      </div>
+      <div class="final-report-box__rule" role="presentation" aria-hidden="true"></div>
+    </div>
 
   {% if final_rows %}
   <div class="table-wrap final-report-table-wrap final-report-table-wrap--main">
@@ -55,22 +70,23 @@
       </thead>
       <tbody>
         {% for row in final_rows %}
-        <tr>
+        {% set phase_key = row.phase_key | default('', true) | trim %}
+        <tr class="final-report-row{% if phase_key %} final-report-row--{{ phase_key }}{% endif %}">
           <td>{{ loop.index }}</td>
           {% if row.show_unit_total %}
-          <th scope="row" rowspan="{{ row.unit_rowspan }}">{{ row.unit_label }}</th>
+          <th scope="row" class="final-report-cell--unit" rowspan="{{ row.unit_rowspan }}">{{ row.unit_label }}</th>
           {% endif %}
-          <td>{{ row.phase_label }}</td>
+          <td class="final-report-cell--phase">{{ row.phase_label }}</td>
           <td>{{ row.max_mark|round(2) }}</td>
           <td>{{ row.acquired_mark|round(2) }}</td>
-          <td>{% if row.phase_pct is not none %}{{ row.phase_pct|round(2) }}%{% else %}—{% endif %}</td>
+          <td class="final-report-cell--phase-pct">{% if row.phase_pct is not none %}{{ row.phase_pct|round(2) }}%{% else %}—{% endif %}</td>
           {% if row.show_unit_total %}
-          <td rowspan="{{ row.unit_rowspan }}">{% if row.unit_total_pct is not none %}{{ row.unit_total_pct|round(2) }}%{% else %}—{% endif %}</td>
+          <td class="final-report-cell--unit-block" rowspan="{{ row.unit_rowspan }}">{% if row.unit_total_pct is not none %}{{ row.unit_total_pct|round(2) }}%{% else %}—{% endif %}</td>
           {% endif %}
-          <td>{{ row.phase_grade }}</td>
+          <td class="final-report-cell--phase-grade">{{ row.phase_grade }}</td>
           {% if row.show_unit_total %}
-          <td rowspan="{{ row.unit_rowspan }}">{{ row.unit_grade }}</td>
-          <td rowspan="{{ row.unit_rowspan }}"><a class="btn btn-ghost" href="{{ url_for('views.analyst_final_evaluation_unit_detail', unit_key=row.unit_key) }}">عرض تفاصيل الوحدة</a></td>
+          <td class="final-report-cell--unit-block" rowspan="{{ row.unit_rowspan }}">{{ row.unit_grade }}</td>
+          <td class="final-report-cell--unit-block" rowspan="{{ row.unit_rowspan }}"><a class="btn btn-ghost" href="{{ url_for('views.analyst_final_evaluation_unit_detail', unit_key=row.unit_key) }}">عرض تفاصيل الوحدة</a></td>
           {% endif %}
         </tr>
         {% endfor %}
@@ -78,8 +94,9 @@
     </table>
   </div>
   {% else %}
-  <p class="muted" dir="rtl" style="margin:0;">لا توجد نتائج محفوظة بعد لعرض التقرير النهائي. احفظ نتائج قوائم التقييم أولاً.</p>
+  <p class="muted final-report-box__empty" style="margin:0;">لا توجد نتائج محفوظة بعد لعرض التقرير النهائي. احفظ نتائج قوائم التقييم أولاً.</p>
   {% endif %}
+  </div>
 </section>
 {% endif %}
 {% endblock %}

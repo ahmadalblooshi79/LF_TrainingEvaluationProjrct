@@ -58,9 +58,6 @@
           </div>
         </div>
         {% endif %}
-        {% if user_can_view_information_bank %}
-        <a href="/admin/information-bank" class="nav-hub-link" title="بنك المعلومات — مرجع عام غير مرتبط بتمرين"><i class="fa-solid fa-database" aria-hidden="true"></i> بنك المعلومات</a>
-        {% endif %}
         {% for hub in nav_role_hub_links %}
         <a href="{{ hub.href }}" class="nav-hub-link" title="{{ hub.title }}"><i class="fa-solid {{ hub.icon }}" aria-hidden="true"></i> {{ hub.label }}</a>
         {% endfor %}

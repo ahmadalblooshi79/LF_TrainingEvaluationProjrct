@@ -59,21 +59,27 @@
     </article>
 
     <article class="control-panel control-panel--donut">
-      <h2>توزيع نتائج التقييم</h2>
+      <h2>نسب مراحل التمرين</h2>
+      <div class="control-donut-stack">
       <div class="control-donut-layout">
-        <div class="control-donut">
-          <span>إجمالي<br><strong>{{ report.criteria_count }}</strong><br>معيار</span>
-        </div>
+        <div class="control-donut" style="background: {{ report.donut_conic_gradient }};" role="img" aria-label="نسب مراحل التمرين"></div>
         <div class="control-donut-legend">
           {% for item in report.distribution %}
-          <span><i style="background: {{ item.color }}"></i>{{ item.label }} <b>{{ item.pct }}%</b> ({{ item.count }})</span>
+          <span class="control-donut-legend__row control-donut-legend__row--{{ item.phase_key | default('total') }}"><i aria-hidden="true"></i><span class="control-donut-legend__label">{{ item.label }}</span> <b>{{ item.pct_display }}%</b></span>
+          {% else %}
+          <span class="muted">لا توجد نتائج محفوظة لعرض المراحل.</span>
           {% endfor %}
         </div>
+      </div>
+        <p class="control-donut__total-foot">
+          <span class="control-donut__total-label">المجموع العام</span>
+          <strong>{% if report.phase_summary and report.phase_summary.exercise_pct is not none %}{{ report.phase_summary.exercise_pct|round(2) }}%{% else %}—{% endif %}</strong>
+        </p>
       </div>
     </article>
 
     <article class="control-panel control-panel--detail">
-      <h2>أداء الوحدات التفصيلي (مراحل التمرين)</h2>
+      <h2>أداء الوحدات التفصيلي حسب قوائم التقييم (مراحل التمرين)</h2>
       <div class="control-table-wrap">
         {% if report.unit_detail_rows | default([]) %}
         {% set phase_max_dots = report.get('unit_detail_phase_max_dots', [1, 1, 1]) %}
@@ -85,26 +91,47 @@
               <th scope="col" class="cr-detail-table__phase" style="--phase-max-dots: {{ phase_max_dots[loop.index0] | default(1) }};">{{ header }}</th>
               {% endfor %}
             </tr>
+            {% if report.unit_detail_list_number_row | default([]) %}
+            <tr class="cr-detail-table__list-nums">
+              <th scope="col" class="cr-detail-table__list-nums-unit muted">ت</th>
+              {% for phase_nums in report.unit_detail_list_number_row %}
+              <th scope="col" class="cr-detail-table__phase cr-detail-table__list-nums-phase" style="--phase-max-dots: {{ phase_nums.max_dots | default(1) }};">
+                <div class="cr-detail-cell" aria-hidden="true">
+                  {% for num in phase_nums.slots %}
+                  <span class="cr-detail-slot">
+                    <span class="cr-detail-list-num">{{ num }}</span>
+                  </span>
+                  {% endfor %}
+                </div>
+              </th>
+              {% endfor %}
+            </tr>
+            {% endif %}
           </thead>
           <tbody>
             {% for urow in report.unit_detail_rows %}
             <tr>
               <th scope="row" class="cr-detail-table__unit" title="{{ urow.unit_label }}">{{ urow.unit_label }}</th>
               {% for phase in urow.phases %}
-              <td class="cr-detail-table__cell cr-detail-table__phase-cell" style="--phase-max-dots: {{ phase_max_dots[loop.index0] | default(1) }};">
+              {% set phase_slot_count = phase_max_dots[loop.index0] | default(1) %}
+              <td class="cr-detail-table__cell cr-detail-table__phase-cell" style="--phase-max-dots: {{ phase_slot_count }};">
                 <div class="cr-detail-cell" aria-label="{{ phase.label }} — {{ urow.unit_label }}">
-                  {% for dot in phase.dots %}
-                  {% if not loop.first %}<span class="cr-detail-sep" aria-hidden="true"></span>{% endif %}
-                  <span class="cr-detail-dot-wrap">
-                    <button
-                      type="button"
-                      class="cr-detail-dot"
-                      style="background-color: {{ dot.color }};"
-                      data-href="{{ dot.view_url }}"
-                      title="قائمة التقييم: {{ dot.list_title }}&#10;المحكم: {{ dot.judge_name }}&#10;{{ dot.approval_location }}"
-                      aria-label="{{ dot.list_title }} — {{ dot.pct }}%"
-                    ></button>
-                    <span class="cr-detail-dot-pct">{{ dot.pct }}%</span>
+                  {% for slot_i in range(phase_slot_count) %}
+                  <span class="cr-detail-slot{% if slot_i >= phase.dots | length %} cr-detail-slot--empty{% endif %}">
+                    {% if slot_i < phase.dots | length %}
+                    {% set dot = phase.dots[slot_i] %}
+                    <span class="cr-detail-dot-wrap">
+                      <button
+                        type="button"
+                        class="cr-detail-dot"
+                        style="background-color: {{ dot.color }};"
+                        data-href="{{ dot.view_url }}"
+                        title="قائمة التقييم: {{ dot.list_title }}&#10;المحكم: {{ dot.judge_name }}&#10;{{ dot.approval_location }}"
+                        aria-label="{{ dot.list_title }} — {{ dot.pct }}%"
+                      ></button>
+                      <span class="cr-detail-dot-pct">{{ dot.pct }}%</span>
+                    </span>
+                    {% endif %}
                   </span>
                   {% endfor %}
                 </div>
@@ -118,6 +145,20 @@
         <p class="muted" style="margin:0.5rem 0;">لا توجد قوائم تقييم محفوظة لعرضها — يُعرض الجدول بعد حفظ المحكمين لنتائج القوائم.</p>
         {% endif %}
       </div>
+      {% if report.grade_legend | default([]) %}
+      <div class="cr-detail-grade-legend" aria-label="مفتاح ألوان النتيجة">
+        <span class="cr-detail-grade-legend__title">مفتاح الألوان (النتيجة)</span>
+        <ul class="cr-detail-grade-legend__list">
+          {% for item in report.grade_legend %}
+          <li class="cr-detail-grade-legend__item">
+            <i class="cr-detail-grade-legend__swatch" style="background-color: {{ item.color }};" aria-hidden="true"></i>
+            <span class="cr-detail-grade-legend__label">{{ item.label }}</span>
+            <span class="cr-detail-grade-legend__range muted">{{ item.range }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
     </article>
   </section>
 

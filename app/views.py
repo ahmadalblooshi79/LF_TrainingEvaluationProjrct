@@ -710,9 +710,24 @@ def _evaluation_saved_total_pct(sr: EvaluationListSavedResult | None) -> float |
 
 _CONTROL_REPORT_PHASE_COLUMNS: tuple[tuple[str, str], ...] = (
     ("preparation", "مرحلة التحضير"),
-    ("opening", "مرحلة الانفتاح"),
-    ("main", "مرحلة العمليات التعرضية"),
+    ("opening", "مرحلة الإنفتاح"),
+    ("main", "مرحلة المعركة التعرضية"),
 )
+_CONTROL_REPORT_PHASE_KEYS: tuple[str, ...] = tuple(pk for pk, _ in _CONTROL_REPORT_PHASE_COLUMNS)
+_CONTROL_REPORT_PHASE_KEYS_SET: frozenset[str] = frozenset(_CONTROL_REPORT_PHASE_KEYS)
+
+# مفتاح ألوان نتائج القوائم — متوافق مع grade_label_from_percent
+_CONTROL_REPORT_GRADE_LEGEND: tuple[tuple[str, str, str], ...] = (
+    ("راسب", "أقل من 60%", "#ef4444"),
+    ("متوسط", "60% – 69%", "#f97316"),
+    ("جيد", "70% – 79%", "#eab308"),
+    ("جيد جدا", "80% – 89%", "#38bdf8"),
+    ("ممتاز", "90% – 100%", "#22c55e"),
+)
+
+
+def _control_report_grade_legend() -> list[dict]:
+    return [{"label": lbl, "range": rng, "color": col} for lbl, rng, col in _CONTROL_REPORT_GRADE_LEGEND]
 
 
 def _control_report_dot_color(pct: float) -> str:
@@ -749,7 +764,7 @@ def _control_build_unit_detail_rows(
     saved_by_item: dict[int, EvaluationListSavedResult],
 ) -> list[dict]:
     """صفوف جدول أداء الوحدات التفصيلي: نقطة ملونة لكل قائمة تقييم محفوظة ضمن مرحلة."""
-    phase_keys = {pk for pk, _ in _CONTROL_REPORT_PHASE_COLUMNS}
+    phase_keys = set(_CONTROL_REPORT_PHASE_KEYS)
     dots_by_unit_phase: dict[tuple[str, str], list[dict]] = {}
 
     user_ids = {
@@ -832,7 +847,10 @@ def _control_build_unit_detail_rows(
                 {
                     "key": pk,
                     "label": plbl,
-                    "dots": dots_by_unit_phase.get((uk, pk)) or [],
+                    "dots": sorted(
+                        dots_by_unit_phase.get((uk, pk)) or [],
+                        key=lambda d: int(d.get("item_id") or 0),
+                    ),
                 }
             )
         unit_rows.append(
@@ -854,6 +872,15 @@ def _control_phase_max_dot_counts(unit_detail_rows: list[dict]) -> list[int]:
             if i < n_phases:
                 maxes[i] = max(maxes[i], len(ph.get("dots") or []))
     return [max(1, m) for m in maxes]
+
+
+def _control_build_list_number_row(phase_max_dots: list[int]) -> list[dict]:
+    """صف ترقيم قوائم التقييم — لكل مرحلة تسلسل مستقل يبدأ من 1."""
+    out: list[dict] = []
+    for max_dots in phase_max_dots:
+        count = max(0, int(max_dots or 0))
+        out.append({"slots": list(range(1, count + 1)), "max_dots": count})
+    return out
 
 
 def _control_group_label_lines(label: str) -> tuple[str, str]:
@@ -980,6 +1007,163 @@ def _final_report_detail_summary(rows: list[dict]) -> dict:
         "evaluation_list_max_mark": evaluation_list_max_mark,
         "evaluation_list_acquired_mark": evaluation_list_acquired_mark,
     }
+
+
+def _round_pct_display(value: float) -> float:
+    """تقريب النسبة كما في الجدول (منزلتان) قبل تجميع المربعات."""
+    return round(float(value), 2)
+
+
+def _build_final_report_exercise_summary(final_rows: list[dict]) -> dict:
+    """نسب المربعات = مجموع نسب صفوف الجدول (لكل مرحلة) ÷ عدد الوحدات؛ المجموع العام = مجموع نسب المراحل ÷ عدد المراحل."""
+    by_phase_units: dict[str, dict[str, float]] = {}
+    phase_labels: dict[str, str] = {}
+    for row in final_rows:
+        phase_key = (row.get("phase_key") or "").strip()
+        if not phase_key:
+            continue
+        pct = row.get("phase_pct")
+        if pct is None:
+            continue
+        unit_key = (row.get("unit_key") or "").strip() or "—"
+        phase_labels[phase_key] = (row.get("phase_label") or _phase_label_ar(phase_key))
+        by_phase_units.setdefault(phase_key, {})[unit_key] = _round_pct_display(float(pct))
+
+    phase_order = {key: idx for idx, key in enumerate(exercise_phase_keys())}
+    phase_summaries: list[dict] = []
+    phase_pcts_for_exercise: list[float] = []
+    for phase_key in sorted(by_phase_units.keys(), key=lambda k: phase_order.get(k, len(phase_order))):
+        unit_pcts = list(by_phase_units[phase_key].values())
+        if not unit_pcts:
+            continue
+        phase_pct = _round_pct_display(sum(unit_pcts) / len(unit_pcts))
+        phase_pcts_for_exercise.append(phase_pct)
+        phase_summaries.append(
+            {
+                "phase_key": phase_key,
+                "phase_label": phase_labels.get(phase_key) or _phase_label_ar(phase_key),
+                "pct": phase_pct,
+                "grade": grade_label_from_percent(phase_pct),
+                "unit_count": len(unit_pcts),
+            }
+        )
+
+    exercise_pct = (
+        _round_pct_display(sum(phase_pcts_for_exercise) / len(phase_pcts_for_exercise))
+        if phase_pcts_for_exercise
+        else None
+    )
+    return {
+        "phase_summaries": phase_summaries,
+        "exercise_pct": exercise_pct,
+        "exercise_grade": grade_label_from_percent(exercise_pct) if exercise_pct is not None else "—",
+        "phase_count": len(phase_pcts_for_exercise),
+    }
+
+
+_CONTROL_DONUT_FILL_VARS: dict[str, str] = {
+    "preparation": "--control-donut-preparation",
+    "opening": "--control-donut-opening",
+    "main": "--control-donut-main",
+    "reorg": "--control-donut-reorg",
+}
+_CONTROL_DONUT_TOTAL_FILL_VAR = "--control-donut-total"
+
+
+def _control_donut_slice_color(phase_key: str, *, is_total: bool = False) -> str:
+    if is_total:
+        return f"var({_CONTROL_DONUT_TOTAL_FILL_VAR})"
+    var_name = _CONTROL_DONUT_FILL_VARS.get((phase_key or "").strip())
+    return f"var({var_name})" if var_name else "var(--tint-300)"
+
+
+def _phase_summary_from_eval_items(
+    eval_items: list,
+    saved_by_item: dict[int, object],
+) -> dict:
+    """ملخص نسب المراحل (نفس منطق التقييم النهائي للمحللين) من قوائم التقييم المحفوظة."""
+    phase_totals: dict[tuple[str, str], dict] = {}
+    for item in eval_items:
+        saved = saved_by_item.get(int(getattr(item, "id", 0) or 0))
+        if saved is None:
+            continue
+        rows = _parse_saved_eval_rows(getattr(saved, "payload_json", None))
+        max_mark, acquired_mark = _evaluation_payload_mark_totals(rows)
+        if max_mark <= 0:
+            continue
+        unit_key = (getattr(item, "unit_level_key", None) or getattr(saved, "unit_level_key", None) or "").strip()
+        phase_key = _normalized_exercise_phase(
+            getattr(item, "exercise_phase", None) or getattr(saved, "exercise_phase", None)
+        )
+        block = phase_totals.setdefault(
+            (unit_key, phase_key),
+            {
+                "unit_key": unit_key,
+                "phase_key": phase_key,
+                "phase_label": _phase_label_ar(phase_key),
+                "max_mark": 0.0,
+                "acquired_mark": 0.0,
+            },
+        )
+        block["max_mark"] += max_mark
+        block["acquired_mark"] += acquired_mark
+
+    final_rows: list[dict] = []
+    for block in phase_totals.values():
+        max_mark = float(block.get("max_mark") or 0.0)
+        phase_pct = (float(block["acquired_mark"]) / max_mark) * 100.0 if max_mark > 0 else None
+        final_rows.append({**block, "phase_pct": phase_pct})
+    return _build_final_report_exercise_summary(final_rows)
+
+
+def _distribution_from_phase_summary(summary: dict) -> list[dict]:
+    """وسيلة دائرة «نسب مراحل التمرين» — المراحل الثلاث فقط (بدون المجموع العام)."""
+    phase_order = {key: idx for idx, key in enumerate(_CONTROL_REPORT_PHASE_KEYS)}
+    phase_labels = {pk: plbl for pk, plbl in _CONTROL_REPORT_PHASE_COLUMNS}
+    items: list[dict] = []
+    for ps in summary.get("phase_summaries") or []:
+        phase_key = (ps.get("phase_key") or "").strip()
+        if phase_key not in _CONTROL_REPORT_PHASE_KEYS_SET:
+            continue
+        pct = ps.get("pct")
+        if pct is None:
+            continue
+        pct_f = float(pct)
+        items.append(
+            {
+                "phase_key": phase_key,
+                "label": ps.get("phase_label") or phase_labels.get(phase_key) or _phase_label_ar(phase_key),
+                "pct": pct_f,
+                "pct_display": _round_pct_display(pct_f),
+                "count": int(ps.get("unit_count") or 0),
+                "color": _control_donut_slice_color(phase_key),
+                "_order": phase_order.get(phase_key, 99),
+            }
+        )
+    items.sort(key=lambda x: x.get("_order", 99))
+    for row in items:
+        row.pop("_order", None)
+    return items
+
+
+def _donut_conic_gradient_from_distribution(distribution: list[dict]) -> str:
+    phase_slices = [
+        item
+        for item in (distribution or [])
+        if (item.get("phase_key") or "").strip() not in ("", "total")
+    ]
+    if not phase_slices:
+        return "conic-gradient(var(--tint-200) 0 100%)"
+    weights = [max(0.0, float(item.get("pct") or 0.0)) for item in phase_slices]
+    total = sum(weights) or 1.0
+    stops: list[str] = []
+    start = 0.0
+    for item, weight in zip(phase_slices, weights):
+        end = start + (weight / total) * 100.0
+        color = item.get("color") or "#c4c4c4"
+        stops.append(f"{color} {start:.2f}% {end:.2f}%")
+        start = end
+    return f"conic-gradient({', '.join(stops)})"
 
 
 FINAL_EVALUATION_TRACK_UNIT_KEYS: set[str] = {
@@ -1906,6 +2090,7 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
         "has_exercise": True,
         "exercise": ex,
         "final_rows": final_rows_all,
+        "report_summary": _build_final_report_exercise_summary(final_rows_all),
         "report_units": report_units,
         "all_phase_rows": final_rows_all,
         "detail_rows": detail_rows,
@@ -2803,6 +2988,7 @@ def analyst_hub_section(slug: str):
                 has_exercise=True,
                 exercise=report["exercise"],
                 final_rows=report["final_rows"],
+                report_summary=report.get("report_summary"),
                 all_phase_rows=report["all_phase_rows"],
                 detail_rows=report["detail_rows"],
                 preparation_detail_rows=report["preparation_detail_rows"],
@@ -5348,9 +5534,13 @@ def _control_exercise_performance_report(db, user: User) -> dict:
             "group_scores": [],
             "timeline": [],
             "distribution": [],
+            "phase_summary": {"phase_summaries": [], "exercise_pct": None, "exercise_grade": "—", "phase_count": 0},
+            "donut_conic_gradient": "conic-gradient(var(--tint-200) 0 100%)",
             "unit_detail_rows": [],
             "unit_detail_phase_headers": [lbl for _, lbl in _CONTROL_REPORT_PHASE_COLUMNS],
             "unit_detail_phase_max_dots": _control_phase_max_dot_counts([]),
+            "unit_detail_list_number_row": [],
+            "grade_legend": _control_report_grade_legend(),
             "n_saved_eval": 0,
             "n_eval_lists_total": 0,
             "radar_series": [],
@@ -5409,33 +5599,9 @@ def _control_exercise_performance_report(db, user: User) -> dict:
             scored_row_pcts.append(float(pc))
     criteria_count = len(scored_row_pcts)
 
-    def _band_for_pct(p: float) -> str:
-        if p >= 90:
-            return "excellent"
-        if p >= 80:
-            return "vgood"
-        if p >= 70:
-            return "good"
-        if p >= 60:
-            return "mid"
-        return "low"
-
-    band_defs = [
-        ("excellent", "ممتاز (90% - 100%)", "#7bd86f"),
-        ("vgood", "جيد جداً (80% - 89%)", "#38bdf8"),
-        ("good", "جيد (70% - 79%)", "#f59e0b"),
-        ("mid", "متوسط (60% - 69%)", "#fb923c"),
-        ("low", "أقل من 60%", "#ef4444"),
-    ]
-    band_counts = {k: 0 for k, _, _ in band_defs}
-    for p in scored_row_pcts:
-        band_counts[_band_for_pct(float(p))] += 1
-    total_scored = max(1, sum(band_counts.values()))
-    distribution = []
-    for k, label, color in band_defs:
-        c = int(band_counts.get(k, 0) or 0)
-        pct = int(round((c / total_scored) * 100.0)) if total_scored else 0
-        distribution.append({"label": label, "pct": pct, "count": c, "color": color})
+    phase_summary = _phase_summary_from_eval_items(eval_items, saved_by_item)
+    distribution = _distribution_from_phase_summary(phase_summary)
+    donut_conic_gradient = _donut_conic_gradient_from_distribution(distribution)
 
     # حالة الإنجاز: نسبة المعتمد مقابل الإجمالي (وأي عنصر غير معتمد يعتبر "قيد التقييم")
     pending_pct = int(round(((n_eval_lists - n_approved) / n_eval_lists) * 100.0)) if n_eval_lists else 0
@@ -5666,8 +5832,8 @@ def _control_exercise_performance_report(db, user: User) -> dict:
 
     kpis = [
         {"label": "متوسط الزمن", "value": _fmt_m_ss(avg_duration), "hint": "لكل تقييم", "icon": "fa-clock", "tone": "blue"},
-        {"label": "قيد التقييم", "value": f"{pending_pct}%", "hint": "منفذة", "icon": "fa-hexagon-nodes", "tone": "violet"},
-        {"label": "متأخر التقييم", "value": f"{done_pct}%", "hint": "من إجمالي التقييم", "icon": "fa-circle-check", "tone": "purple"},
+        {"label": "قيد التقييم", "value": f"{pending_pct}%", "hint": "من إجمالي التقييم", "icon": "fa-hexagon-nodes", "tone": "violet"},
+        {"label": "نسبة الإستكمال", "value": f"{done_pct}%", "hint": "من إجمالي التقييم", "icon": "fa-circle-check", "tone": "purple"},
         {"label": "أقل مجموعة", "value": f"{int(bottom_unit['value']) if bottom_unit else 0}%", "hint": (bottom_unit["label"] if bottom_unit else "—"), "icon": "fa-arrow-down", "tone": "red"},
         {"label": "أعلى مجموعة", "value": f"{int(top_unit['value']) if top_unit else 0}%", "hint": (top_unit["label"] if top_unit else "—"), "icon": "fa-trophy", "tone": "cyan"},
         {"label": "المتوسط العام", "value": f"{overall_avg_i}%", "hint": "أداء التمرين", "icon": "fa-chart-line", "tone": "green"},
@@ -5677,6 +5843,8 @@ def _control_exercise_performance_report(db, user: User) -> dict:
     unit_detail_rows = _control_build_unit_detail_rows(
         db, ex0.id, eval_items, saved_by_item
     )
+    unit_detail_phase_max_dots = _control_phase_max_dot_counts(unit_detail_rows)
+    unit_detail_list_number_row = _control_build_list_number_row(unit_detail_phase_max_dots)
 
     return {
         "exercise": ex,
@@ -5691,11 +5859,15 @@ def _control_exercise_performance_report(db, user: User) -> dict:
         "group_scores": group_scores,
         "timeline": timeline,
         "distribution": distribution,
+        "phase_summary": phase_summary,
+        "donut_conic_gradient": donut_conic_gradient,
         "table_rows": table_rows,
         "table_headers": table_headers,
         "unit_detail_rows": unit_detail_rows,
         "unit_detail_phase_headers": [lbl for _, lbl in _CONTROL_REPORT_PHASE_COLUMNS],
-        "unit_detail_phase_max_dots": _control_phase_max_dot_counts(unit_detail_rows),
+        "unit_detail_phase_max_dots": unit_detail_phase_max_dots,
+        "unit_detail_list_number_row": unit_detail_list_number_row,
+        "grade_legend": _control_report_grade_legend(),
         "n_saved_eval": n_saved,
         "n_eval_lists_total": n_eval_lists,
         "radar_series": radar_series,

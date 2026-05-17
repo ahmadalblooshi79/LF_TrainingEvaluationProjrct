@@ -218,16 +218,15 @@ def annotate_evaluation_row_kinds(rows: list[dict[str, Any]]) -> list[dict[str, 
 
 def grade_label_from_percent(pct: float | None) -> str:
     """
-    تقدير النتيجة من النسبة (0 = 0٪، 5 نقاط = 100٪).
-    حدود تقريبية شائعة للدرجات الحرفية.
+    تقدير النتيجة من النسبة المئوية لقائمة التقييم.
     """
     if pct is None:
         return "غير محسوب"
-    if pct < 50:
+    if pct < 60:
         return "راسب"
-    if pct < 65:
-        return "مقبول"
-    if pct < 75:
+    if pct < 70:
+        return "متوسط"
+    if pct < 80:
         return "جيد"
     if pct < 90:
         return "جيد جدا"
