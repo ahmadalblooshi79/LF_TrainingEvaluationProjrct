@@ -14,6 +14,7 @@ from app.permissions import (
     can_access_judge_hub,
     can_access_planner_hub,
     can_manage_information_bank,
+    can_use_chat_rooms,
     can_view_information_bank,
     can_view_notifications_log,
     is_chief_judge,
@@ -41,6 +42,8 @@ def inject_header_exercise():
         "notifications_log_url": None,
         "user_can_view_information_bank": False,
         "user_can_manage_information_bank": False,
+        "header_chat_rooms_url": None,
+        "header_exercise_info_url": None,
     }
 
     if not has_request_context():
@@ -68,6 +71,8 @@ def inject_header_exercise():
         base["nav_role_hub_links"] = nav_hubs
         base["user_can_view_information_bank"] = bool(can_view_information_bank(u))
         base["user_can_manage_information_bank"] = bool(can_manage_information_bank(u))
+        if bool(can_use_chat_rooms(u)):
+            base["header_chat_rooms_url"] = url_for("views.chat_rooms_list")
 
         if (is_judge(u) or is_chief_judge(u)) and not is_system_admin(u):
             nm = (getattr(u, "full_name", "") or "").strip() or (getattr(u, "username", "") or "").strip()
@@ -89,6 +94,7 @@ def inject_header_exercise():
                 "title": ws.title,
                 "code": ws.code,
             }
+            base["header_exercise_info_url"] = url_for("views.exercise_detail", eid=int(ws.id))
 
         if can_view_notifications_log(u):
             if is_system_admin(u):

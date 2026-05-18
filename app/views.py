@@ -3798,6 +3798,25 @@ def _get_or_create_planner_bundle(
     return row
 
 
+def _get_planner_bundle_if_exists(
+    db,
+    exercise_id: int,
+    phase: str,
+    unit_key: str,
+) -> ExercisePlannerFlowBundle | None:
+    """جلب الحزمة دون إنشاء (لصفحات العرض فقط)."""
+    phase_n = normalize_exercise_phase(phase)
+    return (
+        db.query(ExercisePlannerFlowBundle)
+        .filter(
+            ExercisePlannerFlowBundle.exercise_id == exercise_id,
+            ExercisePlannerFlowBundle.exercise_phase == phase_n,
+            ExercisePlannerFlowBundle.unit_level_key == unit_key,
+        )
+        .first()
+    )
+
+
 _PLANNER_BUNDLE_MAX_ACTION_SLOTS = 200
 _PLANNER_BUNDLE_MAX_EVENT_FLOW_SLOTS = 200
 
@@ -3986,50 +4005,81 @@ _UI_MSG_PLANNER_BUNDLE = {
 }
 
 
-@bp.route("/planner/create-flow", methods=["GET"])
-def planner_flow_bundle_workspace():
-    user = get_current_user_optional()
-    if not user:
-        return redirect("/login?next=/planner/create-flow")
-    if not can_access_planner_hub(user):
-        abort(403)
-    from flask import g
-
-    db = g.db
-    ex = _current_workspace_exercise(db, user)
-    err = (request.args.get("err") or "").strip()
-    ok = (request.args.get("ok") or "").strip()
+def _build_planner_flow_bundle_page_context(
+    db,
+    user: User,
+    ex: Exercise | None,
+    *,
+    readonly: bool,
+    pf_workspace_endpoint: str,
+    chief_hub_query_on_judge_links: bool,
+    err: str,
+    ok: str,
+) -> dict:
+    """سياق صفحة حزمة المجرى وتقييم الإجراءات (تخطيط أو عرض للإطلاع فقط)."""
+    oversee = can_oversee_judge_planner_flow_materials(user)
+    empty_base: dict = dict(
+        has_exercise=False,
+        bundle=None,
+        slots=[],
+        phase_key="",
+        unit_key="",
+        phase_options=EXERCISE_PHASE_OPTIONS,
+        unit_levels=UNIT_LEVELS,
+        judges=[],
+        err_msg="",
+        ok_msg="",
+        phase_label_display="",
+        unit_label_display="",
+        planner_event_flow_file_ok=False,
+        event_flow_rows=[],
+        action_slot_rows=[],
+        selected_event_flow_id=None,
+        readonly_mode=readonly,
+        pf_workspace_endpoint=pf_workspace_endpoint,
+        chief_hub_query_on_judge_links=chief_hub_query_on_judge_links,
+        can_oversee_judge_planner_flow=oversee,
+    )
     if ex is None:
-        return render_template(
-            "planner_flow_bundle.html",
-            **_ctx(
-                user,
-                has_exercise=False,
-                bundle=None,
-                slots=[],
-                phase_key="",
-                unit_key="",
-                phase_options=EXERCISE_PHASE_OPTIONS,
-                unit_levels=UNIT_LEVELS,
-                judges=[],
-                err_msg="",
-                ok_msg="",
-                phase_label_display="",
-                unit_label_display="",
-                planner_event_flow_file_ok=False,
-                event_flow_rows=[],
-                action_slot_rows=[],
-                selected_event_flow_id=None,
-                **_hub_back_ctx_for_request_path(),
-            ),
-        )
-    phase_key = normalize_exercise_phase(request.args.get("phase") or DEFAULT_EXERCISE_PHASE)
+        return {**empty_base, "exercise": None}
+    phase_key = normalize_exercise_phase(
+        request.args.get("phase") or DEFAULT_EXERCISE_PHASE
+    )
     unit_param = (request.args.get("unit") or "").strip()
     unit_key = unit_param if unit_param else (UNIT_LEVELS[0]["key"] if UNIT_LEVELS else "")
     unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
     if unit is None:
         abort(404)
-    bundle = _get_or_create_planner_bundle(db, ex.id, phase_key, unit_key, unit["label"])
+    bundle = (
+        _get_planner_bundle_if_exists(db, ex.id, phase_key, unit_key)
+        if readonly
+        else _get_or_create_planner_bundle(
+            db, ex.id, phase_key, unit_key, unit["label"]
+        )
+    )
+    judges = _planner_bundle_judge_assignments(db, ex.id, unit_key)
+    err_msg = _UI_MSG_PLANNER_BUNDLE.get(err, "") if err else ""
+    ok_msg = _UI_MSG_PLANNER_BUNDLE.get(ok, "") if ok else ""
+    if readonly:
+        err_msg = ""
+        ok_msg = ""
+    if bundle is None:
+        return {
+            **empty_base,
+            "has_exercise": True,
+            "exercise": ex,
+            "bundle": None,
+            "judges": judges,
+            "slots": [],
+            "phase_key": phase_key,
+            "unit_key": unit_key,
+            "phase_options": EXERCISE_PHASE_OPTIONS,
+            "unit_levels": UNIT_LEVELS,
+            "phase_label_display": _phase_label_ar(phase_key),
+            "unit_label_display": unit["label"],
+            "err_msg": err_msg,
+            "ok_msg": ok_msg,
+        }
     _sanitize_planner_bundle_orphan_event_flow(db, bundle)
     _sanitize_planner_bundle_orphan_event_flow_items(db, bundle)
     _migrate_legacy_bundle_event_flow(db, bundle)
@@ -4046,7 +4096,6 @@ def planner_flow_bundle_workspace():
         bundle.dilemma_count = len(slots)
         bundle.updated_at = datetime.utcnow()
         db.commit()
-    judges = _planner_bundle_judge_assignments(db, ex.id, unit_key)
     event_rows_by_id = {int(r.id): r for r in event_db_rows}
     event_flow_rows = [
         _planner_bundle_event_flow_view(row=r, bundle=bundle) for r in event_db_rows
@@ -4060,34 +4109,127 @@ def planner_flow_bundle_workspace():
     planner_ef_ok = any(r["has_file"] for r in event_flow_rows)
     sel_raw = (request.args.get("event_flow") or "").strip()
     selected_event_flow_id = int(sel_raw) if sel_raw.isdigit() else None
-    if selected_event_flow_id is not None and selected_event_flow_id not in event_rows_by_id:
+    if (
+        selected_event_flow_id is not None
+        and selected_event_flow_id not in event_rows_by_id
+    ):
         selected_event_flow_id = None
     if selected_event_flow_id is None and event_flow_rows:
         selected_event_flow_id = event_flow_rows[0]["id"]
+    return {
+        **empty_base,
+        "has_exercise": True,
+        "exercise": ex,
+        "bundle": bundle,
+        "slots": slots,
+        "phase_key": phase_key,
+        "unit_key": unit_key,
+        "phase_options": EXERCISE_PHASE_OPTIONS,
+        "unit_levels": UNIT_LEVELS,
+        "judges": judges,
+        "err_msg": err_msg,
+        "ok_msg": ok_msg,
+        "phase_label_display": _phase_label_ar(phase_key),
+        "unit_label_display": unit["label"],
+        "planner_event_flow_file_ok": planner_ef_ok,
+        "event_flow_rows": event_flow_rows,
+        "action_slot_rows": action_slot_rows,
+        "selected_event_flow_id": selected_event_flow_id,
+    }
+
+
+@bp.route("/planner/create-flow", methods=["GET"])
+def planner_flow_bundle_workspace():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/planner/create-flow")
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    err = (request.args.get("err") or "").strip()
+    ok = (request.args.get("ok") or "").strip()
+    page_ctx = _build_planner_flow_bundle_page_context(
+        db,
+        user,
+        ex,
+        readonly=False,
+        pf_workspace_endpoint="views.planner_flow_bundle_workspace",
+        chief_hub_query_on_judge_links=False,
+        err=err,
+        ok=ok,
+    )
     return render_template(
         "planner_flow_bundle.html",
         **_ctx(
             user,
-            has_exercise=True,
-            exercise=ex,
-            bundle=bundle,
-            slots=slots,
-            phase_key=phase_key,
-            unit_key=unit_key,
-            phase_options=EXERCISE_PHASE_OPTIONS,
-            unit_levels=UNIT_LEVELS,
-            judges=judges,
-            err_msg=_UI_MSG_PLANNER_BUNDLE.get(err, "") if err else "",
-            ok_msg=_UI_MSG_PLANNER_BUNDLE.get(ok, "") if ok else "",
-            phase_label_display=_phase_label_ar(phase_key),
-            unit_label_display=unit["label"],
-            planner_event_flow_file_ok=planner_ef_ok,
-            event_flow_rows=event_flow_rows,
-            action_slot_rows=action_slot_rows,
-            selected_event_flow_id=selected_event_flow_id,
-            can_oversee_judge_planner_flow=can_oversee_judge_planner_flow_materials(
-                user
-            ),
+            **page_ctx,
+            **_hub_back_ctx_for_request_path(),
+        ),
+    )
+
+
+@bp.route("/admin/exercises/planner-flow-overview", methods=["GET"])
+def admin_planner_flow_bundle_overview():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/admin/exercises/planner-flow-overview")
+    if not is_system_admin(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _admin_current_workspace_exercise(db, user)
+    page_ctx = _build_planner_flow_bundle_page_context(
+        db,
+        user,
+        ex,
+        readonly=True,
+        pf_workspace_endpoint="views.admin_planner_flow_bundle_overview",
+        chief_hub_query_on_judge_links=False,
+        err="",
+        ok="",
+    )
+    return render_template(
+        "admin_planner_flow_bundle_overview.html",
+        **_ctx(
+            user,
+            **page_ctx,
+            hub_back_href=url_for("views.admin_exercise_judge_unit_roster"),
+            hub_back_label="العودة إلى قائمة المحكمين",
+        ),
+    )
+
+
+@bp.route("/chief-judge/planner-flow-bundle-overview", methods=["GET"])
+def chief_judge_planner_flow_bundle_overview():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/chief-judge/planner-flow-bundle-overview")
+    if not can_access_chief_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    _ensure_judge_roster_synced(db, user, ex)
+    page_ctx = _build_planner_flow_bundle_page_context(
+        db,
+        user,
+        ex,
+        readonly=True,
+        pf_workspace_endpoint="views.chief_judge_planner_flow_bundle_overview",
+        chief_hub_query_on_judge_links=True,
+        err="",
+        ok="",
+    )
+    return render_template(
+        "chief_judge_planner_flow_bundle_overview.html",
+        **_ctx(
+            user,
+            **page_ctx,
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -9209,6 +9351,11 @@ def eval_criterion_media_delete(media_id: int):
 # ——— مساحة كبير المحكمين ———
 CHIEF_JUDGE_ONLY_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("evaluation-lists-chief", "اعتماد قوائم التقييم (كبير المحكمين)", "fa-stamp"),
+    (
+        "planner-flow-bundle-overview",
+        "المجرى وتقييم الإجراءات (إطلاع على الربط)",
+        "fa-diagram-project",
+    ),
 )
 
 
@@ -9250,6 +9397,8 @@ def chief_judge_hub_section(slug: str):
         abort(404)
     if slug_norm == "evaluation-lists-chief":
         return redirect(url_for("views.chief_judge_evaluation_lists_home"))
+    if slug_norm == "planner-flow-bundle-overview":
+        return chief_judge_planner_flow_bundle_overview()
     if slug_norm in JUDGE_HUB_SLUGS:
         return judge_hub_section(slug_norm)
     abort(404)

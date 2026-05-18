@@ -9,11 +9,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/static/style.css?v=header14">
+  <link rel="stylesheet" href="/static/style.css?v=header19">
 </head>
 <body class="{% block body_class %}{% endblock %}">
-<div class="layout">
-  <header>
+<header>
     <div class="header-bar">
       <div class="header-bar__segment header-bar__segment--lead">
         <div class="header-bar__scroll">
@@ -41,7 +40,7 @@
         </div>
       </div>
       {% if user %}
-      <nav class="header-bar__segment header-bar__segment--center header-nav" aria-label="التنقل الرئيسي">
+      <nav class="header-bar__segment header-bar__segment--center header-nav" aria-label="مسارات الصفحة الرئيسية والأدوار">
         <a href="/dashboard" title="الصفحة الرئيسية"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
         {% if user.role_key == 'system_admin' %}
         <div class="nav-dd" tabindex="0">
@@ -66,7 +65,14 @@
         <a href="{{ hub.href }}" class="nav-hub-link" title="{{ hub.title }}"><i class="fa-solid {{ hub.icon }}" aria-hidden="true"></i> {{ hub.label }}</a>
         {% endfor %}
       </nav>
-      <nav class="header-bar__segment header-bar__segment--trail header-nav" aria-label="الإشعارات والحساب">
+      <nav class="header-bar__segment header-bar__segment--trail header-nav header-nav--top-tools" aria-label="الإشعارات والوصول السريع">
+        {% if header_chat_rooms_url %}
+        <a href="{{ header_chat_rooms_url }}" title="غرفة المحادثة"><i class="fa-solid fa-comments" aria-hidden="true"></i> غرفة المحادثة</a>
+        {% endif %}
+        {% if header_exercise_info_url %}
+        <a href="{{ header_exercise_info_url }}" title="معلومات التمرين"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> معلومات التمرين</a>
+        {% endif %}
+        <a href="/library" title="المكتبة"><i class="fa-solid fa-book-open" aria-hidden="true"></i> المكتبة</a>
         {% if notifications_log_url %}
         <a href="{{ notifications_log_url }}" class="btn-icon-nav header-notif-bell" id="header-notif-link" title="سجل الإشعارات" aria-label="سجل الإشعارات">
           <i class="fa-solid fa-bell" aria-hidden="true"></i>
@@ -77,12 +83,12 @@
           {% endif %}
         </a>
         {% endif %}
-        <a href="/library" title="المكتبة"><i class="fa-solid fa-book-open" aria-hidden="true"></i> المكتبة</a>
         <a class="btn btn-ghost btn-nav-logout" href="/logout"><i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i> خروج</a>
       </nav>
       {% endif %}
     </div>
   </header>
+<div class="layout">
   <main>
     {% block content %}{% endblock %}
   </main>

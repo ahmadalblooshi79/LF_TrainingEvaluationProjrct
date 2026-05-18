@@ -90,6 +90,8 @@ body {
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* إخفاء شريط "التمرين الحالي" في صفحات محددة */
@@ -109,8 +111,7 @@ a:hover {
 }
 
 .layout {
-  height: 100%;
-  max-height: 100dvh;
+  flex: 1 1 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -121,7 +122,7 @@ a:hover {
   overflow: hidden;
 }
 
-/* رأس الصفحة */
+/* رأس الصفحة خارج (.layout) لعرض كامل بدون قصّ overflow */
 header {
   position: relative;
   flex-shrink: 0;
@@ -131,21 +132,26 @@ header {
   box-shadow: var(--shadow-sm);
   padding: 0;
   overflow: visible;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .header-bar {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   flex-wrap: nowrap;
   gap: 0.35rem 0.55rem;
-  padding: 0.4rem var(--space-md);
+  padding: 0.4rem clamp(0.65rem, 2.5vw, var(--space-md));
   min-width: 0;
-  overflow: visible;
+  width: 100%;
+  box-sizing: border-box;
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
-/* ثلاثة أعمدة منطقة: عنوان/تمرين (يلتصق بالوسط) | التنقل (وسط الشريط) | إشعار/خروج (يلتصق بالوسط) */
+/* ثلاثة مقاطع: عنوان/تمرين (تلتصق بالجهة اليمنى في RTL) | تنقل وسيط يمتد بينهما | أدوات (تلتصق باليسار) */
 .header-bar__segment--lead {
-  flex: 1 1 0;
+  flex: 0 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -153,24 +159,26 @@ header {
 }
 
 .header-bar__segment--center {
-  flex: 0 1 auto;
+  flex: 1 1 0;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.2rem 0.45rem;
   flex-wrap: nowrap;
   min-width: 0;
-  max-width: min(92vw, 54rem);
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   position: relative;
   z-index: 2;
+  border-inline-start: 1px solid var(--border);
+  padding-inline-start: 0.65rem;
+  margin-inline-start: 0.2rem;
 }
 
 .header-bar__segment--trail {
-  flex: 1 1 0;
+  flex: 0 0 auto;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -181,6 +189,13 @@ header {
   scrollbar-width: thin;
   position: relative;
   z-index: 2;
+  border-inline-start: 1px solid var(--border);
+  padding-inline-start: 0.65rem;
+  margin-inline-start: 0.2rem;
+}
+
+.header-nav--top-tools {
+  gap: 0.25rem 0.42rem;
 }
 
 .header-bar__scroll {
@@ -322,7 +337,7 @@ header {
 
 .notif-toast-host {
   position: fixed;
-  top: 4.5rem;
+  top: 4.75rem;
   inset-inline-start: 50%;
   transform: translateX(-50%);
   z-index: 10000;
