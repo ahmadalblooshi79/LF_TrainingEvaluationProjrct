@@ -4,20 +4,16 @@
 <div class="judge-pf-root">
 <div class="page-header judge-pf-page-header">
   <h1><i class="fa-solid fa-diagram-project fa-icon-title" aria-hidden="true"></i> المجرى وتقييم الإجراءات</h1>
-<<<<<<< HEAD
   <p class="muted">المواد المخصّصة لك من فريق التخطيط لمستوى وحدتك في التمرين الحالي — التقييم داخل المتصفح مثل صفحة «قوائم التقييم».</p>
+  {% if bundle is not none and planner_flow_unit_label %}
+  <p class="judge-pf-unit-line"><i class="fa-solid fa-layer-group" aria-hidden="true"></i> مستوى الوحدة المعروض: <strong>{{ planner_flow_unit_label }}</strong></p>
+  {% endif %}
   <p class="mt-tight">
     {% include 'partials/control_hub_back.html' %}
     {% if hub_nav_href %}
     <a class="btn btn-ghost" href="{{ hub_nav_href }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة لقائمة المحكمين</a>
     {% endif %}
   </p>
-=======
-  {% if bundle is not none and planner_flow_unit_label %}
-  <p class="judge-pf-unit-line"><i class="fa-solid fa-layer-group" aria-hidden="true"></i> مستوى الوحدة المعروض: <strong>{{ planner_flow_unit_label }}</strong></p>
-  {% endif %}
-  <p class="mt-tight"><a class="btn btn-ghost" href="{{ url_for('views.judge_hub') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> مساحة المحكمين</a></p>
->>>>>>> b076c6c3072ad7e2153afb6e3f3435df9c832508
 </div>
 
 {% if not has_exercise %}

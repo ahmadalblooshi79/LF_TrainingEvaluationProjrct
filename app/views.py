@@ -1369,22 +1369,23 @@ def _build_final_report_exercise_summary(final_rows: list[dict]) -> dict:
         phase_labels[phase_key] = (row.get("phase_label") or _phase_label_ar(phase_key))
         by_phase_units.setdefault(phase_key, {})[unit_key] = _round_pct_display(float(pct))
 
-    phase_order = {key: idx for idx, key in enumerate(exercise_phase_keys())}
     phase_summaries: list[dict] = []
     phase_pcts_for_exercise: list[float] = []
-    for phase_key in sorted(by_phase_units.keys(), key=lambda k: phase_order.get(k, len(phase_order))):
-        unit_pcts = list(by_phase_units[phase_key].values())
-        if not unit_pcts:
-            continue
-        phase_pct = _round_pct_display(sum(unit_pcts) / len(unit_pcts))
-        phase_pcts_for_exercise.append(phase_pct)
+    for phase_key in exercise_phase_keys():
+        unit_pcts_map = by_phase_units.get(phase_key, {})
+        if unit_pcts_map:
+            unit_pcts = list(unit_pcts_map.values())
+            phase_pct = _round_pct_display(sum(unit_pcts) / len(unit_pcts))
+            phase_pcts_for_exercise.append(phase_pct)
+        else:
+            phase_pct = None
         phase_summaries.append(
             {
                 "phase_key": phase_key,
                 "phase_label": phase_labels.get(phase_key) or _phase_label_ar(phase_key),
                 "pct": phase_pct,
-                "grade": grade_label_from_percent(phase_pct),
-                "unit_count": len(unit_pcts),
+                "grade": grade_label_from_percent(phase_pct) if phase_pct is not None else "—",
+                "unit_count": len(unit_pcts_map),
             }
         )
 
@@ -2434,6 +2435,25 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
             }
         )
 
+    units_in_exercise: set[str] = set()
+    for item in eval_items:
+        uk = (item.unit_level_key or "").strip()
+        if uk:
+            units_in_exercise.add(uk)
+    for unit_key in units_in_exercise:
+        unit_label = label_for_unit_level_key(unit_key) or unit_key or "—"
+        for phase_key in exercise_phase_keys():
+            unit_phase_slots.setdefault(
+                (unit_key, phase_key),
+                {
+                    "unit_key": unit_key,
+                    "unit_label": unit_label,
+                    "phase_key": phase_key,
+                    "phase_label": _phase_label_ar(phase_key),
+                    "acquired_mark": 0.0,
+                },
+            )
+
     unit_order = {row["key"]: idx for idx, row in enumerate(UNIT_LEVELS)}
     phase_order = {key: idx for idx, key in enumerate(exercise_phase_keys())}
     unit_phase_pcts: dict[str, list[float]] = {}
@@ -2552,6 +2572,7 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
         preparation_detail_rows = details_by_unit_phase.get((unit_key, "preparation"), [])
         opening_detail_rows = details_by_unit_phase.get((unit_key, "opening"), [])
         main_detail_rows = details_by_unit_phase.get((unit_key, "main"), [])
+        reorg_detail_rows = details_by_unit_phase.get((unit_key, "reorg"), [])
         evaluation_tracks_detail_rows = [
             {**r, "phase_label": FINAL_EVALUATION_TRACK_PHASE_LABEL}
             for r in details_by_unit_phase.get((unit_key, FINAL_EVALUATION_TRACK_PHASE_KEY), [])
@@ -2570,6 +2591,8 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
                 "opening_detail_summary": _final_report_detail_summary(opening_detail_rows),
                 "main_detail_rows": main_detail_rows,
                 "main_detail_summary": _final_report_detail_summary(main_detail_rows),
+                "reorg_detail_rows": reorg_detail_rows,
+                "reorg_detail_summary": _final_report_detail_summary(reorg_detail_rows),
                 "evaluation_tracks_detail_rows": evaluation_tracks_detail_rows,
                 "evaluation_tracks_detail_summary": _final_report_detail_summary(evaluation_tracks_detail_rows),
             }
@@ -2586,6 +2609,7 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
         "preparation_detail_rows": [r for r in detail_rows if r["phase_key"] == "preparation"],
         "opening_detail_rows": [r for r in detail_rows if r["phase_key"] == "opening"],
         "main_detail_rows": [r for r in detail_rows if r["phase_key"] == "main"],
+        "reorg_detail_rows": [r for r in detail_rows if r["phase_key"] == "reorg"],
         "n_eval_lists": len(eval_items),
         "n_saved_eval_lists": len(saved_source_rows),
         "n_approved_eval_lists": approved_source_count,
@@ -6357,6 +6381,7 @@ def _build_control_evaluation_lists_status(db, user: User) -> dict:
         uk = (it.unit_level_key or "").strip()
         phase_key = _normalized_exercise_phase(getattr(it, "exercise_phase", None))
         saved = canonical_by_item.get(int(it.id))
+        total_pct = _evaluation_saved_total_pct(saved)
         by_phase.setdefault(phase_key, []).append(
             {
                 **build_evaluation_list_row(
@@ -6374,6 +6399,7 @@ def _build_control_evaluation_lists_status(db, user: User) -> dict:
                 "workflow_label": eval_workflow_label_ar(saved),
                 "unit_key": uk,
                 "unit_label": label_for_unit_level_key(uk) or uk or "—",
+                "total_pct": total_pct,
             }
         )
 

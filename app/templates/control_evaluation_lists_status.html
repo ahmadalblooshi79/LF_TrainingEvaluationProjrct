@@ -119,6 +119,7 @@
                   <tr>
                     <th scope="col" class="eval-lists-table__seq">ت</th>
                     <th scope="col">مسمى التقييم</th>
+                    <th scope="col">النسبة</th>
                     <th scope="col">التقدير</th>
                     <th scope="col">الموقف</th>
                     <th scope="col">سير الاعتماد</th>
@@ -130,6 +131,7 @@
                   <tr class="{% if r.row_tone and r.row_tone != 'none' %}eval-row-tone--{{ r.row_tone }}{% endif %}">
                     <td class="eval-lists-table__seq">{{ loop.index }}</td>
                     <td>{{ r.item_title }}</td>
+                    <td>{% if r.total_pct is not none %}{{ (r.total_pct | round(2)) }}%{% else %}—{% endif %}</td>
                     <td>{{ r.grade_label or "—" }}</td>
                     <td>{% if r.status_done %}<span class="badge badge--done">منجزة</span>{% else %}<span class="badge badge--not-done">غير منجزة</span>{% endif %}</td>
                     <td>{{ r.workflow_label or "—" }}</td>
