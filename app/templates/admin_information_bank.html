@@ -211,37 +211,128 @@
       apply();
     }
     card.querySelectorAll('.ibank-tree-page').forEach(function (page) {
+      var kind = page.getAttribute('data-ibank-tree-kind') || '';
+      var treeRoot = page.querySelector('.js-ibank-tree');
+      var mvEl = page.querySelector('.js-ibank-tree-move-url-holder');
+      var moveUrl = mvEl ? (mvEl.getAttribute('data-move-url') || '') : '';
+      var storageKeyExpand = 'lf_ibank_tree_exp:v4:' + kind;
       var targetId = '';
-      var targetName = 'الجذر';
       var parentInputs = page.querySelectorAll('.js-ibank-tree-parent-id, .js-ibank-tree-upload-parent');
       var labelEl = page.querySelector('.js-ibank-tree-target-label');
-      function setTarget(id, name) {
-        targetId = id || '';
-        targetName = name || 'الجذر';
-        parentInputs.forEach(function (inp) { inp.value = targetId; });
-        if (labelEl) labelEl.textContent = 'المستهدف: ' + targetName;
-        page.querySelectorAll('.js-ibank-tree-select-target').forEach(function (btn) {
-          btn.classList.toggle('is-active', btn.getAttribute('data-node-id') === targetId);
+      var folderNameInput = page.querySelector('.js-ibank-tree-folder-form input[name="folder_name"]');
+
+      function getOpenExpandedIds() {
+        var ids = [];
+        page.querySelectorAll('.ibank-tree-has-children').forEach(function (li) {
+          if (li.getAttribute('aria-expanded') !== 'false') ids.push(String(li.getAttribute('data-node-id')));
+        });
+        return ids;
+      }
+
+      function saveExpandedSnapshot() {
+        try {
+          sessionStorage.setItem(storageKeyExpand, JSON.stringify(getOpenExpandedIds()));
+        } catch (e) {}
+      }
+
+      function restoreExpandedSnapshot() {
+        var raw = null;
+        try {
+          raw = sessionStorage.getItem(storageKeyExpand);
+        } catch (e) {}
+        if (raw == null || raw === '') return;
+        var ids = [];
+        try { ids = JSON.parse(raw); } catch (e2) { return; }
+        if (!ids || typeof ids.slice !== 'function') return;
+        page.querySelectorAll('.ibank-tree-has-children').forEach(function (li) {
+          var id = String(li.getAttribute('data-node-id'));
+          var open = ids.indexOf(id) >= 0;
+          li.setAttribute('aria-expanded', open ? 'true' : 'false');
+          var ch = li.querySelector('.ibank-tree-children');
+          if (ch) ch.hidden = !open;
+          var row = li.firstElementChild;
+          var bt = row && row.querySelector('.ibank-tree-toggle');
+          var ic = bt && bt.querySelector('i');
+          if (ic) ic.className = open ? 'fa-solid fa-caret-down' : 'fa-solid fa-caret-left';
         });
       }
+
+      restoreExpandedSnapshot();
+
+      function editingPending() {
+        if (folderNameInput && folderNameInput.value.trim()) return true;
+        var f = page.querySelector('.js-ibank-tree-files');
+        var d = page.querySelector('.js-ibank-tree-dir');
+        if (f && f.files && f.files.length > 0) return true;
+        if (d && d.files && d.files.length > 0) return true;
+        return false;
+      }
+
+      function defaultRootLabel() {
+        return 'الجذر';
+      }
+
+      function setTarget(id, name) {
+        targetId = id || '';
+        parentInputs.forEach(function (inp) { inp.value = targetId; });
+        if (labelEl) {
+          labelEl.textContent = targetId ? ('المستهدف: ' + (name || '')) : ('المستهدف: ' + defaultRootLabel());
+        }
+        page.querySelectorAll('.ibank-tree-node--folder').forEach(function (li) {
+          var lid = String(li.getAttribute('data-node-id') || '');
+          li.classList.toggle('ibank-tree-node--target-selected', Boolean(targetId) && lid === targetId);
+        });
+        page.querySelectorAll('.js-ibank-tree-select-target').forEach(function (btn) {
+          btn.classList.toggle('is-active', String(btn.getAttribute('data-node-id')) === targetId);
+        });
+      }
+
       page.querySelectorAll('.js-ibank-tree-select-target').forEach(function (btn) {
         btn.addEventListener('click', function () {
-          setTarget(btn.getAttribute('data-node-id') || '', btn.getAttribute('data-node-name') || '');
+          var nid = btn.getAttribute('data-node-id') || '';
+          var nm = btn.getAttribute('data-node-name') || '';
+          if (targetId === nid && !editingPending()) {
+            setTarget('', '');
+          } else {
+            setTarget(nid, nm);
+          }
         });
       });
-      page.querySelectorAll('.ibank-tree-toggle').forEach(function (btn) {
+
+      var clearSel = page.querySelector('.js-ibank-tree-clear-select');
+      if (clearSel) {
+        clearSel.addEventListener('click', function () {
+          setTarget('', '');
+          if (folderNameInput) folderNameInput.value = '';
+          var f = page.querySelector('.js-ibank-tree-files');
+          var d = page.querySelector('.js-ibank-tree-dir');
+          if (f) f.value = '';
+          if (d) d.value = '';
+        });
+      }
+
+      page.querySelectorAll('.js-ibank-tree-folder-form').forEach(function (frm) {
+        frm.addEventListener('submit', function () { saveExpandedSnapshot(); });
+      });
+      page.querySelectorAll('.js-ibank-tree-delete-form').forEach(function (frm) {
+        frm.addEventListener('submit', function () { saveExpandedSnapshot(); });
+      });
+
+      page.querySelectorAll('.ibank-tree-node--folder > .ibank-tree-row .ibank-tree-toggle').forEach(function (btn) {
         btn.addEventListener('click', function (e) {
           e.stopPropagation();
           var li = btn.closest('.ibank-tree-node');
-          if (!li) return;
+          if (!li || !li.classList.contains('ibank-tree-node--folder')) return;
           var open = li.getAttribute('aria-expanded') !== 'false';
           li.setAttribute('aria-expanded', open ? 'false' : 'true');
           var ch = li.querySelector('.ibank-tree-children');
           if (ch) ch.hidden = open;
           var ic = btn.querySelector('i');
           if (ic) ic.className = open ? 'fa-solid fa-caret-left' : 'fa-solid fa-caret-down';
+          if (li.classList.contains('ibank-tree-has-children')) saveExpandedSnapshot();
         });
       });
+
       function bindPick(btnSel, inpSel, formSel) {
         var pick = page.querySelector(btnSel);
         var inp = page.querySelector(inpSel);
@@ -255,6 +346,7 @@
             inp.value = '';
             return;
           }
+          saveExpandedSnapshot();
           ibankSubmitting = true;
           btns.forEach(function (b) { b.disabled = true; });
           form.submit();
@@ -262,7 +354,118 @@
       }
       bindPick('.js-ibank-tree-pick-files', '.js-ibank-tree-files', '.js-ibank-tree-upload-files-form');
       bindPick('.js-ibank-tree-pick-dir', '.js-ibank-tree-dir', '.js-ibank-tree-upload-dir-form');
-      setTarget('', 'الجذر (مجلدات رئيسية فقط — حدّد مجلداً فرعياً للملفات)');
+
+      setTarget('', defaultRootLabel());
+
+      var dragHoverLi = null;
+      function folderDropTarget(li) {
+        if (!li || !li.classList.contains('ibank-tree-node--folder')) return null;
+        return li;
+      }
+      function clearDragHover() {
+        if (dragHoverLi) {
+          dragHoverLi.classList.remove('ibank-tree-node--drag-hover');
+          dragHoverLi = null;
+        }
+      }
+
+      function postMove(fromId, toParentId) {
+        if (!moveUrl) return;
+        saveExpandedSnapshot();
+        fetch(moveUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ kind: kind, node_id: fromId, parent_id: toParentId }),
+        })
+          .then(function (r) {
+            return r.json().catch(function () {
+              return { ok: false, error: r.status >= 400 ? ('HTTP ' + r.status) : 'استجابة غير متوقعة.' };
+            }).then(function (j) {
+              var payload = typeof j === 'object' && j !== null ? j : {};
+              if (!r.ok && !payload.error) payload.error = 'طلب غير مصرّح أو خطأ بالخادم.';
+              return { ok: r.ok, json: payload };
+            });
+          })
+          .then(function (res) {
+            var body = res.json || {};
+            if (!res.ok || !body.ok) {
+              alert(body.error || 'تعذّر النقل.');
+              return;
+            }
+            window.location.reload();
+          })
+          .catch(function () { alert('تعذر الاتصال بالخادم.'); });
+      }
+
+      if (treeRoot && moveUrl) {
+        page.querySelectorAll('li.ibank-tree-node[draggable="true"]').forEach(function (li) {
+          li.addEventListener('dragstart', function (e) {
+            if (e.target.closest('button,a,form,input,textarea,select')) {
+              e.preventDefault();
+              return;
+            }
+            var nid = li.getAttribute('data-node-id');
+            if (!nid) return;
+            try {
+              e.dataTransfer.setData('application/x-lf-ibank-tree-node', nid);
+              e.dataTransfer.setData('text/plain', nid);
+            } catch (err) {}
+            e.dataTransfer.effectAllowed = 'move';
+            li.classList.add('ibank-tree-node--dragging');
+          });
+          li.addEventListener('dragend', function () {
+            li.classList.remove('ibank-tree-node--dragging');
+            clearDragHover();
+          });
+        });
+
+        treeRoot.addEventListener('dragenter', function (e) {
+          var foldLi = folderDropTarget(e.target.closest('li.ibank-tree-node--folder'));
+          if (foldLi && page.contains(foldLi)) e.preventDefault();
+        });
+
+        treeRoot.addEventListener('dragover', function (e) {
+          var foldLi = folderDropTarget(e.target.closest('li.ibank-tree-node--folder'));
+          if (!foldLi || !page.contains(foldLi)) {
+            clearDragHover();
+            return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
+          if (dragHoverLi !== foldLi) {
+            clearDragHover();
+            dragHoverLi = foldLi;
+            foldLi.classList.add('ibank-tree-node--drag-hover');
+          }
+          try {
+            e.dataTransfer.dropEffect = 'move';
+          } catch (err) {}
+        });
+
+        treeRoot.addEventListener('dragleave', function (e) {
+          var foldLi = e.target.closest('li.ibank-tree-node--folder');
+          if (foldLi && !foldLi.contains(e.relatedTarget)) {
+            foldLi.classList.remove('ibank-tree-node--drag-hover');
+            if (dragHoverLi === foldLi) dragHoverLi = null;
+          }
+        });
+
+        treeRoot.addEventListener('drop', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          clearDragHover();
+          var tgtLi = folderDropTarget(e.target.closest('li.ibank-tree-node'));
+          var rawId =
+            e.dataTransfer.getData('application/x-lf-ibank-tree-node') ||
+            e.dataTransfer.getData('text/plain');
+          if (!tgtLi || !rawId) return;
+          var fromId = parseInt(rawId, 10);
+          var toPid = parseInt(tgtLi.getAttribute('data-node-id'), 10);
+          if (!fromId || !toPid || fromId === toPid) return;
+          postMove(fromId, toPid);
+        });
+      }
     });
 
     function payloadFromEl(el) {

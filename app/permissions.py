@@ -67,7 +67,7 @@ def can_access_judge_hub(user: User) -> bool:
 
 
 def can_oversee_judge_planner_flow_materials(user: User) -> bool:
-    """الإطلاع على حزمة «مجرى الأحداث وتقييم الإجراءات» المربوطة بمحكم فردي."""
+    """إطلاع إدارة النظام وكبير المحكمين على حزمة «مجرى الأحداث وتقييم الإجراءات» المخصّصة لمحكم فردي (عبر judge_user_id في الرابط أو قائمة الاختيار)."""
     return is_system_admin(user) or is_chief_judge(user)
 
 

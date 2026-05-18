@@ -9,37 +9,43 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
+<<<<<<< HEAD
   <link rel="stylesheet" href="/static/style.css?v=control-hub-pn1">
+=======
+  <link rel="stylesheet" href="/static/style.css?v=header14">
+>>>>>>> b076c6c3072ad7e2153afb6e3f3435df9c832508
 </head>
 <body class="{% block body_class %}{% endblock %}">
 <div class="layout">
   <header>
     <div class="header-bar">
-      <div class="header-bar__scroll">
-      <div class="brand">
-        <i class="fa-solid fa-clipboard-list fa-icon-brand" aria-hidden="true"></i>
-        <span>نظام إدارة التمارين</span>
-      </div>
-      {% if user and workspace_exercise %}
-      <div class="header-workspace-exercise" role="status" title="{{ workspace_exercise.code }} — {{ workspace_exercise.title }}">
-        <span class="header-workspace-exercise__tag">التمرين الحالي</span>
-        <a class="header-workspace-exercise__title" href="/exercises/{{ workspace_exercise.id }}">{{ workspace_exercise.title }}</a>
-      </div>
-      {% elif header_exercise %}
-      <div class="header-workspace-exercise" role="status" title="{{ header_exercise.code }} — {{ header_exercise.title }}">
-        <span class="header-workspace-exercise__tag">التمرين</span>
-        <a class="header-workspace-exercise__title" href="/exercises/{{ header_exercise.id }}">{{ header_exercise.title }}</a>
-      </div>
-      {% endif %}
-      {% if judge_welcome_name %}
-      <span class="header-welcome" role="status">
-        <i class="fa-solid fa-hand-sparkles" aria-hidden="true"></i>
-        مرحباً، <strong>{{ judge_welcome_name }}</strong>
-      </span>
-      {% endif %}
+      <div class="header-bar__segment header-bar__segment--lead">
+        <div class="header-bar__scroll">
+          <div class="brand">
+            <i class="fa-solid fa-clipboard-list fa-icon-brand" aria-hidden="true"></i>
+            <span>نظام إدارة التمارين</span>
+          </div>
+          {% if user and workspace_exercise %}
+          <div class="header-workspace-exercise" role="status" title="{{ workspace_exercise.code }} — {{ workspace_exercise.title }}">
+            <span class="header-workspace-exercise__tag">التمرين الحالي</span>
+            <a class="header-workspace-exercise__title" href="/exercises/{{ workspace_exercise.id }}">{{ workspace_exercise.title }}</a>
+          </div>
+          {% elif header_exercise %}
+          <div class="header-workspace-exercise" role="status" title="{{ header_exercise.code }} — {{ header_exercise.title }}">
+            <span class="header-workspace-exercise__tag">التمرين</span>
+            <a class="header-workspace-exercise__title" href="/exercises/{{ header_exercise.id }}">{{ header_exercise.title }}</a>
+          </div>
+          {% endif %}
+          {% if judge_welcome_name %}
+          <span class="header-welcome" role="status">
+            <i class="fa-solid fa-hand-sparkles" aria-hidden="true"></i>
+            مرحباً، <strong>{{ judge_welcome_name }}</strong>
+          </span>
+          {% endif %}
+        </div>
       </div>
       {% if user %}
-      <nav class="header-nav" aria-label="التنقل الرئيسي">
+      <nav class="header-bar__segment header-bar__segment--center header-nav" aria-label="التنقل الرئيسي">
         <a href="/dashboard" title="الصفحة الرئيسية"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
         {% if user.role_key == 'system_admin' %}
         <div class="nav-dd" tabindex="0">
@@ -63,6 +69,8 @@
         {% for hub in nav_role_hub_links %}
         <a href="{{ hub.href }}" class="nav-hub-link" title="{{ hub.title }}"><i class="fa-solid {{ hub.icon }}" aria-hidden="true"></i> {{ hub.label }}</a>
         {% endfor %}
+      </nav>
+      <nav class="header-bar__segment header-bar__segment--trail header-nav" aria-label="الإشعارات والحساب">
         {% if notifications_log_url %}
         <a href="{{ notifications_log_url }}" class="btn-icon-nav header-notif-bell" id="header-notif-link" title="سجل الإشعارات" aria-label="سجل الإشعارات">
           <i class="fa-solid fa-bell" aria-hidden="true"></i>
@@ -175,6 +183,40 @@
 {% endif %}
 <script>
 (function () {
+  function syncNavDdMenus() {
+    document.querySelectorAll(".nav-dd__menu").forEach(function (menu) {
+      if (window.getComputedStyle(menu).display === "none") return;
+      var dd = menu.closest(".nav-dd");
+      var btn = dd ? dd.querySelector(".nav-dd__toggle") : null;
+      if (!btn || !dd) return;
+      var rect = btn.getBoundingClientRect();
+      var gap = 4;
+      menu.style.top = Math.round(rect.bottom + gap) + "px";
+      var rtl =
+        document.documentElement.getAttribute("dir") === "rtl" ||
+        document.documentElement.dir === "rtl";
+      if (rtl) {
+        menu.style.left = "auto";
+        menu.style.right = Math.max(8, Math.round(window.innerWidth - rect.right)) + "px";
+      } else {
+        menu.style.right = "auto";
+        menu.style.left = Math.max(8, Math.round(rect.left)) + "px";
+      }
+    });
+  }
+
+  window.addEventListener("resize", function () {
+    syncNavDdMenus();
+  });
+
+  window.addEventListener(
+    "scroll",
+    function () {
+      syncNavDdMenus();
+    },
+    true
+  );
+
   document.querySelectorAll(".nav-dd").forEach(function (dd) {
     var menu = dd.querySelector(".nav-dd__menu");
     var btn = dd.querySelector(".nav-dd__toggle");
@@ -187,6 +229,7 @@
         closeTimer = null;
       }
       dd.classList.add("is-open");
+      requestAnimationFrame(syncNavDdMenus);
     }
 
     function closeMenu() {
@@ -203,10 +246,15 @@
     menu.addEventListener("mouseenter", openMenu);
     menu.addEventListener("mouseleave", scheduleClose);
 
+    dd.addEventListener("focusin", function () {
+      requestAnimationFrame(syncNavDdMenus);
+    });
+
     if (btn) {
       btn.addEventListener("click", function (e) {
         e.stopPropagation();
         dd.classList.toggle("is-open");
+        requestAnimationFrame(syncNavDdMenus);
       });
     }
 

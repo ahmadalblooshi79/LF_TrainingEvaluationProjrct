@@ -350,27 +350,37 @@ def add_custom_folder(
     return get_or_create_folder(db, kind=kind, parent_id=parent_id, name=name)
 
 
-def _collect_descendants(db: Session, node_id: int) -> list[InformationBankTreeNode]:
+def _collect_descendants_post_order(db: Session, parent_node_id: int) -> list[InformationBankTreeNode]:
+    """جميع أبناء parent_node_id بعمق، بترتيب آمن للحذف (الأوراق والأطفال قبل الآباء)."""
     out: list[InformationBankTreeNode] = []
-    stack = [node_id]
-    while stack:
-        nid = stack.pop()
-        children = (
-            db.query(InformationBankTreeNode)
-            .filter(InformationBankTreeNode.parent_id == nid)
-            .all()
-        )
-        for ch in children:
-            out.append(ch)
-            if ch.is_folder:
-                stack.append(int(ch.id))
+    children = (
+        db.query(InformationBankTreeNode)
+        .filter(InformationBankTreeNode.parent_id == parent_node_id)
+        .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
+        .all()
+    )
+    for ch in children:
+        out.extend(_collect_descendants_post_order(db, int(ch.id)))
+        out.append(ch)
     return out
 
 
+def _node_is_descendant_or_self(db: Session, ancestor_id: int, node_id: int) -> bool:
+    """يُعاد True إذا node_id هي ancestor_id أو تابعة له في الشجرة (عبر سلسلة parent_id)."""
+    if node_id == ancestor_id:
+        return True
+    hops = 0
+    cur = db.get(InformationBankTreeNode, node_id)
+    while cur and cur.parent_id is not None and hops < 10_000:
+        if int(cur.parent_id) == ancestor_id:
+            return True
+        cur = db.get(InformationBankTreeNode, int(cur.parent_id))
+        hops += 1
+    return False
+
+
 def delete_node(db: Session, node: InformationBankTreeNode) -> None:
-    if node.is_system:
-        raise ValueError("system node")
-    descendants = _collect_descendants(db, int(node.id))
+    descendants = _collect_descendants_post_order(db, int(node.id))
     for ch in descendants:
         if not ch.is_folder and ch.file_relpath:
             unlink_node_file(ch.kind, ch.file_relpath)
@@ -378,6 +388,25 @@ def delete_node(db: Session, node: InformationBankTreeNode) -> None:
     if not node.is_folder and node.file_relpath:
         unlink_node_file(node.kind, node.file_relpath)
     db.delete(node)
+
+
+def move_tree_node(db: Session, *, kind: str, node_id: int, parent_id: int) -> None:
+    """نقل مجلد أو ملف أسفل مجلد أب محدّد (نفس kind). لا يُسمح بتعيين parent_id فارغًا هنا."""
+    if parent_id is None or int(parent_id) < 1:
+        raise ValueError("المجلد الأب غير صالح.")
+    row = get_node(db, node_id, kind)
+    if row is None:
+        raise ValueError("العنصر غير موجود.")
+    dest = get_node(db, parent_id, kind)
+    if dest is None or not dest.is_folder:
+        raise ValueError("المجلد المستهدف غير صالح.")
+    if int(row.id) == int(parent_id):
+        raise ValueError("لا يمكن نقل العنصر إلى نفس المجلد.")
+    if row.is_folder and _node_is_descendant_or_self(db, int(row.id), int(parent_id)):
+        raise ValueError("لا يمكن نقل مجلد داخل نفسه أو داخل مجلد فرعي منه.")
+    row.parent_id = parent_id
+    db.flush()
+    row.sort_order = _next_sort(db, kind, parent_id)
 
 
 def _write_file_bytes(
