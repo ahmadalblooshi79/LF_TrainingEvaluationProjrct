@@ -3714,6 +3714,10 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 }
 .eval-list-page .eval-preview-table.eval-structured thead tr > th:nth-child(8) {
   min-height: 1.65rem !important;
+  padding: 0.12rem 0.1rem !important;
+}
+.eval-list-page .eval-preview-table.eval-structured thead tr > th:nth-child(9) {
+  min-height: 1.65rem !important;
   padding: 0.12rem 0.06rem !important;
 }
 .eval-list-page .eval-preview-table.eval-structured td.eval-col--max,
@@ -3826,8 +3830,73 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .eval-preview-table.eval-structured thead th.eval-preview-th--index {
   z-index: 7;
 }
-.eval-preview-table.eval-structured thead th.eval-th--delete {
+.eval-preview-table.eval-structured thead tr > th.eval-th--delete,
+.eval-preview-table.eval-structured thead tr > th.eval-col--crit-th {
   z-index: 7;
+}
+.eval-preview-table.eval-structured thead tr > th:nth-child(8) {
+  width: min(17vw, 5.6rem);
+  min-width: 4.75rem;
+  max-width: 6.5rem;
+  padding: 0.25rem 0.12rem !important;
+  font-size: 0.72rem;
+  text-align: center;
+  vertical-align: middle !important;
+  line-height: 1.2 !important;
+}
+.eval-preview-table.eval-structured thead tr > th:nth-child(9) {
+  width: 1.85rem;
+  min-width: 1.85rem;
+  max-width: 2.1rem;
+  padding: 0.35rem 0.08rem !important;
+  font-size: 0.68rem;
+  min-height: 2.85rem;
+  text-align: center;
+}
+.eval-preview-table.eval-structured td.eval-col--crit {
+  width: min(17vw, 5.6rem);
+  min-width: 4.75rem;
+  max-width: 6.5rem;
+  text-align: center;
+  vertical-align: middle !important;
+  padding: 0.05rem 0.12rem !important;
+}
+.eval-crit-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.12rem 0.08rem;
+  max-width: 100%;
+}
+.eval-crit-slot-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.02rem;
+  margin: 0.02rem;
+}
+.btn.btn-icon.btn-icon-crit {
+  padding: 0.04rem 0.1rem;
+  min-width: 1.32rem;
+  min-height: 1.28rem;
+  line-height: 1;
+  font-size: 0.62rem;
+  border-radius: 4px;
+  color: #52525b;
+  background: #fafafa;
+  border: 1px solid #e4e4e7;
+}
+.btn.btn-icon.btn-icon-crit:hover {
+  color: var(--brown-700, #4a382e);
+  background: #f4f4f5;
+}
+.eval-preview-table.eval-structured td.eval-col--delete {
+  width: 1.85rem;
+  min-width: 1.85rem;
+  max-width: 2.1rem;
+  text-align: center;
+  vertical-align: middle;
+  padding: 0.02rem !important;
 }
 .eval-sticky-footer--bar {
   flex: 0 0 auto;
@@ -3956,23 +4025,6 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .eval-preview-table.eval-structured td.eval-col--max .eval-max-display--muted {
   color: var(--brown-600, #78716c);
 }
-.eval-preview-table.eval-structured thead tr > th:nth-child(8) {
-  width: 1.85rem;
-  min-width: 1.85rem;
-  max-width: 2.1rem;
-  padding: 0.35rem 0.08rem !important;
-  font-size: 0.68rem;
-  min-height: 2.85rem;
-  text-align: center;
-}
-.eval-preview-table.eval-structured td.eval-col--delete {
-  width: 1.85rem;
-  min-width: 1.85rem;
-  max-width: 2.1rem;
-  text-align: center;
-  vertical-align: middle;
-  padding: 0.02rem !important;
-}
 .eval-preview-table.eval-structured .eval-row-delete.btn.btn-icon {
   padding: 0.06rem 0.12rem;
   min-width: 1.35rem;
@@ -4004,6 +4056,59 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   font-size: 0.78rem;
   line-height: 1.25;
   resize: vertical;
+}
+.eval-crit-media-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  display: grid;
+  place-items: center;
+  padding: 0.65rem;
+  box-sizing: border-box;
+}
+.eval-crit-media-modal[hidden] {
+  display: none !important;
+}
+.eval-crit-media-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.52);
+}
+.eval-crit-media-modal__panel {
+  position: relative;
+  z-index: 1;
+  background: #fffef9;
+  border-radius: 10px;
+  max-width: min(96vw, 720px);
+  max-height: min(94vh, 900px);
+  padding: 0.45rem 0.65rem;
+  overflow: hidden;
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--border-soft, #c9bfb5);
+}
+.eval-crit-media-modal__x {
+  position: absolute;
+  top: 0.2rem;
+  left: 0.2rem;
+  z-index: 3;
+  font-size: 1.2rem;
+  line-height: 1;
+  color: #444;
+}
+.eval-crit-media-modal__img {
+  display: block;
+  max-width: 100%;
+  max-height: min(78vh, 720px);
+  margin: 0.35rem auto 0;
+  border-radius: 6px;
+}
+.eval-crit-media-modal__vid {
+  display: block;
+  width: 100%;
+  max-height: min(78vh, 720px);
+  margin: 0.35rem auto 0;
+  border-radius: 6px;
+  background: #000;
 }
 
 /* مساحة المحكمين — صفحة جدول قوائم التقييم (مستويات / قوائم الوحدة) */

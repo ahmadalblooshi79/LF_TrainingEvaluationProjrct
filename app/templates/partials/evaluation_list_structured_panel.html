@@ -1,5 +1,5 @@
 {# جدول تعبئة قائمة التقييم — تمرير وسفلي ثابتان، مكتسبة كقائمة حسب القصوى #}
-<div class="eval-structured-layout{% if not eval_can_edit|default(false) %} eval-structured-layout--readonly{% endif %}" dir="rtl" id="eval-structured-root" data-approve-incomplete="{% if eval_approve_incomplete|default(false) %}1{% else %}0{% endif %}" data-readonly="{% if eval_can_edit|default(false) %}0{% else %}1{% endif %}">
+<div class="eval-structured-layout{% if not eval_can_edit|default(false) %} eval-structured-layout--readonly{% endif %}" dir="rtl" id="eval-structured-root" data-crit-upload-url="{{ eval_crit_upload_url|default('', true)|e }}" data-crit-li="{{ eval_crit_list_item_id if eval_crit_list_item_id is not none else '' }}" data-crit-ba="{{ eval_crit_bundle_action_id if eval_crit_bundle_action_id is not none else '' }}" data-approve-incomplete="{% if eval_approve_incomplete|default(false) %}1{% else %}0{% endif %}" data-readonly="{% if eval_can_edit|default(false) %}0{% else %}1{% endif %}">
   <div class="eval-structured-layout__scroll" id="eval-structured-scroll">
     <table class="eval-preview-table eval-structured eval-structured--tight" role="table" aria-label="جدول التقييم" id="eval-structured-table">
       <thead>
@@ -11,6 +11,7 @@
           <th scope="col" class="eval-preview-th eval-th--col">النسبة</th>
           <th scope="col" class="eval-preview-th eval-th--col">النتيجة</th>
           <th scope="col" class="eval-preview-th eval-th--col">ملاحظات</th>
+          <th scope="col" class="eval-preview-th eval-th--col eval-col--crit-th" title="صورة JPEG مضغوطة أو فيديو WebM/MP4"><span class="eval-crit-th-label">توثيق</span></th>
           <th scope="col" class="eval-preview-th eval-th--col eval-th--delete" aria-label="حذف الصف"><i class="fa-solid fa-trash" aria-hidden="true"></i></th>
         </tr>
       </thead>
@@ -20,10 +21,12 @@
         {% set rk = row.row_kind | default('score') %}
         {% set saved_row = saved_rows[loop.index0] if saved_rows and (loop.index0 < (saved_rows|length)) else {} %}
         {% set acq_saved = saved_row.get('acquired') if saved_row else none %}
+        {% set crit_rows = eval_crit_media_by_row|default({}, true) %}
+        {% set row_crit = crit_rows[loop.index0] if loop.index0 in crit_rows else [] %}
         {% if rk == 'section' %}
-        <tr class="eval-structured-row eval-row--section" data-row-kind="section">
+        <tr class="eval-structured-row eval-row--section" data-row-kind="section" data-eval-row-index="{{ loop.index0 }}">
           <th scope="row" class="eval-preview-rowhead eval-row-section-num">{{ loop.index }}</th>
-          <td class="eval-preview-td eval-section-banner" colspan="6"><strong>{{ row.element }}</strong></td>
+          <td class="eval-preview-td eval-section-banner" colspan="7"><strong>{{ row.element }}</strong></td>
           <td class="eval-preview-td eval-col--delete">
             {% if eval_can_edit|default(false) %}
             <button type="button" class="btn btn-icon eval-row-delete" title="حذف الصف" aria-label="حذف الصف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
@@ -39,7 +42,7 @@
           {% set cap_steps = 20 %}
         {% endif %}
         {% set acq_display = acq_saved if acq_saved is not none and acq_saved != '' else init_aq %}
-        <tr class="eval-structured-row eval-row--score" data-row-kind="score" data-max="{% if mxn is not none and mxn > 0 %}{{ mxn }}{% endif %}" data-max-text="{{ row.max_val | e }}" data-acquired="{{ acq_display | string | e }}">
+        <tr class="eval-structured-row eval-row--score" data-eval-row-index="{{ loop.index0 }}" data-row-kind="score" data-max="{% if mxn is not none and mxn > 0 %}{{ mxn }}{% endif %}" data-max-text="{{ row.max_val | e }}" data-acquired="{{ acq_display | string | e }}">
           <th scope="row" class="eval-preview-rowhead eval-row-num">{{ loop.index }}</th>
           <td class="eval-preview-td eval-col--element eval-el-indent--{{ row.element_indent | default(0) }}">
             {% set epk = row.element_prefix_kind | default('plain') %}
@@ -72,6 +75,24 @@
           <td class="eval-preview-td eval-col--notes">
             <textarea class="eval-notes-textarea eval-notes-textarea--compact" name="notes_{{ loop.index0 }}" rows="1" placeholder="ملاحظات" spellcheck="true" dir="rtl" {% if not eval_can_edit %}disabled{% endif %}>{{ (saved_row.get('notes') or '') if saved_row else '' }}</textarea>
           </td>
+          <td class="eval-preview-td eval-col--crit" data-eval-crit-slot="{{ loop.index0 }}">
+            <div class="eval-crit-buttons" role="group" aria-label="توثيق البند {{ loop.index }}">
+              {% if eval_can_edit|default(false) and (eval_crit_upload_url|default('')) %}
+              <button type="button" class="btn btn-icon btn-icon-crit eval-crit-cap-btn" title="التقاط صورة" data-eval-crit-trigger="photo" data-row-index="{{ loop.index0 }}" aria-label="التقاط صورة للصف {{ loop.index }}"><i class="fa-solid fa-camera" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn-icon btn-icon-crit eval-crit-cap-btn" title="تسجيل فيديو" data-eval-crit-trigger="video" data-row-index="{{ loop.index0 }}" aria-label="تسجيل فيديو للصف {{ loop.index }}"><i class="fa-solid fa-video" aria-hidden="true"></i></button>
+              <input type="file" class="eval-crit-file eval-crit-file--photo" accept="image/*" capture="environment" hidden data-row-index="{{ loop.index0 }}" data-kind="photo">
+              <input type="file" class="eval-crit-file eval-crit-file--video" accept="video/*" capture="environment" hidden data-row-index="{{ loop.index0 }}" data-kind="video">
+              {% endif %}
+              {% for m in row_crit %}
+              <span class="eval-crit-slot-item">
+                <button type="button" class="btn btn-icon btn-icon-crit eval-crit-play" title="{% if m.media_kind == 'video' %}تشغيل فيديو{% else %}عرض الصورة{% endif %}" data-stream-url="{{ url_for('views.eval_criterion_media_stream', media_id=m.id) }}" data-media-kind="{{ m.media_kind }}" aria-label="معاينة توثيق"><i class="fa-solid {% if m.media_kind == 'video' %}fa-film{% else %}fa-image{% endif %}" aria-hidden="true"></i></button>
+                {% if eval_can_edit|default(false) and (eval_crit_upload_url|default('')) %}
+                <button type="button" class="btn btn-icon btn-icon-crit eval-crit-del js-eval-crit-del" data-eval-crit-delete-url="{{ url_for('views.eval_criterion_media_delete', media_id=m.id) }}" aria-label="حذف التوثيق" title="حذف التوثيق"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+                {% endif %}
+              </span>
+              {% endfor %}
+            </div>
+          </td>
           <td class="eval-preview-td eval-col--delete">
             {% if eval_can_edit|default(false) %}
             <button type="button" class="btn btn-icon eval-row-delete" title="حذف الصف" aria-label="حذف الصف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
@@ -81,7 +102,7 @@
         {% endif %}
         {% else %}
         <tr>
-          <td class="eval-preview-td eval-preview-empty-row" colspan="8">لا توجد صفوف بيانات بعد صف العناوين.</td>
+          <td class="eval-preview-td eval-preview-empty-row" colspan="9">لا توجد صفوف بيانات بعد صف العناوين.</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -454,5 +475,238 @@
     if (gradeEl) gradeEl.textContent = gradeFromPct(actualPct);
   }
   updateTotal();
+})();
+</script>
+<div id="eval-crit-media-modal" class="eval-crit-media-modal" hidden aria-hidden="true">
+  <div class="eval-crit-media-modal__backdrop" tabindex="-1" data-eval-crit-close="1"></div>
+  <div class="eval-crit-media-modal__panel" role="dialog" aria-modal="true" aria-label="معاينة التوثيق">
+    <button type="button" class="eval-crit-media-modal__x btn btn-icon" data-eval-crit-close="1" aria-label="إغلاق">×</button>
+    <img id="eval-crit-modal-img" class="eval-crit-media-modal__img" alt="" />
+    <video id="eval-crit-modal-video" class="eval-crit-media-modal__vid" controls playsinline preload="metadata"></video>
+  </div>
+</div>
+<script>
+(function () {
+  var root = document.getElementById('eval-structured-root');
+  if (!root || !document.getElementById('eval-structured-table')) return;
+  var uploadUrl = (root.getAttribute('data-crit-upload-url') || '').trim();
+  var liPk = String(root.getAttribute('data-crit-li') || '').trim();
+  var baPk = String(root.getAttribute('data-crit-ba') || '').trim();
+  var modal = document.getElementById('eval-crit-media-modal');
+  var mImg = document.getElementById('eval-crit-modal-img');
+  var mVid = document.getElementById('eval-crit-modal-video');
+  function showWarnCrit(msg) {
+    var w = document.getElementById('eval-acquired-warn');
+    if (!w) {
+      alert(msg);
+      return;
+    }
+    w.textContent = msg;
+    w.hidden = false;
+    clearTimeout(showWarnCrit._t);
+    showWarnCrit._t = setTimeout(function () {
+      w.hidden = true;
+    }, 5000);
+  }
+  function openModal(kind, streamUrl) {
+    if (!modal || !mImg || !mVid) return;
+    mVid.pause();
+    mVid.removeAttribute('src');
+    mVid.load();
+    mImg.removeAttribute('src');
+    modal.hidden = false;
+    modal.setAttribute('aria-hidden', 'false');
+    if (kind === 'video') {
+      mImg.style.display = 'none';
+      mVid.style.display = 'block';
+      mVid.src = streamUrl;
+      mVid.play().catch(function () {});
+    } else {
+      mVid.style.display = 'none';
+      mImg.style.display = 'block';
+      mImg.src = streamUrl;
+    }
+  }
+  function closeModal() {
+    if (!modal || !mImg || !mVid) return;
+    modal.hidden = true;
+    modal.setAttribute('aria-hidden', 'true');
+    mVid.pause();
+    mVid.removeAttribute('src');
+    mVid.load();
+    mImg.removeAttribute('src');
+  }
+  if (modal) {
+    modal.querySelectorAll('[data-eval-crit-close]').forEach(function (el) {
+      el.addEventListener('click', closeModal);
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && modal && !modal.hidden) closeModal();
+    });
+  }
+  root.addEventListener('click', function (e) {
+    var pl = e.target.closest('.eval-crit-play');
+    if (pl) {
+      e.preventDefault();
+      var url = pl.getAttribute('data-stream-url') || '';
+      var k = String(pl.getAttribute('data-media-kind') || '').toLowerCase();
+      if (url) openModal(k === 'video' ? 'video' : 'photo', url);
+      return;
+    }
+    var trg = e.target.closest('.eval-crit-cap-btn');
+    if (!trg || !uploadUrl) return;
+    var rk = String(trg.getAttribute('data-eval-crit-trigger') || '').toLowerCase();
+    var ridx = String(trg.getAttribute('data-row-index') || '');
+    var cls = rk === 'video' ? '.eval-crit-file--video' : '.eval-crit-file--photo';
+    var slot = root.querySelector(cls + '[data-row-index="' + ridx + '"]');
+    if (slot && !slot.disabled) slot.click();
+  });
+  function maybeCompressPhoto(file, done) {
+    if (!file || !/^image\//.test(file.type || '')) {
+      done(file);
+      return;
+    }
+    if (file.type === 'image/jpeg' && file.size < 850000) {
+      done(file);
+      return;
+    }
+    var rd = new FileReader();
+    rd.onload = function () {
+      var url = rd.result;
+      var im = new Image();
+      im.onload = function () {
+        var w = im.width,
+          h = im.height,
+          maxS = 1280,
+          sc = Math.min(1, maxS / Math.max(w, h));
+        var nw = Math.max(1, Math.round(w * sc)),
+          nh = Math.max(1, Math.round(h * sc));
+        var cv = document.createElement('canvas');
+        cv.width = nw;
+        cv.height = nh;
+        var gx = cv.getContext('2d');
+        gx.drawImage(im, 0, 0, nw, nh);
+        cv.toBlob(
+          function (blob) {
+            done(blob ? blob : file);
+          },
+          'image/jpeg',
+          0.82
+        );
+      };
+      im.onerror = function () {
+        done(file);
+      };
+      im.src = url;
+    };
+    rd.onerror = function () {
+      done(file);
+    };
+    rd.readAsDataURL(file);
+  }
+  root.addEventListener('change', function (e) {
+    var inp = e.target.closest('input.eval-crit-file');
+    if (!inp || !uploadUrl) return;
+    var file = inp.files && inp.files[0];
+    if (!file) return;
+    var ridxRaw = inp.getAttribute('data-row-index');
+    var rk = String(inp.getAttribute('data-kind') || 'photo').toLowerCase();
+    var rowIx = parseInt(String(ridxRaw || ''), 10);
+    if (!isFinite(rowIx) || rowIx < 0) {
+      inp.value = '';
+      return;
+    }
+    function sendBlob(blob, fname) {
+      var fd = new FormData();
+      fd.append('row_index', String(rowIx));
+      if (liPk) fd.append('evaluation_list_item_id', liPk);
+      if (baPk) fd.append('bundle_action_eval_id', baPk);
+      fd.append('media_kind', rk);
+      fd.append('file', blob, fname || file.name || (rk === 'video' ? 'clip.webm' : 'doc.jpg'));
+      fetch(uploadUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+        .then(function (r) {
+          return r.json().then(
+            function (j) {
+              return { r: r, j: j || {} };
+            },
+            function () {
+              return { r: r, j: {} };
+            }
+          );
+        })
+        .then(function (pack) {
+          var j = pack.j;
+          if (!pack.r.ok || !j || !j.ok || !j.stream_url) {
+            throw new Error('bad');
+          }
+          var td = inp.closest('.eval-col--crit');
+          if (!td) return location.reload();
+          var wrap = td.querySelector('.eval-crit-buttons');
+          if (!wrap) return location.reload();
+          var span = document.createElement('span');
+          span.className = 'eval-crit-slot-item';
+          var isVid = String(j.media_kind || rk).toLowerCase() === 'video';
+          var play = document.createElement('button');
+          play.type = 'button';
+          play.className = 'btn btn-icon btn-icon-crit eval-crit-play';
+          play.setAttribute('data-stream-url', j.stream_url);
+          play.setAttribute('data-media-kind', isVid ? 'video' : 'photo');
+          play.setAttribute('title', isVid ? 'تشغيل فيديو' : 'عرض الصورة');
+          play.setAttribute('aria-label', 'معاينة توثيق');
+          play.innerHTML =
+            '<i class="fa-solid ' + (isVid ? 'fa-film' : 'fa-image') + '" aria-hidden="true"></i>';
+          span.appendChild(play);
+          if (uploadUrl && (root.getAttribute('data-readonly') || '') !== '1' && j.delete_url) {
+            var delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'btn btn-icon btn-icon-crit eval-crit-del js-eval-crit-del';
+            delBtn.setAttribute('aria-label', 'حذف التوثيق');
+            delBtn.setAttribute('title', 'حذف التوثيق');
+            delBtn.setAttribute('data-eval-crit-delete-url', j.delete_url);
+            delBtn.innerHTML = '<i class="fa-solid fa-xmark" aria-hidden="true"></i>';
+            span.appendChild(delBtn);
+          }
+          wrap.appendChild(span);
+        })
+        .catch(function () {
+          showWarnCrit('فشل رفع الملف؛ تحقّق من الاتصال أو من صيغة الملف.');
+        })
+        .then(function () {
+          inp.value = '';
+        });
+    }
+    if (rk === 'video') {
+      sendBlob(file, file.name);
+      return;
+    }
+    maybeCompressPhoto(file, function (blob) {
+      sendBlob(blob, 'capture.jpg');
+    });
+  });
+
+  root.addEventListener('click', function (e) {
+    var del = e.target.closest('.js-eval-crit-del');
+    if (!del) return;
+    e.preventDefault();
+    var du = del.getAttribute('data-eval-crit-delete-url') || '';
+    if (!du) return;
+    if (!confirm('حذف ملف التوثيق هذا؟')) return;
+    fetch(du, { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function (r) {
+        return r.json().catch(function () {
+          return { ok: false };
+        }).then(function (j) {
+          return !!(j && j.ok);
+        });
+      })
+      .then(function (ok) {
+        if (!ok) throw new Error('x');
+        var host = del.closest('.eval-crit-slot-item');
+        if (host && host.parentNode) host.parentNode.removeChild(host);
+      })
+      .catch(function () {
+        showWarnCrit('لم يتم حذف الملف.');
+      });
+  });
 })();
 </script>

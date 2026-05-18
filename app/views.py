@@ -51,6 +51,7 @@ from app.models import (
     PlannerFlowBundleEvalSavedResult,
     ExerciseStatus,
     DilemmaItem,
+    EvaluationCriterionMedia,
     EvaluationListPdfItem,
     EvaluationListSavedResult,
     AnalystEvaluationCriteriaResult,
@@ -72,6 +73,11 @@ from app.models import (
     RoleDef,
     RoleKey,
     User,
+)
+from app.eval_criterion_media import (
+    criterion_media_absolute_path,
+    group_media_rows,
+    persist_criterion_medium,
 )
 from app.evaluation_workflow import (
     apply_chief_approve,
@@ -1417,6 +1423,126 @@ def _eval_list_viewer_ctx(user: User, saved) -> dict:
             can_chief_reopen_evaluation_for_judge(user) and eval_chief_can_reopen(saved)
         ),
     }
+
+
+def _eval_crit_media_sheet_ctx(
+    db,
+    user: User | None,
+    *,
+    exercise: Exercise | None,
+    list_item_id: int | None,
+    bundle_action_eval_id: int | None,
+    eval_can_edit: bool,
+) -> dict:
+    ctx = {
+        "eval_crit_media_by_row": {},
+        "eval_crit_list_item_id": None,
+        "eval_crit_bundle_action_id": None,
+        "eval_crit_upload_url": "",
+    }
+    if exercise is None or (list_item_id is None and bundle_action_eval_id is None):
+        return ctx
+    ex_id = int(exercise.id)
+    ctx["eval_crit_media_by_row"] = group_media_rows(
+        db,
+        ex_id,
+        list_item_id=list_item_id,
+        bundle_action_eval_id=bundle_action_eval_id,
+    )
+    ctx["eval_crit_list_item_id"] = int(list_item_id) if list_item_id is not None else None
+    ctx["eval_crit_bundle_action_id"] = (
+        int(bundle_action_eval_id) if bundle_action_eval_id is not None else None
+    )
+    if eval_can_edit and user and can_save_evaluation_results(user):
+        ctx["eval_crit_upload_url"] = url_for("views.eval_criterion_media_upload")
+    return ctx
+
+
+def _eval_crit_user_can_stream_media(db, user: User | None, m: EvaluationCriterionMedia) -> bool:
+    """إطلاع/تشغيل: إدارة النظام، السيطرة، التخطيط، كبير المحكمين، المحللين، والمحكم ضمن النطاق."""
+    if user is None:
+        return False
+    if not db.get(Exercise, m.exercise_id):
+        return False
+    if is_system_admin(user):
+        return True
+    ex_id = int(m.exercise_id)
+    if can_access_analyst_hub(user):
+        ws = _admin_current_workspace_exercise(db, user)
+        return ws is not None and int(ws.id) == ex_id
+    if can_access_planner_hub(user):
+        ws = _admin_current_workspace_exercise(db, user)
+        return ws is not None and int(ws.id) == ex_id
+    if can_access_control_hub(user):
+        ws = _current_workspace_exercise(db, user)
+        return ws is not None and int(ws.id) == ex_id
+    if can_access_chief_judge_hub(user):
+        ws = _current_workspace_exercise(db, user)
+        return ws is not None and int(ws.id) == ex_id
+    if not can_access_judge_hub(user):
+        return False
+    ws = _current_workspace_exercise(db, user)
+    if ws is None or int(ws.id) != ex_id:
+        return False
+    if m.evaluation_list_item_id is not None:
+        pdf = db.get(EvaluationListPdfItem, int(m.evaluation_list_item_id))
+        if pdf is None or int(pdf.exercise_id or 0) != ex_id:
+            return False
+        _enforce_judge_unit_scope(db, user, ws, pdf.unit_level_key or "")
+        return True
+    if m.bundle_action_eval_id is not None:
+        ar = db.get(ExercisePlannerFlowBundleActionEval, int(m.bundle_action_eval_id))
+        if ar is None:
+            return False
+        b = db.get(ExercisePlannerFlowBundle, int(ar.bundle_id))
+        if b is None or int(b.exercise_id) != ex_id:
+            return False
+        _enforce_judge_unit_scope(db, user, ws, b.unit_level_key or "")
+        return True
+    return False
+
+
+def _eval_crit_user_can_upload_media(
+    db,
+    user: User | None,
+    *,
+    exercise_id: int,
+    unit_level_key: str,
+    list_item_id: int | None,
+    bundle_action_eval_id: int | None,
+    canonical_saved: EvaluationListSavedResult | PlannerFlowBundleEvalSavedResult | None,
+) -> bool:
+    if user is None or not can_save_evaluation_results(user):
+        return False
+    if not eval_judge_can_edit(canonical_saved):
+        return False
+    ex = db.get(Exercise, int(exercise_id))
+    if ex is None:
+        return False
+    if is_system_admin(user):
+        return True
+    if can_access_planner_hub(user):
+        ws = _admin_current_workspace_exercise(db, user)
+        return ws is not None and int(ws.id) == int(exercise_id)
+    if not can_access_judge_hub(user):
+        return False
+    ws = _current_workspace_exercise(db, user)
+    if ws is None or int(ws.id) != int(exercise_id):
+        return False
+    _enforce_judge_unit_scope(db, user, ex, unit_level_key or "")
+    return True
+
+
+def _eval_row_canonical_saved_for_crit_upload(
+    db, *, exercise_id: int, list_item_id: int | None, bundle_action_eval_id: int | None
+) -> EvaluationListSavedResult | PlannerFlowBundleEvalSavedResult | None:
+    if list_item_id is not None:
+        return _evaluation_canonical_saved_row(db, int(exercise_id), int(list_item_id))
+    if bundle_action_eval_id is not None:
+        return _planner_bundle_eval_canonical_saved(
+            db, int(exercise_id), int(bundle_action_eval_id)
+        )
+    return None
 
 
 def _eval_row_effective_max(row: dict) -> float:
@@ -4405,6 +4531,14 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
             **wf,
             eval_close_href=eval_close_href,
             **ev,
+            **_eval_crit_media_sheet_ctx(
+                db,
+                user,
+                exercise=ex,
+                list_item_id=None,
+                bundle_action_eval_id=int(action_row.id),
+                eval_can_edit=bool(wf.get("eval_can_edit")),
+            ),
             unit_label=unit_label_pf or "—",
             shown_date=shown_date,
             commander_name=commander_name or "—",
@@ -4743,6 +4877,10 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
     eval_approve_url = url_for("views.planner_evaluation_list_approve", unit_key=unit_key, item_id=item_id)
     show_eval_approve = can_approve_evaluation_results(user)
 
+    crit_edit = bool(
+        not saved_is_approved and can_save_evaluation_results(user)
+    )
+
     return render_template(
         "judge_evaluation_list_viewer.html",
         **_ctx(
@@ -4757,6 +4895,14 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
             saved_is_approved=saved_is_approved,
             saved_approved_at=saved_approved_at,
             **ev,
+            **_eval_crit_media_sheet_ctx(
+                db,
+                user,
+                exercise=current_exercise,
+                list_item_id=int(row.id),
+                bundle_action_eval_id=None,
+                eval_can_edit=crit_edit,
+            ),
             unit_label=unit_label or "—",
             shown_date=shown_date,
             commander_name=commander_name or "—",
@@ -4765,7 +4911,7 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
             eval_save_url=eval_save_url,
             eval_approve_url=eval_approve_url,
             show_eval_approve=show_eval_approve,
-            eval_can_edit=not saved_is_approved,
+            eval_can_edit=crit_edit,
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
         ),
     )
@@ -5978,6 +6124,14 @@ def control_evaluation_list_file_viewer(unit_key: str, item_id: int):
             commander_name=commander_name,
             judge_name=judge_name,
             **ev,
+            **_eval_crit_media_sheet_ctx(
+                db,
+                user,
+                exercise=ex,
+                list_item_id=int(row.id),
+                bundle_action_eval_id=None,
+                eval_can_edit=False,
+            ),
         ),
     )
 
@@ -7131,6 +7285,7 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
             saved_is_approved = bool(getattr(saved_row, "is_approved", False))
             saved_approved_at = getattr(saved_row, "approved_at", None)
             saved_by_id = getattr(saved_row, "saved_by_id", None)
+    admin_crit = bool(not saved_is_approved and can_save_evaluation_results(user))
     return render_template(
         "admin_evaluation_list_viewer.html",
         **_ctx(
@@ -7152,12 +7307,20 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
             eval_approve_url=url_for("views.admin_evaluation_list_approve", unit_key=unit_key, item_id=item_id),
             show_eval_approve=can_approve_evaluation_results(user),
             **ev,
+            **_eval_crit_media_sheet_ctx(
+                db,
+                user,
+                exercise=current_exercise,
+                list_item_id=int(row.id),
+                bundle_action_eval_id=None,
+                eval_can_edit=admin_crit,
+            ),
             unit_label=unit_label or "—",
             shown_date=shown_date,
             commander_name=commander_name or "—",
             judge_name=judge_name or "—",
             has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
-            eval_can_edit=not saved_is_approved,
+            eval_can_edit=admin_crit,
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
         ),
     )
@@ -7284,6 +7447,14 @@ def analyst_evaluation_list_file_viewer(unit_key: str, item_id: int):
             saved_approved_at=saved_approved_at,
             saved_by_id=saved_by_id,
             **ev,
+            **_eval_crit_media_sheet_ctx(
+                db,
+                user,
+                exercise=current_exercise,
+                list_item_id=int(row.id),
+                bundle_action_eval_id=None,
+                eval_can_edit=False,
+            ),
             unit_label=unit_label or "—",
             shown_date=shown_date,
             commander_name=commander_name or "—",
@@ -7780,6 +7951,14 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
             saved_updated_at=saved_updated_at,
             **wf,
             **ev,
+            **_eval_crit_media_sheet_ctx(
+                db,
+                user,
+                exercise=current_exercise,
+                list_item_id=int(row.id),
+                bundle_action_eval_id=None,
+                eval_can_edit=bool(wf.get("eval_can_edit")),
+            ),
             unit_label=unit_label or "—",
             shown_date=shown_date,
             commander_name=commander_name or "—",
@@ -7877,6 +8056,175 @@ def judge_evaluation_list_approve(unit_key: str, item_id: int):
     apply_judge_approve(saved, getattr(user, "id", None))
     db.commit()
     return redirect(url_for("views.judge_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id))
+
+
+@bp.route("/eval-criterion-media/<int:media_id>/stream", methods=["GET"])
+def eval_criterion_media_stream(media_id: int):
+    """تسليم ملف توثيق (صورة أو فيديو) لمستخدم مسموح."""
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    from flask import g
+
+    db = g.db
+    m = db.get(EvaluationCriterionMedia, media_id)
+    if m is None or not (m.file_relpath or "").strip():
+        abort(404)
+    if not _eval_crit_user_can_stream_media(db, user, m):
+        abort(403)
+    abs_p = criterion_media_absolute_path((m.file_relpath or "").strip())
+    if abs_p is None or not abs_p.is_file():
+        abort(404)
+    dl_name = Path(m.file_relpath or "").name
+    mime = ((m.mime_type or "").strip() or mimetypes.guess_type(dl_name)[0] or "").strip()
+    return send_file(abs_p, mimetype=mime or None)
+
+
+@bp.route("/eval-criterion-media/upload", methods=["POST"])
+def eval_criterion_media_upload():
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    from flask import g
+
+    db = g.db
+    li_raw = (request.form.get("evaluation_list_item_id") or "").strip()
+    ba_raw = (request.form.get("bundle_action_eval_id") or "").strip()
+    li_id = int(li_raw) if li_raw.isdigit() else None
+    ba_id = int(ba_raw) if ba_raw.isdigit() else None
+    if li_id is not None and li_id <= 0:
+        li_id = None
+    if ba_id is not None and ba_id <= 0:
+        ba_id = None
+    if li_id is None and ba_id is None:
+        return jsonify(ok=False, error="scope_missing"), 400
+    if li_id is not None and ba_id is not None:
+        return jsonify(ok=False, error="scope_conflict"), 400
+    ri_raw = (request.form.get("row_index") or "").strip()
+    row_index = int(ri_raw) if ri_raw.isdigit() else -1
+    if row_index < 0:
+        return jsonify(ok=False, error="row"), 400
+    media_kind = (request.form.get("media_kind") or "photo").strip().lower()
+    if media_kind not in ("photo", "video"):
+        return jsonify(ok=False, error="kind"), 400
+    uf = request.files.get("file")
+    if uf is None or not (uf.filename or "").strip():
+        return jsonify(ok=False, error="file"), 400
+    blob = uf.read()
+    if not blob:
+        return jsonify(ok=False, error="empty"), 400
+    ct_in = uf.mimetype or mimetypes.guess_type((uf.filename or "").strip())[0] or ""
+
+    exercise_id = 0
+    unit_key = ""
+    try:
+        if li_id is not None:
+            item = db.get(EvaluationListPdfItem, li_id)
+            if item is None:
+                return jsonify(ok=False, error="item"), 404
+            exercise_id = int(item.exercise_id or 0)
+            unit_key = (item.unit_level_key or "").strip()
+            ba_id = None
+        elif ba_id is not None:
+            ar = db.get(ExercisePlannerFlowBundleActionEval, int(ba_id))
+            if ar is None:
+                return jsonify(ok=False, error="action"), 404
+            bd = db.get(ExercisePlannerFlowBundle, int(ar.bundle_id))
+            if bd is None:
+                return jsonify(ok=False, error="bundle"), 404
+            exercise_id = int(bd.exercise_id)
+            unit_key = (bd.unit_level_key or "").strip()
+            li_id = None
+
+        canon = _eval_row_canonical_saved_for_crit_upload(
+            db,
+            exercise_id=int(exercise_id),
+            list_item_id=li_id,
+            bundle_action_eval_id=ba_id,
+        )
+        if not _eval_crit_user_can_upload_media(
+            db,
+            user,
+            exercise_id=int(exercise_id),
+            unit_level_key=unit_key,
+            list_item_id=li_id,
+            bundle_action_eval_id=ba_id,
+            canonical_saved=canon,
+        ):
+            abort(403)
+        rec = persist_criterion_medium(
+            db,
+            exercise_id=int(exercise_id),
+            unit_level_key=unit_key,
+            list_item_id=li_id,
+            bundle_action_eval_id=ba_id,
+            row_index=int(row_index),
+            media_kind=media_kind,
+            mime_type_in=ct_in,
+            bin_data=blob,
+            uploaded_by_id=getattr(user, "id", None),
+        )
+        db.commit()
+        stream_u = url_for("views.eval_criterion_media_stream", media_id=int(rec.id))
+        del_u = url_for("views.eval_criterion_media_delete", media_id=int(rec.id))
+        return jsonify(
+            ok=True,
+            id=int(rec.id),
+            media_kind=rec.media_kind,
+            stream_url=stream_u,
+            delete_url=del_u,
+        )
+    except ValueError as err:
+        db.rollback()
+        tag = "".join(str(x) for x in err.args)
+        if "mime" in tag:
+            return jsonify(ok=False, error="mime"), 415
+        if "size" in tag:
+            return jsonify(ok=False, error="size"), 413
+        return jsonify(ok=False, error="reject"), 400
+
+
+@bp.route("/eval-criterion-media/<int:media_id>/delete", methods=["POST"])
+def eval_criterion_media_delete(media_id: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    from flask import g
+
+    db = g.db
+    m = db.get(EvaluationCriterionMedia, media_id)
+    if m is None:
+        abort(404)
+    li_raw = getattr(m, "evaluation_list_item_id", None)
+    ba_raw = getattr(m, "bundle_action_eval_id", None)
+    li_pk = int(li_raw) if li_raw is not None else None
+    ba_pk = int(ba_raw) if ba_raw is not None else None
+    canon = _eval_row_canonical_saved_for_crit_upload(
+        db,
+        exercise_id=int(m.exercise_id),
+        list_item_id=li_pk,
+        bundle_action_eval_id=ba_pk,
+    )
+    if not _eval_crit_user_can_upload_media(
+        db,
+        user,
+        exercise_id=int(m.exercise_id),
+        unit_level_key=(getattr(m, "unit_level_key", "") or "").strip(),
+        list_item_id=li_pk,
+        bundle_action_eval_id=ba_pk,
+        canonical_saved=canon,
+    ):
+        abort(403)
+    rel = (m.file_relpath or "").strip()
+    abs_p = criterion_media_absolute_path(rel) if rel else None
+    db.delete(m)
+    db.commit()
+    if abs_p is not None and abs_p.is_file():
+        try:
+            abs_p.unlink()
+        except OSError:
+            pass
+    return jsonify(ok=True)
 
 
 # ——— مساحة كبير المحكمين ———
@@ -8103,6 +8451,14 @@ def chief_judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
             saved_updated_at=saved_updated_at,
             **wf,
             **ev,
+            **_eval_crit_media_sheet_ctx(
+                db,
+                user,
+                exercise=current_exercise,
+                list_item_id=int(row.id),
+                bundle_action_eval_id=None,
+                eval_can_edit=False,
+            ),
             unit_label=unit_label or "—",
             shown_date=shown_date,
             commander_name=commander_name or "—",
