@@ -5878,7 +5878,10 @@ def notification_mark_read(nid: int):
         row.is_read = True
         db.add(row)
         db.commit()
-    return redirect(url_for("views.notifications_log", **_role_hub_preserve_link_kwargs()))
+    hub_kwargs = _role_hub_preserve_link_kwargs()
+    return redirect(
+        url_for("views.notifications_log", **hub_kwargs) + f"#notif-{int(nid)}"
+    )
 
 
 @bp.route("/notifications/read-all", methods=["POST"])

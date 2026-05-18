@@ -41,9 +41,23 @@ def _open_browser() -> None:
         webbrowser.open(APP_URL)
 
 
+_BROWSER_OPEN_SCHEDULED = False
+
+
+def _schedule_browser_open(*, use_reloader: bool) -> None:
+    """فتح المتصفح مرة واحدة فقط (تجنّب تكرار الفتح مع werkzeug reloader)."""
+    global _BROWSER_OPEN_SCHEDULED
+    if use_reloader and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        return
+    if _BROWSER_OPEN_SCHEDULED:
+        return
+    _BROWSER_OPEN_SCHEDULED = True
+    threading.Thread(target=_open_browser, daemon=True).start()
+
+
 if __name__ == "__main__":
     app = create_app()
-    threading.Thread(target=_open_browser, daemon=True).start()
     # إعادة تحميل الكود عند التعديل (معطّل تلقائياً عند التشغيل عبر debugpy)
     use_reloader = "debugpy" not in sys.modules
+    _schedule_browser_open(use_reloader=use_reloader)
     app.run(host="0.0.0.0", port=PORT, debug=True, use_reloader=use_reloader)

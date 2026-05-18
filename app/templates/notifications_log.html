@@ -15,7 +15,7 @@
   <p class="mt-tight">
     <a class="btn btn-ghost" href="/dashboard"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
     {% if has_exercise and notifications %}
-    <form method="post" action="{{ url_for('views.notifications_mark_all_read') }}" style="display:inline;">
+    <form method="post" action="{{ url_for('views.notifications_mark_all_read') }}" class="notif-log-preserve-scroll" style="display:inline;">
       {% if hub_from_form_param %}<input type="hidden" name="{{ hub_from_form_param }}" value="1">{% endif %}
       <button type="submit" class="btn btn-ghost"><i class="fa-solid fa-check-double" aria-hidden="true"></i> تعليم الكل كمقروء</button>
     </form>
@@ -49,7 +49,7 @@
       </thead>
       <tbody>
         {% for n in notifications %}
-        <tr class="{% if not n.is_read %}notif-row--unread{% endif %}">
+        <tr id="notif-{{ n.id }}" class="{% if not n.is_read %}notif-row--unread{% endif %}">
           <td>{{ loop.index }}</td>
           <td>
             {% if n.type == 'message' %}رسالة
@@ -76,7 +76,7 @@
               <a class="btn btn-ghost" style="padding:0.25rem 0.5rem;font-size:0.85rem;" href="{{ n.action_url }}">فتح</a>
               {% endif %}
               {% if not n.is_read %}
-              <form method="post" action="{{ url_for('views.notification_mark_read', nid=n.id) }}" style="margin:0;">
+              <form method="post" action="{{ url_for('views.notification_mark_read', nid=n.id) }}" class="notif-log-preserve-scroll" style="margin:0;">
                 {% if hub_from_form_param %}<input type="hidden" name="{{ hub_from_form_param }}" value="1">{% endif %}
                 <button type="submit" class="btn btn-ghost" style="padding:0.25rem 0.5rem;font-size:0.85rem;">كمقروء</button>
               </form>
@@ -90,4 +90,32 @@
   </div>
 </section>
 {% endif %}
+<script>
+(function () {
+  var SCROLL_KEY = "notificationsLogScrollY";
+  document.querySelectorAll("form.notif-log-preserve-scroll").forEach(function (form) {
+    form.addEventListener("submit", function () {
+      sessionStorage.setItem(SCROLL_KEY, String(window.scrollY));
+    });
+  });
+  function restoreScroll() {
+    var raw = sessionStorage.getItem(SCROLL_KEY);
+    if (raw === null) return;
+    sessionStorage.removeItem(SCROLL_KEY);
+    var top = parseInt(raw, 10);
+    if (!Number.isFinite(top)) return;
+    requestAnimationFrame(function () {
+      window.scrollTo(0, top);
+    });
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", restoreScroll);
+  } else {
+    restoreScroll();
+  }
+  window.addEventListener("pageshow", function (ev) {
+    if (ev.persisted) restoreScroll();
+  });
+})();
+</script>
 {% endblock %}
