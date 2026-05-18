@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 # أرقام عربية شرقية → غربية للتحقق
 _AR_DIGIT_TRANS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
@@ -34,13 +35,52 @@ def _only_arabic_letters(t: str) -> bool:
     return bool(re.search(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]", t))
 
 
+def _paren_inner_is_single_abjad_letter(inner: str) -> bool:
+    """(أ) (ب) (جـ) — حرف أبجدي واحد داخل القوس؛ ليس كلمة وليس النمط المزدوج."""
+    t = unicodedata.normalize("NFC", (inner or "").strip())
+    if not t or _RE_WS.search(t) or not _only_arabic_letters(t):
+        return False
+    # إزالة التطويل لاعتبار «جـ» حرفًا واحداً تقريبيًا مقابل «جد»
+    condensed = t.replace("\u0640", "")
+    if not condensed:
+        return False
+    # بعد إزالة التطويل يجب أن يبقى رمز واحد ضمن مجموعة العربية والأشكال المشتركة للحرف الواحد
+    return (
+        len(condensed) == 1 and _only_arabic_letters(condensed)
+    )
+
+
+def _is_paren_double_arabic(inner: str) -> bool:
+    """(أأ) أو (ب ب) أو (جـ جـ) — ليس أي سلسلة حروف طويلة بين قوسين."""
+    t = (inner or "").strip()
+    if not t:
+        return False
+    if _RE_WS.search(t):
+        parts = [p for p in _RE_WS.split(t) if p]
+        if len(parts) != 2:
+            return False
+        p0 = unicodedata.normalize("NFC", parts[0])
+        p1 = unicodedata.normalize("NFC", parts[1])
+        # (ب ب) (جـ جـ) وليس صيغتي كلمتين مختلفتين
+        return (
+            _paren_inner_is_single_abjad_letter(p0)
+            and _paren_inner_is_single_abjad_letter(p1)
+            and p0.replace("\u0640", "") == p1.replace("\u0640", "")
+        )
+    t_n = unicodedata.normalize("NFC", t)
+    if not _only_arabic_letters(t_n) or len(t_n) < 2 or len(t_n) % 2 != 0:
+        return False
+    half = len(t_n) // 2
+    return t_n[:half] == t_n[half:]
+
+
 def split_evaluation_element(element: str | None) -> dict[str, object]:
     """
     يُحدد بادئة الترقيم وبقية النص ومستوى الإزاحة (0–4) وفئة اللون.
 
     الإزاحة التراكمية من سطر الأرقام البسيط:
     0 — 1. / 2 / 3 –
-    1 — أ. / ب.
+    1 — أ. / أ – / أ (مسافة) مع حرف أبجدي واحد
     2 — (1)
     3 — (أ)
     4 — (أأ) أو (ب ب)
@@ -81,54 +121,50 @@ def split_evaluation_element(element: str | None) -> dict[str, object]:
                 "element_prefix_kind": "pnum",
             }
 
-        if _RE_WS.search(inner):
-            parts = [p for p in _RE_WS.split(inner) if p]
-            if len(parts) == 2 and all(_only_arabic_letters(p) for p in parts):
-                return {
-                    "element_prefix": pref,
-                    "element_rest": s[len(pref) :],
-                    "element_indent": 4,
-                    "element_prefix_kind": "pdouble",
-                }
         elif inner:
-            # حرف واحد أو مدخل مع ط؛ مثل (أ) أو (جـ)
-            if inner.endswith("ـ") and len(inner) <= 3 and _only_arabic_letters(inner):
-                return {
-                    "element_prefix": pref,
-                    "element_rest": s[len(pref) :],
-                    "element_indent": 3,
-                    "element_prefix_kind": "pletter",
-                }
-            if len(inner) == 1 and _only_arabic_letters(inner):
-                return {
-                    "element_prefix": pref,
-                    "element_rest": s[len(pref) :],
-                    "element_indent": 3,
-                    "element_prefix_kind": "pletter",
-                }
-            if len(inner) >= 2 and _only_arabic_letters(inner):
+            if _is_paren_double_arabic(inner):
                 return {
                     "element_prefix": pref,
                     "element_rest": s[len(pref) :],
                     "element_indent": 4,
                     "element_prefix_kind": "pdouble",
+                }
+            # حرف واحد أو (جـ) أو مقطع عربي؛ ليس النمط المزدوج أعلاه
+            if _paren_inner_is_single_abjad_letter(inner):
+                return {
+                    "element_prefix": pref,
+                    "element_rest": s[len(pref) :],
+                    "element_indent": 3,
+                    "element_prefix_kind": "pletter",
                 }
         # أقواس غير مطابقة للأنماط — لا نستهلك؛ نتابع كنسخة عادية
         # (نترك s كما هو للفروع التالية)
 
-    # حروف ثم نقطة — أزرق، مستوى 1
-    m = re.match(
-        r"^(\s*[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]+\s*\.\s*)",
+    # حرف أبجدي واحد — مستوى 1 — ثم «.» أو شرطة أو مسافة واحدة قبل بقية النص
+    m_ld = re.match(
+        r"^(\s*[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\u0640]+\s*(?:[.]\s*|\s*[-–—]\s*))",
         s,
     )
-    if m:
-        pref = m.group(1)
-        return {
-            "element_prefix": pref,
-            "element_rest": s[len(pref) :],
-            "element_indent": 1,
-            "element_prefix_kind": "letter",
-        }
+    m_ws = (
+        None
+        if m_ld
+        else re.match(r"^(\s*[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\u0640]+\s+)", s)
+    )
+    m_abjad = m_ld or m_ws
+    if m_abjad:
+        pref = m_abjad.group(1)
+        head_m = re.match(
+            r"^\s*([\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\u0640]+)",
+            pref.strip() or "",
+        )
+        lr = head_m.group(1) if head_m else ""
+        if lr and _paren_inner_is_single_abjad_letter(lr):
+            return {
+                "element_prefix": pref,
+                "element_rest": s[len(pref) :],
+                "element_indent": 1,
+                "element_prefix_kind": "letter",
+            }
 
     # أرقام مع فاصل — أسود Bold، مستوى 0
     m = re.match(

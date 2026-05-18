@@ -44,12 +44,15 @@
         {% set acq_display = acq_saved if acq_saved is not none and acq_saved != '' else init_aq %}
         <tr class="eval-structured-row eval-row--score" data-eval-row-index="{{ loop.index0 }}" data-row-kind="score" data-max="{% if mxn is not none and mxn > 0 %}{{ mxn }}{% endif %}" data-max-text="{{ row.max_val | e }}" data-acquired="{{ acq_display | string | e }}">
           <th scope="row" class="eval-preview-rowhead eval-row-num">{{ loop.index }}</th>
-          <td class="eval-preview-td eval-col--element eval-el-indent--{{ row.element_indent | default(0) }}">
+          <td class="eval-preview-td eval-col--element">
             {% set epk = row.element_prefix_kind | default('plain') %}
+            {% set eind = row.element_indent | default(0)|int %}
             {% if epk == 'plain' %}
-            {{ row.element }}
+            <span class="eval-el-line eval-el-tier--plain">{{ row.element }}</span>
             {% else %}
-            <span class="eval-el-prefix eval-el-prefix--{{ epk }}">{{ row.element_prefix }}</span>{{ row.element_rest }}
+            <span class="eval-el-line eval-el-tier--{{ eind }}">
+              <span class="eval-el-marker"><span class="eval-el-prefix eval-el-prefix--{{ epk }}">{{ row.element_prefix }}</span></span><span class="eval-el-body">{{ row.element_rest }}</span>
+            </span>
             {% endif %}
           </td>
           <td class="eval-preview-td eval-col--max eval-td-readonly" data-max-persist="{{ row.max_val | e }}">

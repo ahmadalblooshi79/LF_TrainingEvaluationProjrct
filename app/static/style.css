@@ -3541,39 +3541,95 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   padding: 0.12rem 0.45rem;
   line-height: 1.22;
   font-size: 0.92rem;
+  display: flex;
+  align-items: baseline;
 }
-/* ترقيم عناصر التقييم: إزاحة تراكمية (RTL → padding-inline-start من يمين الخانة) */
-.eval-preview-table.eval-structured td.eval-col--element.eval-el-indent--1 {
-  padding-inline-start: calc(0.45rem + 0.5cm);
+/* عمود افتراضي لموضع كل نوع ترقيم: عرض مرساة واحد لمستوى «الأرقام 1»، و+0.5 سم بين المستويات */
+.eval-preview-table.eval-structured .eval-el-line:not(.eval-el-tier--plain) {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 0.3em;
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
 }
-.eval-preview-table.eval-structured td.eval-col--element.eval-el-indent--2 {
-  padding-inline-start: calc(0.45rem + 1cm);
+.eval-preview-table.eval-structured:not(.eval-structured--tight) .eval-el-line.eval-el-tier--0 {
+  --eval-slot-w: 6ch;
 }
-.eval-preview-table.eval-structured td.eval-col--element.eval-el-indent--3 {
-  padding-inline-start: calc(0.45rem + 1.5cm);
+.eval-preview-table.eval-structured:not(.eval-structured--tight) .eval-el-line.eval-el-tier--1 {
+  --eval-slot-w: calc(6ch + 0.5cm);
 }
-.eval-preview-table.eval-structured td.eval-col--element.eval-el-indent--4 {
-  padding-inline-start: calc(0.45rem + 2cm);
+.eval-preview-table.eval-structured:not(.eval-structured--tight) .eval-el-line.eval-el-tier--2 {
+  --eval-slot-w: calc(6ch + 1cm);
+}
+.eval-preview-table.eval-structured:not(.eval-structured--tight) .eval-el-line.eval-el-tier--3 {
+  --eval-slot-w: calc(6ch + 1.5cm);
+}
+.eval-preview-table.eval-structured:not(.eval-structured--tight) .eval-el-line.eval-el-tier--4 {
+  --eval-slot-w: calc(6ch + 2cm);
+}
+.eval-preview-table.eval-structured.eval-structured--tight .eval-el-line:not(.eval-el-tier--plain) {
+  --eval-slot-base: 5.5ch;
+}
+.eval-preview-table.eval-structured.eval-structured--tight .eval-el-line.eval-el-tier--0 {
+  --eval-slot-w: var(--eval-slot-base);
+}
+.eval-preview-table.eval-structured.eval-structured--tight .eval-el-line.eval-el-tier--1 {
+  --eval-slot-w: calc(var(--eval-slot-base) + 0.5cm);
+}
+.eval-preview-table.eval-structured.eval-structured--tight .eval-el-line.eval-el-tier--2 {
+  --eval-slot-w: calc(var(--eval-slot-base) + 1cm);
+}
+.eval-preview-table.eval-structured.eval-structured--tight .eval-el-line.eval-el-tier--3 {
+  --eval-slot-w: calc(var(--eval-slot-base) + 1.5cm);
+}
+.eval-preview-table.eval-structured.eval-structured--tight .eval-el-line.eval-el-tier--4 {
+  --eval-slot-w: calc(var(--eval-slot-base) + 2cm);
+}
+.eval-preview-table.eval-structured .eval-el-marker {
+  flex: 0 0 var(--eval-slot-w);
+  inline-size: var(--eval-slot-w);
+  min-inline-size: var(--eval-slot-w);
+  max-inline-size: var(--eval-slot-w);
+  box-sizing: border-box;
+  display: inline-flex;
+  justify-content: flex-end;
+  align-items: baseline;
+}
+.eval-preview-table.eval-structured .eval-el-marker .eval-el-prefix {
+  white-space: nowrap;
+}
+.eval-preview-table.eval-structured .eval-el-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.eval-preview-table.eval-structured .eval-el-line.eval-el-tier--plain {
+  display: block;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
 }
 .eval-el-prefix--num {
-  color: #111827;
+  color: #000000;
   font-weight: 700;
 }
 .eval-el-prefix--letter {
   color: #1d4ed8;
-  font-weight: 600;
+  font-weight: 400;
 }
 .eval-el-prefix--pnum {
   color: #ea580c;
-  font-weight: 600;
+  font-weight: 400;
 }
 .eval-el-prefix--pletter {
   color: #7c3aed;
-  font-weight: 600;
+  font-weight: 400;
 }
 .eval-el-prefix--pdouble {
   color: #15803d;
-  font-weight: 600;
+  font-weight: 400;
 }
 .eval-structured .eval-preview-acquired-select {
   display: block;
