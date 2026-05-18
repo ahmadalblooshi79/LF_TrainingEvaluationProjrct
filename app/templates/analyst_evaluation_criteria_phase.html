@@ -7,6 +7,7 @@
     {% if unit %}{{ unit.label }}{% else %}معايير التقييم{% endif %}
   </p>
   <p class="mt-tight">
+    {% include 'partials/control_hub_back.html' %}
     <a class="btn btn-ghost" href="{{ url_for('views.analyst_hub_section', slug='evaluation-criteria') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى جدول التوزيع</a>
   </p>
 </div>

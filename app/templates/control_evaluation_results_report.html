@@ -15,9 +15,11 @@
       {% endif %}
     </div>
     <div class="control-report__actions">
-      <a class="btn btn-ghost control-report__back" href="{{ url_for('views.control_hub') }}">
-        <i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة
+      {% if hub_back_href %}
+      <a class="btn btn-ghost control-report__back" href="{{ hub_back_href }}">
+        <i class="fa-solid fa-arrow-right" aria-hidden="true"></i> {{ hub_back_label | default('العودة إلى مساحة السيطرة') }}
       </a>
+      {% endif %}
     </div>
   </section>
 

@@ -5,6 +5,7 @@
   <h1><i class="fa-solid fa-flag fa-icon-title" aria-hidden="true"></i> تفاصيل {{ unit.unit_label }}</h1>
   <p class="muted">صفحة خاصة بجداول التقييم النهائي لهذه الوحدة.</p>
   <p class="mt-tight">
+    {% include 'partials/control_hub_back.html' %}
     <a class="btn btn-ghost" href="{{ url_for('views.analyst_hub_section', slug='final-evaluation') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى جدول التقرير النهائي</a>
   </p>
 </div>
@@ -15,19 +16,24 @@
     التمرين الحالي: <strong>{{ exercise.title }}</strong> — <code>{{ exercise.code }}</code>
   </p>
   <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
-    مصدر النتائج: مساحة المحكمين / قوائم التقييم، وتشمل النتائج عند حفظها أو اعتمادها.
+    عمود <strong>القصوى</strong> ضمن «العلامه المخصصه للوحده» يُدخل يدوياً ويُحفظ تلقائياً أثناء الكتابة.
+    أعمدة «علامه حسب قوائم التقييم» تُؤخذ من نتائج المحكمين عند الحفظ أو الاعتماد.
     <span class="muted">المعتمدة: {{ n_approved_eval_lists }} | المحفوظة غير المعتمدة: {{ n_saved_pending_eval_lists }}</span>
+    <span id="final-eval-unit-autosave-status" class="final-eval-autosave-status" role="status" aria-live="polite"></span>
   </p>
+  {% if ok_msg %}
+  <p class="form-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
+  {% endif %}
 
   {% macro detail_table(rows, summary, title, allocated_title, empty_text) -%}
   <h3 class="h2-in-card" style="margin-top:0.85rem;"><i class="fa-solid fa-list-check fa-icon-title" aria-hidden="true"></i> {{ title }}</h3>
+  <div class="final-report-table-scroll final-report-table-scroll--detail">
   <div class="table-wrap final-report-table-wrap final-report-table-wrap--detail">
     <table class="final-report-table final-report-table--detail" dir="rtl" aria-label="{{ title }}">
       <thead>
         <tr>
           <th scope="col" rowspan="2">ت</th>
-          <th scope="col" rowspan="2">مرحلة التقييم</th>
-          <th scope="col" rowspan="2">المعايير</th>
+          <th scope="col" rowspan="2">قائمة التقييم</th>
           <th scope="colgroup" colspan="4">{{ allocated_title }}</th>
           <th scope="colgroup" colspan="2">العلامه حسب قوائم التقييم</th>
         </tr>
@@ -45,35 +51,39 @@
         {% for row in rows %}
         <tr>
           <td>{{ loop.index }}</td>
-          <td>{{ row.phase_label }}</td>
-          <td>{{ row.criteria_text }}</td>
-          <td>{{ row.allocated_max_mark|round(2) }}</td>
-          <td>{{ row.allocated_acquired_mark|round(2) }}</td>
+          <td>{{ row.list_label }}</td>
+          <td class="final-eval-alloc-max-cell">
+            <input type="hidden" name="evaluation_item_id" value="{{ row.item_id }}">
+            <label class="sr-only">القصوى المخصصة — {{ row.list_label }}</label>
+            <input class="final-eval-max-input final-eval-max-input--autosave" type="text" name="allocated_max__{{ row.item_id }}" data-item-id="{{ row.item_id }}" inputmode="decimal" autocomplete="off" dir="ltr" placeholder="0" value="{% if row.has_allocated_max and row.allocated_max_mark is not none %}{{ row.allocated_max_mark|round(2) }}{% endif %}">
+          </td>
+          <td>{% if row.has_saved_payload and row.allocated_acquired_mark > 0 %}{{ row.allocated_acquired_mark|round(2) }}{% elif row.has_saved_payload %}—{% else %}—{% endif %}</td>
           <td>{% if row.allocated_pct is not none %}{{ row.allocated_pct|round(2) }}%{% else %}—{% endif %}</td>
           <td>{{ row.allocated_grade }}</td>
-          <td>{{ row.evaluation_list_max_mark|round(2) }}</td>
-          <td>{{ row.evaluation_list_acquired_mark|round(2) }}</td>
+          <td>{% if row.has_saved_payload %}{% if row.evaluation_list_max_mark > 0 %}{{ row.evaluation_list_max_mark|round(2) }}{% else %}—{% endif %}{% else %}—{% endif %}</td>
+          <td>{% if row.has_saved_payload and row.evaluation_list_acquired_mark > 0 %}{{ row.evaluation_list_acquired_mark|round(2) }}{% elif row.has_saved_payload %}—{% else %}—{% endif %}</td>
         </tr>
         {% endfor %}
         {% else %}
         <tr>
-          <td colspan="9" class="muted">{{ empty_text }}</td>
+          <td colspan="8" class="muted">{{ empty_text }}</td>
         </tr>
         {% endif %}
       </tbody>
       <tfoot>
         <tr class="final-report-summary-row">
           <td class="muted">—</td>
-          <th scope="row" colspan="2">النسبة المئوية التي حققتها الوحدة خلال المرحلة</th>
-          <td>{{ summary.allocated_max_mark|round(2) }}</td>
-          <td>{{ summary.allocated_acquired_mark|round(2) }}</td>
+          <th scope="row">النسبة المئوية التي حققتها الوحدة خلال المرحلة</th>
+          <td>{% if summary.allocated_max_mark > 0 %}{{ summary.allocated_max_mark|round(2) }}{% else %}—{% endif %}</td>
+          <td>{% if summary.allocated_acquired_mark > 0 %}{{ summary.allocated_acquired_mark|round(2) }}{% else %}—{% endif %}</td>
           <td>{% if summary.allocated_pct is not none %}{{ summary.allocated_pct|round(2) }}%{% else %}—{% endif %}</td>
           <td>{{ summary.allocated_grade }}</td>
-          <td>{{ summary.evaluation_list_max_mark|round(2) }}</td>
-          <td>{{ summary.evaluation_list_acquired_mark|round(2) }}</td>
+          <td>{% if summary.evaluation_list_max_mark > 0 %}{{ summary.evaluation_list_max_mark|round(2) }}{% else %}—{% endif %}</td>
+          <td>{% if summary.evaluation_list_acquired_mark > 0 %}{{ summary.evaluation_list_acquired_mark|round(2) }}{% else %}—{% endif %}</td>
         </tr>
       </tfoot>
     </table>
+  </div>
   </div>
   {%- endmacro %}
 
@@ -96,15 +106,15 @@
         <tr>
           <td>{{ loop.index }}</td>
           <td>{{ row.phase_label }}</td>
-          <td>{{ row.max_mark|round(2) }}</td>
-          <td>{{ row.acquired_mark|round(2) }}</td>
+          <td>{% if row.max_mark > 0 %}{{ row.max_mark|round(2) }}{% else %}—{% endif %}</td>
+          <td>{% if row.acquired_mark > 0 %}{{ row.acquired_mark|round(2) }}{% else %}—{% endif %}</td>
           <td>{% if row.phase_pct is not none %}{{ row.phase_pct|round(2) }}%{% else %}—{% endif %}</td>
           <td>{{ row.phase_grade }}</td>
         </tr>
         {% endfor %}
         {% else %}
         <tr>
-          <td colspan="6" class="muted">لا توجد نتائج مراحل محفوظة لهذه الوحدة.</td>
+          <td colspan="6" class="muted">لا توجد نتائج مراحل بعد.</td>
         </tr>
         {% endif %}
       </tbody>
@@ -112,8 +122,8 @@
         <tr class="final-report-summary-row">
           <td class="muted">—</td>
           <th scope="row">نتيجة الوحدة في جميع المراحل</th>
-          <td>{{ unit.phase_summary.max_mark|round(2) }}</td>
-          <td>{{ unit.phase_summary.acquired_mark|round(2) }}</td>
+          <td>{% if unit.phase_summary.max_mark > 0 %}{{ unit.phase_summary.max_mark|round(2) }}{% else %}—{% endif %}</td>
+          <td>{% if unit.phase_summary.acquired_mark > 0 %}{{ unit.phase_summary.acquired_mark|round(2) }}{% else %}—{% endif %}</td>
           <td>{% if unit.phase_summary.pct is not none %}{{ unit.phase_summary.pct|round(2) }}%{% else %}—{% endif %}</td>
           <td>{{ unit.phase_summary.grade }}</td>
         </tr>
@@ -121,11 +131,90 @@
     </table>
   </div>
 
-  {{ detail_table(unit.preparation_detail_rows, unit.preparation_detail_summary, "نتيجة تقييم اجراءات الوحده في مرحلة التحضير", "العلامه المخصصه للوحده خلال مرحلة التحضير", "لا توجد بنود محفوظة لمرحلة التحضير.") }}
-  {{ detail_table(unit.opening_detail_rows, unit.opening_detail_summary, "نتيجة تقييم الوحده في مرحلة الانفتاح", "العلامه المخصصه للوحده خلال مرحلة الانفتاح", "لا توجد بنود محفوظة لمرحلة الانفتاح.") }}
-  {{ detail_table(unit.main_detail_rows, unit.main_detail_summary, "نتيجة تقييم الوحده في مرحلة التمرين الرئيسي", "العلامه المخصصه للوحده خلال مرحلة التمرين الرئيسي", "لا توجد بنود محفوظة لمرحلة التمرين الرئيسي.") }}
+  <form method="post" action="{{ url_for('views.analyst_final_evaluation_unit_detail', unit_key=unit.unit_key) }}" id="final-eval-unit-form" data-autosave-url="/api/analyst/final-evaluation/item-allocated-max" data-unit-key="{{ unit.unit_key }}">
+
+  {{ detail_table(unit.preparation_detail_rows, unit.preparation_detail_summary, "نتيجة تقييم اجراءات الوحده في مرحلة التحضير", "العلامه المخصصه للوحده خلال مرحلة التحضير", "لا توجد قوائم تقييم لمرحلة التحضير.") }}
+  {{ detail_table(unit.opening_detail_rows, unit.opening_detail_summary, "نتيجة تقييم الوحده في مرحلة الانفتاح", "العلامه المخصصه للوحده خلال مرحلة الانفتاح", "لا توجد قوائم تقييم لمرحلة الانفتاح.") }}
+  {{ detail_table(unit.main_detail_rows, unit.main_detail_summary, "نتيجة تقييم الوحده في مرحلة التمرين الرئيسي", "العلامه المخصصه للوحده خلال مرحلة التمرين الرئيسي", "لا توجد قوائم تقييم لمرحلة التمرين الرئيسي.") }}
   {% if unit.show_evaluation_tracks %}
-  {{ detail_table(unit.evaluation_tracks_detail_rows, unit.evaluation_tracks_detail_summary, "نتيجة تقييم الوحده في مرحلة مسارات التقييم", "العلامه المخصصه للوحده خلال مرحلة مسارات التقييم", "لا توجد بنود محفوظة لمرحلة مسارات التقييم.") }}
+  {{ detail_table(unit.evaluation_tracks_detail_rows, unit.evaluation_tracks_detail_summary, "نتيجة تقييم الوحده في مرحلة مسارات التقييم", "العلامه المخصصه للوحده خلال مرحلة مسارات التقييم", "لا توجد قوائم تقييم لمرحلة مسارات التقييم.") }}
   {% endif %}
+
+  <div class="btn-group" style="margin-top:1rem;">
+    <button class="btn" type="submit"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ علامات القصوى المخصصة</button>
+  </div>
+  </form>
 </section>
+<script>
+(function () {
+  var form = document.getElementById("final-eval-unit-form");
+  if (!form) return;
+  var saveUrl = form.getAttribute("data-autosave-url");
+  var unitKey = form.getAttribute("data-unit-key") || "";
+  var statusEl = document.getElementById("final-eval-unit-autosave-status");
+  var timers = new Map();
+  var lastSaved = new Map();
+  var inFlight = new Map();
+  function setStatus(text, kind) {
+    if (!statusEl) return;
+    statusEl.textContent = text || "";
+    statusEl.className = "final-eval-autosave-status" + (kind ? " final-eval-autosave-status--" + kind : "");
+  }
+  async function readJson(res) {
+    var text = await res.text();
+    if (!text) throw new Error("http_" + res.status);
+    return JSON.parse(text);
+  }
+  async function saveInput(input) {
+    var itemId = input.getAttribute("data-item-id");
+    var val = (input.value || "").trim();
+    if (!itemId || lastSaved.get(input) === val || inFlight.get(input)) return;
+    var body = new URLSearchParams();
+    body.set("unit_key", unitKey);
+    body.set("item_id", itemId);
+    body.set("max_mark", val);
+    inFlight.set(input, true);
+    input.classList.add("is-saving");
+    input.classList.remove("is-saved", "is-error");
+    setStatus("جاري الحفظ…", "saving");
+    try {
+      var res = await fetch(saveUrl, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          "X-Requested-With": "XMLHttpRequest"
+        },
+        body: body.toString()
+      });
+      var data = await readJson(res);
+      if (!res.ok || !data.ok) throw new Error((data && data.error) || "save_failed");
+      lastSaved.set(input, val);
+      input.classList.add("is-saved");
+      setStatus("تم الحفظ تلقائياً", "ok");
+      window.setTimeout(function () { setStatus("", ""); }, 2000);
+    } catch (err) {
+      input.classList.add("is-error");
+      setStatus("تعذّر الحفظ التلقائي", "error");
+    } finally {
+      input.classList.remove("is-saving");
+      inFlight.set(input, false);
+    }
+  }
+  form.querySelectorAll(".final-eval-max-input--autosave").forEach(function (input) {
+    lastSaved.set(input, (input.value || "").trim());
+    input.addEventListener("input", function () {
+      var prev = timers.get(input);
+      if (prev) window.clearTimeout(prev);
+      timers.set(input, window.setTimeout(function () { saveInput(input); }, 600));
+    });
+    input.addEventListener("blur", function () {
+      var t = timers.get(input);
+      if (t) { window.clearTimeout(t); timers.delete(input); }
+      saveInput(input);
+    });
+  });
+})();
+</script>
 {% endblock %}

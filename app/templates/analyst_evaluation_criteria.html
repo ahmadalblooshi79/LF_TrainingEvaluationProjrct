@@ -5,7 +5,7 @@
   <h1><i class="fa-solid fa-list-check fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
   <p class="muted">جدول توزيع النسب حسب الوحدة، مع تفاصيل مستقلة لكل مرحلة.</p>
   <p class="mt-tight">
-    <a class="btn btn-ghost" href="{{ url_for('views.analyst_hub') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى مساحة المحللين</a>
+    {% include 'partials/control_hub_back.html' %}
   </p>
 </div>
 

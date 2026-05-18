@@ -5,7 +5,7 @@
 <div class="page-header page-header--judge-eval-lists">
   <h1><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ page_title | default('قوائم التقييم') }}</h1>
   <p class="mt-tight">
-    <a class="btn btn-ghost" href="{{ hub_back_href | default('/judge') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى مساحة المحكمين</a>
+    {% include 'partials/control_hub_back.html' %}
   </p>
 </div>
 

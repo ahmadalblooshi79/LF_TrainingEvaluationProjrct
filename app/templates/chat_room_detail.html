@@ -5,7 +5,8 @@
   <h1><i class="fa-solid fa-comments fa-icon-title" aria-hidden="true"></i> {{ room.title or 'غرفة محادثة' }}</h1>
   <p class="muted" dir="rtl">{% if exercise %}التمرين: <strong>{{ exercise.title }}</strong>{% endif %}</p>
   <p class="mt-tight">
-    <a class="btn btn-ghost" href="{{ url_for('views.chat_rooms_list') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> كل الغرف</a>
+    {% include 'partials/control_hub_back.html' %}
+    <a class="btn btn-ghost" href="{{ url_for('views.chat_rooms_list', **(control_link_kwargs or {})) }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> كل الغرف</a>
     {% if can_manage %}
     <a class="btn btn-ghost" href="{{ url_for('views.admin_chat_rooms') }}"><i class="fa-solid fa-users-gear" aria-hidden="true"></i> إدارة الأعضاء</a>
     {% endif %}
@@ -53,11 +54,13 @@
   <div class="chat-compose card" style="margin:1rem 0 0;padding:0.75rem;">
     <h3 class="h2-in-card" style="margin:0 0 0.5rem;font-size:0.95rem;">رسالة نصية</h3>
     <form method="post" action="{{ url_for('views.chat_room_post_message', room_id=room.id) }}" class="chat-form-text">
+      {% if hub_from_form_param %}<input type="hidden" name="{{ hub_from_form_param }}" value="1">{% endif %}
       <textarea name="body" rows="3" maxlength="8000" required placeholder="اكتب رسالتك…" dir="rtl" class="chat-textarea"></textarea>
       <button type="submit" class="btn"><i class="fa-solid fa-paper-plane" aria-hidden="true"></i> إرسال</button>
     </form>
     <h3 class="h2-in-card" style="margin:1rem 0 0.5rem;font-size:0.95rem;">إرفاق ملف (PDF، Excel، صورة، فيديو قصير…)</h3>
     <form method="post" action="{{ url_for('views.chat_room_upload', room_id=room.id) }}" enctype="multipart/form-data" class="chat-form-file">
+      {% if hub_from_form_param %}<input type="hidden" name="{{ hub_from_form_param }}" value="1">{% endif %}
       <input type="file" name="file" required accept=".pdf,.xlsx,.xls,.png,.jpg,.jpeg,.webp,.gif,.txt,.mp4">
       <button type="submit" class="btn btn-ghost"><i class="fa-solid fa-upload" aria-hidden="true"></i> رفع</button>
     </form>

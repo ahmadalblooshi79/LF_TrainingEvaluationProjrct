@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}{{ section_title }} — السيطرة{% endblock %}
+{% block content %}
+<style>
+  .control-pn-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    margin: 0 0 1rem;
+  }
+  .control-pn-summary__chip {
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    padding: 0.55rem 0.85rem;
+    background: var(--white);
+    font-weight: 600;
+  }
+  .control-pn-summary__chip--pos { background: #ecfdf5; border-color: #86efac; color: #065f46; }
+  .control-pn-summary__chip--neg { background: #fef2f2; border-color: #fca5a5; color: #991b1b; }
+  .control-pn-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+    gap: 1rem;
+    align-items: start;
+  }
+  .control-pn-panel {
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    padding: 0.85rem;
+    background: var(--white);
+    min-height: 12rem;
+  }
+  .control-pn-panel h2 {
+    margin: 0 0 0.75rem;
+    font-size: 1.05rem;
+  }
+  .control-pn-panel--positive {
+    background: #f0fdf4;
+    border-color: #86efac;
+  }
+  .control-pn-panel--negative {
+    background: #fef2f2;
+    border-color: #fca5a5;
+  }
+  .control-pn-note-list {
+    display: grid;
+    gap: 0.55rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .control-pn-note {
+    border-radius: var(--radius-sm);
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--border-light);
+  }
+  .control-pn-note--positive {
+    background: #dcfce7;
+    border-color: #86efac;
+    color: #14532d;
+  }
+  .control-pn-note--negative {
+    background: #fee2e2;
+    border-color: #f87171;
+    color: #7f1d1d;
+  }
+  .control-pn-note__meta {
+    display: block;
+    font-size: 0.82rem;
+    opacity: 0.9;
+    margin-bottom: 0.35rem;
+  }
+  .control-pn-note__text {
+    display: block;
+    font-weight: 600;
+    line-height: 1.45;
+  }
+  .control-pn-note__pct {
+    display: inline-block;
+    margin-top: 0.35rem;
+    font-weight: 800;
+    font-size: 0.88rem;
+  }
+</style>
+<div class="page-header">
+  <h1><i class="fa-solid fa-star fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+  <p class="muted" dir="rtl">تُؤخذ المعلومة من قوائم التقييم <strong>بعد أن يحفظ المحكم التقييم ويعتمده</strong> — الملاحظات <strong>الكتابية</strong> فقط. الإيجابيات بخلفية خضراء فاتحة (بنود ≥ 75%)، والسلبيات بخلفية حمراء فاتحة (بنود &lt; 50%).</p>
+  {% include 'partials/control_hub_back.html' %}
+</div>
+
+{% if not has_exercise %}
+<section class="card">
+  <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل.</p>
+</section>
+{% else %}
+<section class="card">
+  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
+    التمرين: <strong>{{ exercise.title }}</strong> — <code>{{ exercise.code }}</code>
+  </p>
+  <div class="control-pn-summary" dir="rtl">
+    <span class="control-pn-summary__chip">قوائم معتمدة من المحكم: <strong>{{ n_approved_eval_lists }}</strong> / {{ n_eval_lists }}</span>
+    <span class="control-pn-summary__chip">قوائم معتمدة تحتوي ملاحظات كتابية: <strong>{{ n_lists_with_notes }}</strong></span>
+    <span class="control-pn-summary__chip control-pn-summary__chip--pos">إيجابيات: <strong>{{ n_positive }}</strong></span>
+    <span class="control-pn-summary__chip control-pn-summary__chip--neg">سلبيات: <strong>{{ n_negative }}</strong></span>
+  </div>
+
+  <div class="control-pn-columns" dir="rtl">
+    <section class="control-pn-panel control-pn-panel--positive" aria-label="الإيجابيات">
+      <h2><i class="fa-solid fa-circle-check" aria-hidden="true"></i> الإيجابيات</h2>
+      {% if positive_notes %}
+      <ul class="control-pn-note-list">
+        {% for n in positive_notes %}
+        <li class="control-pn-note control-pn-note--positive">
+          <span class="control-pn-note__meta">{{ n.unit_label }} — {{ n.phase_label }} — <a href="{{ n.open_href }}">{{ n.list_title }}</a></span>
+          <span class="control-pn-note__meta">{{ n.element }}</span>
+          <span class="control-pn-note__text">{{ n.note }}</span>
+          {% if n.pct is not none %}<span class="control-pn-note__pct">{{ n.pct|round(1) }}% — {{ n.grade }}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted" style="margin:0;">لا توجد ملاحظات كتابية إيجابية في قوائم معتمدة من المحكم (بنود ≥ 75%).</p>
+      {% endif %}
+    </section>
+
+    <section class="control-pn-panel control-pn-panel--negative" aria-label="السلبيات">
+      <h2><i class="fa-solid fa-circle-xmark" aria-hidden="true"></i> السلبيات</h2>
+      {% if negative_notes %}
+      <ul class="control-pn-note-list">
+        {% for n in negative_notes %}
+        <li class="control-pn-note control-pn-note--negative">
+          <span class="control-pn-note__meta">{{ n.unit_label }} — {{ n.phase_label }} — <a href="{{ n.open_href }}">{{ n.list_title }}</a></span>
+          <span class="control-pn-note__meta">{{ n.element }}</span>
+          <span class="control-pn-note__text">{{ n.note }}</span>
+          {% if n.pct is not none %}<span class="control-pn-note__pct">{{ n.pct|round(1) }}% — {{ n.grade }}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted" style="margin:0;">لا توجد ملاحظات كتابية سلبية في قوائم معتمدة من المحكم (بنود &lt; 50%).</p>
+      {% endif %}
+    </section>
+  </div>
+</section>
+{% endif %}
+{% endblock %}
