@@ -205,8 +205,12 @@ def _evaluation_list_file_abspath(relpath: str) -> Path | None:
 
 def _evaluation_sheet_view_context(fspath: Path) -> dict:
     """قراءة ملف قائمة التقييم مع اكتشاف قوالب الصفوف (القصوى/المكتسبة) تلقائيًا."""
+    from app.evaluation_element_display import enrich_eval_rows_element_styles
+
     sheet = read_evaluation_list_sheet(fspath)
     es = bool(sheet.get("eval_structured"))
+    raw_eval = sheet.get("eval_rows") or []
+    eval_rows = enrich_eval_rows_element_styles(raw_eval) if es else raw_eval
     return {
         "preview_error": sheet.get("error"),
         "sheet_title": sheet.get("sheet_title") or "",
@@ -214,7 +218,7 @@ def _evaluation_sheet_view_context(fspath: Path) -> dict:
         "body_rows": sheet.get("body_rows") or [],
         "eval_structured": es,
         "eval_column_source": sheet.get("eval_column_source"),
-        "eval_rows": sheet.get("eval_rows") or [],
+        "eval_rows": eval_rows,
         "eval_input_mode": sheet.get("eval_input_mode") or "scale5",
         "eval_layout": sheet.get("eval_layout") or "legacy",
         "acquired_options": acquired_select_options() if es else [],
@@ -3919,7 +3923,13 @@ def _planner_flow_action_lists_editable(user: User) -> bool:
 
 def _planner_flow_eval_list_viewer_ctx(user: User, saved) -> dict:
     """سياق واجهة تقييم قائمة إجراءات الحزمة — صلاحية كاملة للمحكم/كبير المحكمين."""
-    wf = _eval_list_viewer_ctx(user, saved)
+    wf = dict(_eval_list_viewer_ctx(user, saved))
+    if _planner_flow_is_readonly_oversee(user):
+        wf["eval_can_edit"] = False
+        wf["show_eval_approve"] = False
+        wf["show_chief_approve"] = False
+        wf["show_chief_reopen"] = False
+        return wf
     if not _planner_flow_action_lists_editable(user):
         return wf
     return {
@@ -9380,15 +9390,37 @@ def admin_information_bank_tree_delete(node_id: int):
     if row is None:
         abort(404)
     tab = kind_tab(row.kind)
-    try:
-        delete_node(db, row)
-        db.commit()
-    except ValueError:
-        db.rollback()
-        return redirect(
-            url_for("views.admin_information_bank", tab=tab, err="لا يمكن حذف مجلدات النظام الأساسية.")
-        )
+    delete_node(db, row)
+    db.commit()
     return redirect(url_for("views.admin_information_bank", tab=tab, ok="تم الحذف."))
+
+
+@bp.route("/admin/information-bank/tree/move", methods=["POST"])
+def admin_information_bank_tree_move():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        return jsonify(ok=False, error="غير مسموح."), 403
+    from flask import g
+
+    from app.info_bank_tree import move_tree_node
+
+    data = request.get_json(force=True, silent=True) or {}
+    kind = (data.get("kind") or "").strip()
+    if kind not in ("event_flow", "action_eval", "dilemma_eval"):
+        return jsonify(ok=False, error="نوع المرفقات غير صالح."), 400
+    try:
+        nid = int(data.get("node_id"))
+        pid = int(data.get("parent_id"))
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="بيانات غير صالحة."), 400
+    db = g.db
+    try:
+        move_tree_node(db, kind=kind, node_id=nid, parent_id=pid)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        return jsonify(ok=False, error=str(exc) or "تعذّر النقل."), 400
+    return jsonify(ok=True)
 
 
 @bp.route("/admin/information-bank/tree/<int:node_id>/file", methods=["GET"])
