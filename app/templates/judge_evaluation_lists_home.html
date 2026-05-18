@@ -36,7 +36,7 @@
         <tr>
           <td class="eval-lists-table__seq">{{ loop.index }}</td>
           <td class="judge-eval-unit-label">{{ r.label }}</td>
-          <td>{{ r.total_count }}</td>
+          <td{% if r.total_count > 0 %} class="judge-eval-unit-total-cell"{% endif %}>{{ r.total_count }}</td>
           <td{% if r.not_done_count > 0 %} class="judge-eval-unit-not-done-cell"{% endif %}>{{ r.not_done_count }}</td>
           <td><a href="{{ url_for(unit_list_endpoint | default('views.judge_evaluation_lists'), unit_key=r.key) }}">فتح القوائم</a></td>
         </tr>

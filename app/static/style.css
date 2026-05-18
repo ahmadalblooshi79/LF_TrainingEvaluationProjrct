@@ -4222,6 +4222,11 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   color: #991b1b;
   font-weight: 700;
 }
+.judge-eval-unit-total-cell {
+  background: #ecfdf5;
+  color: #065f46;
+  font-weight: 700;
+}
 
 .eval-td-readonly {
   user-select: text;
