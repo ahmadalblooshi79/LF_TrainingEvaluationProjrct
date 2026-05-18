@@ -135,7 +135,8 @@
 
   {{ detail_table(unit.preparation_detail_rows, unit.preparation_detail_summary, "نتيجة تقييم اجراءات الوحده في مرحلة التحضير", "العلامه المخصصه للوحده خلال مرحلة التحضير", "لا توجد قوائم تقييم لمرحلة التحضير.") }}
   {{ detail_table(unit.opening_detail_rows, unit.opening_detail_summary, "نتيجة تقييم الوحده في مرحلة الانفتاح", "العلامه المخصصه للوحده خلال مرحلة الانفتاح", "لا توجد قوائم تقييم لمرحلة الانفتاح.") }}
-  {{ detail_table(unit.main_detail_rows, unit.main_detail_summary, "نتيجة تقييم الوحده في مرحلة التمرين الرئيسي", "العلامه المخصصه للوحده خلال مرحلة التمرين الرئيسي", "لا توجد قوائم تقييم لمرحلة التمرين الرئيسي.") }}
+  {{ detail_table(unit.main_detail_rows, unit.main_detail_summary, "نتيجة تقييم الوحده في مرحلة المعركة التعرضية", "العلامه المخصصه للوحده خلال مرحلة المعركة التعرضية", "لا توجد قوائم تقييم لمرحلة المعركة التعرضية.") }}
+  {{ detail_table(unit.reorg_detail_rows, unit.reorg_detail_summary, "نتيجة تقييم الوحده في مرحلة إعادة التنظيم", "العلامه المخصصه للوحده خلال مرحلة إعادة التنظيم", "لا توجد قوائم تقييم لمرحلة إعادة التنظيم.") }}
   {% if unit.show_evaluation_tracks %}
   {{ detail_table(unit.evaluation_tracks_detail_rows, unit.evaluation_tracks_detail_summary, "نتيجة تقييم الوحده في مرحلة مسارات التقييم", "العلامه المخصصه للوحده خلال مرحلة مسارات التقييم", "لا توجد قوائم تقييم لمرحلة مسارات التقييم.") }}
   {% endif %}
