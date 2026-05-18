@@ -8,6 +8,7 @@
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import webbrowser
@@ -43,4 +44,6 @@ def _open_browser() -> None:
 if __name__ == "__main__":
     app = create_app()
     threading.Thread(target=_open_browser, daemon=True).start()
-    app.run(host="0.0.0.0", port=PORT, debug=True, use_reloader=False)
+    # إعادة تحميل الكود عند التعديل (معطّل تلقائياً عند التشغيل عبر debugpy)
+    use_reloader = "debugpy" not in sys.modules
+    app.run(host="0.0.0.0", port=PORT, debug=True, use_reloader=use_reloader)

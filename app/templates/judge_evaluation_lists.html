@@ -5,6 +5,7 @@
 <div class="page-header page-header--judge-eval-lists">
   <h1><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> قوائم التقييم — {{ unit.label }}</h1>
   <p class="mt-tight">
+    {% include 'partials/control_hub_back.html' %}
     <a class="btn btn-ghost" href="{{ eval_lists_parent_href | default(url_for('views.judge_evaluation_lists_home')) }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى مستويات الوحدات</a>
   </p>
 </div>

@@ -11,10 +11,12 @@
 </style>
 <div class="page-header">
   <h1><i class="fa-solid fa-bell fa-icon-title" aria-hidden="true"></i> سجل الإشعارات</h1>
+  {% include 'partials/control_hub_back.html' %}
   <p class="mt-tight">
     <a class="btn btn-ghost" href="/dashboard"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
     {% if has_exercise and notifications %}
     <form method="post" action="{{ url_for('views.notifications_mark_all_read') }}" style="display:inline;">
+      {% if hub_from_form_param %}<input type="hidden" name="{{ hub_from_form_param }}" value="1">{% endif %}
       <button type="submit" class="btn btn-ghost"><i class="fa-solid fa-check-double" aria-hidden="true"></i> تعليم الكل كمقروء</button>
     </form>
     {% endif %}
@@ -75,6 +77,7 @@
               {% endif %}
               {% if not n.is_read %}
               <form method="post" action="{{ url_for('views.notification_mark_read', nid=n.id) }}" style="margin:0;">
+                {% if hub_from_form_param %}<input type="hidden" name="{{ hub_from_form_param }}" value="1">{% endif %}
                 <button type="submit" class="btn btn-ghost" style="padding:0.25rem 0.5rem;font-size:0.85rem;">كمقروء</button>
               </form>
               {% endif %}

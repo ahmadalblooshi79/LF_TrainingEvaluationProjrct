@@ -56,6 +56,8 @@ from app.models import (
     AnalystEvaluationCriteriaResult,
     AnalystEvaluationCriteriaUnit,
     AnalystEvaluationCriteriaPhaseItem,
+    AnalystFinalEvaluationAllocatedMax,
+    AnalystFinalEvaluationPhaseAllocatedMax,
     ExerciseNotification,
     VisualDocument,
     InformationBankPhaseNote,
@@ -80,6 +82,7 @@ from app.evaluation_workflow import (
     apply_judge_approve,
     build_evaluation_list_row,
     evaluation_unit_home_rows,
+    build_evaluation_list_row,
     evaluation_unit_home_totals,
     eval_chief_approved,
     eval_chief_can_approve,
@@ -142,6 +145,7 @@ from app.information_bank_catalog import (
 from app.evaluation_list_columns import (
     acquired_select_options,
     grade_label_from_percent,
+    parse_max_cell,
 )
 from app.evaluation_sheet_parser import read_evaluation_list_sheet
 from app.roster_import import parse_roster_rows_from_upload
@@ -977,6 +981,85 @@ def _evaluation_payload_mark_totals(rows: list) -> tuple[float, float]:
     return sum_max, sum_acquired
 
 
+def _evaluation_list_template_rows(item) -> list[dict]:
+    """صفوف قالب Excel لقائمة التقييم (كما في واجهة المحكم)."""
+    relpath = (getattr(item, "pdf_relpath", None) or "").strip()
+    if not relpath:
+        return []
+    fspath = _evaluation_list_file_abspath(relpath)
+    if fspath is None:
+        return []
+    sheet = read_evaluation_list_sheet(fspath)
+    return list(sheet.get("eval_rows") or [])
+
+
+def _evaluation_list_judge_sum_totals(
+    saved_rows: list | None,
+    template_rows: list | None = None,
+) -> tuple[float, float]:
+    """
+    مجموع القصوى والمكتسبة كما في صفحة المحكم (eval-sum-max / eval-sum-acquired):
+    - القصوى: مجموع max_num لكل بند score من قالب Excel.
+    - المكتسبة: مجموع acquired المحفوظة (أو الأولية من Excel) لكل بند غير «لا ينطبق».
+    """
+    saved_rows = [r for r in (saved_rows or [])[:2000] if isinstance(r, dict)]
+    template_rows = [r for r in (template_rows or [])[:2000] if isinstance(r, dict)]
+
+    def _round_mark(value: float) -> float:
+        return round(float(value) * 100.0) / 100.0
+
+    if template_rows:
+        sum_max = 0.0
+        sum_acquired = 0.0
+        any_acquired = False
+        for idx, trow in enumerate(template_rows):
+            rk = str(trow.get("row_kind") or "score").strip().lower()
+            if rk == "section":
+                continue
+            mx = trow.get("max_num")
+            if mx is None:
+                mx = parse_max_cell(trow.get("max_val"))
+            if mx is not None and float(mx) > 0:
+                sum_max += float(mx)
+            saved_row = saved_rows[idx] if idx < len(saved_rows) else {}
+            acq = saved_row.get("acquired") if isinstance(saved_row, dict) else None
+            if acq is None or str(acq).strip() == "":
+                acq = trow.get("acquired_initial")
+            acq_s = ("" if acq is None else str(acq)).strip().lower()
+            if acq_s and acq_s != "na":
+                try:
+                    sum_acquired += float(str(acq).replace(",", "."))
+                    any_acquired = True
+                except (TypeError, ValueError):
+                    pass
+        sum_max = _round_mark(sum_max) if sum_max > 0 else 0.0
+        if not any_acquired:
+            return sum_max, 0.0
+        return sum_max, _round_mark(sum_acquired)
+
+    sum_max = 0.0
+    sum_acquired = 0.0
+    any_acquired = False
+    for r in saved_rows:
+        if str(r.get("row_kind") or "").strip().lower() == "section":
+            continue
+        mx = parse_max_cell(r.get("max_val"))
+        if mx is not None and mx > 0:
+            sum_max += float(mx)
+        acq = r.get("acquired")
+        acq_s = ("" if acq is None else str(acq)).strip().lower()
+        if acq_s and acq_s != "na":
+            try:
+                sum_acquired += float(str(acq).replace(",", "."))
+                any_acquired = True
+            except (TypeError, ValueError):
+                pass
+    sum_max = _round_mark(sum_max) if sum_max > 0 else 0.0
+    if not any_acquired:
+        return sum_max, 0.0
+    return sum_max, _round_mark(sum_acquired)
+
+
 def _final_report_phase_summary(rows: list[dict]) -> dict:
     max_mark = sum(float(r.get("max_mark") or 0.0) for r in rows)
     acquired_mark = sum(float(r.get("acquired_mark") or 0.0) for r in rows)
@@ -989,11 +1072,258 @@ def _final_report_phase_summary(rows: list[dict]) -> dict:
     }
 
 
+_FINAL_EVAL_REPORT_PHASE_MAX_PREFIX = "report_phase_max__"
+
+
+def _report_phase_max_field_name(unit_key: str, phase_key: str) -> str:
+    """اسم حقل فريد لكل وحدة+مرحلة في نموذج التقرير النهائي."""
+    return f"{_FINAL_EVAL_REPORT_PHASE_MAX_PREFIX}{(unit_key or '').strip()}|{_normalized_exercise_phase(phase_key)}"
+
+
+def _parse_report_phase_max_field_name(name: str) -> tuple[str, str] | None:
+    if not name.startswith(_FINAL_EVAL_REPORT_PHASE_MAX_PREFIX):
+        return None
+    rest = name[len(_FINAL_EVAL_REPORT_PHASE_MAX_PREFIX) :]
+    if "|" not in rest:
+        return None
+    unit_key, phase_key = rest.split("|", 1)
+    unit_key = (unit_key or "").strip()
+    phase_key = _normalized_exercise_phase(phase_key)
+    if not unit_key or not phase_key:
+        return None
+    return unit_key, phase_key
+
+
+def _final_eval_phase_manual_max_map(db, exercise_id: int) -> dict[tuple[str, str], float]:
+    rows = (
+        db.query(AnalystFinalEvaluationPhaseAllocatedMax)
+        .filter(AnalystFinalEvaluationPhaseAllocatedMax.exercise_id == int(exercise_id))
+        .all()
+    )
+    out: dict[tuple[str, str], float] = {}
+    for row in rows:
+        if row.max_mark is None:
+            continue
+        uk = (row.unit_level_key or "").strip()
+        pk = _normalized_exercise_phase(row.phase_key)
+        if uk and pk:
+            out[(uk, pk)] = float(row.max_mark)
+    return out
+
+
+def _upsert_final_eval_report_phase_max(
+    db,
+    *,
+    exercise_id: int,
+    unit_key: str,
+    phase_key: str,
+    mark_raw: str | None,
+) -> float | None:
+    """حفظ/حذف علامة قصوى يدوية لصف وحدة+مرحلة؛ يُرجع القيمة المحفوظة أو None."""
+    unit_key = (unit_key or "").strip()
+    phase_key = _normalized_exercise_phase(phase_key)
+    if not unit_key or not phase_key:
+        return None
+    raw = (mark_raw or "").strip().replace(",", ".")
+    mark = _parse_mark_form_value(raw) if raw else None
+    row = (
+        db.query(AnalystFinalEvaluationPhaseAllocatedMax)
+        .filter(
+            AnalystFinalEvaluationPhaseAllocatedMax.exercise_id == int(exercise_id),
+            AnalystFinalEvaluationPhaseAllocatedMax.unit_level_key == unit_key,
+            AnalystFinalEvaluationPhaseAllocatedMax.phase_key == phase_key,
+        )
+        .first()
+    )
+    if mark is None:
+        if row is not None:
+            db.delete(row)
+        return None
+    if row is None:
+        row = AnalystFinalEvaluationPhaseAllocatedMax(
+            exercise_id=int(exercise_id),
+            unit_level_key=unit_key,
+            phase_key=phase_key,
+        )
+        db.add(row)
+    row.max_mark = float(mark)
+    row.unit_level_key = unit_key
+    row.phase_key = phase_key
+    return float(mark)
+
+
+def _final_eval_phase_acquired_total(
+    db, *, exercise_id: int, unit_key: str, phase_key: str
+) -> float:
+    """مجموع المكتسبة من قوائم التقييم المحفوظة/المعتمدة لوحدة ومرحلة."""
+    unit_key = (unit_key or "").strip()
+    phase_key = _normalized_exercise_phase(phase_key)
+    if not unit_key or not phase_key:
+        return 0.0
+    items = (
+        db.query(EvaluationListPdfItem)
+        .filter(
+            EvaluationListPdfItem.exercise_id == int(exercise_id),
+            EvaluationListPdfItem.unit_level_key == unit_key,
+        )
+        .all()
+    )
+    item_ids = [
+        int(it.id)
+        for it in items
+        if _normalized_exercise_phase(getattr(it, "exercise_phase", None)) == phase_key
+    ]
+    if not item_ids:
+        return 0.0
+    latest_by_item = _evaluation_canonical_map_for_items(db, int(exercise_id), item_ids)
+    acquired = 0.0
+    for item_id in item_ids:
+        saved = latest_by_item.get(int(item_id))
+        if saved is None or not (getattr(saved, "payload_json", "") or "").strip():
+            continue
+        rows = _parse_saved_eval_rows(saved.payload_json)
+        _payload_max, item_acquired = _evaluation_payload_mark_totals(rows)
+        if item_acquired > 0:
+            acquired += item_acquired
+    return acquired
+
+
+def _final_eval_phase_row_metrics(
+    db,
+    *,
+    exercise_id: int,
+    unit_key: str,
+    phase_key: str,
+    manual_max: float | None = None,
+) -> dict:
+    """مقاييس صف مرحلة بعد إدخال القصوى اليدوية."""
+    unit_key = (unit_key or "").strip()
+    phase_key = _normalized_exercise_phase(phase_key)
+    acquired_mark = _final_eval_phase_acquired_total(
+        db, exercise_id=int(exercise_id), unit_key=unit_key, phase_key=phase_key
+    )
+    if manual_max is None:
+        stored = _final_eval_phase_manual_max_map(db, int(exercise_id)).get((unit_key, phase_key))
+        manual_max = float(stored) if stored is not None else None
+    max_mark = float(manual_max) if manual_max is not None else 0.0
+    phase_pct: float | None = None
+    if max_mark > 0 and acquired_mark > 0:
+        phase_pct = (acquired_mark / max_mark) * 100.0
+    elif max_mark > 0 and acquired_mark <= 0:
+        phase_pct = 0.0
+    return {
+        "acquired_mark": acquired_mark,
+        "manual_max_mark": float(manual_max) if manual_max is not None else None,
+        "phase_pct": phase_pct,
+        "phase_grade": grade_label_from_percent(phase_pct) if phase_pct is not None else "—",
+    }
+
+
+def _save_final_eval_report_phase_maxes(db, *, exercise_id: int) -> None:
+    """حفظ علامات القصوى اليدوية لجدول التقرير النهائي (حقل مستقل لكل وحدة ومرحلة)."""
+    for field_name in request.form:
+        parsed = _parse_report_phase_max_field_name(field_name)
+        if parsed is None:
+            continue
+        unit_key, phase_key = parsed
+        _upsert_final_eval_report_phase_max(
+            db,
+            exercise_id=int(exercise_id),
+            unit_key=unit_key,
+            phase_key=phase_key,
+            mark_raw=request.form.get(field_name),
+        )
+    db.commit()
+
+
+def _final_eval_manual_max_map(db, exercise_id: int) -> dict[int, float]:
+    rows = (
+        db.query(AnalystFinalEvaluationAllocatedMax)
+        .filter(AnalystFinalEvaluationAllocatedMax.exercise_id == int(exercise_id))
+        .all()
+    )
+    out: dict[int, float] = {}
+    for row in rows:
+        if row.max_mark is None:
+            continue
+        out[int(row.evaluation_item_id)] = float(row.max_mark)
+    return out
+
+
+def _upsert_final_eval_item_allocated_max(
+    db,
+    *,
+    exercise_id: int,
+    unit_key: str,
+    item_id: int,
+    mark_raw: str | None,
+) -> float | None:
+    """حفظ/حذف علامة قصوى مخصصة لقائمة تقييم واحدة."""
+    unit_key = (unit_key or "").strip()
+    item = db.get(EvaluationListPdfItem, int(item_id))
+    if item is None or int(item.exercise_id or 0) != int(exercise_id):
+        return None
+    if (item.unit_level_key or "").strip() != unit_key:
+        return None
+    raw = (mark_raw or "").strip().replace(",", ".")
+    mark = _parse_mark_form_value(raw) if raw else None
+    phase_key = _normalized_exercise_phase(item.exercise_phase)
+    row = (
+        db.query(AnalystFinalEvaluationAllocatedMax)
+        .filter(
+            AnalystFinalEvaluationAllocatedMax.exercise_id == int(exercise_id),
+            AnalystFinalEvaluationAllocatedMax.evaluation_item_id == int(item_id),
+        )
+        .first()
+    )
+    if mark is None:
+        if row is not None:
+            db.delete(row)
+        return None
+    if row is None:
+        row = AnalystFinalEvaluationAllocatedMax(
+            exercise_id=int(exercise_id),
+            evaluation_item_id=int(item_id),
+            unit_level_key=unit_key,
+            phase_key=phase_key,
+        )
+        db.add(row)
+    row.max_mark = float(mark)
+    row.unit_level_key = unit_key
+    row.phase_key = phase_key
+    return float(mark)
+
+
+def _save_final_eval_manual_maxes(
+    db,
+    *,
+    exercise_id: int,
+    unit_key: str,
+    item_ids: list[int],
+) -> None:
+    """حفظ علامات القصوى المخصصة من نموذج التقييم النهائي (حقول allocated_max__{item_id})."""
+    unit_key = (unit_key or "").strip()
+    for item_id in item_ids:
+        _upsert_final_eval_item_allocated_max(
+            db,
+            exercise_id=int(exercise_id),
+            unit_key=unit_key,
+            item_id=int(item_id),
+            mark_raw=request.form.get(f"allocated_max__{item_id}"),
+        )
+    db.commit()
+
+
 def _final_report_detail_summary(rows: list[dict]) -> dict:
-    allocated_max_mark = sum(float(r.get("allocated_max_mark") or 0.0) for r in rows)
-    allocated_acquired_mark = sum(float(r.get("allocated_acquired_mark") or 0.0) for r in rows)
-    evaluation_list_max_mark = sum(float(r.get("evaluation_list_max_mark") or 0.0) for r in rows)
-    evaluation_list_acquired_mark = sum(float(r.get("evaluation_list_acquired_mark") or 0.0) for r in rows)
+    max_rows = [r for r in rows if r.get("has_allocated_max")]
+    acq_rows = [r for r in rows if r.get("has_saved_payload")]
+    list_source_rows = [r for r in rows if r.get("has_saved_payload")]
+    allocated_max_mark = sum(float(r.get("allocated_max_mark") or 0.0) for r in max_rows)
+    allocated_acquired_mark = sum(float(r.get("allocated_acquired_mark") or 0.0) for r in acq_rows)
+    evaluation_list_max_mark = sum(float(r.get("evaluation_list_max_mark") or 0.0) for r in list_source_rows)
+    evaluation_list_acquired_mark = sum(
+        float(r.get("evaluation_list_acquired_mark") or 0.0) for r in list_source_rows
+    )
     pct = (
         (allocated_acquired_mark / allocated_max_mark) * 100.0
         if allocated_max_mark > 0
@@ -1889,128 +2219,159 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
     ]
     approved_source_count = len([row for row in saved_source_rows if bool(getattr(row, "is_approved", False))])
     saved_pending_source_count = len(saved_source_rows) - approved_source_count
+    manual_max_by_item = _final_eval_manual_max_map(db, int(ex.id))
+    phase_manual_max_map = _final_eval_phase_manual_max_map(db, int(ex.id))
 
-    phase_totals: dict[tuple[str, str], dict] = {}
-    detail_totals: dict[tuple[str, str, str], dict] = {}
+    phase_acquired_totals: dict[tuple[str, str], dict] = {}
+    unit_phase_slots: dict[tuple[str, str], dict] = {}
+    list_rows_by_unit_phase: dict[tuple[str, str], list[dict]] = {}
+    template_rows_cache: dict[str, list[dict]] = {}
     for item in eval_items:
-        saved = latest_by_item.get(int(item.id))
-        if saved is None:
-            continue
-        rows = _parse_saved_eval_rows(saved.payload_json)
-        max_mark, acquired_mark = _evaluation_payload_mark_totals(rows)
-        if max_mark <= 0:
-            continue
-        unit_key = (item.unit_level_key or saved.unit_level_key or "").strip()
-        phase_key = _normalized_exercise_phase(getattr(item, "exercise_phase", None) or saved.exercise_phase)
-        block = phase_totals.setdefault(
-            (unit_key, phase_key),
-            {
-                "unit_key": unit_key,
-                "unit_label": label_for_unit_level_key(unit_key) or unit_key or "—",
-                "phase_key": phase_key,
-                "phase_label": _phase_label_ar(phase_key),
-                "max_mark": 0.0,
-                "acquired_mark": 0.0,
-            },
-        )
-        block["max_mark"] += max_mark
-        block["acquired_mark"] += acquired_mark
-
-        for r in rows[:2000]:
-            if not isinstance(r, dict):
-                continue
-            if str(r.get("row_kind") or "").strip().lower() == "section":
-                continue
-            criteria_text = (r.get("element") or "").strip()
-            if not criteria_text:
-                continue
-            acq = r.get("acquired")
-            acq_s = ("" if acq is None else str(acq)).strip().lower()
-            if acq_s in ("", "na"):
-                continue
-            try:
-                detail_acquired = float(str(acq).replace(",", "."))
-            except (TypeError, ValueError):
-                continue
-            detail_max = _eval_row_effective_max(r)
-            if detail_max <= 0:
-                continue
-            detail = detail_totals.setdefault(
-                (unit_key, phase_key, criteria_text),
+        unit_key = (item.unit_level_key or "").strip()
+        phase_key = _normalized_exercise_phase(getattr(item, "exercise_phase", None))
+        if unit_key and phase_key:
+            unit_phase_slots.setdefault(
+                (unit_key, phase_key),
                 {
                     "unit_key": unit_key,
                     "unit_label": label_for_unit_level_key(unit_key) or unit_key or "—",
                     "phase_key": phase_key,
                     "phase_label": _phase_label_ar(phase_key),
-                    "criteria_text": criteria_text,
-                    "allocated_max_mark": 0.0,
-                    "allocated_acquired_mark": 0.0,
-                    "evaluation_list_max_mark": 0.0,
-                    "evaluation_list_acquired_mark": 0.0,
+                    "acquired_mark": 0.0,
                 },
             )
-            detail["allocated_max_mark"] += detail_max
-            detail["allocated_acquired_mark"] += detail_acquired
-            detail["evaluation_list_max_mark"] += detail_max
-            detail["evaluation_list_acquired_mark"] += detail_acquired
+        list_label = (item.text or "").strip() or "—"
+        saved = latest_by_item.get(int(item.id))
+        item_id = int(item.id)
+        manual_max = manual_max_by_item.get(item_id)
+        allocated_max_mark: float | None = float(manual_max) if manual_max is not None else None
+        has_allocated_max = manual_max is not None
+        allocated_acquired_mark = 0.0
+        allocated_pct: float | None = None
+        allocated_grade = "—"
+        evaluation_list_max_mark = 0.0
+        evaluation_list_acquired_mark = 0.0
+        has_saved_payload = False
+        acquired_mark = 0.0
+        if saved is not None and (getattr(saved, "payload_json", "") or "").strip():
+            has_saved_payload = True
+            rows = _parse_saved_eval_rows(saved.payload_json)
+            _payload_max, acquired_mark = _evaluation_payload_mark_totals(rows)
+            relpath = (item.pdf_relpath or "").strip()
+            if relpath not in template_rows_cache:
+                template_rows_cache[relpath] = _evaluation_list_template_rows(item)
+            list_max_mark, list_acquired_mark = _evaluation_list_judge_sum_totals(
+                rows,
+                template_rows_cache.get(relpath) or [],
+            )
+            evaluation_list_max_mark = list_max_mark
+            evaluation_list_acquired_mark = list_acquired_mark
+            allocated_acquired_mark = acquired_mark
+        if has_allocated_max and allocated_max_mark is not None and allocated_max_mark > 0 and acquired_mark > 0:
+            allocated_pct = (acquired_mark / allocated_max_mark) * 100.0
+            allocated_grade = grade_label_from_percent(allocated_pct)
+        if has_saved_payload and acquired_mark > 0 and unit_key and phase_key:
+            block = phase_acquired_totals.setdefault(
+                (unit_key, phase_key),
+                {
+                    "unit_key": unit_key,
+                    "unit_label": label_for_unit_level_key(unit_key) or unit_key or "—",
+                    "phase_key": phase_key,
+                    "phase_label": _phase_label_ar(phase_key),
+                    "acquired_mark": 0.0,
+                },
+            )
+            block["acquired_mark"] += acquired_mark
+            slot = unit_phase_slots.setdefault((unit_key, phase_key), {**block})
+            slot["acquired_mark"] = block["acquired_mark"]
+        list_rows_by_unit_phase.setdefault((unit_key, phase_key), []).append(
+            {
+                "unit_key": unit_key,
+                "unit_label": label_for_unit_level_key(unit_key) or unit_key or "—",
+                "phase_key": phase_key,
+                "phase_label": _phase_label_ar(phase_key),
+                "list_label": list_label,
+                "item_sort_order": int(item.sort_order or 0),
+                "item_id": item_id,
+                "allocated_max_mark": allocated_max_mark,
+                "allocated_acquired_mark": allocated_acquired_mark,
+                "allocated_pct": allocated_pct,
+                "allocated_grade": allocated_grade,
+                "evaluation_list_max_mark": evaluation_list_max_mark,
+                "evaluation_list_acquired_mark": evaluation_list_acquired_mark,
+                "has_allocated_max": has_allocated_max,
+                "has_saved_payload": has_saved_payload,
+            }
+        )
 
     unit_order = {row["key"]: idx for idx, row in enumerate(UNIT_LEVELS)}
     phase_order = {key: idx for idx, key in enumerate(exercise_phase_keys())}
     unit_phase_pcts: dict[str, list[float]] = {}
-    for block in phase_totals.values():
-        if block["max_mark"] <= 0:
-            continue
-        pct = (block["acquired_mark"] / block["max_mark"]) * 100.0
-        unit_phase_pcts.setdefault(block["unit_key"], []).append(pct)
 
     final_rows: list[dict] = []
-    for block in sorted(
-        phase_totals.values(),
-        key=lambda x: (
-            unit_order.get(x["unit_key"], len(unit_order)),
-            phase_order.get(x["phase_key"], len(phase_order)),
-            x["unit_label"],
+    for slot_key in sorted(
+        unit_phase_slots.keys(),
+        key=lambda k: (
+            unit_order.get(k[0], len(unit_order)),
+            phase_order.get(k[1], len(phase_order)),
+            unit_phase_slots[k].get("unit_label") or k[0],
         ),
     ):
-        phase_pct = (
-            (block["acquired_mark"] / block["max_mark"]) * 100.0
-            if block["max_mark"] > 0
-            else None
+        block = unit_phase_slots[slot_key]
+        unit_key = block["unit_key"]
+        phase_key = block["phase_key"]
+        acquired_mark = float(
+            phase_acquired_totals.get(slot_key, {}).get("acquired_mark")
+            or block.get("acquired_mark")
+            or 0.0
         )
-        unit_pcts = unit_phase_pcts.get(block["unit_key"]) or []
-        unit_pct = (sum(unit_pcts) / len(unit_pcts)) if unit_pcts else None
+        manual_max = phase_manual_max_map.get(slot_key)
+        has_phase_manual_max = manual_max is not None
+        max_mark = float(manual_max) if manual_max is not None else 0.0
+        phase_pct: float | None = None
+        if max_mark > 0 and acquired_mark > 0:
+            phase_pct = (acquired_mark / max_mark) * 100.0
+            unit_phase_pcts.setdefault(unit_key, []).append(phase_pct)
+        elif max_mark > 0 and acquired_mark <= 0:
+            phase_pct = 0.0
+            unit_phase_pcts.setdefault(unit_key, []).append(phase_pct)
         final_rows.append(
             {
                 **block,
+                "acquired_mark": acquired_mark,
+                "max_mark": max_mark,
+                "manual_max_mark": float(manual_max) if manual_max is not None else None,
+                "has_phase_manual_max": has_phase_manual_max,
+                "phase_max_field": _report_phase_max_field_name(unit_key, phase_key),
                 "phase_pct": phase_pct,
-                "unit_total_pct": unit_pct,
                 "phase_grade": grade_label_from_percent(phase_pct) if phase_pct is not None else "—",
-                "unit_grade": grade_label_from_percent(unit_pct) if unit_pct is not None else "—",
+                "unit_total_pct": None,
+                "unit_grade": "—",
             }
         )
 
+    unit_pcts_computed: dict[str, float] = {}
+    for unit_key, pcts in unit_phase_pcts.items():
+        if pcts:
+            unit_pcts_computed[unit_key] = sum(pcts) / len(pcts)
+    for row in final_rows:
+        uk = row.get("unit_key") or ""
+        if uk in unit_pcts_computed:
+            row["unit_total_pct"] = unit_pcts_computed[uk]
+            row["unit_grade"] = grade_label_from_percent(unit_pcts_computed[uk])
+
     detail_rows: list[dict] = []
-    for detail in sorted(
-        detail_totals.values(),
+    for rows in list_rows_by_unit_phase.values():
+        rows.sort(key=lambda x: (x.get("item_sort_order", 0), x.get("item_id", 0)))
+        detail_rows.extend(rows)
+    detail_rows.sort(
         key=lambda x: (
             unit_order.get(x["unit_key"], len(unit_order)),
             phase_order.get(x["phase_key"], len(phase_order)),
-            x["unit_label"],
-            x["criteria_text"],
+            x.get("item_sort_order", 0),
+            x.get("item_id", 0),
         ),
-    ):
-        pct = (
-            (detail["allocated_acquired_mark"] / detail["allocated_max_mark"]) * 100.0
-            if detail["allocated_max_mark"] > 0
-            else None
-        )
-        detail_rows.append(
-            {
-                **detail,
-                "allocated_pct": pct,
-                "allocated_grade": grade_label_from_percent(pct) if pct is not None else "—",
-            }
-        )
+    )
 
     unit_keys: list[str] = []
     for row in UNIT_LEVELS:
@@ -2029,9 +2390,7 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
     rows_by_unit: dict[str, list[dict]] = {}
     for row in final_rows:
         rows_by_unit.setdefault(row["unit_key"], []).append(row)
-    details_by_unit_phase: dict[tuple[str, str], list[dict]] = {}
-    for row in detail_rows:
-        details_by_unit_phase.setdefault((row["unit_key"], row["phase_key"]), []).append(row)
+    details_by_unit_phase = list_rows_by_unit_phase
 
     report_units: list[dict] = []
     final_rows_all: list[dict] = []
@@ -2502,10 +2861,17 @@ def analyst_hub_section(slug: str):
         abort(403)
     slug_norm = (slug or "").strip().lower()
     if slug_norm == "chat-rooms":
-        return redirect(url_for("views.chat_rooms_list"))
+        return redirect(url_for("views.chat_rooms_list", from_analyst=1))
+    if slug_norm == "notifications-log":
+        return redirect(url_for("views.notifications_log", from_analyst=1))
+    if slug_norm == "visual-documentation":
+        return redirect(url_for("views.visual_documentation", from_analyst=1))
     title = ANALYST_HUB_SLUGS.get(slug_norm)
     if not title:
         abort(404)
+    def _actx(**extra):
+        return _ctx(user, **_hub_back_ctx_for_request_path(), **extra)
+
     if slug_norm == "evaluation-criteria":
         from flask import g
 
@@ -2514,15 +2880,14 @@ def analyst_hub_section(slug: str):
         if not dist.get("has_exercise"):
             return render_template(
                 "analyst_evaluation_criteria.html",
-                **_ctx(user, section_title=title, has_exercise=False),
+                **_actx( section_title=title, has_exercise=False),
             )
         if request.method == "POST":
             _save_analyst_evaluation_criteria_distribution(db, user, dist["exercise"])
             return redirect(url_for("views.analyst_hub_section", slug=slug_norm, ok=1))
         return render_template(
             "analyst_evaluation_criteria.html",
-            **_ctx(
-                user,
+            **_actx(
                 section_title=title,
                 has_exercise=True,
                 exercise=dist["exercise"],
@@ -2539,12 +2904,11 @@ def analyst_hub_section(slug: str):
         if not dash.get("has_exercise"):
             return render_template(
                 "analyst_positives_negatives.html",
-                **_ctx(user, section_title=title, has_exercise=False),
+                **_actx( section_title=title, has_exercise=False),
             )
         return render_template(
             "analyst_positives_negatives.html",
-            **_ctx(
-                user,
+            **_actx(
                 section_title=title,
                 has_exercise=True,
                 exercise=dash["exercise"],
@@ -2570,12 +2934,11 @@ def analyst_hub_section(slug: str):
         if not dash.get("has_exercise"):
             return render_template(
                 "analyst_evaluation_results_dashboard.html",
-                **_ctx(user, section_title=title, has_exercise=False),
+                **_actx( section_title=title, has_exercise=False),
             )
         return render_template(
             "analyst_evaluation_results_dashboard.html",
-            **_ctx(
-                user,
+            **_actx(
                 section_title=title,
                 has_exercise=True,
                 exercise=dash["exercise"],
@@ -2602,7 +2965,7 @@ def analyst_hub_section(slug: str):
         if ex is None:
             return render_template(
                 "analyst_judges_evaluation_analysis.html",
-                **_ctx(user, section_title=title, has_exercise=False),
+                **_actx( section_title=title, has_exercise=False),
             )
 
         saved_rows = (
@@ -2949,8 +3312,7 @@ def analyst_hub_section(slug: str):
 
         return render_template(
             "analyst_judges_evaluation_analysis.html",
-            **_ctx(
-                user,
+            **_actx(
                 section_title=title,
                 has_exercise=True,
                 exercise=ex,
@@ -2974,16 +3336,18 @@ def analyst_hub_section(slug: str):
         from flask import g
 
         db = g.db
+        ex0 = _current_workspace_exercise(db, user)
+        if ex0 is None and is_system_admin(user):
+            ex0 = db.query(Exercise).order_by(Exercise.id.desc()).first()
         report = _build_analyst_final_evaluation_report(db, user)
         if not report.get("has_exercise"):
             return render_template(
                 "analyst_final_evaluation.html",
-                **_ctx(user, section_title=title, has_exercise=False),
+                **_actx( section_title=title, has_exercise=False),
             )
         return render_template(
             "analyst_final_evaluation.html",
-            **_ctx(
-                user,
+            **_actx(
                 section_title=title,
                 has_exercise=True,
                 exercise=report["exercise"],
@@ -2999,15 +3363,16 @@ def analyst_hub_section(slug: str):
                 n_saved_eval_lists=report["n_saved_eval_lists"],
                 n_approved_eval_lists=report["n_approved_eval_lists"],
                 n_saved_pending_eval_lists=report["n_saved_pending_eval_lists"],
+                final_eval_can_edit=True,
             ),
         )
     return render_template(
         "analyst_section_placeholder.html",
-        **_ctx(user, section_title=title, section_slug=slug),
+        **_actx( section_title=title, section_slug=slug),
     )
 
 
-@bp.route("/analyst/final-evaluation/<unit_key>")
+@bp.route("/analyst/final-evaluation/<unit_key>", methods=["GET", "POST"])
 def analyst_final_evaluation_unit_detail(unit_key: str):
     user = get_current_user_optional()
     if not user:
@@ -3017,16 +3382,39 @@ def analyst_final_evaluation_unit_detail(unit_key: str):
     from flask import g
 
     db = g.db
+    unit_key_norm = (unit_key or "").strip()
+    ex0 = _current_workspace_exercise(db, user)
+    if ex0 is None and is_system_admin(user):
+        ex0 = db.query(Exercise).order_by(Exercise.id.desc()).first()
+    if request.method == "POST" and ex0 is not None:
+        item_ids = [
+            int(x)
+            for x in request.form.getlist("evaluation_item_id")
+            if (x or "").strip().isdigit()
+        ]
+        _save_final_eval_manual_maxes(
+            db,
+            exercise_id=int(ex0.id),
+            unit_key=unit_key_norm,
+            item_ids=item_ids,
+        )
+        return redirect(
+            url_for(
+                "views.analyst_final_evaluation_unit_detail",
+                unit_key=unit_key_norm,
+                saved=1,
+            )
+        )
     report = _build_analyst_final_evaluation_report(db, user)
     if not report.get("has_exercise"):
         abort(404)
-    unit_key_norm = (unit_key or "").strip()
     unit = next(
         (u for u in report.get("report_units", []) if (u.get("unit_key") or "").strip() == unit_key_norm),
         None,
     )
     if unit is None:
         abort(404)
+    ok_msg = "تم حفظ علامات القصوى المخصصة." if request.args.get("saved") == "1" else None
     return render_template(
         "analyst_final_evaluation_unit.html",
         **_ctx(
@@ -3036,8 +3424,124 @@ def analyst_final_evaluation_unit_detail(unit_key: str):
             unit=unit,
             n_approved_eval_lists=report["n_approved_eval_lists"],
             n_saved_pending_eval_lists=report["n_saved_pending_eval_lists"],
+            final_eval_can_edit=True,
+            ok_msg=ok_msg,
+            **_hub_back_ctx_for_request_path(),
         ),
     )
+
+
+@bp.route("/api/analyst/final-evaluation/report-phase-max", methods=["POST"])
+def api_analyst_final_eval_report_phase_max():
+    """حفظ تلقائي لعلامة القصوى اليدوية (صف وحدة+مرحلة في التقرير النهائي)."""
+    user = get_current_user_optional()
+    if not user:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    if not can_access_analyst_hub(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    from flask import g
+
+    db = g.db
+    try:
+        ex0 = _current_workspace_exercise(db, user)
+        if ex0 is None and is_system_admin(user):
+            ex0 = db.query(Exercise).order_by(Exercise.id.desc()).first()
+        if ex0 is None:
+            return jsonify({"ok": False, "error": "no_exercise"}), 400
+
+        payload = request.get_json(silent=True) if request.is_json else {}
+        if not isinstance(payload, dict):
+            payload = {}
+        field_name = (request.form.get("field_name") or payload.get("field_name") or "").strip()
+        unit_key = (request.form.get("unit_key") or payload.get("unit_key") or "").strip()
+        phase_key = request.form.get("phase_key") or payload.get("phase_key")
+        if field_name:
+            parsed = _parse_report_phase_max_field_name(field_name)
+            if parsed:
+                unit_key, phase_key = parsed
+        mark_raw = request.form.get("max_mark")
+        if mark_raw is None:
+            mark_raw = payload.get("max_mark")
+        if mark_raw is None and field_name:
+            mark_raw = request.form.get(field_name)
+        unit_key = (unit_key or "").strip()
+        phase_key = _normalized_exercise_phase(str(phase_key or ""))
+        if not unit_key or not phase_key:
+            return jsonify({"ok": False, "error": "invalid_request"}), 400
+
+        saved_mark = _upsert_final_eval_report_phase_max(
+            db,
+            exercise_id=int(ex0.id),
+            unit_key=unit_key,
+            phase_key=phase_key,
+            mark_raw=None if mark_raw is None else str(mark_raw),
+        )
+        db.commit()
+        metrics = _final_eval_phase_row_metrics(
+            db,
+            exercise_id=int(ex0.id),
+            unit_key=unit_key,
+            phase_key=phase_key,
+            manual_max=saved_mark,
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "saved_mark": saved_mark,
+                "acquired_mark": metrics["acquired_mark"],
+                "phase_pct": metrics["phase_pct"],
+                "phase_grade": metrics["phase_grade"],
+            }
+        )
+    except Exception:
+        db.rollback()
+        return jsonify({"ok": False, "error": "server_error"}), 500
+
+
+@bp.route("/api/analyst/final-evaluation/item-allocated-max", methods=["POST"])
+def api_analyst_final_eval_item_allocated_max():
+    """حفظ تلقائي لعلامة القصوى المخصصة لقائمة تقييم في تفاصيل الوحدة."""
+    user = get_current_user_optional()
+    if not user:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    if not can_access_analyst_hub(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    from flask import g
+
+    db = g.db
+    ex0 = _current_workspace_exercise(db, user)
+    if ex0 is None and is_system_admin(user):
+        ex0 = db.query(Exercise).order_by(Exercise.id.desc()).first()
+    if ex0 is None:
+        return jsonify({"ok": False, "error": "no_exercise"}), 400
+
+    try:
+        payload = request.get_json(silent=True) if request.is_json else {}
+        if not isinstance(payload, dict):
+            payload = {}
+        unit_key = (request.form.get("unit_key") or payload.get("unit_key") or "").strip()
+        item_id_raw = request.form.get("item_id") or payload.get("item_id")
+        mark_raw = request.form.get("max_mark")
+        if mark_raw is None:
+            mark_raw = payload.get("max_mark")
+        if item_id_raw is None or not str(item_id_raw).strip().isdigit():
+            return jsonify({"ok": False, "error": "invalid_item"}), 400
+        item_id = int(item_id_raw)
+        if mark_raw is None:
+            mark_raw = request.form.get(f"allocated_max__{item_id}")
+
+        saved_mark = _upsert_final_eval_item_allocated_max(
+            db,
+            exercise_id=int(ex0.id),
+            unit_key=unit_key,
+            item_id=item_id,
+            mark_raw=None if mark_raw is None else str(mark_raw),
+        )
+        db.commit()
+        return jsonify({"ok": True, "saved_mark": saved_mark, "item_id": item_id})
+    except Exception:
+        db.rollback()
+        return jsonify({"ok": False, "error": "server_error"}), 500
 
 
 @bp.route("/analyst/evaluation-criteria/<int:unit_id>/<phase_key>", methods=["GET", "POST"])
@@ -3066,6 +3570,7 @@ def analyst_evaluation_criteria_phase(unit_id: int, phase_key: str):
                 unit=None,
                 items=[],
                 total_mark=None,
+                **_hub_back_ctx_for_request_path(),
             ),
         )
     ex = db.query(Exercise).filter(Exercise.id == ex0.id).first()
@@ -3103,6 +3608,7 @@ def analyst_evaluation_criteria_phase(unit_id: int, phase_key: str):
             items=items,
             total_mark=total_mark if total_mark > 0 else None,
             ok_msg="تم حفظ جدول المرحلة." if request.args.get("ok") else "",
+            **_hub_back_ctx_for_request_path(),
         ),
     )
 
@@ -3360,6 +3866,7 @@ def planner_flow_bundle_workspace():
                 event_flow_rows=[],
                 action_slot_rows=[],
                 selected_event_flow_id=None,
+                **_hub_back_ctx_for_request_path(),
             ),
         )
     phase_key = normalize_exercise_phase(request.args.get("phase") or DEFAULT_EXERCISE_PHASE)
@@ -3427,6 +3934,7 @@ def planner_flow_bundle_workspace():
             can_oversee_judge_planner_flow=can_oversee_judge_planner_flow_materials(
                 user
             ),
+            **_hub_back_ctx_for_request_path(),
         ),
     )
 
@@ -4052,11 +4560,7 @@ def judge_planner_flow_materials():
                 planner_flow_oversee_rows=_planner_flow_oversee_assignment_rows(db, ex),
                 planner_flow_view_only=True,
                 planner_flow_viewing_judge_label="",
-                hub_back_href=(
-                    url_for("views.chief_judge_hub")
-                    if is_chief_judge(user) and not is_system_admin(user)
-                    else url_for("views.judge_hub")
-                ),
+                **_hub_back_ctx_for_request_path(),
             ),
         )
     bundle = _judge_assigned_planner_bundle(
@@ -4170,11 +4674,9 @@ def judge_planner_flow_materials():
                 )
     if oversee and ex is not None and oversee_jid is not None and bundle is None:
         abort(404)
-    hub_back = url_for("views.judge_hub")
-    if oversee:
-        hub_back = url_for("views.judge_planner_flow_materials")
-    elif is_chief_judge(user) and not is_system_admin(user):
-        hub_back = url_for("views.chief_judge_hub")
+    hub_nav_href = url_for("views.judge_planner_flow_materials", **_role_hub_preserve_link_kwargs())
+    if not oversee:
+        hub_nav_href = ""
     return render_template(
         "judge_planner_flow_materials.html",
         **_ctx(
@@ -4192,7 +4694,8 @@ def judge_planner_flow_materials():
             planner_flow_view_only=_planner_flow_is_readonly_oversee(user, oversee_judge_id=oversee_jid),
             planner_flow_viewing_judge_label=viewing_judge_label,
             planner_flow_url_kwargs=pf_qs,
-            hub_back_href=hub_back,
+            hub_nav_href=hub_nav_href,
+            **_hub_back_ctx_for_request_path(),
         ),
     )
 
@@ -4550,17 +5053,22 @@ def planner_hub_section(slug: str):
     if slug_norm == "evaluation-lists":
         return redirect(url_for("views.planner_evaluation_lists_home"))
     if slug_norm == "chat-rooms":
-        return redirect(url_for("views.chat_rooms_list"))
+        return redirect(url_for("views.chat_rooms_list", from_planner=1))
     if slug_norm == "notifications-log":
-        return redirect(url_for("views.notifications_log"))
+        return redirect(url_for("views.notifications_log", from_planner=1))
     if slug_norm == "visual-documentation":
-        return redirect(url_for("views.visual_documentation"))
+        return redirect(url_for("views.visual_documentation", from_planner=1))
     title = PLANNER_HUB_SLUGS.get(slug_norm)
     if not title:
         abort(404)
     return render_template(
         "planner_section_placeholder.html",
-        **_ctx(user, section_title=title, section_slug=slug),
+        **_ctx(
+            user,
+            section_title=title,
+            section_slug=slug,
+            **_hub_back_ctx_for_request_path(),
+        ),
     )
 
 
@@ -4586,8 +5094,8 @@ def planner_evaluation_lists_home():
             unit_levels=units,
             unit_rows=unit_rows,
             unit_totals=evaluation_unit_home_totals(unit_rows),
-            hub_back_href=url_for("views.planner_hub"),
             unit_list_endpoint="views.planner_evaluation_lists",
+            **_hub_back_ctx_for_request_path(),
         ),
     )
 
@@ -4646,6 +5154,7 @@ def planner_evaluation_lists(unit_key: str):
             items=items,
             evaluation_lists_rows=evaluation_lists_rows,
             eval_lists_parent_href=url_for("views.planner_evaluation_lists_home"),
+            **_hub_back_ctx_for_request_path(),
         ),
     )
 
@@ -4757,6 +5266,7 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
             show_eval_approve=show_eval_approve,
             eval_can_edit=not saved_is_approved,
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
+            **_hub_back_ctx_for_request_path(),
         ),
     )
 
@@ -4912,11 +5422,11 @@ def judge_hub_section(slug: str):
     if slug == "planner-flow-materials":
         return redirect(url_for("views.judge_planner_flow_materials"))
     if slug == "chat-rooms":
-        return redirect(url_for("views.chat_rooms_list"))
+        return redirect(url_for("views.chat_rooms_list", from_judge=1))
     if slug == "visual-documentation":
-        return redirect(url_for("views.visual_documentation"))
+        return redirect(url_for("views.visual_documentation", from_judge=1))
     if slug == "notifications-log":
-        return redirect(url_for("views.notifications_log"))
+        return redirect(url_for("views.notifications_log", from_judge=1))
     if slug == "incomplete-tasks":
         from flask import g
 
@@ -4925,7 +5435,13 @@ def judge_hub_section(slug: str):
         if ex is None:
             return render_template(
                 "judge_incomplete_tasks.html",
-                **_ctx(user, section_title=title, has_exercise=False, tasks=[]),
+                **_ctx(
+                    user,
+                    section_title=title,
+                    has_exercise=False,
+                    tasks=[],
+                    **_hub_back_ctx_for_request_path(),
+                ),
             )
 
         from app.models import JudgeIncompleteTaskStatus
@@ -5040,11 +5556,17 @@ def judge_hub_section(slug: str):
                 has_exercise=True,
                 exercise=ex,
                 tasks=tasks,
+                **_hub_back_ctx_for_request_path(),
             ),
         )
     return render_template(
         "judge_section_placeholder.html",
-        **_ctx(user, section_title=title, section_slug=slug),
+        **_ctx(
+            user,
+            section_title=title,
+            section_slug=slug,
+            **_hub_back_ctx_for_request_path(),
+        ),
     )
 
 
@@ -5143,7 +5665,14 @@ def notifications_log():
         )
     return render_template(
         "notifications_log.html",
-        **_ctx(user, has_exercise=ex is not None, exercise=ex, notifications=rows),
+        **_ctx(
+            user,
+            has_exercise=ex is not None,
+            exercise=ex,
+            notifications=rows,
+            **_hub_back_ctx_for_request_path(),
+            hub_from_form_param=_role_hub_from_form_param(),
+        ),
     )
 
 
@@ -5159,7 +5688,7 @@ def notification_mark_read(nid: int):
     db = g.db
     ex = _notifications_scope_exercise(db, user)
     if ex is None:
-        return redirect(url_for("views.notifications_log"))
+        return redirect(url_for("views.notifications_log", **_role_hub_preserve_link_kwargs()))
     row = db.get(ExerciseNotification, nid)
     if (
         row
@@ -5169,7 +5698,7 @@ def notification_mark_read(nid: int):
         row.is_read = True
         db.add(row)
         db.commit()
-    return redirect(url_for("views.notifications_log"))
+    return redirect(url_for("views.notifications_log", **_role_hub_preserve_link_kwargs()))
 
 
 @bp.route("/notifications/read-all", methods=["POST"])
@@ -5196,7 +5725,7 @@ def notifications_mark_all_read():
             row.is_read = True
             db.add(row)
         db.commit()
-    return redirect(url_for("views.notifications_log"))
+    return redirect(url_for("views.notifications_log", **_role_hub_preserve_link_kwargs()))
 
 
 @bp.route("/api/notifications/summary", methods=["GET"])
@@ -5291,7 +5820,17 @@ def visual_documentation():
     if ex is None:
         return render_template(
             "visual_documentation.html",
-            **_ctx(user, has_exercise=False, exercise=None, unit_levels=[], selected_unit_key="", docs=[], dilemmas=[]),
+            **_ctx(
+                user,
+                has_exercise=False,
+                exercise=None,
+                unit_levels=[],
+                selected_unit_key="",
+                docs=[],
+                dilemmas=[],
+                **_hub_back_ctx_for_request_path(),
+                hub_from_form_param=_role_hub_from_form_param(),
+            ),
         )
 
     # نطاق الوحدة للمحكم غير إدارة النظام
@@ -5330,6 +5869,8 @@ def visual_documentation():
             docs=docs,
             dilemmas=dilemmas,
             assigned_unit_key=assigned_uk,
+            **_hub_back_ctx_for_request_path(),
+            hub_from_form_param=_role_hub_from_form_param(),
         ),
     )
 
@@ -5346,7 +5887,7 @@ def visual_documentation_upload():
     db = g.db
     ex = _visual_scope_exercise(db, user)
     if ex is None:
-        return redirect(url_for("views.visual_documentation"))
+        return redirect(url_for("views.visual_documentation", **_visual_doc_redirect_kwargs()))
 
     a = _judge_assignment_for_current_exercise(db, user, ex)
     assigned_uk = (getattr(a, "unit_level_key", "") or "").strip() if a else ""
@@ -5358,14 +5899,14 @@ def visual_documentation_upload():
 
     f = request.files.get("media_file")
     if not f or not (getattr(f, "filename", "") or "").strip():
-        return redirect(url_for("views.visual_documentation", unit_key=unit_key))
+        return redirect(url_for("views.visual_documentation", **_visual_doc_redirect_kwargs(unit_key=unit_key)))
     raw_name = secure_filename(f.filename)
     suf = Path(raw_name).suffix.lower()
     if suf not in _VISUAL_ALLOWED_SUFFIX:
-        return redirect(url_for("views.visual_documentation", unit_key=unit_key))
+        return redirect(url_for("views.visual_documentation", **_visual_doc_redirect_kwargs(unit_key=unit_key)))
     data = f.read()
     if not data or len(data) > _VISUAL_MAX_UPLOAD_BYTES:
-        return redirect(url_for("views.visual_documentation", unit_key=unit_key))
+        return redirect(url_for("views.visual_documentation", **_visual_doc_redirect_kwargs(unit_key=unit_key)))
 
     uploaded_mime = (getattr(f, "mimetype", "") or "").lower()
     if suf in (".mp4",) or uploaded_mime.startswith("video/"):
@@ -5421,7 +5962,7 @@ def visual_documentation_upload():
     except Exception:
         db.rollback()
 
-    return redirect(url_for("views.visual_documentation", unit_key=unit_key))
+    return redirect(url_for("views.visual_documentation", **_visual_doc_redirect_kwargs(unit_key=unit_key)))
 
 
 @bp.route("/visual-documents/<int:doc_id>/file", methods=["GET"])
@@ -5467,6 +6008,362 @@ CONTROL_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("assign-task", "إسناد مهمة جديدة", "fa-user-plus"),
 )
 CONTROL_HUB_SLUGS: dict[str, str] = {s: t for s, t, _ in CONTROL_HUB_ITEMS}
+
+
+def _request_from_control_hub() -> bool:
+    raw = (
+        request.args.get("from")
+        or request.args.get("from_control")
+        or request.form.get("from_control")
+        or ""
+    ).strip().lower()
+    return raw in ("1", "true", "yes", "control")
+
+
+def _control_hub_back_ctx_always() -> dict:
+    return {
+        "hub_back_href": url_for("views.control_hub"),
+        "hub_back_label": "العودة إلى مساحة السيطرة",
+    }
+
+
+def _control_hub_back_ctx() -> dict:
+    return _resolve_role_hub_back_ctx()
+
+
+def _control_hub_link_kwargs() -> dict:
+    return _role_hub_preserve_link_kwargs()
+
+
+def _request_from_judge_hub() -> bool:
+    raw = (
+        request.args.get("from")
+        or request.args.get("from_judge")
+        or request.form.get("from_judge")
+        or ""
+    ).strip().lower()
+    return raw in ("1", "true", "yes", "judge")
+
+
+def _request_from_analyst_hub() -> bool:
+    raw = (
+        request.args.get("from")
+        or request.args.get("from_analyst")
+        or request.form.get("from_analyst")
+        or ""
+    ).strip().lower()
+    return raw in ("1", "true", "yes", "analyst")
+
+
+def _request_from_planner_hub() -> bool:
+    raw = (
+        request.args.get("from")
+        or request.args.get("from_planner")
+        or request.form.get("from_planner")
+        or ""
+    ).strip().lower()
+    return raw in ("1", "true", "yes", "planner")
+
+
+def _request_from_chief_judge_hub() -> bool:
+    raw = (
+        request.args.get("from")
+        or request.args.get("from_chief_judge")
+        or request.form.get("from_chief_judge")
+        or ""
+    ).strip().lower()
+    return raw in ("1", "true", "yes", "chief_judge", "chief-judge", "chiefjudge")
+
+
+def _judge_hub_back_ctx_always() -> dict:
+    return {
+        "hub_back_href": url_for("views.judge_hub"),
+        "hub_back_label": "العودة إلى مساحة المحكمين",
+    }
+
+
+def _analyst_hub_back_ctx_always() -> dict:
+    return {
+        "hub_back_href": url_for("views.analyst_hub"),
+        "hub_back_label": "العودة إلى مساحة المحللين",
+    }
+
+
+def _planner_hub_back_ctx_always() -> dict:
+    return {
+        "hub_back_href": url_for("views.planner_hub"),
+        "hub_back_label": "العودة إلى مساحة التخطيط",
+    }
+
+
+def _chief_judge_hub_back_ctx_always() -> dict:
+    return {
+        "hub_back_href": url_for("views.chief_judge_hub"),
+        "hub_back_label": "العودة إلى مساحة كبير المحكمين",
+    }
+
+
+def _resolve_role_hub_back_ctx() -> dict:
+    """سياق العودة عند الدخول من مساحة دور عبر معامل from_* (صفحات مشتركة)."""
+    if _request_from_control_hub():
+        return _control_hub_back_ctx_always()
+    if _request_from_chief_judge_hub():
+        return _chief_judge_hub_back_ctx_always()
+    if _request_from_judge_hub():
+        return _judge_hub_back_ctx_always()
+    if _request_from_planner_hub():
+        return _planner_hub_back_ctx_always()
+    if _request_from_analyst_hub():
+        return _analyst_hub_back_ctx_always()
+    return {}
+
+
+def _hub_back_ctx_for_request_path() -> dict:
+    """سياق العودة حسب مسار الطلب الحالي أو معامل from_*."""
+    p = (request.path or "").lower()
+    if p.startswith("/control"):
+        return _control_hub_back_ctx_always()
+    if p.startswith("/chief-judge"):
+        return _chief_judge_hub_back_ctx_always()
+    if p.startswith("/judge"):
+        return _judge_hub_back_ctx_always()
+    if p.startswith("/analyst"):
+        return _analyst_hub_back_ctx_always()
+    if p.startswith("/planner"):
+        return _planner_hub_back_ctx_always()
+    return _resolve_role_hub_back_ctx()
+
+
+def _role_hub_preserve_link_kwargs() -> dict:
+    kw: dict = {}
+    if _request_from_control_hub():
+        kw["from_control"] = 1
+    if _request_from_chief_judge_hub():
+        kw["from_chief_judge"] = 1
+    if _request_from_judge_hub():
+        kw["from_judge"] = 1
+    if _request_from_planner_hub():
+        kw["from_planner"] = 1
+    if _request_from_analyst_hub():
+        kw["from_analyst"] = 1
+    return kw
+
+
+def _role_hub_from_form_param() -> str | None:
+    if _request_from_control_hub():
+        return "from_control"
+    if _request_from_chief_judge_hub():
+        return "from_chief_judge"
+    if _request_from_judge_hub():
+        return "from_judge"
+    if _request_from_planner_hub():
+        return "from_planner"
+    if _request_from_analyst_hub():
+        return "from_analyst"
+    return None
+
+
+def _visual_doc_redirect_kwargs(**extra) -> dict:
+    kw = dict(extra)
+    kw.update(_role_hub_preserve_link_kwargs())
+    return kw
+
+
+def _build_control_evaluation_lists_status(db, user: User) -> dict:
+    """موقف قوائم التقييم مجمّع حسب مراحل التمرين (تبويب لكل مرحلة)."""
+    ex0 = _current_workspace_exercise(db, user)
+    if ex0 is None:
+        return {"has_exercise": False}
+    ex = db.query(Exercise).filter(Exercise.id == ex0.id).first()
+    if ex is None:
+        return {"has_exercise": False}
+
+    items = (
+        db.query(EvaluationListPdfItem)
+        .filter(EvaluationListPdfItem.exercise_id == ex.id)
+        .order_by(
+            _unit_level_order_expr(EvaluationListPdfItem.unit_level_key),
+            _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
+            EvaluationListPdfItem.sort_order,
+            EvaluationListPdfItem.id,
+        )
+        .all()
+    )
+    item_ids = [int(it.id) for it in items if getattr(it, "id", None) is not None]
+    canonical_by_item = (
+        _evaluation_canonical_map_for_items(db, int(ex.id), item_ids) if item_ids else {}
+    )
+
+    phase_order = {key: idx for idx, key in enumerate(exercise_phase_keys())}
+    by_phase: dict[str, list[dict]] = {}
+
+    for it in items:
+        uk = (it.unit_level_key or "").strip()
+        phase_key = _normalized_exercise_phase(getattr(it, "exercise_phase", None))
+        saved = canonical_by_item.get(int(it.id))
+        by_phase.setdefault(phase_key, []).append(
+            {
+                **build_evaluation_list_row(
+                    item=it,
+                    saved=saved,
+                    exercise=ex,
+                    open_href=url_for(
+                        "views.control_evaluation_list_file_viewer",
+                        unit_key=uk,
+                        item_id=int(it.id),
+                    ),
+                ),
+                "phase_key": phase_key,
+                "phase_label": _phase_label_ar(phase_key),
+                "workflow_label": eval_workflow_label_ar(saved),
+                "unit_key": uk,
+                "unit_label": label_for_unit_level_key(uk) or uk or "—",
+            }
+        )
+
+    unit_order = {row.get("key"): idx for idx, row in enumerate(UNIT_LEVELS)}
+    phase_keys_seen = set(by_phase.keys())
+    ordered_phase_keys: list[str] = list(exercise_phase_keys())
+    for pk in sorted(phase_keys_seen - set(ordered_phase_keys), key=lambda k: phase_order.get(k, 99)):
+        ordered_phase_keys.append(pk)
+
+    phase_tabs: list[dict] = []
+    for pk in ordered_phase_keys:
+        phase_rows = by_phase.get(pk, [])
+        by_unit: dict[str, list[dict]] = {}
+        for row in phase_rows:
+            uk = (row.get("unit_key") or "").strip()
+            by_unit.setdefault(uk, []).append(row)
+        unit_tabs: list[dict] = []
+        for uk in sorted(
+            by_unit.keys(),
+            key=lambda k: (unit_order.get(k, len(unit_order)), label_for_unit_level_key(k) or k),
+        ):
+            unit_rows = by_unit[uk]
+            unit_tabs.append(
+                {
+                    "unit_key": uk,
+                    "unit_label": label_for_unit_level_key(uk) or uk or "—",
+                    "rows": unit_rows,
+                    "total_count": len(unit_rows),
+                }
+            )
+        phase_tabs.append(
+            {
+                "phase_key": pk,
+                "phase_label": _phase_label_ar(pk),
+                "unit_tabs": unit_tabs,
+                "total_count": len(phase_rows),
+            }
+        )
+
+    return {
+        "has_exercise": True,
+        "phase_tabs": phase_tabs,
+    }
+
+
+def _build_control_positives_negatives(db, user: User) -> dict:
+    """إيجابيات وسلبيات من الملاحظات الكتابية في قوائم التقييم بعد حفظ واعتماد المحكم."""
+    ex0 = _current_workspace_exercise(db, user)
+    if ex0 is None:
+        return {"has_exercise": False}
+    ex = db.query(Exercise).filter(Exercise.id == ex0.id).first()
+    if ex is None:
+        return {"has_exercise": False}
+
+    items = (
+        db.query(EvaluationListPdfItem)
+        .filter(EvaluationListPdfItem.exercise_id == ex.id)
+        .order_by(
+            _unit_level_order_expr(EvaluationListPdfItem.unit_level_key),
+            _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
+            EvaluationListPdfItem.sort_order,
+            EvaluationListPdfItem.id,
+        )
+        .all()
+    )
+    item_ids = [int(it.id) for it in items if getattr(it, "id", None) is not None]
+    canonical_by_item = (
+        _evaluation_canonical_map_for_items(db, int(ex.id), item_ids) if item_ids else {}
+    )
+
+    positive_notes: list[dict] = []
+    negative_notes: list[dict] = []
+    lists_with_notes: set[int] = set()
+    n_approved = 0
+
+    for it in items:
+        saved = canonical_by_item.get(int(it.id))
+        if saved is None or not eval_judge_approved(saved):
+            continue
+        if not (getattr(saved, "payload_json", "") or "").strip():
+            continue
+        n_approved += 1
+        uk = (it.unit_level_key or "").strip()
+        unit_label = label_for_unit_level_key(uk) or uk or "—"
+        list_title = (it.text or "قائمة تقييم").strip()
+        phase_label = _phase_label_ar(getattr(it, "exercise_phase", None))
+        open_href = url_for(
+            "views.control_evaluation_list_file_viewer",
+            unit_key=uk,
+            item_id=int(it.id),
+        )
+        list_has_note = False
+        for row in _parse_saved_eval_rows(saved.payload_json):
+            if not isinstance(row, dict):
+                continue
+            note = (row.get("notes") or "").strip()
+            if not note:
+                continue
+            list_has_note = True
+            pct = _eval_row_score_pct(row)
+            element = (row.get("element") or "").strip() or "—"
+            entry = {
+                "list_title": list_title,
+                "unit_label": unit_label,
+                "phase_label": phase_label,
+                "element": element[:200],
+                "note": note,
+                "pct": pct,
+                "grade": grade_label_from_percent(pct) if pct is not None else "—",
+                "open_href": open_href,
+                "approved_at": getattr(saved, "approved_at", None),
+            }
+            band = _pct_status_band(pct)
+            if band == "high":
+                positive_notes.append(entry)
+            elif band == "low":
+                negative_notes.append(entry)
+        if list_has_note:
+            lists_with_notes.add(int(it.id))
+
+    positive_notes.sort(
+        key=lambda x: (
+            -(float(x["pct"]) if x.get("pct") is not None else -1.0),
+            x["unit_label"],
+            x["list_title"],
+        )
+    )
+    negative_notes.sort(
+        key=lambda x: (
+            (float(x["pct"]) if x.get("pct") is not None else 101.0),
+            x["unit_label"],
+            x["list_title"],
+        )
+    )
+
+    return {
+        "has_exercise": True,
+        "exercise": ex,
+        "positive_notes": positive_notes,
+        "negative_notes": negative_notes,
+        "n_positive": len(positive_notes),
+        "n_negative": len(negative_notes),
+        "n_lists_with_notes": len(lists_with_notes),
+        "n_eval_lists": len(items),
+        "n_approved_eval_lists": n_approved,
+    }
 
 
 def _control_exercise_performance_report(db, user: User) -> dict:
@@ -5956,8 +6853,9 @@ def control_evaluation_list_file_viewer(unit_key: str, item_id: int):
             item_title=row.text or "تقييم",
             evaluation_item_id=row.id,
             can_edit=False,
-            close_href=url_for("views.control_hub_section", slug="evaluation-results"),
-            close_label="إغلاق والعودة للتقرير",
+            close_href=url_for("views.control_hub_section", slug="evaluation-lists-status"),
+            close_label="العودة إلى موقف القوائم",
+            **_control_hub_back_ctx_always(),
             saved_row_id=saved_row_id,
             saved_payload=saved_payload,
             saved_updated_at=saved_updated_at,
@@ -5998,11 +6896,11 @@ def control_hub_section(slug: str):
         abort(403)
     slug_norm = (slug or "").strip().lower()
     if slug_norm == "chat-rooms":
-        return redirect(url_for("views.chat_rooms_list"))
+        return redirect(url_for("views.chat_rooms_list", from_control=1))
     if slug_norm == "notifications-log":
-        return redirect(url_for("views.notifications_log"))
+        return redirect(url_for("views.notifications_log", from_control=1))
     if slug_norm in ("visual-doc-status", "visual-documentation"):
-        return redirect(url_for("views.visual_documentation"))
+        return redirect(url_for("views.visual_documentation", from_control=1))
     title = CONTROL_HUB_SLUGS.get(slug_norm)
     if not title:
         abort(404)
@@ -6015,11 +6913,63 @@ def control_hub_section(slug: str):
                 user,
                 section_title=title,
                 report=_control_exercise_performance_report(g.db, user),
+                **_control_hub_back_ctx_always(),
+            ),
+        )
+    if slug_norm == "evaluation-lists-status":
+        from flask import g
+
+        status = _build_control_evaluation_lists_status(g.db, user)
+        if not status.get("has_exercise"):
+            return render_template(
+                "control_evaluation_lists_status.html",
+                **_ctx(
+                    user,
+                    section_title=title,
+                    has_exercise=False,
+                    **_control_hub_back_ctx_always(),
+                ),
+            )
+        return render_template(
+            "control_evaluation_lists_status.html",
+            **_ctx(
+                user,
+                section_title=title,
+                **_control_hub_back_ctx_always(),
+                **status,
+            ),
+        )
+    if slug_norm == "top-positives-negatives":
+        from flask import g
+
+        pn = _build_control_positives_negatives(g.db, user)
+        if not pn.get("has_exercise"):
+            return render_template(
+                "control_positives_negatives.html",
+                **_ctx(
+                    user,
+                    section_title=title,
+                    has_exercise=False,
+                    **_control_hub_back_ctx_always(),
+                ),
+            )
+        return render_template(
+            "control_positives_negatives.html",
+            **_ctx(
+                user,
+                section_title=title,
+                **_control_hub_back_ctx_always(),
+                **pn,
             ),
         )
     return render_template(
         "control_section_placeholder.html",
-        **_ctx(user, section_title=title, section_slug=slug),
+        **_ctx(
+            user,
+            section_title=title,
+            section_slug=slug,
+            **_control_hub_back_ctx_always(),
+        ),
     )
 
 
@@ -7478,8 +8428,8 @@ def judge_evaluation_lists_home():
             unit_levels=units,
             unit_rows=unit_rows,
             unit_totals=evaluation_unit_home_totals(unit_rows),
-            hub_back_href=url_for("views.judge_hub"),
             unit_list_endpoint="views.judge_evaluation_lists",
+            **_hub_back_ctx_for_request_path(),
         ),
     )
 
@@ -7507,6 +8457,7 @@ def judge_dilemmas_home():
             has_exercise=ex is not None,
             exercise=ex,
             unit_levels=[u for u in UNIT_LEVELS if not assigned_uk or u.get("key") == assigned_uk],
+            **_hub_back_ctx_for_request_path(),
         ),
     )
 
@@ -7668,6 +8619,7 @@ def judge_evaluation_lists(unit_key: str):
             items=items,
             evaluation_lists_rows=evaluation_lists_rows,
             eval_lists_parent_href=eval_lists_parent_href,
+            **_hub_back_ctx_for_request_path(),
         ),
     )
 
@@ -7780,6 +8732,7 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
             eval_chief_approve_url="",
             eval_chief_reopen_url="",
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
+            **_hub_back_ctx_for_request_path(),
         ),
     )
 
@@ -7940,9 +8893,9 @@ def chief_judge_evaluation_lists_home():
             unit_levels=units,
             unit_rows=unit_rows,
             unit_totals=evaluation_unit_home_totals(unit_rows),
-            hub_back_href=url_for("views.chief_judge_hub"),
             unit_list_endpoint="views.chief_judge_evaluation_lists",
             page_title="قوائم التقييم — اعتماد كبير المحكمين",
+            **_hub_back_ctx_for_request_path(),
         ),
     )
 
@@ -8003,6 +8956,7 @@ def chief_judge_evaluation_lists(unit_key: str):
             unit_key=unit_key,
             evaluation_lists_rows=evaluation_lists_rows,
             eval_lists_parent_href=url_for("views.chief_judge_evaluation_lists_home"),
+            **_hub_back_ctx_for_request_path(),
         ),
     )
 
@@ -8113,6 +9067,7 @@ def chief_judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
             eval_close_href=list_url,
             eval_approve_incomplete=False,
             viewer_readonly_chief=True,
+            **_hub_back_ctx_for_request_path(),
         ),
     )
 
@@ -10431,6 +11386,9 @@ def chat_rooms_list():
             exercise=ex,
             room_cards=room_cards,
             can_manage=can_manage_chat_rooms(user),
+            **_hub_back_ctx_for_request_path(),
+            control_link_kwargs=_role_hub_preserve_link_kwargs(),
+            hub_from_form_param=_role_hub_from_form_param(),
         ),
     )
 
@@ -10514,6 +11472,9 @@ def chat_room_detail(room_id: int):
             exercise=ex,
             message_rows=message_rows,
             can_manage=can_manage_chat_rooms(user),
+            **_hub_back_ctx_for_request_path(),
+            control_link_kwargs=_role_hub_preserve_link_kwargs(),
+            hub_from_form_param=_role_hub_from_form_param(),
         ),
     )
 
@@ -10533,7 +11494,7 @@ def chat_room_post_message(room_id: int):
         abort(404)
     body = (request.form.get("body") or "").strip()
     if not body or len(body) > 8000:
-        return redirect(url_for("views.chat_room_detail", room_id=room_id))
+        return redirect(url_for("views.chat_room_detail", room_id=room_id, **_role_hub_preserve_link_kwargs()))
     m = ChatMessage(
         room_id=room.id,
         sender_id=int(user.id),
@@ -10546,7 +11507,7 @@ def chat_room_post_message(room_id: int):
 
     notify_chat_new_message(db, room=room, message=m, sender_id=int(user.id))
     db.commit()
-    return redirect(url_for("views.chat_room_detail", room_id=room_id))
+    return redirect(url_for("views.chat_room_detail", room_id=room_id, **_control_hub_link_kwargs()))
 
 
 @bp.route("/chat-rooms/<int:room_id>/upload", methods=["POST"])
@@ -10564,14 +11525,14 @@ def chat_room_upload(room_id: int):
         abort(404)
     f = request.files.get("file")
     if not f or not (f.filename or "").strip():
-        return redirect(url_for("views.chat_room_detail", room_id=room_id))
+        return redirect(url_for("views.chat_room_detail", room_id=room_id, **_role_hub_preserve_link_kwargs()))
     raw_name = secure_filename(f.filename)
     suf = Path(raw_name).suffix.lower()
     if suf not in _CHAT_ALLOWED_SUFFIX:
-        return redirect(url_for("views.chat_room_detail", room_id=room_id))
+        return redirect(url_for("views.chat_room_detail", room_id=room_id, **_role_hub_preserve_link_kwargs()))
     data = f.read()
     if len(data) > _CHAT_MAX_UPLOAD_BYTES:
-        return redirect(url_for("views.chat_room_detail", room_id=room_id))
+        return redirect(url_for("views.chat_room_detail", room_id=room_id, **_role_hub_preserve_link_kwargs()))
     CHAT_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     sub = CHAT_UPLOAD_DIR / str(int(room.exercise_id)) / str(int(room.id))
     sub.mkdir(parents=True, exist_ok=True)
@@ -10596,7 +11557,7 @@ def chat_room_upload(room_id: int):
 
     notify_chat_new_message(db, room=room, message=m, sender_id=int(user.id))
     db.commit()
-    return redirect(url_for("views.chat_room_detail", room_id=room_id))
+    return redirect(url_for("views.chat_room_detail", room_id=room_id, **_control_hub_link_kwargs()))
 
 
 @bp.route("/chat-rooms/<int:room_id>/files/<int:message_id>", methods=["GET"])

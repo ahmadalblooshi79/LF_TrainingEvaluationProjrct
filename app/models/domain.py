@@ -607,6 +607,55 @@ class AnalystEvaluationCriteriaUnit(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class AnalystFinalEvaluationPhaseAllocatedMax(Base):
+    """علامة القصوى اليدوية لصف وحدة+مرحلة في جدول التقرير النهائي (غير مرتبطة بجداول أخرى)."""
+
+    __tablename__ = "analyst_final_eval_phase_allocated_max"
+    __table_args__ = (
+        UniqueConstraint(
+            "exercise_id",
+            "unit_level_key",
+            "phase_key",
+            name="uq_analyst_final_eval_phase_alloc_max",
+        ),
+        Index("ix_analyst_final_eval_phase_alloc_exercise", "exercise_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    exercise_id: Mapped[int] = mapped_column(ForeignKey("exercises.id", ondelete="CASCADE"), index=True)
+    unit_level_key: Mapped[str] = mapped_column(String(64), default="", index=True)
+    phase_key: Mapped[str] = mapped_column(String(32), default="", index=True)
+    max_mark: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AnalystFinalEvaluationAllocatedMax(Base):
+    """علامة القصوى المخصصة للوحدة (إدخال يدوي في التقييم النهائي — غير مرتبطة بجداول أخرى)."""
+
+    __tablename__ = "analyst_final_eval_allocated_max"
+    __table_args__ = (
+        UniqueConstraint(
+            "exercise_id",
+            "evaluation_item_id",
+            name="uq_analyst_final_eval_alloc_max_item",
+        ),
+        Index("ix_analyst_final_eval_alloc_max_exercise", "exercise_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    exercise_id: Mapped[int] = mapped_column(ForeignKey("exercises.id", ondelete="CASCADE"), index=True)
+    evaluation_item_id: Mapped[int] = mapped_column(
+        ForeignKey("evaluation_list_pdf_items.id", ondelete="CASCADE"),
+        index=True,
+    )
+    unit_level_key: Mapped[str] = mapped_column(String(64), default="", index=True)
+    phase_key: Mapped[str] = mapped_column(String(32), default="", index=True)
+    max_mark: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class AnalystEvaluationCriteriaPhaseItem(Base):
     """معايير وعلامات مرحلة محددة لوحدة ضمن جدول معايير التقييم."""
 

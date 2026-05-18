@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+{% block title %}{{ section_title }} — السيطرة{% endblock %}
+{% block content %}
+<style>
+  .control-eval-status-tabs .aerd-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+  }
+  .control-eval-status-tabs .control-phase-tab__count,
+  .control-eval-status-tabs .control-unit-tab__count {
+    font-size: 0.78rem;
+    font-weight: 800;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.06);
+  }
+  .control-eval-status-tabs .aerd-tab.is-active .control-phase-tab__count,
+  .control-eval-status-tabs .control-unit-tab.is-active .control-unit-tab__count {
+    background: rgba(255, 255, 255, 0.35);
+  }
+  .control-eval-status-tabs .aerd-tab--preparation.is-active { border-color: var(--fr-phase-preparation-accent, #2563eb); }
+  .control-eval-status-tabs .aerd-tab--opening.is-active { border-color: var(--fr-phase-opening-accent, #16a34a); }
+  .control-eval-status-tabs .aerd-tab--main.is-active { border-color: var(--fr-phase-main-accent, #ca8a04); }
+  .control-eval-status-tabs .aerd-tab--reorg.is-active { border-color: var(--fr-phase-reorg-accent, #7c3aed); }
+  .control-eval-status-tabs .control-unit-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0.65rem 0 0.75rem;
+    padding: 0.35rem 0;
+    border-bottom: 1px solid var(--border-light);
+  }
+  .control-eval-status-tabs .control-unit-tab {
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    background: var(--tint-50);
+    color: var(--brown-800);
+    padding: 0.38rem 0.7rem;
+    font-weight: 600;
+    font-size: 0.86rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .control-eval-status-tabs .control-unit-tab.is-active {
+    background: var(--tint-200);
+    border-color: var(--border);
+    outline: 2px solid rgba(120, 83, 45, 0.12);
+  }
+  .control-eval-status-tabs .control-unit-pane[hidden] {
+    display: none;
+  }
+</style>
+<div class="page-header page-header--judge-eval-lists">
+  <h1><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+  {% include 'partials/control_hub_back.html' %}
+</div>
+
+{% if not has_exercise %}
+<section class="card">
+  <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل. افتح أو أنشئ تمريناً أولاً.</p>
+</section>
+{% else %}
+<section class="card judge-eval-lists-fill-card">
+  {% if phase_tabs %}
+  <div class="control-eval-status-tabs" id="control-eval-status-tabs">
+    <div class="aerd-tabs" role="tablist" aria-label="مراحل التمرين">
+      {% for tab in phase_tabs %}
+      <button
+        type="button"
+        class="aerd-tab aerd-tab--{{ tab.phase_key }}{% if loop.first %} is-active{% endif %}"
+        data-control-phase-tab="{{ tab.phase_key }}"
+        role="tab"
+        aria-selected="{{ 'true' if loop.first else 'false' }}"
+        aria-controls="control-phase-pane-{{ tab.phase_key }}">
+        {{ tab.phase_label }}
+        <span class="control-phase-tab__count">{{ tab.total_count }}</span>
+      </button>
+      {% endfor %}
+    </div>
+
+    <div class="aerd-tabpanes" style="margin-top:0.75rem;">
+      {% for tab in phase_tabs %}
+      <div
+        class="aerd-tabpane control-phase-pane{% if loop.first %} is-active{% endif %}"
+        id="control-phase-pane-{{ tab.phase_key }}"
+        data-control-phase-pane="{{ tab.phase_key }}"
+        role="tabpanel"
+        {% if not loop.first %}hidden{% endif %}>
+        {% if tab.unit_tabs %}
+        <div class="control-unit-tabs" role="tablist" aria-label="وحدات {{ tab.phase_label }}" data-control-unit-tabs-for="{{ tab.phase_key }}">
+          {% for ut in tab.unit_tabs %}
+          <button
+            type="button"
+            class="control-unit-tab{% if loop.first %} is-active{% endif %}"
+            data-control-unit-tab="{{ tab.phase_key }}|{{ ut.unit_key }}"
+            role="tab"
+            aria-selected="{{ 'true' if loop.first else 'false' }}">
+            {{ ut.unit_label }}
+            <span class="control-unit-tab__count">{{ ut.total_count }}</span>
+          </button>
+          {% endfor %}
+        </div>
+        <div class="control-unit-panes">
+          {% for ut in tab.unit_tabs %}
+          <div
+            class="control-unit-pane{% if loop.first %} is-active{% endif %}"
+            id="control-unit-pane-{{ tab.phase_key }}-{{ ut.unit_key }}"
+            data-control-unit-pane="{{ tab.phase_key }}|{{ ut.unit_key }}"
+            role="tabpanel"
+            {% if not loop.first %}hidden{% endif %}>
+            {% if ut.rows %}
+            <div class="table-wrap final-report-table-scroll--detail" style="max-height:min(62vh,38rem);">
+              <table class="judge-eval-lists-table" dir="rtl" aria-label="قوائم {{ ut.unit_label }} — {{ tab.phase_label }}">
+                <thead>
+                  <tr>
+                    <th scope="col" class="eval-lists-table__seq">ت</th>
+                    <th scope="col">مسمى التقييم</th>
+                    <th scope="col">التقدير</th>
+                    <th scope="col">الموقف</th>
+                    <th scope="col">سير الاعتماد</th>
+                    <th scope="col">فتح</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r in ut.rows %}
+                  <tr class="{% if r.row_tone and r.row_tone != 'none' %}eval-row-tone--{{ r.row_tone }}{% endif %}">
+                    <td class="eval-lists-table__seq">{{ loop.index }}</td>
+                    <td>{{ r.item_title }}</td>
+                    <td>{{ r.grade_label or "—" }}</td>
+                    <td>{% if r.status_done %}<span class="badge badge--done">منجزة</span>{% else %}<span class="badge badge--not-done">غير منجزة</span>{% endif %}</td>
+                    <td>{{ r.workflow_label or "—" }}</td>
+                    <td><a href="{{ r.open_href }}">عرض</a></td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
+            <p class="muted" dir="rtl" style="margin:0;">لا توجد قوائم لهذه الوحدة في هذه المرحلة.</p>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="muted" dir="rtl" style="margin:0;">لا توجد قوائم تقييم في هذه المرحلة.</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <p class="muted" dir="rtl" style="margin:0;">لا توجد قوائم تقييم لهذا التمرين.</p>
+  {% endif %}
+</section>
+<script>
+(function () {
+  var root = document.getElementById("control-eval-status-tabs");
+  if (!root) return;
+
+  function activateUnit(phasePane, unitId) {
+    if (!phasePane) return;
+    phasePane.querySelectorAll(".control-unit-tab").forEach(function (b) {
+      var on = b.getAttribute("data-control-unit-tab") === unitId;
+      b.classList.toggle("is-active", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    phasePane.querySelectorAll(".control-unit-pane").forEach(function (p) {
+      var on = p.getAttribute("data-control-unit-pane") === unitId;
+      p.classList.toggle("is-active", on);
+      if (on) p.removeAttribute("hidden");
+      else p.setAttribute("hidden", "");
+    });
+  }
+
+  function activatePhase(phaseId) {
+    root.querySelectorAll("[data-control-phase-tab]").forEach(function (b) {
+      var on = b.getAttribute("data-control-phase-tab") === phaseId;
+      b.classList.toggle("is-active", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    root.querySelectorAll("[data-control-phase-pane]").forEach(function (p) {
+      var on = p.getAttribute("data-control-phase-pane") === phaseId;
+      p.classList.toggle("is-active", on);
+      if (on) p.removeAttribute("hidden");
+      else p.setAttribute("hidden", "");
+    });
+    var phasePane = root.querySelector('[data-control-phase-pane="' + phaseId + '"]');
+    var firstUnit = phasePane && phasePane.querySelector(".control-unit-tab");
+    if (firstUnit) {
+      activateUnit(phasePane, firstUnit.getAttribute("data-control-unit-tab"));
+    }
+  }
+
+  root.querySelectorAll("[data-control-phase-tab]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      activatePhase(b.getAttribute("data-control-phase-tab"));
+    });
+  });
+
+  root.querySelectorAll(".control-unit-tab").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var unitId = b.getAttribute("data-control-unit-tab");
+      var phaseId = (unitId || "").split("|")[0];
+      var phasePane = root.querySelector('[data-control-phase-pane="' + phaseId + '"]');
+      activateUnit(phasePane, unitId);
+    });
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

@@ -18,6 +18,7 @@ from app.database import (
     ensure_judge_trainee_assignment_planner_bundle_column,
     ensure_planner_bundle_action_eval_event_flow_column,
     ensure_information_bank_tree_nodes_table,
+    ensure_analyst_final_eval_manual_tables,
 )
 
 # تسجيل النماذج لضمان اكتمال metadata
@@ -46,6 +47,7 @@ def create_app() -> Flask:
         ensure_judge_trainee_assignment_planner_bundle_column()
         ensure_planner_bundle_action_eval_event_flow_column()
         ensure_information_bank_tree_nodes_table()
+        ensure_analyst_final_eval_manual_tables()
         from app.seed import seed_all
         db = SessionLocal()
         try:
@@ -67,6 +69,10 @@ def create_app() -> Flask:
 
     from app import views
     app.register_blueprint(views.bp)
+
+    @app.template_global()
+    def report_phase_max_input_name(unit_key, phase_key):
+        return views._report_phase_max_field_name(unit_key or "", phase_key or "")
 
     from app.template_context import inject_header_exercise
 

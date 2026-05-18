@@ -112,7 +112,7 @@
       <h1 class="aerd-title"><i class="fa-solid fa-plus-minus fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
       <p class="aerd-subtitle">تحليل الإيجابيات والسلبيات من نتائج قوائم التقييم التي تم اعتمادها من المحكمين، مع تصنيفها حسب مستوى الوحدة.</p>
     </div>
-    <p class="aerd-back"><a class="btn btn-ghost" href="{{ url_for('views.analyst_hub') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى مساحة المحللين</a></p>
+    <div class="aerd-back">{% include 'partials/control_hub_back.html' %}</div>
   </header>
 
   {% if not has_exercise %}

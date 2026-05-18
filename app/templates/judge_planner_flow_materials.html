@@ -11,7 +11,12 @@
 <div class="page-header">
   <h1><i class="fa-solid fa-diagram-project fa-icon-title" aria-hidden="true"></i> المجرى وتقييم الإجراءات</h1>
   <p class="muted">المواد المخصّصة لك من فريق التخطيط لمستوى وحدتك في التمرين الحالي — التقييم داخل المتصفح مثل صفحة «قوائم التقييم».</p>
-  <p class="mt-tight"><a class="btn btn-ghost" href="{{ url_for('views.judge_hub') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> مساحة المحكمين</a></p>
+  <p class="mt-tight">
+    {% include 'partials/control_hub_back.html' %}
+    {% if hub_nav_href %}
+    <a class="btn btn-ghost" href="{{ hub_nav_href }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة لقائمة المحكمين</a>
+    {% endif %}
+  </p>
 </div>
 
 {% if not has_exercise %}

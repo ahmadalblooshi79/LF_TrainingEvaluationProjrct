@@ -284,6 +284,49 @@ def ensure_judge_trainee_assignment_planner_bundle_column() -> None:
         )
 
 
+def ensure_analyst_final_eval_manual_tables() -> None:
+    """جداول علامات القصوى اليدوية في التقييم النهائي (SQLite)."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS analyst_final_eval_phase_allocated_max (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    exercise_id INTEGER NOT NULL,
+                    unit_level_key VARCHAR(64) DEFAULT '',
+                    phase_key VARCHAR(32) DEFAULT '',
+                    max_mark FLOAT,
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    FOREIGN KEY(exercise_id) REFERENCES exercises (id) ON DELETE CASCADE,
+                    UNIQUE (exercise_id, unit_level_key, phase_key)
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS analyst_final_eval_allocated_max (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    exercise_id INTEGER NOT NULL,
+                    evaluation_item_id INTEGER NOT NULL,
+                    unit_level_key VARCHAR(64) DEFAULT '',
+                    phase_key VARCHAR(32) DEFAULT '',
+                    max_mark FLOAT,
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    FOREIGN KEY(exercise_id) REFERENCES exercises (id) ON DELETE CASCADE,
+                    FOREIGN KEY(evaluation_item_id) REFERENCES evaluation_list_pdf_items (id) ON DELETE CASCADE,
+                    UNIQUE (exercise_id, evaluation_item_id)
+                )
+                """
+            )
+        )
+
+
 def get_db():
     db = SessionLocal()
     try:
