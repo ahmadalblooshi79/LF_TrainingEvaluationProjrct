@@ -1402,20 +1402,17 @@ def _build_final_report_exercise_summary(final_rows: list[dict]) -> dict:
     }
 
 
-_CONTROL_DONUT_FILL_VARS: dict[str, str] = {
-    "preparation": "--control-donut-preparation",
-    "opening": "--control-donut-opening",
-    "main": "--control-donut-main",
-    "reorg": "--control-donut-reorg",
+# ألوان أعمدة مخطط مراحل التمرين (hex لاستخدامها في الخلفيات المتدرجة Inline).
+_CONTROL_PHASE_BAR_HEX: dict[str, str] = {
+    "preparation": "#3b82f6",
+    "opening": "#10b981",
+    "main": "#f59e0b",
+    "reorg": "#14b8a6",
 }
-_CONTROL_DONUT_TOTAL_FILL_VAR = "--control-donut-total"
 
 
-def _control_donut_slice_color(phase_key: str, *, is_total: bool = False) -> str:
-    if is_total:
-        return f"var({_CONTROL_DONUT_TOTAL_FILL_VAR})"
-    var_name = _CONTROL_DONUT_FILL_VARS.get((phase_key or "").strip())
-    return f"var({var_name})" if var_name else "var(--tint-300)"
+def _control_phase_bar_hex(phase_key: str) -> str:
+    return _CONTROL_PHASE_BAR_HEX.get((phase_key or "").strip(), "#8b7355")
 
 
 def _phase_summary_from_eval_items(
@@ -1458,53 +1455,33 @@ def _phase_summary_from_eval_items(
 
 
 def _distribution_from_phase_summary(summary: dict) -> list[dict]:
-    """وسيلة دائرة «نسب مراحل التمرين» — المراحل الثلاث فقط (بدون المجموع العام)."""
-    phase_order = {key: idx for idx, key in enumerate(_CONTROL_REPORT_PHASE_KEYS)}
-    phase_labels = {pk: plbl for pk, plbl in _CONTROL_REPORT_PHASE_COLUMNS}
+    """أعمدة مخطط «أداء الوحدات حسب مراحل التمرين»: كل مرحلة لها نسبة محسوبة (يشمل مرحلة إعادة التنظيم إن وُجدت بيانات)."""
+    phase_order = {key: idx for idx, key in enumerate(exercise_phase_keys())}
     items: list[dict] = []
     for ps in summary.get("phase_summaries") or []:
         phase_key = (ps.get("phase_key") or "").strip()
-        if phase_key not in _CONTROL_REPORT_PHASE_KEYS_SET:
+        if not phase_key:
             continue
         pct = ps.get("pct")
         if pct is None:
             continue
         pct_f = float(pct)
+        hex_col = _control_phase_bar_hex(phase_key)
         items.append(
             {
                 "phase_key": phase_key,
-                "label": ps.get("phase_label") or phase_labels.get(phase_key) or _phase_label_ar(phase_key),
+                "label": ps.get("phase_label") or _phase_label_ar(phase_key),
                 "pct": pct_f,
                 "pct_display": _round_pct_display(pct_f),
                 "count": int(ps.get("unit_count") or 0),
-                "color": _control_donut_slice_color(phase_key),
-                "_order": phase_order.get(phase_key, 99),
+                "color": hex_col,
+                "_order": phase_order.get(phase_key, 999),
             }
         )
-    items.sort(key=lambda x: x.get("_order", 99))
+    items.sort(key=lambda x: x["_order"])
     for row in items:
         row.pop("_order", None)
     return items
-
-
-def _donut_conic_gradient_from_distribution(distribution: list[dict]) -> str:
-    phase_slices = [
-        item
-        for item in (distribution or [])
-        if (item.get("phase_key") or "").strip() not in ("", "total")
-    ]
-    if not phase_slices:
-        return "conic-gradient(var(--tint-200) 0 100%)"
-    weights = [max(0.0, float(item.get("pct") or 0.0)) for item in phase_slices]
-    total = sum(weights) or 1.0
-    stops: list[str] = []
-    start = 0.0
-    for item, weight in zip(phase_slices, weights):
-        end = start + (weight / total) * 100.0
-        color = item.get("color") or "#c4c4c4"
-        stops.append(f"{color} {start:.2f}% {end:.2f}%")
-        start = end
-    return f"conic-gradient({', '.join(stops)})"
 
 
 FINAL_EVALUATION_TRACK_UNIT_KEYS: set[str] = {
@@ -2880,7 +2857,7 @@ def login():
     if (u.role_key or "") == RoleKey.JUDGE.value and not next_url:
         return redirect("/judge")
     if (u.role_key or "") == RoleKey.CHIEF_JUDGE.value and not next_url:
-        return redirect("/chief-judge")
+        return redirect("/judge")
     return redirect(next_url or "/dashboard")
 
 
@@ -2909,7 +2886,11 @@ def _dashboard_role_card_target(role_key: str, user: User) -> tuple[str, str, st
     if role_key == RoleKey.JUDGE.value:
         return ("/judge", "فتح مساحة المحكمين", "إبدأ")
     if role_key == RoleKey.CHIEF_JUDGE.value:
-        return ("/chief-judge", "فتح مساحة كبير المحكمين", "إبدأ")
+        return (
+            "/judge",
+            "فتح مساحة المحكمين (مع صلاحيات كبير المحكمين)",
+            "إبدأ",
+        )
     if role_key == RoleKey.STANDARDS_LIBRARY.value:
         return ("/library", "فتح مكتبة المراجع والمعايير", "إبدأ")
     return ("/library", "فتح المكتبة", "إبدأ")
@@ -2921,7 +2902,6 @@ _DASHBOARD_CARD_ORDER: tuple[str, ...] = (
     RoleKey.PLANNER.value,
     RoleKey.CONTROL.value,
     RoleKey.JUDGE.value,
-    RoleKey.CHIEF_JUDGE.value,
     RoleKey.ANALYST.value,
 )
 _DASHBOARD_CARD_ORDER_RANK: dict[str, int] = {rk: i for i, rk in enumerate(_DASHBOARD_CARD_ORDER)}
@@ -2939,10 +2919,12 @@ def dashboard():
     role_title = next(
         (r.title_ar for r in roles if r.role_key == user.role_key), rk.value
     )
+    # لا بطاقة منفصلة لـ chief_judge: نفس نقطة الدخول «المحكمين» مع امتيازات الاعتماد الثاني من صلاحيات الدور.
     role_defs_home = [
         r
         for r in roles
         if r.role_key != RoleKey.STANDARDS_LIBRARY.value
+        and r.role_key != RoleKey.CHIEF_JUDGE.value
     ]
     dashboard_cards: list[dict] = []
     for r in role_defs_home:
@@ -2979,10 +2961,7 @@ ANALYST_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("evaluation-results", "عرض نتائج التقييم", "fa-square-poll-vertical"),
     ("judges-eval-analysis", "تحليل وتقييم المحكمين", "fa-chart-column"),
     ("incomplete-tasks", "مهام غير مكتملة", "fa-clipboard-list"),
-    ("chat-rooms", "غرف محادثة", "fa-comments"),
     ("after-action-review", "إنشاء مراجعة ما بعد العمل", "fa-people-arrows"),
-    ("notifications-log", "سجل الإشعارات", "fa-bell"),
-    ("exercise-info", "معلومات التمرين", "fa-circle-info"),
     ("visual-documentation", "التوثيق المرئي", "fa-photo-film"),
     ("final-evaluation", "التقييم نهائي", "fa-file-signature"),
 )
@@ -3014,10 +2993,6 @@ def analyst_hub_section(slug: str):
     if not can_access_analyst_hub(user):
         abort(403)
     slug_norm = (slug or "").strip().lower()
-    if slug_norm == "chat-rooms":
-        return redirect(url_for("views.chat_rooms_list", from_analyst=1))
-    if slug_norm == "notifications-log":
-        return redirect(url_for("views.notifications_log", from_analyst=1))
     if slug_norm == "visual-documentation":
         return redirect(url_for("views.visual_documentation", from_analyst=1))
     title = ANALYST_HUB_SLUGS.get(slug_norm)
@@ -5320,13 +5295,9 @@ PLANNER_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("new-flow", "المجرى وتقييم الإجراءات", "fa-diagram-project"),
     ("new-evaluation-list", "إنشاء قائمة تقييم", "fa-file-circle-plus"),
     ("evaluation-lists", "قوائم التقييم — إدخال النتائج", "fa-file-excel"),
-    ("chat-rooms", "غرف المحادثة", "fa-comments"),
     ("incomplete-tasks", "موقف المهام غير المكتملة", "fa-hourglass-half"),
     ("battle-overview", "الصورة العامة للمعركة", "fa-map"),
-    ("judges-location", "موقع المحكمين", "fa-location-dot"),
-    ("notifications-log", "سجل الإشعارات", "fa-bell"),
     ("assign-task", "إسناد مهمة جديدة", "fa-user-plus"),
-    ("exercise-info", "معلومات التمرين", "fa-circle-info"),
 )
 PLANNER_HUB_SLUGS: dict[str, str] = {s: t for s, t, _ in PLANNER_HUB_ITEMS}
 
@@ -5362,10 +5333,6 @@ def planner_hub_section(slug: str):
         return redirect(url_for("views.admin_evaluation_lists_home"))
     if slug_norm == "evaluation-lists":
         return redirect(url_for("views.planner_evaluation_lists_home"))
-    if slug_norm == "chat-rooms":
-        return redirect(url_for("views.chat_rooms_list", from_planner=1))
-    if slug_norm == "notifications-log":
-        return redirect(url_for("views.notifications_log", from_planner=1))
     if slug_norm == "visual-documentation":
         return redirect(url_for("views.visual_documentation", from_planner=1))
     title = PLANNER_HUB_SLUGS.get(slug_norm)
@@ -5682,14 +5649,9 @@ def planner_evaluation_list_approve(unit_key: str, item_id: int):
 JUDGE_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("dilemmas", "قوائم المعاضل", "fa-file-pdf"),
     ("evaluation-lists", "قوائم التقييم", "fa-file-excel"),
-    ("planner-flow-materials", "المجرى وتقييم الإجراءات", "fa-diagram-project"),
     ("visual-documentation", "التوثيق المرئي", "fa-photo-film"),
-    ("chat-rooms", "غرف المحادثة", "fa-comments"),
     ("incomplete-tasks", "مهام غير مكتملة", "fa-clipboard-list"),
     ("battle-overview", "الصورة العامة للمعركة", "fa-map"),
-    ("judges-location", "موقع المحكمين", "fa-location-dot"),
-    ("notifications-log", "سجل الإشعارات", "fa-bell"),
-    ("exercise-info", "معلومات التمرين", "fa-circle-info"),
 )
 JUDGE_HUB_SLUGS: dict[str, str] = {s: t for s, t, _ in JUDGE_HUB_ITEMS}
 
@@ -5701,7 +5663,7 @@ def judge_hub():
         return redirect("/login?next=/judge")
     if not can_access_judge_hub(user):
         abort(403)
-    # للمحكم الفردي (غير إدارة النظام): أدوات محددة بترتيب ثابت
+    # المحكم الفردي: قائمة مخفّضة؛ كبير المحكمين (أو المسؤول بصلاحيته): أوامر خاصة + كامل أوامر المحكمين.
     from flask import g
 
     db = g.db
@@ -5709,21 +5671,24 @@ def judge_hub():
     _ensure_judge_roster_synced(db, user, ex)
 
     _judge_individual_slugs = (
-        "planner-flow-materials",
         "evaluation-lists",
         "incomplete-tasks",
-        "chat-rooms",
     )
     _hub_by_slug = {x[0]: x for x in JUDGE_HUB_ITEMS}
-    items_src = (
-        JUDGE_HUB_ITEMS
-        if is_system_admin(user)
-        else tuple(_hub_by_slug[s] for s in _judge_individual_slugs if s in _hub_by_slug)
-    )
+    if can_access_chief_judge_hub(user):
+        items_src = _chief_judge_hub_items()
+    elif is_system_admin(user):
+        items_src = JUDGE_HUB_ITEMS
+    else:
+        items_src = tuple(_hub_by_slug[s] for s in _judge_individual_slugs if s in _hub_by_slug)
     hub_items = [{"slug": s, "title_ar": t, "icon": ic} for s, t, ic in items_src]
     return render_template(
         "judge_hub.html",
-        **_ctx(user, hub_items=hub_items),
+        **_ctx(
+            user,
+            hub_items=hub_items,
+            judge_hub_show_chief_subtitle=bool(can_access_chief_judge_hub(user)),
+        ),
     )
 
 
@@ -5734,22 +5699,25 @@ def judge_hub_section(slug: str):
         return redirect(f"/login?next=/judge/{slug}")
     if not can_access_judge_hub(user):
         abort(403)
-    title = JUDGE_HUB_SLUGS.get((slug or "").strip().lower())
+    slug_norm = (slug or "").strip().lower()
+    if slug_norm == "evaluation-lists-chief":
+        if not can_access_chief_judge_hub(user):
+            abort(403)
+        return redirect(url_for("views.chief_judge_evaluation_lists_home"))
+    if slug_norm == "planner-flow-bundle-overview":
+        if not can_access_chief_judge_hub(user):
+            abort(403)
+        return chief_judge_planner_flow_bundle_overview()
+    title = JUDGE_HUB_SLUGS.get(slug_norm)
     if not title:
         abort(404)
-    if slug == "evaluation-lists":
+    if slug_norm == "evaluation-lists":
         return redirect("/judge/evaluation-lists")
-    if slug == "dilemmas":
+    if slug_norm == "dilemmas":
         return redirect("/judge/dilemmas")
-    if slug == "planner-flow-materials":
-        return redirect(url_for("views.judge_planner_flow_materials"))
-    if slug == "chat-rooms":
-        return redirect(url_for("views.chat_rooms_list", from_judge=1))
-    if slug == "visual-documentation":
+    if slug_norm == "visual-documentation":
         return redirect(url_for("views.visual_documentation", from_judge=1))
-    if slug == "notifications-log":
-        return redirect(url_for("views.notifications_log", from_judge=1))
-    if slug == "incomplete-tasks":
+    if slug_norm == "incomplete-tasks":
         from flask import g
 
         db = g.db
@@ -5886,7 +5854,7 @@ def judge_hub_section(slug: str):
         **_ctx(
             user,
             section_title=title,
-            section_slug=slug,
+            section_slug=slug_norm,
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -6324,12 +6292,9 @@ CONTROL_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("evaluation-lists-status", "موقف قوائم التقييم", "fa-file-excel"),
     ("top-positives-negatives", "عرض أبرز الإيجابيات والسلبيات", "fa-star"),
     ("evaluation-results", "عرض نتائج التقييم", "fa-square-poll-vertical"),
-    ("chat-rooms", "غرف المحادثة", "fa-comments"),
     ("incomplete-tasks-status", "موقف المهام غير المكتملة", "fa-hourglass-half"),
     ("visual-doc-status", "موقف التوثيق المرئي", "fa-photo-film"),
     ("battle-overview", "الصورة العامة للمعركة", "fa-map"),
-    ("judges-location", "موقع المحكمين", "fa-location-dot"),
-    ("notifications-log", "سجل الإشعارات", "fa-bell"),
     ("assign-task", "إسناد مهمة جديدة", "fa-user-plus"),
 )
 CONTROL_HUB_SLUGS: dict[str, str] = {s: t for s, t, _ in CONTROL_HUB_ITEMS}
@@ -6422,9 +6387,10 @@ def _planner_hub_back_ctx_always() -> dict:
 
 
 def _chief_judge_hub_back_ctx_always() -> dict:
+    """مسارات الاعتماد الثاني ما زالت تحت /chief-judge؛ العودة إلى مركز المحكمين الموحد."""
     return {
-        "hub_back_href": url_for("views.chief_judge_hub"),
-        "hub_back_label": "العودة إلى مساحة كبير المحكمين",
+        "hub_back_href": url_for("views.judge_hub"),
+        "hub_back_label": "العودة إلى مساحة المحكمين",
     }
 
 
@@ -6759,7 +6725,6 @@ def _control_exercise_performance_report(db, user: User) -> dict:
             "timeline": [],
             "distribution": [],
             "phase_summary": {"phase_summaries": [], "exercise_pct": None, "exercise_grade": "—", "phase_count": 0},
-            "donut_conic_gradient": "conic-gradient(var(--tint-200) 0 100%)",
             "unit_detail_rows": [],
             "unit_detail_phase_headers": [lbl for _, lbl in _CONTROL_REPORT_PHASE_COLUMNS],
             "unit_detail_phase_max_dots": _control_phase_max_dot_counts([]),
@@ -6825,7 +6790,6 @@ def _control_exercise_performance_report(db, user: User) -> dict:
 
     phase_summary = _phase_summary_from_eval_items(eval_items, saved_by_item)
     distribution = _distribution_from_phase_summary(phase_summary)
-    donut_conic_gradient = _donut_conic_gradient_from_distribution(distribution)
 
     # حالة الإنجاز: نسبة المعتمد مقابل الإجمالي (وأي عنصر غير معتمد يعتبر "قيد التقييم")
     pending_pct = int(round(((n_eval_lists - n_approved) / n_eval_lists) * 100.0)) if n_eval_lists else 0
@@ -7082,7 +7046,6 @@ def _control_exercise_performance_report(db, user: User) -> dict:
         "timeline": timeline,
         "distribution": distribution,
         "phase_summary": phase_summary,
-        "donut_conic_gradient": donut_conic_gradient,
         "table_rows": table_rows,
         "table_headers": table_headers,
         "unit_detail_rows": unit_detail_rows,
@@ -7230,10 +7193,6 @@ def control_hub_section(slug: str):
     if not can_access_control_hub(user):
         abort(403)
     slug_norm = (slug or "").strip().lower()
-    if slug_norm == "chat-rooms":
-        return redirect(url_for("views.chat_rooms_list", from_control=1))
-    if slug_norm == "notifications-log":
-        return redirect(url_for("views.notifications_log", from_control=1))
     if slug_norm in ("visual-doc-status", "visual-documentation"):
         return redirect(url_for("views.visual_documentation", from_control=1))
     title = CONTROL_HUB_SLUGS.get(slug_norm)
@@ -7339,7 +7298,7 @@ def _system_checklist_rows() -> list[dict]:
         )
 
     add("الدخول", "تسجيل الدخول", "/login", "جميع المستخدمين", "اسم المستخدم، كلمة المرور، رسالة خطأ عند فشل الدخول.", "تسجيل دخول، الانتقال للصفحة المطلوبة بعد الدخول.", "الدخول بحساب إدارة النظام وبحساب دور تشغيلي.")
-    add("الدخول", "الصفحة الرئيسية", "/dashboard", "جميع المستخدمين", "بطاقات الأدوار المتاحة للمستخدم، رابط المكتبة، رابط الخروج.", "فتح مساحة الدور المناسبة حسب الصلاحية.", "ظهور البطاقات حسب الدور فقط.")
+    add("الدخول", "الصفحة الرئيسية", "/dashboard", "جميع المستخدمين", "بطاقات الأدوار المتاحة للمستخدم، رابط المكتبة، روابط الوصول السريع في الشريط العلوي (غرفة المحادثة، معلومات التمرين، سجل الإشعارات حيث تُفعّل الصلاحية)، رابط الخروج.", "فتح مساحة الدور المناسبة حسب الصلاحية.", "ظهور البطاقات حسب الدور فقط.")
     add("إدارة النظام", "إنشاء تمرين جديد", "/admin/exercises/create", "إدارة النظام", "بيانات التمرين، النوع، المستوى، المهمة، الوحدة المتدربة، الموقع، التاريخ، استيراد/تصدير JSON.", "إنشاء تمرين، فتح تمرين، استبدال تمرين، فتح مجلد التصدير.", "حفظ تمرين وظهوره كتمرين حالي.")
     add("إدارة النظام", "الأهداف التدريبية", "/admin/exercises/objectives", "إدارة النظام", "قائمة أهداف تدريبية، إدخال يدوي أو ملف خارجي.", "إضافة، حفظ، حذف جميع الأهداف.", "ظهور الأهداف في تحليلات المحللين.")
     add("إدارة النظام", "قائمة المحكمين", "/admin/exercises/judge-unit-roster", "إدارة النظام", "الرقم العسكري، الرتبة، الاسم، مستوى الوحدة.", "حفظ القائمة، الاستيراد من ملف، إنشاء/تحديث حسابات المحكمين تلقائياً.", "تسجيل دخول المحكم بالرقم العسكري.")
@@ -7348,24 +7307,20 @@ def _system_checklist_rows() -> list[dict]:
     add("إدارة النظام", "الربط المتكامل", "/admin/dilemmas-evaluation-unit-report", "إدارة النظام", "تقرير يربط قائمة الوحدة المتدربة بقائمة المحكمين حسب مستوى الوحدة.", "مراجعة أسماء المتدربين والمحكمين حسب المستوى.", "تطابق مستوى الوحدة بين القائمتين.")
     add("إدارة النظام", "تنظيم المعركة", "/admin/battle-organization", "إدارة النظام", "رموز الوحدات، بيانات المتدربين، بيانات المحكمين، المواقع/التنظيم.", "تعبئة وحفظ تنظيم المعركة.", "انعكاس البيانات في الصورة العامة.")
     add("إدارة النظام", "إدارة المستخدمين", "/admin/users", "إدارة النظام", "المستخدمون، الأدوار، الحالة، كلمة المرور.", "إضافة، تعديل، تعطيل/حذف.", "تطبيق الصلاحيات بعد التعديل.")
-    add("إدارة النظام", "غرف المحادثة", "/admin/chat-rooms", "إدارة النظام", "غرف حسب التمرين، النوع، مستوى الوحدة، الأعضاء.", "إنشاء غرفة، إضافة/إزالة أعضاء، أرشفة.", "ظهور الغرفة للأعضاء فقط.")
     add("إدارة النظام", "Checklist محتويات النظام", "/admin/system-checklist", "إدارة النظام", "جدول spreadsheet لمراجعة صفحات ووظائف النظام.", "تحديد المراجعة، البحث، الطباعة/التصدير من المتصفح.", "اكتمال مراجعة جميع الصفوف.")
-    add("المحكمين", "مساحة المحكمين", "/judge", "محكم / إدارة النظام", "أوامر المحكمين: المعاضل، التقييم، المحادثات، المهام، التوثيق، الإشعارات.", "فتح أقسام المحكم حسب الصلاحية.", "ظهور الأقسام المطلوبة للمحكم.")
+    add("المحكمين", "مساحة المحكمين", "/judge", "محكم / إدارة النظام", "أوامر المحكمين: المعاضل، التقييم، المهام، التوثيق المرئي.", "فتح أقسام المحكم حسب الصلاحية.", "ظهور الأقسام المطلوبة للمحكم.")
     add("المحكمين", "قوائم المعاضل", "/judge/dilemmas", "محكم", "مستويات الوحدة المتاحة وملفات PDF للمعاضل.", "فتح القوائم وملفات PDF.", "حصر المحكم في وحدته المخصصة.")
     add("المحكمين", "قوائم التقييم", "/judge/evaluation-lists", "محكم", "قوائم Excel، إدخال المكتسبة، النسبة، النتيجة، ملاحظات المحكم.", "حفظ النتيجة واعتمادها.", "ظهور النتيجة المعتمدة في المحللين.")
     add("المحكمين", "مهام غير مكتملة", "/judge/incomplete-tasks", "محكم", "مهام قوائم التقييم حسب مرحلة التمرين ثم مستوى الوحدة، الحالة، الأولوية، المكلف.", "تغيير الحالة وفتح قائمة التقييم.", "تطابق اسم المحكم مع قائمة المحكمين.")
     add("المحكمين", "التوثيق المرئي", "/visual-documentation", "محكم / سيطرة / تخطيط / إدارة", "رفع ملف، تصوير بالكاميرا، تسجيل صوتي، وصف، موقع، ربط بمعضلة.", "رفع صورة/فيديو/صوت وفتح السجل.", "ظهور المادة في سجل التوثيق.")
-    add("المحادثات", "غرف المحادثة", "/chat-rooms", "الأعضاء حسب الغرفة", "قائمة غرف المستخدم، آخر نشاط، نوع الغرفة.", "فتح غرفة وإرسال رسائل/ملفات.", "وصول الإشعار للعضو عند رسالة جديدة.")
-    add("المحادثات", "تفاصيل غرفة", "/chat-rooms/<id>", "الأعضاء حسب الغرفة", "رسائل نصية، ملفات، قراءات الأعضاء.", "إرسال رسالة، رفع ملف، تنزيل ملف.", "حفظ الرسالة وظهور حالة القراءة.")
     add("المحللين", "مساحة المحللين", "/analyst", "محلل / إدارة النظام", "أدوات التحليل: النتائج، الإيجابيات والسلبيات، تحليل المحكمين، المراجعة.", "فتح أدوات التحليل.", "ظهور الأدوات حسب صلاحية المحلل.")
     add("المحللين", "عرض نتائج التقييم", "/analyst/evaluation-results", "محلل", "مصفوفة نتائج قوائم التقييم المعتمدة حسب مستوى الوحدة والأهداف.", "عرض الحالة والقوائم غير المعبأة.", "عدم إدراج النتائج غير المعتمدة.")
     add("المحللين", "عرض الإيجابيات والسلبيات", "/analyst/positives-negatives", "محلل", "نقاط الاستدامة والتطوير حسب مستوى الوحدة، وملاحظات المحكمين.", "اختيار مستوى الوحدة، عرض الإيجابيات أعلى والسلبيات أسفل.", "ظهور لا يوجد ملاحظات عند عدم وجود ملاحظات.")
     add("المحللين", "تحليل وتقييم المحكمين", "/analyst/judges-eval-analysis", "محلل", "تحليل إنجاز المحكمين، القوائم المعتمدة وغير المعتمدة.", "عرض وفتح تقييمات المحكمين.", "تطابق بيانات الاعتماد مع المحكم.")
-    add("التخطيط", "مساحة التخطيط", "/planner", "مخطط / إدارة النظام", "قوائم التقييم، المحادثات، المهام، معلومات التمرين.", "فتح أقسام التخطيط وإدخال نتائج عند السماح.", "التحقق من صلاحيات التخطيط.")
+    add("التخطيط", "مساحة التخطيط", "/planner", "مخطط / إدارة النظام", "قوائم التقييم والمهام ومجرى الأحداث عند الحاجة.", "فتح أقسام التخطيط وإدخال النتائج عند السماح.", "التحقق من صلاحيات التخطيط.")
     add("التخطيط", "قوائم المعاضل — إدراج PDF", "/admin/dilemmas", "مخطط / إدارة النظام", "رفع ملفات PDF حسب مستوى الوحدة ومرحلة التمرين.", "رفع، فتح، حذف، تغيير المرحلة، مسح المستوى.", "الدخول من مساحة التخطيط؛ عرض المحكم من مساحة المحكمين.")
     add("التخطيط", "قوائم التقييم — إدراج Excel", "/admin/evaluation-lists", "مخطط / إدارة النظام", "رفع ملفات Excel حسب مستوى الوحدة ومرحلة التمرين.", "رفع، فتح، حذف، تغيير المرحلة، مسح المستوى.", "الدخول من مساحة التخطيط؛ إدخال النتائج للمحكم من مساحة المحكمين.")
-    add("السيطرة", "مساحة السيطرة", "/control", "سيطرة / إدارة النظام", "موقف التقييم، المحادثات، المهام، التوثيق المرئي، الإشعارات.", "متابعة المواقف وفتح التوثيق والمحادثات.", "ظهور البيانات المرتبطة بالتمرين الحالي.")
-    add("الإشعارات", "سجل الإشعارات", "/notifications", "محكم / سيطرة / تخطيط / إدارة", "إشعارات الرسائل، الملفات، التوثيق، الحالة مقروء/غير مقروء.", "فتح الإشعار، تعليم كمقروء، تعليم الكل.", "عداد الجرس يطابق غير المقروء.")
+    add("السيطرة", "مساحة السيطرة", "/control", "سيطرة / إدارة النظام", "موقف التقييم والمهام والتوثيق المرئي.", "متابعة المواقف وفتح التوثيق.", "ظهور البيانات المرتبطة بالتمرين الحالي.")
     add("المكتبة", "المكتبة", "/library", "جميع المستخدمين", "المراجع والمعايير المتاحة.", "تصفح المراجع حسب الصلاحية.", "فتح المكتبة من الشريط العلوي.")
     add("الخروج", "تسجيل الخروج", "/logout", "جميع المستخدمين", "إنهاء الجلسة والرجوع لتسجيل الدخول.", "خروج آمن ومنع الرجوع لصفحات محمية بدون دخول.", "بعد الخروج تُطلب المصادقة عند فتح صفحة محمية.")
     return rows
@@ -9377,15 +9332,7 @@ def chief_judge_hub():
         return redirect("/login?next=/chief-judge")
     if not can_access_chief_judge_hub(user):
         abort(403)
-    from flask import g
-
-    db = g.db
-    ex = _current_workspace_exercise(db, user)
-    _ensure_judge_roster_synced(db, user, ex)
-    hub_items = [
-        {"slug": s, "title_ar": t, "icon": ic} for s, t, ic in _chief_judge_hub_items()
-    ]
-    return render_template("chief_judge_hub.html", **_ctx(user, hub_items=hub_items))
+    return redirect(url_for("views.judge_hub"))
 
 
 @bp.route("/chief-judge/<slug>")
@@ -9398,13 +9345,7 @@ def chief_judge_hub_section(slug: str):
     slug_norm = (slug or "").strip().lower()
     if slug_norm not in CHIEF_JUDGE_HUB_SLUGS:
         abort(404)
-    if slug_norm == "evaluation-lists-chief":
-        return redirect(url_for("views.chief_judge_evaluation_lists_home"))
-    if slug_norm == "planner-flow-bundle-overview":
-        return chief_judge_planner_flow_bundle_overview()
-    if slug_norm in JUDGE_HUB_SLUGS:
-        return judge_hub_section(slug_norm)
-    abort(404)
+    return redirect(url_for("views.judge_hub_section", slug=slug_norm))
 
 
 @bp.route("/chief-judge/evaluation-lists", methods=["GET"])

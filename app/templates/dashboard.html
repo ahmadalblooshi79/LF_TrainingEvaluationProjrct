@@ -4,16 +4,6 @@
 <div class="page-header">
   <h1><i class="fa-solid fa-gauge-high fa-icon-title" aria-hidden="true"></i> مرحباً، {{ user.full_name or user.username }}</h1>
   <p class="muted">دورك الحالي: <strong>{{ role_title }}</strong></p>
-  {% if user.role_key == 'system_admin' %}
-  <p class="mt-tight">
-    <a class="btn" href="/admin/chat-rooms"><i class="fa-solid fa-comments" aria-hidden="true"></i> غرف المحادثة — إدارة</a>
-    <a class="btn btn-ghost" href="/chat-rooms"><i class="fa-solid fa-door-open" aria-hidden="true"></i> فتح المحادثات</a>
-  </p>
-  {% elif user.role_key in ('judge', 'planner', 'control', 'analyst') %}
-  <p class="mt-tight">
-    <a class="btn btn-ghost" href="/chat-rooms"><i class="fa-solid fa-comments" aria-hidden="true"></i> غرف المحادثة</a>
-  </p>
-  {% endif %}
 </div>
 
 <div class="role-grid">

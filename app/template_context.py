@@ -9,7 +9,6 @@ from app.auth import get_current_user_optional
 from app.models import Exercise, ExerciseNotification
 from app.permissions import (
     can_access_analyst_hub,
-    can_access_chief_judge_hub,
     can_access_control_hub,
     can_access_judge_hub,
     can_access_planner_hub,
@@ -24,12 +23,8 @@ from app.permissions import (
 
 
 def _nav_show_judge_hub_link(user) -> bool:
-    """كبير المحكمين يدخل كل الأدوات من مساحته دون رابط منفصل للمحكمين."""
-    if not can_access_judge_hub(user):
-        return False
-    if is_chief_judge(user) and not is_system_admin(user):
-        return False
-    return True
+    """مساحة المحكمين الموحدة — تشمل أيضاً أوامر كبير المحكمين عند منح الدور."""
+    return bool(can_access_judge_hub(user))
 
 
 def inject_header_exercise():
@@ -66,7 +61,6 @@ def inject_header_exercise():
         _push_hub("/planner", "التخطيط", "fa-calendar-check", can_access_planner_hub)
         _push_hub("/control", "السيطرة", "fa-eye", can_access_control_hub)
         _push_hub("/judge", "المحكمين", "fa-scale-balanced", _nav_show_judge_hub_link)
-        _push_hub("/chief-judge", "كبير المحكمين", "fa-gavel", can_access_chief_judge_hub)
         _push_hub("/analyst", "المحللين", "fa-magnifying-glass-chart", can_access_analyst_hub)
         base["nav_role_hub_links"] = nav_hubs
         base["user_can_view_information_bank"] = bool(can_view_information_bank(u))
