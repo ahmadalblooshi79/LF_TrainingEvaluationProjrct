@@ -6,7 +6,7 @@
   <p class="muted">دورك الحالي: <strong>{{ role_title }}</strong></p>
 </div>
 
-<div class="role-grid">
+<div class="role-grid role-grid--pyramid">
 {% for c in dashboard_cards %}
   <a class="card card--tint dashboard-role-card" href="{{ c.href }}" aria-label="{{ c.aria_label }}">
     <h3>

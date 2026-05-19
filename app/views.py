@@ -2234,6 +2234,183 @@ def _build_analyst_evaluation_results_dashboard(
     }
 
 
+def _saved_eval_list_has_measurable_result(canon: EvaluationListSavedResult | None) -> bool:
+    if canon is None:
+        return False
+    if _evaluation_saved_total_pct(canon) is not None:
+        return True
+    rows = _parse_saved_eval_rows(getattr(canon, "payload_json", None))
+    return any(_eval_row_score_pct(r) is not None for r in rows if isinstance(r, dict))
+
+
+def _chart_bar_height_px(value: float, values: list[float], *, max_px: int = 100, min_px: int = 10) -> int:
+    if value <= 0 or not values:
+        return min_px
+    peak = max(values)
+    if peak <= 0:
+        return min_px
+    return max(min_px, int(round(max_px * float(value) / peak)))
+
+
+_AERC_UNIT_COUNT_COLORS: tuple[str, ...] = (
+    "#4a7c59",
+    "#6b5a48",
+    "#2563eb",
+    "#b45309",
+    "#7c3aed",
+    "#0d9488",
+    "#be123c",
+    "#ca8a04",
+    "#64748b",
+    "#c2410c",
+)
+
+
+def _unit_count_donut_style(bars: list[dict], total: int) -> str:
+    """تدرج دائري لتوزيع عدد القوائم المحفوظة حسب الوحدة."""
+    if total <= 0 or not bars:
+        return "conic-gradient(#e8e0d8 0deg 360deg)"
+    stops: list[str] = []
+    acc = 0.0
+    for i, bar in enumerate(bars):
+        cnt = int(bar.get("count") or 0)
+        share = (cnt / total) * 100.0
+        bar["share_pct"] = round(share, 1)
+        color = _AERC_UNIT_COUNT_COLORS[i % len(_AERC_UNIT_COUNT_COLORS)]
+        bar["segment_color"] = color
+        nxt = acc + share
+        stops.append(f"{color} {acc:.2f}% {nxt:.2f}%")
+        acc = nxt
+    return f"conic-gradient(from 0.25turn, {', '.join(stops)})"
+
+
+def _build_analyst_saved_results_charts(db, user: User) -> dict:
+    """صفحة واحدة للمحللين: رسوم لقوائم التقييم المحفوظة فقط + نسب الوحدات والمراحل."""
+    ex0 = _current_workspace_exercise(db, user)
+    if ex0 is None:
+        return {"has_exercise": False}
+    ex = db.query(Exercise).filter(Exercise.id == ex0.id).first()
+    if ex is None:
+        return {"has_exercise": False}
+
+    eval_items = (
+        db.query(EvaluationListPdfItem)
+        .filter(EvaluationListPdfItem.exercise_id == ex.id)
+        .order_by(
+            _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
+            _unit_level_order_expr(EvaluationListPdfItem.unit_level_key),
+            EvaluationListPdfItem.sort_order,
+            EvaluationListPdfItem.id,
+        )
+        .all()
+    )
+    saved_by_item = _evaluation_canonical_map_for_items(
+        db,
+        int(ex.id),
+        [int(it.id) for it in eval_items if getattr(it, "id", None) is not None],
+    )
+
+    saved_entries: list[dict] = []
+    for it in eval_items:
+        iid = int(it.id)
+        canon = saved_by_item.get(iid)
+        if not _saved_eval_list_has_measurable_result(canon):
+            continue
+        pct = _evaluation_saved_total_pct(canon)
+        if pct is None:
+            continue
+        uk = (it.unit_level_key or "").strip()
+        phase_key = _normalized_exercise_phase(getattr(it, "exercise_phase", None))
+        saved_entries.append(
+            {
+                "item_id": iid,
+                "pct": float(pct),
+                "unit_key": uk,
+                "unit_label": label_for_unit_level_key(uk) or uk or "—",
+                "phase_key": phase_key,
+                "phase_label": _phase_label_ar(phase_key),
+            }
+        )
+
+    n_saved = len(saved_entries)
+    all_pcts = [e["pct"] for e in saved_entries]
+    overall_avg = (sum(all_pcts) / len(all_pcts)) if all_pcts else None
+
+    unit_counts: dict[str, int] = {}
+    unit_pcts: dict[str, list[float]] = {}
+    for e in saved_entries:
+        uk = e["unit_key"]
+        unit_counts[uk] = unit_counts.get(uk, 0) + 1
+        unit_pcts.setdefault(uk, []).append(e["pct"])
+
+    unit_count_bars: list[dict] = []
+    for ul in UNIT_LEVELS:
+        uk = ul.get("key") or ""
+        cnt = unit_counts.get(uk, 0)
+        if cnt <= 0:
+            continue
+        unit_count_bars.append(
+            {
+                "unit_key": uk,
+                "label": ul.get("label") or uk,
+                "count": cnt,
+            }
+        )
+    unit_count_donut_css = _unit_count_donut_style(unit_count_bars, n_saved)
+
+    pct_values = [
+        (sum(unit_pcts.get(ul.get("key") or "", [])) / len(unit_pcts[ul.get("key") or ""]))
+        for ul in UNIT_LEVELS
+        if unit_pcts.get(ul.get("key") or "")
+    ]
+    unit_pct_bars: list[dict] = []
+    for ul in UNIT_LEVELS:
+        uk = ul.get("key") or ""
+        pcts_u = unit_pcts.get(uk) or []
+        if not pcts_u:
+            continue
+        avg_u = sum(pcts_u) / len(pcts_u)
+        unit_pct_bars.append(
+            {
+                "unit_key": uk,
+                "label": ul.get("label") or uk,
+                "avg_pct": _round_pct_display(avg_u),
+                "saved_count": len(pcts_u),
+                "grade": grade_label_from_percent(avg_u),
+                "band": _pct_status_band(avg_u),
+                "bar_w_pct": max(8, int(round(avg_u))),
+                "color": _control_report_dot_color(avg_u),
+            }
+        )
+
+    phase_summary = _phase_summary_from_eval_items(
+        [it for it in eval_items if int(it.id) in saved_by_item and _saved_eval_list_has_measurable_result(saved_by_item.get(int(it.id)))],
+        saved_by_item,
+    )
+    phase_bars = _distribution_from_phase_summary(phase_summary)
+    for pb in phase_bars:
+        pct_f = float(pb.get("pct") or 0)
+        pb["bar_h_pct"] = max(12, int(round(pct_f)))
+        pb["grade"] = grade_label_from_percent(pct_f)
+        pb["band"] = _pct_status_band(pct_f)
+
+    return {
+        "has_exercise": True,
+        "exercise": ex,
+        "n_saved_lists": n_saved,
+        "overall_avg_pct": _round_pct_display(overall_avg) if overall_avg is not None else None,
+        "overall_grade": grade_label_from_percent(overall_avg) if overall_avg is not None else "—",
+        "overall_band": _pct_status_band(overall_avg),
+        "unit_count_bars": unit_count_bars,
+        "unit_count_donut_css": unit_count_donut_css,
+        "unit_pct_bars": unit_pct_bars,
+        "phase_bars": phase_bars,
+        "phase_exercise_pct": phase_summary.get("exercise_pct"),
+        "phase_exercise_grade": phase_summary.get("exercise_grade"),
+        "grade_legend": _control_report_grade_legend(),
+    }
+
+
 def _build_analyst_evaluation_criteria_distribution(db, user: User) -> dict:
     """توزيع نتائج مراحل التقييم اليدوية، مستقل عن قوائم التقييم."""
     ex0 = _current_workspace_exercise(db, user)
@@ -3029,62 +3206,33 @@ def analyst_hub_section(slug: str):
         from flask import g
 
         db = g.db
-        dash = _build_analyst_evaluation_results_dashboard(db, user)
-        if not dash.get("has_exercise"):
+        pn = _build_control_positives_negatives(
+            db,
+            user,
+            list_viewer="views.analyst_evaluation_list_file_viewer",
+        )
+        if not pn.get("has_exercise"):
             return render_template(
                 "analyst_positives_negatives.html",
-                **_actx( section_title=title, has_exercise=False),
+                **_actx(section_title=title, has_exercise=False),
             )
         return render_template(
             "analyst_positives_negatives.html",
-            **_actx(
-                section_title=title,
-                has_exercise=True,
-                exercise=dash["exercise"],
-                development_areas=dash["development_areas"],
-                sustainability_areas=dash["sustainability_areas"],
-                development_notes=dash["development_notes"],
-                sustainability_notes=dash["sustainability_notes"],
-                unit_eval_analysis=dash["unit_eval_analysis"],
-                n_eval_lists=dash["n_eval_lists"],
-                n_approved_eval_lists=dash["n_approved_eval_lists"],
-            ),
+            **_actx(section_title=title, **pn),
         )
     if slug_norm == "evaluation-results":
         from flask import g
 
         db = g.db
-        dash = _build_analyst_evaluation_results_dashboard(
-            db,
-            user,
-            approved_only=False,
-            matrix_mode="evaluation_lists",
-        )
+        dash = _build_analyst_saved_results_charts(db, user)
         if not dash.get("has_exercise"):
             return render_template(
                 "analyst_evaluation_results_dashboard.html",
-                **_actx( section_title=title, has_exercise=False),
+                **_actx(section_title=title, has_exercise=False),
             )
         return render_template(
             "analyst_evaluation_results_dashboard.html",
-            **_actx(
-                section_title=title,
-                has_exercise=True,
-                exercise=dash["exercise"],
-                matrix_columns=dash["matrix_columns"],
-                matrix_rows=dash["matrix_rows"],
-                not_assessed=dash["not_assessed"],
-                development_areas=dash["development_areas"],
-                sustainability_areas=dash["sustainability_areas"],
-                unit_eval_analysis=dash["unit_eval_analysis"],
-                since_dt=dash["since_dt"],
-                n_objectives=dash["n_objectives"],
-                n_eval_lists=dash["n_eval_lists"],
-                n_approved_eval_lists=dash["n_approved_eval_lists"],
-                n_saved_eval_lists=dash["n_saved_eval_lists"],
-                using_objectives=dash["using_objectives"],
-                using_evaluation_lists=dash["using_evaluation_lists"],
-            ),
+            **_actx(section_title=title, **dash),
         )
     if slug_norm == "judges-eval-analysis":
         from flask import g
@@ -6485,6 +6633,35 @@ def _build_control_evaluation_lists_status(db, user: User) -> dict:
         _evaluation_canonical_map_for_items(db, int(ex.id), item_ids) if item_ids else {}
     )
 
+    def _roster_person_label(row: ExerciseRosterRow | None) -> str:
+        if row is None:
+            return "—"
+        display = (getattr(row, "full_name", None) or "").strip()
+        rank = (getattr(row, "rank_ar", None) or "").strip()
+        if rank and display:
+            return f"{rank} {display}"
+        if display:
+            return display
+        mil = (getattr(row, "military_number", None) or "").strip()
+        return mil or "—"
+
+    judge_name_by_unit: dict[str, str] = {}
+    trainee_name_by_unit: dict[str, str] = {}
+    for rr in (
+        db.query(ExerciseRosterRow)
+        .filter(ExerciseRosterRow.exercise_id == ex.id)
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .all()
+    ):
+        uk_r = (getattr(rr, "unit_level_key", None) or "").strip()
+        if not uk_r:
+            continue
+        kind = (getattr(rr, "roster_kind", None) or "").strip()
+        if kind == ExerciseRosterKind.JUDGE.value and uk_r not in judge_name_by_unit:
+            judge_name_by_unit[uk_r] = _roster_person_label(rr)
+        elif kind == ExerciseRosterKind.TRAINEE.value and uk_r not in trainee_name_by_unit:
+            trainee_name_by_unit[uk_r] = _roster_person_label(rr)
+
     phase_order = {key: idx for idx, key in enumerate(exercise_phase_keys())}
     by_phase: dict[str, list[dict]] = {}
 
@@ -6533,12 +6710,19 @@ def _build_control_evaluation_lists_status(db, user: User) -> dict:
             key=lambda k: (unit_order.get(k, len(unit_order)), label_for_unit_level_key(k) or k),
         ):
             unit_rows = by_unit[uk]
+            n_assigned = len(unit_rows)
+            n_done = sum(1 for r in unit_rows if r.get("status_done"))
             unit_tabs.append(
                 {
                     "unit_key": uk,
                     "unit_label": label_for_unit_level_key(uk) or uk or "—",
                     "rows": unit_rows,
-                    "total_count": len(unit_rows),
+                    "total_count": n_assigned,
+                    "judge_name": judge_name_by_unit.get(uk, "—"),
+                    "trainee_name": trainee_name_by_unit.get(uk, "—"),
+                    "n_assigned": n_assigned,
+                    "n_done": n_done,
+                    "n_not_done": n_assigned - n_done,
                 }
             )
         phase_tabs.append(
@@ -6556,7 +6740,12 @@ def _build_control_evaluation_lists_status(db, user: User) -> dict:
     }
 
 
-def _build_control_positives_negatives(db, user: User) -> dict:
+def _build_control_positives_negatives(
+    db,
+    user: User,
+    *,
+    list_viewer: str = "views.control_evaluation_list_file_viewer",
+) -> dict:
     """إيجابيات وسلبيات من الملاحظات الكتابية في قوائم التقييم بعد حفظ واعتماد المحكم."""
     ex0 = _current_workspace_exercise(db, user)
     if ex0 is None:
@@ -6598,7 +6787,7 @@ def _build_control_positives_negatives(db, user: User) -> dict:
         list_title = (it.text or "قائمة تقييم").strip()
         phase_label = _phase_label_ar(getattr(it, "exercise_phase", None))
         open_href = url_for(
-            "views.control_evaluation_list_file_viewer",
+            list_viewer,
             unit_key=uk,
             item_id=int(it.id),
         )
