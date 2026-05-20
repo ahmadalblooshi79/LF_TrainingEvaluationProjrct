@@ -53,6 +53,33 @@
   .control-eval-status-tabs .control-unit-pane[hidden] {
     display: none;
   }
+  .control-eval-unit-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    margin: 0 0 0.75rem;
+    padding: 0.65rem 0.85rem;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    background: linear-gradient(165deg, #fefdfb 0%, #f5efe8 100%);
+    font-size: 0.88rem;
+  }
+  .control-eval-unit-summary__item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    white-space: nowrap;
+  }
+  .control-eval-unit-summary__item strong {
+    color: var(--brown-900);
+    font-weight: 800;
+  }
+  .control-eval-unit-summary__item--done strong {
+    color: #166534;
+  }
+  .control-eval-unit-summary__item--pending strong {
+    color: #991b1b;
+  }
 </style>
 <div class="page-header page-header--judge-eval-lists">
   <h1><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
@@ -113,6 +140,13 @@
             role="tabpanel"
             {% if not loop.first %}hidden{% endif %}>
             {% if ut.rows %}
+            <div class="control-eval-unit-summary" aria-label="ملخص المحكم والمتدرب وموقف القوائم">
+              <span class="control-eval-unit-summary__item">إسم المحكم: <strong>{{ ut.judge_name }}</strong></span>
+              <span class="control-eval-unit-summary__item">إسم المتدرب: <strong>{{ ut.trainee_name }}</strong></span>
+              <span class="control-eval-unit-summary__item">عدد القوائم المخصصة: <strong>{{ ut.n_assigned }}</strong></span>
+              <span class="control-eval-unit-summary__item control-eval-unit-summary__item--done">عدد القوائم المنجزة: <strong>{{ ut.n_done }}</strong></span>
+              <span class="control-eval-unit-summary__item control-eval-unit-summary__item--pending">عدد القوائم الغير منجزة: <strong>{{ ut.n_not_done }}</strong></span>
+            </div>
             <div class="table-wrap final-report-table-scroll--detail" style="max-height:min(62vh,38rem);">
               <table class="judge-eval-lists-table" dir="rtl" aria-label="قوائم {{ ut.unit_label }} — {{ tab.phase_label }}">
                 <thead>

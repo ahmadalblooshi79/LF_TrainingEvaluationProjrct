@@ -1,284 +1,146 @@
 {% extends "base.html" %}
 {% block title %}{{ section_title }} — المحللين{% endblock %}
-{% block body_class %}aerd-page{% endblock %}
 {% block content %}
 <style>
-  .analyst-pn .aerd-side-table th,
-  .analyst-pn .aerd-side-table td {
-    text-align: center;
-    vertical-align: middle;
-  }
-  .analyst-pn .aerd-bullets {
-    display: inline-block;
-    padding-inline-start: 0;
-    list-style-position: inside;
-    text-align: center;
-  }
-  .analyst-pn-units {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-    gap: 0.55rem;
-    margin: 0.85rem 0 1rem;
-  }
-  .analyst-pn-unit-btn {
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-sm);
-    background: var(--tint-50);
-    color: var(--brown-800);
-    padding: 0.7rem 0.8rem;
-    min-height: 4.2rem;
-    cursor: pointer;
-    text-align: center;
-    box-shadow: var(--shadow-sm);
-  }
-  .analyst-pn-unit-btn.is-active {
-    background: var(--tint-200);
-    border-color: var(--border);
-    outline: 2px solid rgba(120, 83, 45, 0.16);
-  }
-  .analyst-pn-unit-btn__title {
-    display: block;
-    font-weight: 800;
-    margin-bottom: 0.25rem;
-  }
-  .analyst-pn-unit-btn__meta {
-    display: block;
-    font-size: 0.78rem;
-  }
-  .analyst-pn-detail[hidden] { display: none; }
-  .analyst-pn-summary {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  .control-pn-summary {
+    display: flex;
+    flex-wrap: wrap;
     gap: 0.65rem;
-    margin-bottom: 1rem;
+    margin: 0 0 1rem;
   }
-  .analyst-pn-stat {
+  .control-pn-summary__chip {
     border: 1px solid var(--border-light);
     border-radius: var(--radius-sm);
-    padding: 0.75rem;
-    background: #fff;
-    text-align: center;
+    padding: 0.55rem 0.85rem;
+    background: var(--white);
+    font-weight: 600;
   }
-  .analyst-pn-stat strong {
-    display: block;
-    font-size: 1.15rem;
-    color: var(--brown-800);
-  }
-  .analyst-pn-columns {
+  .control-pn-summary__chip--pos { background: #ecfdf5; border-color: #86efac; color: #065f46; }
+  .control-pn-summary__chip--neg { background: #fef2f2; border-color: #fca5a5; color: #991b1b; }
+  .control-pn-columns {
     display: grid;
-    grid-template-columns: 1fr;
-    gap: 0.85rem;
+    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+    gap: 1rem;
+    align-items: start;
   }
-  .analyst-pn-point-box {
+  .control-pn-panel {
     border: 1px solid var(--border-light);
     border-radius: var(--radius-sm);
     padding: 0.85rem;
     background: var(--white);
-    min-height: 10rem;
+    min-height: 12rem;
   }
-  .analyst-pn-point-box h3 {
-    margin: 0 0 0.65rem;
-    font-size: 0.98rem;
+  .control-pn-panel h2 {
+    margin: 0 0 0.75rem;
+    font-size: 1.05rem;
   }
-  .analyst-pn-point-list {
+  .control-pn-panel--positive {
+    background: #f0fdf4;
+    border-color: #86efac;
+  }
+  .control-pn-panel--negative {
+    background: #fef2f2;
+    border-color: #fca5a5;
+  }
+  .control-pn-note-list {
     display: grid;
-    gap: 0.5rem;
+    gap: 0.55rem;
     margin: 0;
+    padding: 0;
+    list-style: none;
   }
-  .analyst-pn-point {
+  .control-pn-note {
     border-radius: var(--radius-sm);
-    padding: 0.55rem 0.65rem;
-    background: var(--tint-50);
+    padding: 0.65rem 0.75rem;
     border: 1px solid var(--border-light);
   }
-  .analyst-pn-point__label {
+  .control-pn-note--positive {
+    background: #dcfce7;
+    border-color: #86efac;
+    color: #14532d;
+  }
+  .control-pn-note--negative {
+    background: #fee2e2;
+    border-color: #f87171;
+    color: #7f1d1d;
+  }
+  .control-pn-note__meta {
     display: block;
-    font-weight: 700;
-    margin-bottom: 0.25rem;
+    font-size: 0.82rem;
+    opacity: 0.9;
+    margin-bottom: 0.35rem;
   }
-  .analyst-pn-point__pct {
+  .control-pn-note__text {
+    display: block;
+    font-weight: 600;
+    line-height: 1.45;
+  }
+  .control-pn-note__pct {
+    display: inline-block;
+    margin-top: 0.35rem;
     font-weight: 800;
-  }
-  .analyst-pn-point--dev .analyst-pn-point__pct { color: #b91c1c; }
-  .analyst-pn-point--sus .analyst-pn-point__pct { color: #047857; }
-  .analyst-pn-side-list {
-    display: grid;
-    gap: 0.5rem;
+    font-size: 0.88rem;
   }
 </style>
-<div class="aerd analyst-pn" dir="rtl">
-  <header class="aerd-top">
-    <div class="aerd-top__titles">
-      <h1 class="aerd-title"><i class="fa-solid fa-plus-minus fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
-      <p class="aerd-subtitle">تحليل الإيجابيات والسلبيات من نتائج قوائم التقييم التي تم اعتمادها من المحكمين، مع تصنيفها حسب مستوى الوحدة.</p>
-    </div>
-    <div class="aerd-back">{% include 'partials/control_hub_back.html' %}</div>
-  </header>
-
-  {% if not has_exercise %}
-  <section class="card aerd-empty">
-    <p class="muted" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل. افتح أو أنشئ تمريناً لعرض التحليل.</p>
-  </section>
-  {% else %}
-
-  <div class="aerd-filter-bar" role="region" aria-label="ملخص التحليل">
-    <div class="aerd-filter-bar__inner">
-      <span class="aerd-filter-label">تحليل بيانات</span>
-      <span class="aerd-filter-chip"><strong>{{ exercise.title }}</strong> <code class="aerd-code">{{ exercise.code }}</code></span>
-      <span class="aerd-filter-sep">·</span>
-      <span class="aerd-filter-chip muted">قوائم التقييم: <strong>{{ n_eval_lists }}</strong></span>
-      <span class="aerd-filter-sep">·</span>
-      <span class="aerd-filter-chip muted">المعتمدة: <strong>{{ n_approved_eval_lists }}</strong></span>
-    </div>
-  </div>
-
-  <div class="aerd-layout">
-    <main class="aerd-main card">
-      <h2 class="aerd-panel-title">تحليل حسب مستوى الوحدة</h2>
-      <p class="muted">اضغط على مستوى الوحدة لعرض النقاط التي تحتاج إلى تطوير والنقاط التي تحتاج إلى الاستدامة دون جدول. يعتمد التحليل على النتائج المعتمدة فقط.</p>
-
-      <div class="analyst-pn-units" role="tablist" aria-label="مستويات الوحدة">
-        {% for u in unit_eval_analysis %}
-        <button
-          type="button"
-          class="analyst-pn-unit-btn {% if loop.first %}is-active{% endif %}"
-          data-unit-target="pn-unit-{{ loop.index }}"
-          role="tab"
-          aria-selected="{{ 'true' if loop.first else 'false' }}"
-        >
-          <span class="analyst-pn-unit-btn__title">{{ u.unit_label }}</span>
-          <span class="analyst-pn-unit-btn__meta">
-            {% if u.avg_pct is not none %}{{ u.avg_pct|round(1) }}% — {{ u.avg_grade }}{% else %}لا توجد نتائج معتمدة{% endif %}
-          </span>
-        </button>
-        {% endfor %}
-      </div>
-
-      {% for u in unit_eval_analysis %}
-      <section class="analyst-pn-detail" id="pn-unit-{{ loop.index }}" {% if not loop.first %}hidden{% endif %} role="tabpanel">
-        <div class="analyst-pn-summary">
-          <div class="analyst-pn-stat">
-            <span class="muted">مستوى الوحدة</span>
-            <strong>{{ u.unit_label }}</strong>
-          </div>
-          <div class="analyst-pn-stat">
-            <span class="muted">قوائم معتمدة</span>
-            <strong>{{ u.approved_items_count }}</strong>
-          </div>
-          <div class="analyst-pn-stat">
-            <span class="muted">متوسط التقييم</span>
-            {% if u.avg_pct is not none %}
-            <strong>{{ u.avg_pct|round(1) }}%</strong>
-            <span class="aerd-grade aerd-grade--{{ 'low' if u.avg_pct < 50 else ('mid' if u.avg_pct < 75 else 'high') }}">{{ u.avg_grade }}</span>
-            {% else %}
-            <strong>—</strong>
-            {% endif %}
-          </div>
-        </div>
-
-        <div class="analyst-pn-columns">
-          {% if not u.development_points and not u.sustainability_points %}
-          <div class="analyst-pn-point-box" style="grid-column:1 / -1;min-height:auto;text-align:center;">
-            <p class="muted" style="margin:0;font-weight:700;">لا يوجد أي سلبيات أو إيجابيات لهذا المستوى.</p>
-          </div>
-          {% else %}
-          <div class="analyst-pn-point-box">
-            <h3><i class="fa-solid fa-arrow-trend-up fa-icon-title" aria-hidden="true"></i> النقاط التي تحتاج إلى الاستدامة</h3>
-            {% if u.sustainability_points %}
-            <div class="analyst-pn-point-list">
-              {% for p in u.sustainability_points %}
-              <div class="analyst-pn-point analyst-pn-point--sus">
-                <span class="analyst-pn-point__label">{{ p.label }}</span>
-                <span class="analyst-pn-point__pct">{{ p.pct|round(1) }}%</span>
-              </div>
-              {% endfor %}
-            </div>
-            {% else %}
-            <p class="muted" style="margin:0;">لا توجد نقاط استدامة لهذا المستوى.</p>
-            {% endif %}
-          </div>
-
-          <div class="analyst-pn-point-box">
-            <h3><i class="fa-solid fa-arrow-trend-down fa-icon-title" aria-hidden="true"></i> النقاط التي تحتاج إلى تطوير</h3>
-            {% if u.development_points %}
-            <div class="analyst-pn-point-list">
-              {% for p in u.development_points %}
-              <div class="analyst-pn-point analyst-pn-point--dev">
-                <span class="analyst-pn-point__label">{{ p.label }}</span>
-                <span class="analyst-pn-point__pct">{{ p.pct|round(1) }}%</span>
-              </div>
-              {% endfor %}
-            </div>
-            {% else %}
-            <p class="muted" style="margin:0;">لا توجد نقاط تطوير لهذا المستوى.</p>
-            {% endif %}
-          </div>
-          {% endif %}
-        </div>
-      </section>
-      {% endfor %}
-    </main>
-
-    <aside class="aerd-aside" aria-label="ملخص الإيجابيات والسلبيات">
-      <section class="card aerd-sidecard">
-        <h2 class="aerd-side-title"><i class="fa-solid fa-arrow-trend-up fa-icon-title" aria-hidden="true"></i> أبرز الإيجابيات</h2>
-        <p class="muted aerd-side-desc">ملاحظات المحكمين المرتبطة بأقوى البنود فقط.</p>
-        {% if sustainability_notes %}
-        <div class="analyst-pn-side-list">
-          {% for s in sustainability_notes[:6] %}
-          <div class="analyst-pn-point analyst-pn-point--sus">
-            <span class="analyst-pn-point__label">{{ s.note }}</span>
-            <span class="muted">{{ s.entities }}</span>
-          </div>
-          {% endfor %}
-        </div>
-        {% else %}
-        <p class="muted" style="margin:0;">لا يوجد ملاحظات.</p>
-        {% endif %}
-      </section>
-
-      <section class="card aerd-sidecard">
-        <h2 class="aerd-side-title"><i class="fa-solid fa-arrow-trend-down fa-icon-title" aria-hidden="true"></i> أبرز السلبيات</h2>
-        <p class="muted aerd-side-desc">ملاحظات المحكمين المرتبطة بأضعف البنود فقط.</p>
-        {% if development_notes %}
-        <div class="analyst-pn-side-list">
-          {% for d in development_notes[:6] %}
-          <div class="analyst-pn-point analyst-pn-point--dev">
-            <span class="analyst-pn-point__label">{{ d.note }}</span>
-            <span class="muted">{{ d.entities }}</span>
-          </div>
-          {% endfor %}
-        </div>
-        {% else %}
-        <p class="muted" style="margin:0;">لا يوجد ملاحظات.</p>
-        {% endif %}
-      </section>
-    </aside>
-  </div>
-
-  <script>
-  (function () {
-    var root = document.querySelector(".analyst-pn");
-    if (!root) return;
-    var buttons = Array.from(root.querySelectorAll("[data-unit-target]"));
-    var panels = Array.from(root.querySelectorAll(".analyst-pn-detail"));
-    buttons.forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        var id = btn.getAttribute("data-unit-target");
-        buttons.forEach(function (b) {
-          var active = b === btn;
-          b.classList.toggle("is-active", active);
-          b.setAttribute("aria-selected", active ? "true" : "false");
-        });
-        panels.forEach(function (panel) {
-          if (panel.id === id) panel.removeAttribute("hidden");
-          else panel.setAttribute("hidden", "hidden");
-        });
-      });
-    });
-  })();
-  </script>
-  {% endif %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-plus-minus fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+  <p class="muted" dir="rtl">تُؤخذ المعلومة من قوائم التقييم <strong>بعد أن يحفظ المحكم التقييم ويعتمده</strong> — الملاحظات <strong>الكتابية</strong> فقط. الإيجابيات بخلفية خضراء فاتحة (بنود ≥ 75%)، والسلبيات بخلفية حمراء فاتحة (بنود &lt; 50%).</p>
+  {% include 'partials/control_hub_back.html' %}
 </div>
-{% endblock %}
 
+{% if not has_exercise %}
+<section class="card">
+  <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل.</p>
+</section>
+{% else %}
+<section class="card">
+  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
+    التمرين: <strong>{{ exercise.title }}</strong> — <code>{{ exercise.code }}</code>
+  </p>
+  <div class="control-pn-summary" dir="rtl">
+    <span class="control-pn-summary__chip">قوائم معتمدة من المحكم: <strong>{{ n_approved_eval_lists }}</strong> / {{ n_eval_lists }}</span>
+    <span class="control-pn-summary__chip">قوائم معتمدة تحتوي ملاحظات كتابية: <strong>{{ n_lists_with_notes }}</strong></span>
+    <span class="control-pn-summary__chip control-pn-summary__chip--pos">إيجابيات: <strong>{{ n_positive }}</strong></span>
+    <span class="control-pn-summary__chip control-pn-summary__chip--neg">سلبيات: <strong>{{ n_negative }}</strong></span>
+  </div>
+
+  <div class="control-pn-columns" dir="rtl">
+    <section class="control-pn-panel control-pn-panel--positive" aria-label="الإيجابيات">
+      <h2><i class="fa-solid fa-circle-check" aria-hidden="true"></i> الإيجابيات</h2>
+      {% if positive_notes %}
+      <ul class="control-pn-note-list">
+        {% for n in positive_notes %}
+        <li class="control-pn-note control-pn-note--positive">
+          <span class="control-pn-note__meta">{{ n.unit_label }} — {{ n.phase_label }} — <a href="{{ n.open_href }}">{{ n.list_title }}</a></span>
+          <span class="control-pn-note__meta">{{ n.element }}</span>
+          <span class="control-pn-note__text">{{ n.note }}</span>
+          {% if n.pct is not none %}<span class="control-pn-note__pct">{{ n.pct|round(1) }}% — {{ n.grade }}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted" style="margin:0;">لا توجد ملاحظات كتابية إيجابية في قوائم معتمدة من المحكم (بنود ≥ 75%).</p>
+      {% endif %}
+    </section>
+
+    <section class="control-pn-panel control-pn-panel--negative" aria-label="السلبيات">
+      <h2><i class="fa-solid fa-circle-xmark" aria-hidden="true"></i> السلبيات</h2>
+      {% if negative_notes %}
+      <ul class="control-pn-note-list">
+        {% for n in negative_notes %}
+        <li class="control-pn-note control-pn-note--negative">
+          <span class="control-pn-note__meta">{{ n.unit_label }} — {{ n.phase_label }} — <a href="{{ n.open_href }}">{{ n.list_title }}</a></span>
+          <span class="control-pn-note__meta">{{ n.element }}</span>
+          <span class="control-pn-note__text">{{ n.note }}</span>
+          {% if n.pct is not none %}<span class="control-pn-note__pct">{{ n.pct|round(1) }}% — {{ n.grade }}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted" style="margin:0;">لا توجد ملاحظات كتابية سلبية في قوائم معتمدة من المحكم (بنود &lt; 50%).</p>
+      {% endif %}
+    </section>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

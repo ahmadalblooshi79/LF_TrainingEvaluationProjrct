@@ -22,16 +22,20 @@
   {% if ok_msg %}
   <p class="form-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
   {% endif %}
+  <p class="muted criteria-planner-units-hint" dir="rtl">
+    عمود <strong>الوحده</strong> يُنسخ من <strong>مساحة التخطيط → إنشاء قائمة التقييم → مستوى الوحدة</strong> (للقراءة فقط).
+  </p>
 
-  <form method="post" action="{{ url_for('views.analyst_hub_section', slug='evaluation-criteria') }}">
-    <div class="table-wrap">
-      <table dir="rtl" aria-label="توزيع النسبة المئوية الاجماليه للتقييم">
+  <form method="post" action="{{ url_for('views.analyst_hub_section', slug='evaluation-criteria') }}" id="analyst-criteria-distribution-form">
+    <div class="table-wrap analyst-criteria-distribution-wrap">
+      <table dir="rtl" aria-label="توزيع النسبة المئوية الاجماليه للتقييم" class="analyst-criteria-distribution-table">
         <thead>
           <tr>
             <th scope="col" class="analyst-criteria-seq-th">ت</th>
             <th scope="col">الوحده</th>
-            <th scope="col">مرحلة التحضير</th>
-            <th scope="col">مرحلة العمليات التعرضية</th>
+            {% for phase_key, phase_label in criteria_phases %}
+            <th scope="col">{{ phase_label }}</th>
+            {% endfor %}
             <th scope="col">الإجمالي</th>
             <th scope="col">النسبه المئويه المخصصه</th>
             <th scope="col">تفاصيل / حذف</th>
@@ -39,27 +43,38 @@
         </thead>
         <tbody>
           {% for row in distribution_rows %}
-          {% set preparation_total = row.preparation_total|default(none) %}
-          {% set operations_total = row.operations_total|default(none) %}
           {% set total_mark = row.total_mark|default(none) %}
           {% set allocated_pct = row.allocated_pct|default(none) %}
           <tr>
             <td class="analyst-criteria-seq">{{ loop.index }}</td>
-            <th scope="row">
+            <th scope="row" class="analyst-criteria-unit-cell">
               <input type="hidden" name="unit_ids" value="{{ row.unit_id }}">
-              <input class="unit-level-select" style="min-width:18rem;" type="text" name="unit_label__{{ row.unit_id }}" value="{{ row.unit_label }}" maxlength="300" aria-label="اسم الوحدة">
+              <input type="hidden" name="unit_level_key__{{ row.unit_id }}" value="{{ row.unit_level_key or '' }}">
+              <span class="analyst-criteria-unit-label" title="مستوى الوحدة — التخطيط">{{ row.unit_label }}</span>
             </th>
-            <td>{% if preparation_total is number %}{{ preparation_total|round(2) }}{% else %}—{% endif %}</td>
-            <td>{% if operations_total is number %}{{ operations_total|round(2) }}{% else %}—{% endif %}</td>
+            {% for phase_key, phase_label in criteria_phases %}
+            {% set phase_total = (row.phase_totals or {}).get(phase_key) %}
+            <td>{% if phase_total is number %}{{ phase_total|round(2) }}{% else %}—{% endif %}</td>
+            {% endfor %}
             <td>{% if total_mark is number %}{{ total_mark|round(2) }}{% else %}—{% endif %}</td>
             <td>{% if allocated_pct is number %}{{ allocated_pct|round(2) }}%{% else %}—{% endif %}</td>
-            <td>
-              <div class="btn-group" style="gap:0.35rem;justify-content:flex-start;flex-wrap:wrap;">
-                <a class="btn btn-ghost" href="/analyst/evaluation-criteria/{{ row.unit_id }}/preparation">مرحلة التحضير</a>
-                <a class="btn btn-ghost" href="/analyst/evaluation-criteria/{{ row.unit_id }}/main">مرحلة العمليات التعرضية</a>
-                <label class="muted" style="display:inline-flex;gap:0.25rem;align-items:center;">
-                  <input type="checkbox" name="delete_unit_ids" value="{{ row.unit_id }}">
-                  حذف
+            <td class="analyst-criteria-actions-cell">
+              <div class="analyst-criteria-actions">
+                <label class="sr-only" for="criteria-phase-select-{{ row.unit_id }}">تفاصيل المرحلة</label>
+                <select
+                  id="criteria-phase-select-{{ row.unit_id }}"
+                  class="analyst-criteria-phase-select"
+                  data-unit-id="{{ row.unit_id }}"
+                  aria-label="تفاصيل المرحلة — {{ row.unit_label }}">
+                  <option value="">— اختر المرحلة —</option>
+                  {% for phase_key, phase_label in criteria_phases %}
+                  <option value="{{ url_for('views.analyst_evaluation_criteria_phase', unit_id=row.unit_id, phase_key=phase_key) }}">{{ phase_label }}</option>
+                  {% endfor %}
+                </select>
+                <label class="analyst-criteria-delete-btn" title="حذف الوحدة">
+                  <input type="checkbox" class="sr-only analyst-criteria-delete-input" name="delete_unit_ids" value="{{ row.unit_id }}">
+                  <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
+                  <span class="sr-only">حذف {{ row.unit_label }}</span>
                 </label>
               </div>
             </td>
@@ -70,8 +85,9 @@
           <tr>
             <td class="analyst-criteria-seq muted">—</td>
             <th scope="row">الإجمالي</th>
+            {% for phase_key, phase_label in criteria_phases %}
             <td>—</td>
-            <td>—</td>
+            {% endfor %}
             <td>{% if grand_total is number %}{{ grand_total|round(2) }}{% else %}—{% endif %}</td>
             <td>{% if grand_total is number %}100%{% else %}—{% endif %}</td>
             <td>—</td>
@@ -79,14 +95,50 @@
         </tfoot>
       </table>
     </div>
+    {% if available_unit_levels %}
     <div class="form-group" style="margin-top:1rem;">
-      <label for="new-unit-label">إضافة وحدة جديدة</label>
-      <input id="new-unit-label" class="unit-level-select" style="min-width:18rem;" type="text" name="new_unit_label" maxlength="300" placeholder="اسم الوحدة الجديدة">
+      <label for="new-unit-level-key">إضافة مستوى وحدة من التخطيط</label>
+      <select id="new-unit-level-key" class="unit-level-select analyst-criteria-new-unit-select" name="new_unit_level_key" style="min-width:18rem;">
+        <option value="">— اختر مستوى الوحدة —</option>
+        {% for u in available_unit_levels %}
+        <option value="{{ u.key }}">{{ u.label }}</option>
+        {% endfor %}
+      </select>
     </div>
+    {% endif %}
     <div class="btn-group" style="margin-top:1rem;">
       <button class="btn" type="submit"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ قائمة الوحدات</button>
     </div>
   </form>
 </section>
 {% endif %}
+<script>
+(function () {
+  document.querySelectorAll(".analyst-criteria-phase-select").forEach(function (sel) {
+    sel.addEventListener("change", function () {
+      var url = (sel.value || "").trim();
+      if (url) {
+        window.location.href = url;
+        return;
+      }
+      sel.selectedIndex = 0;
+    });
+  });
+  document.querySelectorAll(".analyst-criteria-delete-btn").forEach(function (btn) {
+    var input = btn.querySelector(".analyst-criteria-delete-input");
+    if (!input) return;
+    input.addEventListener("change", function () {
+      btn.classList.toggle("is-armed", input.checked);
+    });
+    btn.addEventListener("click", function (ev) {
+      if (!input.checked) return;
+      if (!window.confirm("حذف هذه الوحدة من معايير التقييم؟")) {
+        ev.preventDefault();
+        input.checked = false;
+        btn.classList.remove("is-armed");
+      }
+    });
+  });
+})();
+</script>
 {% endblock %}

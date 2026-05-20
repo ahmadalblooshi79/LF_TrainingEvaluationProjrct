@@ -1,0 +1,84 @@
+<script>
+(function () {
+  document.querySelectorAll(".criteria-phase-block:not(.criteria-phase-block--readonly) .criteria-phase-form-block").forEach(function (form) {
+    var body = form.querySelector(".criteria-phase-body");
+    var addBtn = form.querySelector(".add-criteria-row-btn");
+    var totalMarkCell = form.querySelector(".criteria-total-mark-cell");
+    var totalPctCell = form.querySelector(".criteria-total-pct-cell");
+    if (!body || !addBtn || !totalMarkCell || !totalPctCell) return;
+
+    function fmt(n) {
+      if (!Number.isFinite(n)) return "0";
+      return (Math.round(n * 100) / 100).toString();
+    }
+
+    function rows() {
+      return Array.from(body.querySelectorAll("tr"));
+    }
+
+    function renumberSeq() {
+      rows().forEach(function (row, idx) {
+        var cell = row.querySelector(".criteria-seq-cell");
+        if (cell) cell.textContent = String(idx + 1);
+      });
+    }
+
+    function recalc() {
+      var marks = rows().map(function (row) {
+        var input = row.querySelector(".mark-input");
+        var raw = input ? String(input.value || "").replace(",", ".") : "";
+        var n = Number.parseFloat(raw);
+        return Number.isFinite(n) && n >= 0 ? n : 0;
+      });
+      var total = marks.reduce(function (a, b) { return a + b; }, 0);
+      rows().forEach(function (row, idx) {
+        var cell = row.querySelector(".pct-cell");
+        if (!cell) return;
+        if (total <= 0 || marks[idx] <= 0) {
+          cell.textContent = "—";
+        } else {
+          cell.textContent = fmt((marks[idx] / total) * 100) + "%";
+        }
+      });
+      totalMarkCell.textContent = fmt(total);
+      totalPctCell.textContent = total > 0 ? "100%" : "0%";
+    }
+
+    function wireRow(row) {
+      var markInput = row.querySelector(".mark-input");
+      var deleteBtn = row.querySelector(".delete-row-btn");
+      if (markInput) markInput.addEventListener("input", recalc);
+      if (deleteBtn) {
+        deleteBtn.addEventListener("click", function () {
+          if (rows().length <= 1) {
+            row.querySelectorAll("input").forEach(function (input) { input.value = ""; });
+          } else {
+            row.remove();
+          }
+          renumberSeq();
+          recalc();
+        });
+      }
+    }
+
+    addBtn.addEventListener("click", function () {
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        '<td class="analyst-criteria-seq criteria-seq-cell"></td>' +
+        '<td><input class="unit-level-select criteria-text" style="min-width:24rem;width:100%;" type="text" name="criteria_text" value="" maxlength="1000" placeholder="اكتب قائمة التقييم"></td>' +
+        '<td><input class="unit-level-select mark-input" style="max-width:9rem;" type="number" name="allocated_mark" min="0" step="0.01" value=""></td>' +
+        '<td class="pct-cell">—</td>' +
+        '<td><button class="btn btn-ghost delete-row-btn" type="button"><i class="fa-solid fa-trash" aria-hidden="true"></i></button></td>';
+      body.appendChild(tr);
+      wireRow(tr);
+      renumberSeq();
+      var first = tr.querySelector(".criteria-text");
+      if (first) first.focus();
+    });
+
+    rows().forEach(wireRow);
+    renumberSeq();
+    recalc();
+  });
+})();
+</script>

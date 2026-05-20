@@ -18,7 +18,6 @@
   <div
     id="final-eval-report-form"
     class="final-eval-report-form"
-    data-autosave-url="/api/analyst/final-evaluation/report-phase-max">
   <div class="final-report-box" dir="rtl">
     <div class="final-report-box__sticky">
       <div class="final-report-box__head">
@@ -44,9 +43,7 @@
     </div>
 
     <p class="muted final-report-box__hint" dir="rtl">
-      عمود <strong>القصوى</strong> يُدخل يدوياً ويُحفظ تلقائياً أثناء الكتابة.
-      عمود <strong>المكتسبه</strong> يُجمع من قوائم التقييم المحفوظة أو المعتمدة.
-      <span id="final-eval-autosave-status" class="final-eval-autosave-status" role="status" aria-live="polite"></span>
+      عمود <strong>القصوى</strong> و<strong>المكتسبه</strong> و<strong>النسبة</strong> و<strong>التقدير</strong> لكل مرحلة تُؤخذ من صف <strong>الإجمالي</strong> في تفاصيل الوحدة (جدول جميع المراحل).
     </p>
 
     {% if final_rows %}
@@ -70,7 +67,7 @@
               <th scope="col">ت</th>
               <th scope="col">الوحده</th>
               <th scope="col">المرحله</th>
-              <th scope="col">القصوى <span class="muted" style="font-weight:400;">(إدخال يدوي)</span></th>
+              <th scope="col">القصوى</th>
               <th scope="col">المكتسبه</th>
               <th scope="col">النسبة المئوية لكل مرحله</th>
               <th scope="col">النسبه المئوية الإجمالية للوحدة</th>
@@ -88,25 +85,10 @@
               <th scope="row" class="final-report-cell--unit" rowspan="{{ row.unit_rowspan }}">{{ row.unit_label }}</th>
               {% endif %}
               <td class="final-report-cell--phase">{{ row.phase_label }}</td>
-              <td class="final-eval-alloc-max-cell">
-                {% if phase_key %}
-                <label class="sr-only">القصوى — {{ row.unit_label }} — {{ row.phase_label }}</label>
-                <input
-                  class="final-eval-max-input final-eval-max-input--autosave"
-                  type="text"
-                  name="{{ row.phase_max_field }}"
-                  data-unit-key="{{ row.unit_key }}"
-                  data-phase-key="{{ phase_key }}"
-                  inputmode="decimal"
-                  autocomplete="off"
-                  dir="ltr"
-                  placeholder="0"
-                  value="{% if row.has_phase_manual_max and row.manual_max_mark is not none %}{{ row.manual_max_mark|round(2) }}{% endif %}">
-                {% else %}
-                —
-                {% endif %}
+              <td class="final-eval-alloc-max-cell final-eval-alloc-max-cell--readonly">
+                {% if phase_key and row.max_mark is number and row.max_mark > 0 %}{{ row.max_mark|round(2) }}{% elif phase_key and row.max_mark is number %}0{% else %}—{% endif %}
               </td>
-              <td class="final-report-cell--acquired">{% if row.acquired_mark > 0 %}{{ row.acquired_mark|round(2) }}{% else %}—{% endif %}</td>
+              <td class="final-report-cell--acquired">{% if row.acquired_mark is number %}{% if row.acquired_mark > 0 %}{{ row.acquired_mark|round(2) }}{% else %}0{% endif %}{% else %}—{% endif %}</td>
               <td class="final-report-cell--phase-pct">{% if row.phase_pct is not none %}{{ row.phase_pct|round(2) }}%{% else %}—{% endif %}</td>
               {% if row.show_unit_total %}
               <td class="final-report-cell--unit-block" rowspan="{{ row.unit_rowspan }}">{% if row.unit_total_pct is not none %}{{ row.unit_total_pct|round(2) }}%{% else %}—{% endif %}</td>
@@ -128,140 +110,5 @@
   </div>
   </div>
 </section>
-<script>
-(function () {
-  var root = document.getElementById("final-eval-report-form");
-  if (!root) return;
-  var saveUrl = root.getAttribute("data-autosave-url");
-  if (!saveUrl) return;
-  var statusEl = document.getElementById("final-eval-autosave-status");
-  var timers = new Map();
-  var lastSaved = new Map();
-  var inFlight = new Map();
-
-  function setStatus(text, kind) {
-    if (!statusEl) return;
-    statusEl.textContent = text || "";
-    statusEl.className = "final-eval-autosave-status" + (kind ? " final-eval-autosave-status--" + kind : "");
-  }
-
-  function formatPct(pct) {
-    if (pct === null || pct === undefined) return "—";
-    return Number(pct).toFixed(2) + "%";
-  }
-
-  function updateRowMetrics(tr, data) {
-    if (!tr || !data) return;
-    var acqCell = tr.querySelector(".final-report-cell--acquired");
-    var pctCell = tr.querySelector(".final-report-cell--phase-pct");
-    var gradeCell = tr.querySelector(".final-report-cell--phase-grade");
-    if (acqCell) {
-      acqCell.textContent = data.acquired_mark > 0 ? Number(data.acquired_mark).toFixed(2) : "—";
-    }
-    if (pctCell) {
-      pctCell.textContent = formatPct(data.phase_pct);
-    }
-    if (gradeCell && data.phase_grade) {
-      gradeCell.textContent = data.phase_grade;
-    }
-  }
-
-  async function readJson(res) {
-    var text = await res.text();
-    if (!text) {
-      if (!res.ok) throw new Error("http_" + res.status);
-      return { ok: false };
-    }
-    try {
-      return JSON.parse(text);
-    } catch (e) {
-      throw new Error("not_json_" + res.status);
-    }
-  }
-
-  async function saveInput(input) {
-    var val = (input.value || "").trim();
-    if (lastSaved.get(input) === val) return;
-    if (inFlight.get(input)) return;
-
-    var fieldName = input.getAttribute("name") || "";
-    var unitKey = input.getAttribute("data-unit-key") || "";
-    var phaseKey = input.getAttribute("data-phase-key") || "";
-    if (!fieldName && (!unitKey || !phaseKey)) return;
-
-    var body = new URLSearchParams();
-    if (fieldName) body.set("field_name", fieldName);
-    if (unitKey) body.set("unit_key", unitKey);
-    if (phaseKey) body.set("phase_key", phaseKey);
-    body.set("max_mark", val);
-
-    inFlight.set(input, true);
-    input.classList.add("is-saving");
-    input.classList.remove("is-saved", "is-error");
-    setStatus("جاري الحفظ…", "saving");
-
-    try {
-      var res = await fetch(saveUrl, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "Accept": "application/json",
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-          "X-Requested-With": "XMLHttpRequest"
-        },
-        body: body.toString()
-      });
-      var data = await readJson(res);
-      if (!res.ok || !data || !data.ok) {
-        var err = (data && data.error) || ("http_" + res.status);
-        throw new Error(err);
-      }
-      lastSaved.set(input, val);
-      input.classList.add("is-saved");
-      updateRowMetrics(input.closest("tr"), data);
-      setStatus("تم الحفظ تلقائياً", "ok");
-      window.setTimeout(function () { setStatus("", ""); }, 2000);
-    } catch (err) {
-      input.classList.add("is-error");
-      var code = (err && err.message) ? err.message : "";
-      if (code === "unauthorized") {
-        setStatus("انتهت الجلسة — أعد تسجيل الدخول", "error");
-      } else if (code.indexOf("http_404") === 0 || code === "not_json_404") {
-        setStatus("مسار الحفظ غير متوفر — أعد تشغيل الخادم", "error");
-      } else {
-        setStatus("تعذّر الحفظ التلقائي", "error");
-      }
-    } finally {
-      input.classList.remove("is-saving");
-      inFlight.set(input, false);
-    }
-  }
-
-  function scheduleSave(input) {
-    var prev = timers.get(input);
-    if (prev) window.clearTimeout(prev);
-    timers.set(input, window.setTimeout(function () { saveInput(input); }, 600));
-  }
-
-  root.querySelectorAll(".final-eval-max-input--autosave").forEach(function (input) {
-    lastSaved.set(input, (input.value || "").trim());
-    input.addEventListener("input", function () { scheduleSave(input); });
-    input.addEventListener("blur", function () {
-      var t = timers.get(input);
-      if (t) {
-        window.clearTimeout(t);
-        timers.delete(input);
-      }
-      saveInput(input);
-    });
-    input.addEventListener("keydown", function (e) {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        input.blur();
-      }
-    });
-  });
-})();
-</script>
 {% endif %}
 {% endblock %}

@@ -16,8 +16,9 @@
     التمرين الحالي: <strong>{{ exercise.title }}</strong> — <code>{{ exercise.code }}</code>
   </p>
   <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
-    عمود <strong>القصوى</strong> ضمن «العلامه المخصصه للوحده» يُدخل يدوياً ويُحفظ تلقائياً أثناء الكتابة.
-    أعمدة «علامه حسب قوائم التقييم» تُؤخذ من نتائج المحكمين عند الحفظ أو الاعتماد.
+    الصفوف الأولى من كل مرحلة: <strong>معايير التقييم</strong> (قائمة التقييم + القصوى — للعرض فقط).
+    صفوف إضافية (إن وُجدت): قوائم محكمين غير مكررة في المعايير؛ عمود القصوى للعرض فقط في مراحل التحضير والانفتاح والمعركة.
+    مرحلة إعادة التنظيم: القصوى لقوائم المحكمين قابلة للإدخال اليدوي.
     <span class="muted">المعتمدة: {{ n_approved_eval_lists }} | المحفوظة غير المعتمدة: {{ n_saved_pending_eval_lists }}</span>
     <span id="final-eval-unit-autosave-status" class="final-eval-autosave-status" role="status" aria-live="polite"></span>
   </p>
@@ -25,11 +26,14 @@
   <p class="form-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
   {% endif %}
 
-  {% macro detail_table(rows, summary, title, allocated_title, empty_text) -%}
+  {% macro detail_table(rows, title, allocated_title, empty_text, criteria_items=none, criteria_total=0, criteria_eval_max_total=0, criteria_allocated_acquired_total=0, criteria_acquired_total=0, criteria_allocated_pct=none, criteria_allocated_grade='—', alloc_max_readonly=false) -%}
+  {% set criteria_rows = criteria_items if criteria_items else [] %}
+  {% set n_criteria = criteria_rows|length %}
+  {% set criteria_total = criteria_total|default(0, true) %}
   <h3 class="h2-in-card" style="margin-top:0.85rem;"><i class="fa-solid fa-list-check fa-icon-title" aria-hidden="true"></i> {{ title }}</h3>
   <div class="final-report-table-scroll final-report-table-scroll--detail">
   <div class="table-wrap final-report-table-wrap final-report-table-wrap--detail">
-    <table class="final-report-table final-report-table--detail" dir="rtl" aria-label="{{ title }}">
+    <table class="final-report-table final-report-table--detail final-report-table--criteria-merged" dir="rtl" aria-label="{{ title }}">
       <thead>
         <tr>
           <th scope="col" rowspan="2">ت</th>
@@ -47,41 +51,79 @@
         </tr>
       </thead>
       <tbody>
+        {% if criteria_rows %}
+        {% for item in criteria_rows %}
+        <tr class="final-eval-criteria-merged-row">
+          <td>{{ loop.index }}</td>
+          <td class="final-eval-criteria-merged-label">{{ item.criteria_text or "—" }}</td>
+          <td class="final-eval-criteria-merged-max" title="من معايير التقييم — العلامة المخصصة">
+            {% if item.allocated_mark is number %}{{ item.allocated_mark|round(2) }}{% else %}—{% endif %}
+          </td>
+          <td class="final-eval-criteria-merged-acquired">
+            {% if item.allocated_acquired_mark is number %}
+              {% if item.allocated_acquired_mark > 0 %}{{ item.allocated_acquired_mark|round(2) }}{% else %}0{% endif %}
+            {% elif item.allocated_pct is not none and item.allocated_mark is number and item.allocated_mark > 0 %}
+              {{ ((item.allocated_pct / 100.0) * item.allocated_mark)|round(2) }}
+            {% else %}—{% endif %}
+          </td>
+          <td class="final-eval-criteria-merged-pct">
+            {% if item.allocated_pct is not none %}{{ item.allocated_pct|round(2) }}%{% else %}—{% endif %}
+          </td>
+          <td>{{ item.allocated_grade|default("—") }}</td>
+          <td>{% if item.evaluation_list_max_mark is number and item.evaluation_list_max_mark > 0 %}{{ item.evaluation_list_max_mark|round(2) }}{% else %}—{% endif %}</td>
+          <td>{% if item.evaluation_list_acquired_mark is number and item.evaluation_list_acquired_mark > 0 %}{{ item.evaluation_list_acquired_mark|round(2) }}{% elif item.evaluation_list_acquired_mark is number %}0{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+        {% endif %}
         {% if rows %}
         {% for row in rows %}
         <tr>
-          <td>{{ loop.index }}</td>
+          <td>{{ n_criteria + loop.index }}</td>
           <td>{{ row.list_label }}</td>
-          <td class="final-eval-alloc-max-cell">
+          <td class="final-eval-alloc-max-cell{% if alloc_max_readonly %} final-eval-alloc-max-cell--readonly{% endif %}">
+            {% if alloc_max_readonly %}
+            <span class="final-eval-max-display" title="من معايير التقييم — للعرض فقط">
+              {% if row.has_allocated_max and row.allocated_max_mark is not none %}{{ row.allocated_max_mark|round(2) }}{% else %}—{% endif %}
+            </span>
+            {% else %}
             <input type="hidden" name="evaluation_item_id" value="{{ row.item_id }}">
             <label class="sr-only">القصوى المخصصة — {{ row.list_label }}</label>
             <input class="final-eval-max-input final-eval-max-input--autosave" type="text" name="allocated_max__{{ row.item_id }}" data-item-id="{{ row.item_id }}" inputmode="decimal" autocomplete="off" dir="ltr" placeholder="0" value="{% if row.has_allocated_max and row.allocated_max_mark is not none %}{{ row.allocated_max_mark|round(2) }}{% endif %}">
+            {% endif %}
           </td>
-          <td>{% if row.has_saved_payload and row.allocated_acquired_mark > 0 %}{{ row.allocated_acquired_mark|round(2) }}{% elif row.has_saved_payload %}—{% else %}—{% endif %}</td>
-          <td>{% if row.allocated_pct is not none %}{{ row.allocated_pct|round(2) }}%{% else %}—{% endif %}</td>
+          <td>
+            {% if row.allocated_acquired_mark is number %}
+              {% if row.allocated_acquired_mark > 0 %}{{ row.allocated_acquired_mark|round(2) }}{% else %}0{% endif %}
+            {% elif row.allocated_pct is not none and row.has_allocated_max and row.allocated_max_mark is not none and row.allocated_max_mark > 0 %}
+              {{ ((row.allocated_pct / 100.0) * row.allocated_max_mark)|round(2) }}
+            {% else %}—{% endif %}
+          </td>
+          <td>{% if row.allocated_pct is not none %}{{ row.allocated_pct|round(2) }}%{% elif row.has_saved_payload and row.evaluation_list_max_mark > 0 and row.evaluation_list_acquired_mark is number %}0%{% else %}—{% endif %}</td>
           <td>{{ row.allocated_grade }}</td>
           <td>{% if row.has_saved_payload %}{% if row.evaluation_list_max_mark > 0 %}{{ row.evaluation_list_max_mark|round(2) }}{% else %}—{% endif %}{% else %}—{% endif %}</td>
           <td>{% if row.has_saved_payload and row.evaluation_list_acquired_mark > 0 %}{{ row.evaluation_list_acquired_mark|round(2) }}{% elif row.has_saved_payload %}—{% else %}—{% endif %}</td>
         </tr>
         {% endfor %}
-        {% else %}
+        {% elif not criteria_rows %}
         <tr>
           <td colspan="8" class="muted">{{ empty_text }}</td>
         </tr>
         {% endif %}
       </tbody>
+      {% if criteria_rows %}
       <tfoot>
-        <tr class="final-report-summary-row">
+        <tr class="final-report-summary-row final-eval-criteria-total-row">
           <td class="muted">—</td>
-          <th scope="row">النسبة المئوية التي حققتها الوحدة خلال المرحلة</th>
-          <td>{% if summary.allocated_max_mark > 0 %}{{ summary.allocated_max_mark|round(2) }}{% else %}—{% endif %}</td>
-          <td>{% if summary.allocated_acquired_mark > 0 %}{{ summary.allocated_acquired_mark|round(2) }}{% else %}—{% endif %}</td>
-          <td>{% if summary.allocated_pct is not none %}{{ summary.allocated_pct|round(2) }}%{% else %}—{% endif %}</td>
-          <td>{{ summary.allocated_grade }}</td>
-          <td>{% if summary.evaluation_list_max_mark > 0 %}{{ summary.evaluation_list_max_mark|round(2) }}{% else %}—{% endif %}</td>
-          <td>{% if summary.evaluation_list_acquired_mark > 0 %}{{ summary.evaluation_list_acquired_mark|round(2) }}{% else %}—{% endif %}</td>
+          <th scope="row">الإجمالي</th>
+          <td class="final-eval-criteria-total-max">{% if criteria_total > 0 %}{{ criteria_total|round(2) }}{% else %}—{% endif %}</td>
+          <td class="final-eval-criteria-total-acquired">{% if criteria_allocated_acquired_total > 0 %}{{ criteria_allocated_acquired_total|round(2) }}{% elif criteria_allocated_acquired_total is number %}0{% else %}—{% endif %}</td>
+          <td class="final-eval-criteria-total-pct">{% if criteria_allocated_pct is not none %}{{ criteria_allocated_pct|round(2) }}%{% else %}—{% endif %}</td>
+          <td class="final-eval-criteria-total-grade">{{ criteria_allocated_grade|default('—') }}</td>
+          <td>{% if criteria_eval_max_total > 0 %}{{ criteria_eval_max_total|round(2) }}{% else %}—{% endif %}</td>
+          <td>{% if criteria_acquired_total > 0 %}{{ criteria_acquired_total|round(2) }}{% elif criteria_acquired_total is number %}0{% else %}—{% endif %}</td>
         </tr>
       </tfoot>
+      {% endif %}
     </table>
   </div>
   </div>
@@ -107,7 +149,7 @@
           <td>{{ loop.index }}</td>
           <td>{{ row.phase_label }}</td>
           <td>{% if row.max_mark > 0 %}{{ row.max_mark|round(2) }}{% else %}—{% endif %}</td>
-          <td>{% if row.acquired_mark > 0 %}{{ row.acquired_mark|round(2) }}{% else %}—{% endif %}</td>
+          <td>{% if row.acquired_mark is number %}{% if row.acquired_mark > 0 %}{{ row.acquired_mark|round(2) }}{% else %}0{% endif %}{% else %}—{% endif %}</td>
           <td>{% if row.phase_pct is not none %}{{ row.phase_pct|round(2) }}%{% else %}—{% endif %}</td>
           <td>{{ row.phase_grade }}</td>
         </tr>
@@ -133,12 +175,12 @@
 
   <form method="post" action="{{ url_for('views.analyst_final_evaluation_unit_detail', unit_key=unit.unit_key) }}" id="final-eval-unit-form" data-autosave-url="/api/analyst/final-evaluation/item-allocated-max" data-unit-key="{{ unit.unit_key }}">
 
-  {{ detail_table(unit.preparation_detail_rows, unit.preparation_detail_summary, "نتيجة تقييم اجراءات الوحده في مرحلة التحضير", "العلامه المخصصه للوحده خلال مرحلة التحضير", "لا توجد قوائم تقييم لمرحلة التحضير.") }}
-  {{ detail_table(unit.opening_detail_rows, unit.opening_detail_summary, "نتيجة تقييم الوحده في مرحلة الانفتاح", "العلامه المخصصه للوحده خلال مرحلة الانفتاح", "لا توجد قوائم تقييم لمرحلة الانفتاح.") }}
-  {{ detail_table(unit.main_detail_rows, unit.main_detail_summary, "نتيجة تقييم الوحده في مرحلة المعركة التعرضية", "العلامه المخصصه للوحده خلال مرحلة المعركة التعرضية", "لا توجد قوائم تقييم لمرحلة المعركة التعرضية.") }}
-  {{ detail_table(unit.reorg_detail_rows, unit.reorg_detail_summary, "نتيجة تقييم الوحده في مرحلة إعادة التنظيم", "العلامه المخصصه للوحده خلال مرحلة إعادة التنظيم", "لا توجد قوائم تقييم لمرحلة إعادة التنظيم.") }}
+  {{ detail_table(unit.preparation_detail_rows, "نتيجة تقييم اجراءات الوحده في مرحلة التحضير", "العلامه المخصصه للوحده خلال مرحلة التحضير", "لا توجد قوائم تقييم لمرحلة التحضير.", unit.preparation_criteria_items, unit.preparation_criteria_total, unit.preparation_criteria_eval_max_total, unit.preparation_criteria_allocated_acquired_total, unit.preparation_criteria_acquired_total, unit.preparation_criteria_allocated_pct, unit.preparation_criteria_allocated_grade, true) }}
+  {{ detail_table(unit.opening_detail_rows, "نتيجة تقييم الوحده في مرحلة الانفتاح", "العلامه المخصصه للوحده خلال مرحلة الانفتاح", "لا توجد قوائم تقييم لمرحلة الانفتاح.", unit.opening_criteria_items, unit.opening_criteria_total, unit.opening_criteria_eval_max_total, unit.opening_criteria_allocated_acquired_total, unit.opening_criteria_acquired_total, unit.opening_criteria_allocated_pct, unit.opening_criteria_allocated_grade, true) }}
+  {{ detail_table(unit.main_detail_rows, "نتيجة تقييم الوحده في مرحلة المعركة التعرضية", "العلامه المخصصه للوحده خلال مرحلة المعركة التعرضية", "لا توجد قوائم تقييم لمرحلة المعركة التعرضية.", unit.main_criteria_items, unit.main_criteria_total, unit.main_criteria_eval_max_total, unit.main_criteria_allocated_acquired_total, unit.main_criteria_acquired_total, unit.main_criteria_allocated_pct, unit.main_criteria_allocated_grade, true) }}
+  {{ detail_table(unit.reorg_detail_rows, "نتيجة تقييم الوحده في مرحلة إعادة التنظيم", "العلامه المخصصه للوحده خلال مرحلة إعادة التنظيم", "لا توجد قوائم تقييم لمرحلة إعادة التنظيم.", unit.reorg_criteria_items, unit.reorg_criteria_total, unit.reorg_criteria_eval_max_total, unit.reorg_criteria_allocated_acquired_total, unit.reorg_criteria_acquired_total, unit.reorg_criteria_allocated_pct, unit.reorg_criteria_allocated_grade) }}
   {% if unit.show_evaluation_tracks %}
-  {{ detail_table(unit.evaluation_tracks_detail_rows, unit.evaluation_tracks_detail_summary, "نتيجة تقييم الوحده في مرحلة مسارات التقييم", "العلامه المخصصه للوحده خلال مرحلة مسارات التقييم", "لا توجد قوائم تقييم لمرحلة مسارات التقييم.") }}
+  {{ detail_table(unit.evaluation_tracks_detail_rows, "نتيجة تقييم الوحده في مرحلة مسارات التقييم", "العلامه المخصصه للوحده خلال مرحلة مسارات التقييم", "لا توجد قوائم تقييم لمرحلة مسارات التقييم.", unit.evaluation_tracks_criteria_items, unit.evaluation_tracks_criteria_total, unit.evaluation_tracks_criteria_eval_max_total, unit.evaluation_tracks_criteria_allocated_acquired_total, unit.evaluation_tracks_criteria_acquired_total, unit.evaluation_tracks_criteria_allocated_pct, unit.evaluation_tracks_criteria_allocated_grade) }}
   {% endif %}
 
   <div class="btn-group" style="margin-top:1rem;">

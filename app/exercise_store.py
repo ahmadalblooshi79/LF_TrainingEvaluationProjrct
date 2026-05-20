@@ -897,6 +897,17 @@ def _remove_exercise_upload_files(db: Session, exercise_id: int) -> None:
         _safe_unlink_under(EVAL_CRITERION_MEDIA_DIR, rel)
 
 
+def wipe_exercise_from_system(db: Session, exercise_id: int) -> bool:
+    """حذف التمرين وكل بياناته من النظام (دون بنك المعلومات ولا أرشفة)."""
+    ex = db.get(Exercise, exercise_id)
+    if not ex:
+        return False
+    _remove_exercise_upload_files(db, exercise_id)
+    db.execute(delete(Exercise).where(Exercise.id == exercise_id))
+    db.flush()
+    return True
+
+
 def archive_and_clear_current_exercise(
     db: Session, exercise_id: int, *, finished_by_id: int
 ) -> Path | None:
@@ -915,10 +926,7 @@ def archive_and_clear_current_exercise(
         },
         sync_file_bundle=True,
     )
-    _remove_exercise_upload_files(db, exercise_id)
-    # حذف عبر SQL لتفعيل ON DELETE CASCADE (تجنّب ORM الذي يُفرّغ exercise_id)
-    db.execute(delete(Exercise).where(Exercise.id == exercise_id))
-    db.flush()
+    wipe_exercise_from_system(db, exercise_id)
     return path
 
 

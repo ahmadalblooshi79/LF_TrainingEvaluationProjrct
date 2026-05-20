@@ -8,3 +8,4 @@ __pycache__/
 .hypothesis/
 # أسرار محلية (مفاتيح، كلمات مرور) — لا تُرفع أبداً
 .env
+exercises.db

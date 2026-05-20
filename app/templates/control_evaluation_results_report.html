@@ -34,138 +34,168 @@
     {% endfor %}
   </section>
 
-  <section class="control-report__layout">
-    <article class="control-panel control-panel--groups">
-      <h2>أداء المجموعات (متوسط النسبة العامة)</h2>
-      <div class="control-group-chart" dir="rtl" style="--group-count: {{ report.group_scores | length }};">
-        <div class="control-group-chart__scroll">
-        <div class="control-group-chart__plot">
-          {% for item in report.group_scores %}
-          <div class="control-group-chart__col">
-            <div class="control-group-chart__bar-track" style="--bar-pct: {{ item.value }};">
-              <i class="control-group-chart__bar" style="background: linear-gradient(180deg, {{ item.color }} 0%, color-mix(in srgb, {{ item.color }} 72%, #fff) 100%);" aria-hidden="true"></i>
-              <span class="control-group-chart__bar-value">{{ item.value }}%</span>
+  <div class="control-report-tabs" role="tablist" aria-label="أقسام الرسوم البيانية">
+    <button type="button" class="control-report-tabs__btn is-active" role="tab" id="cr-tab-btn-detail" aria-selected="true" aria-controls="cr-panel-detail" tabindex="0">
+      <i class="fa-solid fa-table" aria-hidden="true"></i>
+      أداء الوحدات التفصيلي حسب قوائم التقييم (مراحل التمرين)
+    </button>
+    <button type="button" class="control-report-tabs__btn" role="tab" id="cr-tab-btn-charts" aria-selected="false" aria-controls="cr-panel-charts" tabindex="-1">
+      <i class="fa-solid fa-chart-column" aria-hidden="true"></i>
+      أداء المجموعات (متوسط النسبة العامة) وأداء الوحدات حسب مراحل التمرين
+    </button>
+  </div>
+
+  <div class="control-report-tab-panels">
+    <div class="control-report-tab-panel is-active" role="tabpanel" id="cr-panel-detail" aria-labelledby="cr-tab-btn-detail">
+      <article class="control-panel control-panel--detail control-panel--tabbed">
+        <h2>أداء الوحدات التفصيلي حسب قوائم التقييم (مراحل التمرين)</h2>
+        <div class="control-table-wrap">
+          {% if report.unit_detail_rows | default([]) %}
+          {% set phase_max_dots = report.get('unit_detail_phase_max_dots', [1, 1, 1]) %}
+          <table class="cr-detail-table cr-detail-table--phase-even" dir="rtl" style="--cr-phase-count: {{ phase_max_dots | length }};">
+            <thead>
+              <tr>
+                <th scope="col">الوحدة</th>
+                {% for header in report.unit_detail_phase_headers | default([]) %}
+                <th scope="col" class="cr-detail-table__phase" style="--phase-max-dots: {{ phase_max_dots[loop.index0] | default(1) }};">{{ header }}</th>
+                {% endfor %}
+              </tr>
+              {% if report.unit_detail_list_number_row | default([]) %}
+              <tr class="cr-detail-table__list-nums">
+                <th scope="col" class="cr-detail-table__list-nums-unit muted">ت</th>
+                {% for phase_nums in report.unit_detail_list_number_row %}
+                <th scope="col" class="cr-detail-table__phase cr-detail-table__list-nums-phase" style="--phase-max-dots: {{ phase_nums.max_dots | default(1) }};">
+                  <div class="cr-detail-cell" aria-hidden="true">
+                    {% for num in phase_nums.slots %}
+                    <span class="cr-detail-slot">
+                      <span class="cr-detail-list-num">{{ num }}</span>
+                    </span>
+                    {% endfor %}
+                  </div>
+                </th>
+                {% endfor %}
+              </tr>
+              {% endif %}
+            </thead>
+            <tbody>
+              {% for urow in report.unit_detail_rows %}
+              <tr>
+                <th scope="row" class="cr-detail-table__unit" title="{{ urow.unit_label }}">{{ urow.unit_label }}</th>
+                {% for phase in urow.phases %}
+                {% set phase_slot_count = phase_max_dots[loop.index0] | default(1) %}
+                <td class="cr-detail-table__cell cr-detail-table__phase-cell" style="--phase-max-dots: {{ phase_slot_count }};">
+                  <div class="cr-detail-cell" aria-label="{{ phase.label }} — {{ urow.unit_label }}">
+                    {% for slot_i in range(phase_slot_count) %}
+                    <span class="cr-detail-slot{% if slot_i >= phase.dots | length %} cr-detail-slot--empty{% endif %}">
+                      {% if slot_i < phase.dots | length %}
+                      {% set dot = phase.dots[slot_i] %}
+                      <span class="cr-detail-dot-wrap">
+                        <button
+                          type="button"
+                          class="cr-detail-dot"
+                          style="background-color: {{ dot.color }};"
+                          data-href="{{ dot.view_url }}"
+                          title="قائمة التقييم: {{ dot.list_title }}&#10;المحكم: {{ dot.judge_name }}&#10;{{ dot.approval_location }}"
+                          aria-label="{{ dot.list_title }} — {{ dot.pct }}%"
+                        ></button>
+                        <span class="cr-detail-dot-pct">{{ dot.pct }}%</span>
+                      </span>
+                      {% endif %}
+                    </span>
+                    {% endfor %}
+                  </div>
+                </td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p class="muted" style="margin:0.5rem 0;">لا توجد قوائم تقييم محفوظة لعرضها — يُعرض الجدول بعد حفظ المحكمين لنتائج القوائم.</p>
+          {% endif %}
+        </div>
+        {% if report.grade_legend | default([]) %}
+        <div class="cr-detail-grade-legend" aria-label="مفتاح ألوان النتيجة">
+          <span class="cr-detail-grade-legend__title">مفتاح الألوان (النتيجة)</span>
+          <ul class="cr-detail-grade-legend__list">
+            {% for item in report.grade_legend %}
+            <li class="cr-detail-grade-legend__item">
+              <i class="cr-detail-grade-legend__swatch" style="background-color: {{ item.color }};" aria-hidden="true"></i>
+              <span class="cr-detail-grade-legend__label">{{ item.label }}</span>
+              <span class="cr-detail-grade-legend__range muted">{{ item.range }}</span>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+      </article>
+    </div>
+
+    <div class="control-report-tab-panel" role="tabpanel" id="cr-panel-charts" aria-labelledby="cr-tab-btn-charts" hidden>
+      <div class="control-report-tab2-split" dir="rtl">
+        <article class="control-panel control-panel--groups control-report-tab2-groups">
+          <h2>أداء المجموعات (متوسط النسبة العامة)</h2>
+          <div class="control-group-chart control-group-chart--wide" dir="rtl" style="--group-count: {{ [report.group_scores | length, 1] | max }};">
+            <div class="control-group-chart__scroll">
+              <div class="control-group-chart__plot">
+                {% for item in report.group_scores %}
+                <div class="control-group-chart__col">
+                  <div class="control-group-chart__bar-track" style="--bar-pct: {{ item.value }};">
+                    <i class="control-group-chart__bar" style="background: linear-gradient(180deg, {{ item.color }} 0%, color-mix(in srgb, {{ item.color }} 72%, #fff) 100%);" aria-hidden="true"></i>
+                    <span class="control-group-chart__bar-value">{{ item.value }}%</span>
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+              <div class="control-group-chart__rule control-report-tab2-chart__baseline" role="presentation" aria-hidden="true"></div>
+              <div class="control-group-chart__captions control-report-tab2-chart__names-row">
+                {% for item in report.group_scores %}
+                <div class="control-group-chart__caption control-report-tab2-chart__name-cell">
+                  <span class="control-report-tab2-chart__unit-name" title="{{ item.label }}">{{ item.label }}</span>
+                </div>
+                {% endfor %}
+              </div>
             </div>
           </div>
-          {% endfor %}
-        </div>
-        <div class="control-group-chart__rule" role="presentation" aria-hidden="true"></div>
-        <div class="control-group-chart__captions">
-          {% for item in report.group_scores %}
-          <div class="control-group-chart__caption">
-            <span class="control-group-chart__caption-label" title="{{ item.label }}">{{ item.label }}</span>
+        </article>
+
+        <article class="control-panel control-panel--phase-bars control-report-tab2-phases">
+          <h2>أداء الوحدات حسب مراحل التمرين</h2>
+          <div class="control-group-chart control-group-chart--phase-side control-group-chart--wide-tab2" dir="rtl" style="--group-count: {{ [report.distribution | length, 1] | max }};" role="img" aria-label="أداء الوحدات حسب مراحل التمرين">
+            <div class="control-group-chart__scroll control-report-tab2-phases-chart-scroll">
+              <div class="control-phase-bar-total-head">
+                <span class="control-phase-bar-total-head__label">المجموع العام</span>
+                <strong>{% if report.phase_summary and report.phase_summary.exercise_pct is not none %}{{ report.phase_summary.exercise_pct|round(2) }}%{% else %}—{% endif %}</strong>
+              </div>
+              {% if report.distribution %}
+              <div class="control-group-chart__plot">
+                {% for item in report.distribution %}
+                <div class="control-group-chart__col">
+                  <div class="control-group-chart__bar-track" style="--bar-pct: {{ item.pct_display }};">
+                    <i class="control-group-chart__bar" style="background: linear-gradient(180deg, {{ item.color }} 0%, color-mix(in srgb, {{ item.color }} 72%, #fff) 100%);" aria-hidden="true"></i>
+                    <span class="control-group-chart__bar-value">{{ item.pct_display }}%</span>
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+              <div class="control-group-chart__rule control-report-tab2-chart__baseline" role="presentation" aria-hidden="true"></div>
+              <div class="control-group-chart__captions control-report-tab2-chart__names-row">
+                {% for item in report.distribution %}
+                <div class="control-group-chart__caption control-report-tab2-chart__name-cell">
+                  <span class="control-report-tab2-chart__unit-name" title="{{ item.label }}">{{ item.label }}</span>
+                </div>
+                {% endfor %}
+              </div>
+              {% else %}
+              <p class="muted control-report-tab2-phases__empty">لا توجد نتائج محفوظة لعرض مراحل التمرين.</p>
+              {% endif %}
+            </div>
           </div>
-          {% endfor %}
-        </div>
-        </div>
+        </article>
       </div>
-    </article>
+    </div>
+  </div>
 
-    <article class="control-panel control-panel--donut">
-      <h2>نسب مراحل التمرين</h2>
-      <div class="control-donut-stack">
-      <div class="control-donut-layout">
-        <div class="control-donut" style="background: {{ report.donut_conic_gradient }};" role="img" aria-label="نسب مراحل التمرين"></div>
-        <div class="control-donut-legend">
-          {% for item in report.distribution %}
-          <span class="control-donut-legend__row control-donut-legend__row--{{ item.phase_key | default('total') }}"><i aria-hidden="true"></i><span class="control-donut-legend__label">{{ item.label }}</span> <b>{{ item.pct_display }}%</b></span>
-          {% else %}
-          <span class="muted">لا توجد نتائج محفوظة لعرض المراحل.</span>
-          {% endfor %}
-        </div>
-      </div>
-        <p class="control-donut__total-foot">
-          <span class="control-donut__total-label">المجموع العام</span>
-          <strong>{% if report.phase_summary and report.phase_summary.exercise_pct is not none %}{{ report.phase_summary.exercise_pct|round(2) }}%{% else %}—{% endif %}</strong>
-        </p>
-      </div>
-    </article>
-
-    <article class="control-panel control-panel--detail">
-      <h2>أداء الوحدات التفصيلي حسب قوائم التقييم (مراحل التمرين)</h2>
-      <div class="control-table-wrap">
-        {% if report.unit_detail_rows | default([]) %}
-        {% set phase_max_dots = report.get('unit_detail_phase_max_dots', [1, 1, 1]) %}
-        <table class="cr-detail-table" dir="rtl">
-          <thead>
-            <tr>
-              <th scope="col">الوحدة</th>
-              {% for header in report.unit_detail_phase_headers | default([]) %}
-              <th scope="col" class="cr-detail-table__phase" style="--phase-max-dots: {{ phase_max_dots[loop.index0] | default(1) }};">{{ header }}</th>
-              {% endfor %}
-            </tr>
-            {% if report.unit_detail_list_number_row | default([]) %}
-            <tr class="cr-detail-table__list-nums">
-              <th scope="col" class="cr-detail-table__list-nums-unit muted">ت</th>
-              {% for phase_nums in report.unit_detail_list_number_row %}
-              <th scope="col" class="cr-detail-table__phase cr-detail-table__list-nums-phase" style="--phase-max-dots: {{ phase_nums.max_dots | default(1) }};">
-                <div class="cr-detail-cell" aria-hidden="true">
-                  {% for num in phase_nums.slots %}
-                  <span class="cr-detail-slot">
-                    <span class="cr-detail-list-num">{{ num }}</span>
-                  </span>
-                  {% endfor %}
-                </div>
-              </th>
-              {% endfor %}
-            </tr>
-            {% endif %}
-          </thead>
-          <tbody>
-            {% for urow in report.unit_detail_rows %}
-            <tr>
-              <th scope="row" class="cr-detail-table__unit" title="{{ urow.unit_label }}">{{ urow.unit_label }}</th>
-              {% for phase in urow.phases %}
-              {% set phase_slot_count = phase_max_dots[loop.index0] | default(1) %}
-              <td class="cr-detail-table__cell cr-detail-table__phase-cell" style="--phase-max-dots: {{ phase_slot_count }};">
-                <div class="cr-detail-cell" aria-label="{{ phase.label }} — {{ urow.unit_label }}">
-                  {% for slot_i in range(phase_slot_count) %}
-                  <span class="cr-detail-slot{% if slot_i >= phase.dots | length %} cr-detail-slot--empty{% endif %}">
-                    {% if slot_i < phase.dots | length %}
-                    {% set dot = phase.dots[slot_i] %}
-                    <span class="cr-detail-dot-wrap">
-                      <button
-                        type="button"
-                        class="cr-detail-dot"
-                        style="background-color: {{ dot.color }};"
-                        data-href="{{ dot.view_url }}"
-                        title="قائمة التقييم: {{ dot.list_title }}&#10;المحكم: {{ dot.judge_name }}&#10;{{ dot.approval_location }}"
-                        aria-label="{{ dot.list_title }} — {{ dot.pct }}%"
-                      ></button>
-                      <span class="cr-detail-dot-pct">{{ dot.pct }}%</span>
-                    </span>
-                    {% endif %}
-                  </span>
-                  {% endfor %}
-                </div>
-              </td>
-              {% endfor %}
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        {% else %}
-        <p class="muted" style="margin:0.5rem 0;">لا توجد قوائم تقييم محفوظة لعرضها — يُعرض الجدول بعد حفظ المحكمين لنتائج القوائم.</p>
-        {% endif %}
-      </div>
-      {% if report.grade_legend | default([]) %}
-      <div class="cr-detail-grade-legend" aria-label="مفتاح ألوان النتيجة">
-        <span class="cr-detail-grade-legend__title">مفتاح الألوان (النتيجة)</span>
-        <ul class="cr-detail-grade-legend__list">
-          {% for item in report.grade_legend %}
-          <li class="cr-detail-grade-legend__item">
-            <i class="cr-detail-grade-legend__swatch" style="background-color: {{ item.color }};" aria-hidden="true"></i>
-            <span class="cr-detail-grade-legend__label">{{ item.label }}</span>
-            <span class="cr-detail-grade-legend__range muted">{{ item.range }}</span>
-          </li>
-          {% endfor %}
-        </ul>
-      </div>
-      {% endif %}
-    </article>
-  </section>
-
-  <footer class="control-report__foot">نسخة ويب - Windows و Android و iOS</footer>
 </div>
 <script>
 (function () {
@@ -173,6 +203,60 @@
     btn.addEventListener("dblclick", function () {
       var href = btn.getAttribute("data-href");
       if (href) window.location.href = href;
+    });
+  });
+
+  var tablist = document.querySelector(".control-report-tabs");
+  if (!tablist) return;
+  var tabs = [].slice.call(tablist.querySelectorAll('[role="tab"]'));
+  var panels = {
+    "cr-tab-btn-detail": document.getElementById("cr-panel-detail"),
+    "cr-tab-btn-charts": document.getElementById("cr-panel-charts"),
+  };
+
+  function activate(id, moveFocus) {
+    tabs.forEach(function (t) {
+      var on = t.id === id;
+      t.classList.toggle("is-active", on);
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      t.tabIndex = on ? 0 : -1;
+      var p = panels[t.id];
+      if (p) {
+        if (on) {
+          p.removeAttribute("hidden");
+          p.classList.add("is-active");
+        } else {
+          p.setAttribute("hidden", "hidden");
+          p.classList.remove("is-active");
+        }
+      }
+    });
+    if (moveFocus) {
+      var open = tabs.filter(function (t) { return t.id === id; })[0];
+      if (open) open.focus();
+    }
+  }
+
+  tabs.forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      activate(tab.id, false);
+    });
+    tab.addEventListener("keydown", function (ev) {
+      var i = tabs.indexOf(tab);
+      var next = null;
+      if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") {
+        ev.preventDefault();
+        var rtl = (document.dir || "rtl") === "rtl";
+        var forward = rtl ? (ev.key === "ArrowLeft") : (ev.key === "ArrowRight");
+        next = forward ? tabs[i + 1] || tabs[0] : tabs[i - 1] || tabs[tabs.length - 1];
+      } else if (ev.key === "Home") {
+        ev.preventDefault();
+        next = tabs[0];
+      } else if (ev.key === "End") {
+        ev.preventDefault();
+        next = tabs[tabs.length - 1];
+      }
+      if (next) activate(next.id, true);
     });
   });
 })();

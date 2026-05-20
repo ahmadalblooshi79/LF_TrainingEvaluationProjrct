@@ -35,11 +35,31 @@
   --space-lg: 1.75rem;
   --space-xl: 2.5rem;
   --font: "Tajawal", "Segoe UI", Tahoma, sans-serif;
-  --app-viewport-width: 80%;
+  /* عرض منطقة التطبيق: كامل الشاشة (بدون عمود جانبي فارغ كالسابق 80%) */
+  --app-viewport-width: 100%;
+  --safe-inline-start: env(safe-area-inset-left, env(safe-area-inset-inline-start, 0px));
+  --safe-inline-end: env(safe-area-inset-right, env(safe-area-inset-inline-end, 0px));
+  /* هامش أفقي موحّد من يمين ويسار الشاشة (مع أخذ المنطقة الآمنة عند الحاجة) */
+  --page-gutter-inline: 1cm;
+  --page-padding-inline-start: max(var(--page-gutter-inline), var(--safe-inline-start));
+  --page-padding-inline-end: max(var(--page-gutter-inline), var(--safe-inline-end));
   --icon-nav-size: 0.95em;
   --icon-title: 1.05em;
   /* ارتفاع موحّد لعناصر شريط التنقل (روابط، قائمة، أيقونات، خروج) */
-  --header-nav-control-height: 2.375rem;
+  --header-nav-control-height: 2.55rem;
+  --header-nav-pill-min-height: 2.35rem;
+  /* مسافات عمودية: بداية الشريط أوضح + إنزال طفيف للمحتوى نحو الأسفل */
+  --header-bar-padding-block-start: 0.58rem;
+  --header-bar-padding-block-end: 0.46rem;
+  /* أحجام خط محتويات الترويسة */
+  --header-nav-link-font: 0.93rem;
+  --header-brand-font: 1.075rem;
+  --header-brand-icon: 1.22rem;
+  --header-welcome-font: 0.91rem;
+  --header-workspace-tag-font: 0.82rem;
+  --header-workspace-title-font: 0.93rem;
+  --header-dd-menu-font: 0.71rem;
+  --header-logout-font: 0.93rem;
   /* مراحل التمرين — لوحة موحّدة (مربعات التقييم النهائي + دائرة تقرير التحكم) */
   --fr-phase-preparation-bg: linear-gradient(165deg, #eff6ff 0%, #dbeafe 100%);
   --fr-phase-preparation-fill: #dbeafe;
@@ -90,6 +110,8 @@ body {
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* إخفاء شريط "التمرين الحالي" في صفحات محددة */
@@ -109,19 +131,17 @@ a:hover {
 }
 
 .layout {
-  height: 100%;
-  max-height: 100dvh;
+  flex: 1 1 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
   width: var(--app-viewport-width);
   max-width: 100%;
-  margin-left: auto;
-  margin-right: auto;
+  margin-inline: 0;
   overflow: hidden;
 }
 
-/* رأس الصفحة */
+/* رأس الصفحة خارج (.layout) لعرض كامل بدون قصّ overflow */
 header {
   position: relative;
   flex-shrink: 0;
@@ -131,21 +151,31 @@ header {
   box-shadow: var(--shadow-sm);
   padding: 0;
   overflow: visible;
+  width: 100%;
+  box-sizing: border-box;
+  /* أيقونات الروابط في الترويسة: تكبير طفيف مقارنة ببقية الواجهة */
+  --icon-nav-size: 1.06em;
 }
 
 .header-bar {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   flex-wrap: nowrap;
   gap: 0.35rem 0.55rem;
-  padding: 0.4rem var(--space-md);
+  padding-block-start: var(--header-bar-padding-block-start);
+  padding-block-end: var(--header-bar-padding-block-end);
+  padding-inline-start: var(--page-padding-inline-start);
+  padding-inline-end: var(--page-padding-inline-end);
   min-width: 0;
-  overflow: visible;
+  width: 100%;
+  box-sizing: border-box;
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
-/* ثلاثة أعمدة منطقة: عنوان/تمرين (يلتصق بالوسط) | التنقل (وسط الشريط) | إشعار/خروج (يلتصق بالوسط) */
+/* ثلاثة مقاطع: عنوان/تمرين (تلتصق بالجهة اليمنى في RTL) | تنقل وسيط يمتد بينهما | أدوات (تلتصق باليسار) */
 .header-bar__segment--lead {
-  flex: 1 1 0;
+  flex: 0 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -153,24 +183,26 @@ header {
 }
 
 .header-bar__segment--center {
-  flex: 0 1 auto;
+  flex: 1 1 0;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.2rem 0.45rem;
   flex-wrap: nowrap;
   min-width: 0;
-  max-width: min(92vw, 54rem);
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   position: relative;
   z-index: 2;
+  border-inline-start: 1px solid var(--border);
+  padding-inline-start: 0.65rem;
+  margin-inline-start: 0.2rem;
 }
 
 .header-bar__segment--trail {
-  flex: 1 1 0;
+  flex: 0 0 auto;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -181,6 +213,13 @@ header {
   scrollbar-width: thin;
   position: relative;
   z-index: 2;
+  border-inline-start: 1px solid var(--border);
+  padding-inline-start: 0.65rem;
+  margin-inline-start: 0.2rem;
+}
+
+.header-nav--top-tools {
+  gap: 0.25rem 0.42rem;
 }
 
 .header-bar__scroll {
@@ -234,7 +273,7 @@ header {
   border-radius: 999px;
   background: linear-gradient(90deg, #f0f9ff 0%, #fff 100%);
   border: 1px solid #e0f2fe;
-  font-size: 0.8rem;
+  font-size: var(--header-welcome-font);
   color: var(--brown-800);
   white-space: nowrap;
 }
@@ -322,7 +361,7 @@ header {
 
 .notif-toast-host {
   position: fixed;
-  top: 4.5rem;
+  top: 5.1rem;
   inset-inline-start: 50%;
   transform: translateX(-50%);
   z-index: 10000;
@@ -443,7 +482,7 @@ header {
 
 .header-workspace-exercise__tag {
   flex-shrink: 0;
-  font-size: 0.72rem;
+  font-size: var(--header-workspace-tag-font);
   font-weight: 700;
   text-transform: none;
   letter-spacing: 0.02em;
@@ -454,7 +493,7 @@ header {
 .header-workspace-exercise__title {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 0.82rem;
+  font-size: var(--header-workspace-title-font);
   font-weight: 600;
   color: var(--brown-700);
   line-height: 1.3;
@@ -476,14 +515,14 @@ header .brand {
   align-items: center;
   gap: 0.4rem;
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: var(--header-brand-font);
   letter-spacing: -0.02em;
   color: var(--brown-800);
   flex-shrink: 0;
   white-space: nowrap;
 }
 header .brand .fa-icon-brand {
-  font-size: 1.1rem;
+  font-size: var(--header-brand-icon);
   color: var(--brown-400);
   opacity: 0.95;
 }
@@ -502,10 +541,10 @@ header nav a:not(.btn),
   align-items: center;
   gap: 0.35rem;
   padding: 0 0.5rem;
-  min-height: 2rem;
+  min-height: var(--header-nav-pill-min-height);
   border-radius: 999px;
   color: var(--brown-600);
-  font-size: 0.82rem;
+  font-size: var(--header-nav-link-font);
   box-sizing: border-box;
   white-space: nowrap;
   flex-shrink: 0;
@@ -528,6 +567,10 @@ header nav a:not(.btn):hover i,
   color: var(--brown-500);
 }
 
+header .btn-icon-nav i {
+  font-size: 1.2rem;
+}
+
 /* قائمة إدارة النظام (SYSTEM_ADMIN) */
 .nav-dd {
   position: relative;
@@ -545,10 +588,10 @@ header nav a:not(.btn):hover i,
   align-items: center;
   gap: 0.35rem;
   padding: 0 0.5rem;
-  min-height: 2rem;
+  min-height: var(--header-nav-pill-min-height);
   border-radius: 999px;
   color: var(--brown-600);
-  font-size: 0.82rem;
+  font-size: var(--header-nav-link-font);
   box-sizing: border-box;
   white-space: nowrap;
   flex-shrink: 0;
@@ -576,10 +619,10 @@ header nav a:not(.btn):hover i,
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
   box-shadow: 0 10px 28px rgba(60, 48, 40, 0.14);
-  padding: 0.28rem;
+  padding: 0.2rem;
   display: none;
   z-index: 5000;
-  font-size: 0.78rem;
+  font-size: var(--header-dd-menu-font);
 }
 .nav-dd__menu::before {
   content: "";
@@ -591,15 +634,16 @@ header nav a:not(.btn):hover i,
 .nav-dd__menu a {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
-  padding: 0.38rem 0.5rem;
+  gap: 0.35rem;
+  padding: 0.28rem 0.42rem;
   border-radius: 8px;
   color: var(--brown-700);
   text-decoration: none;
   white-space: nowrap;
 }
 .nav-dd__menu a i {
-  width: 1.1em;
+  width: 1em;
+  font-size: 0.92em;
   text-align: center;
   color: var(--brown-soft);
 }
@@ -613,14 +657,16 @@ header nav a:not(.btn):hover i,
   display: block;
 }
 
-/* المحتوى — التمرير داخل main فقط (ملاءمة ارتفاع الصفحة) */
+/* المحتوى — ملء العرض؛ التمرير داخل main فقط؛ هامش جانبي 1 سم + المنطقة الآمنة */
 main {
   flex: 1;
   min-height: 0;
   width: 100%;
-  margin-left: auto;
-  margin-right: auto;
-  padding: var(--space-lg) var(--space-md) var(--space-xl);
+  max-width: none;
+  margin-inline: 0;
+  padding-block: var(--space-lg) var(--space-xl);
+  padding-inline-start: var(--page-padding-inline-start);
+  padding-inline-end: var(--page-padding-inline-end);
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -689,10 +735,13 @@ main h3 {
 
 footer {
   flex-shrink: 0;
-  padding: var(--space-md) var(--space-md) var(--space-lg);
+  padding-block: 0.44rem 0.5rem;
+  padding-inline-start: var(--page-padding-inline-start);
+  padding-inline-end: var(--page-padding-inline-end);
   text-align: center;
   color: var(--text-muted);
-  font-size: 0.82rem;
+  font-size: 0.77rem;
+  line-height: 1.34;
   background: var(--white);
   border-top: 1px solid var(--border-light);
   margin-top: auto;
@@ -869,18 +918,15 @@ footer {
   font-size: 0.95rem;
 }
 
-/* شبكة الأدوار */
+/* شبكة الأدوار — توزيع متساوي بعرض المتصفح (الصفحة الرئيسية) */
 .role-grid {
   display: grid;
   gap: var(--space-md);
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(100%, clamp(17rem, 42vw, 22rem)), 1fr)
+  );
   align-items: stretch;
-}
-@media (min-width: 700px) {
-  .role-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: var(--space-md) 1.15rem;
-  }
 }
 .role-grid .card {
   margin-bottom: 0;
@@ -891,6 +937,32 @@ footer {
 .role-grid .card p {
   margin-bottom: 0;
   flex: 1;
+}
+
+/* الصفحة الرئيسية — صفّان × زرين ثم صف بتوسيط وزن واحد (يشمل حالات عدد بطاقات فردي بالأسفل) */
+.role-grid.role-grid--pyramid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: min(100%, clamp(34rem, 88vw, 48rem));
+  margin-inline: auto;
+  justify-items: stretch;
+  align-items: stretch;
+}
+.role-grid.role-grid--pyramid .dashboard-role-card:nth-last-child(1):nth-child(odd) {
+  grid-column: 1 / -1;
+  justify-self: center;
+  width: 100%;
+  max-width: min(100%, clamp(17rem, 42vw, 22rem));
+}
+@media (max-width: 520px) {
+  .role-grid.role-grid--pyramid {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 28rem;
+  }
+  .role-grid.role-grid--pyramid .dashboard-role-card:nth-last-child(1):nth-child(odd) {
+    grid-column: auto;
+    justify-self: stretch;
+    max-width: none;
+  }
 }
 
 .text-pre-wrap {
@@ -946,14 +1018,14 @@ footer {
 
 header nav .btn.btn-ghost.btn-nav-logout,
 .header-nav .btn.btn-ghost.btn-nav-logout {
-  min-height: 2rem;
-  height: 2rem;
+  min-height: var(--header-nav-pill-min-height);
+  height: var(--header-nav-pill-min-height);
   display: inline-flex;
   align-items: center;
   margin-inline-start: 0.35rem;
   padding: 0 0.5rem;
   border-inline-start: 1px solid var(--border-light);
-  font-size: 0.82rem;
+  font-size: var(--header-logout-font);
   flex-shrink: 0;
   white-space: nowrap;
   font-weight: 500;
@@ -1024,7 +1096,9 @@ label .fa-icon-label {
   align-items: center;
   justify-content: center;
   min-height: 60vh;
-  padding: 1rem 0;
+  padding-block: 1rem;
+  padding-inline-start: var(--page-padding-inline-start);
+  padding-inline-end: var(--page-padding-inline-end);
 }
 .auth-card {
   max-width: 420px;
@@ -1948,10 +2022,12 @@ h2.h2-icon .fa-icon-title {
 /* تعديلات إدارة النظام: بدون تغيير رأس الصفحة */
 .dashboard-role-card {
   display: flex;
+  flex-direction: column;
   color: inherit;
   text-decoration: none;
   cursor: pointer;
   transition: transform 0.12s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  justify-content: center;
 }
 .dashboard-role-card:hover {
   transform: translateY(-2px);
@@ -1966,24 +2042,70 @@ h2.h2-icon .fa-icon-title {
   font-weight: 600;
 }
 
-/* مساحة المحللين / التخطيط — شبكة: 5 أزرار في الصف (مع أعمدة أقل على الشاشات الضيقة) */
+/* الصفحة الرئيسية فقط — توسيط عمودي لمجموعة الرأس والنص وسطر الدخول؛ فقرات دون امتلاك كل ارتفاع البطاقة */
+.role-grid .dashboard-role-card > p {
+  flex: 0 1 auto;
+}
+.role-grid .dashboard-role-card > h3 {
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  text-align: center;
+  width: 100%;
+}
+.role-grid .dashboard-role-card > h3 .fa-icon-role {
+  margin-top: 0;
+}
+.role-grid .dashboard-role-card > .dashboard-role-hint {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  text-align: center;
+  width: 100%;
+}
+
+/* مساحات الأدوار (تخطيط/محكمين/سيطرة/محللين/…) — شبكة تعبئة متساوية وبطاقات مربعة عريضة؛ توسط عمودي في main تحت الرأس */
+main:has(> aside.role-hub-menu.card) {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+main > aside.role-hub-menu.card {
+  margin-block: auto;
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+main:has(> .page-header + .role-grid) {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+main > .role-grid:not(.role-grid--pyramid) {
+  margin-block: auto;
+  flex: 0 0 auto;
+}
+main > .role-grid.role-grid--pyramid {
+  margin-block: 0;
+  flex: 0 0 auto;
+}
+
 .role-hub-menu {
   max-width: 100%;
-  margin-top: var(--space-md);
+  margin-top: 0;
+  direction: rtl;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.65rem;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(100%, clamp(9.25rem, 23vw, 13.75rem)), 1fr)
+  );
+  justify-items: stretch;
   align-items: stretch;
-}
-@media (min-width: 720px) {
-  .role-hub-menu {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-@media (min-width: 960px) {
-  .role-hub-menu {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
+  /* مسافات متساوية بين الأزرار أفقياً (يميناً←يساراً) ورأسياً */
+  column-gap: clamp(1.15rem, 3.8vw, 2.25rem);
+  row-gap: clamp(1rem, 2.8vw, 1.65rem);
 }
 .role-hub-menu > h2.h2-in-card {
   grid-column: 1 / -1;
@@ -1994,18 +2116,30 @@ h2.h2-icon .fa-icon-title {
   justify-content: center;
   align-items: center;
   text-align: center;
-  min-height: 5.75rem;
-  padding: 0.6rem 0.4rem;
-  gap: 0.45rem;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 0;
+  padding: clamp(0.65rem, 2.2vw, 1rem) clamp(0.5rem, 1.5vw, 0.85rem);
+  gap: clamp(0.55rem, 1.8vw, 0.85rem);
+  /* مربع عريض ثابت العرض ضمن شبكة؛ الارتفاع يتبع العرض عبر القص */
+  aspect-ratio: 5 / 4;
+  overflow: hidden;
+  border-radius: calc(var(--radius-sm, 6px) + 2px);
 }
 .role-hub-menu .admin-action-btn span {
   font-size: 0.9rem;
   font-weight: 700;
-  line-height: 1.4;
+  line-height: 1.35;
   word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .role-hub-menu .admin-action-btn i {
-  font-size: 1.15rem;
+  font-size: clamp(1.75rem, 5vw, 2.35rem);
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .admin-shell {
@@ -3538,11 +3672,11 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   overflow-wrap: break-word;
   word-break: break-word;
   vertical-align: top;
-  padding: 0.12rem 0.45rem;
+  padding: 0.14rem 0.45rem;
   line-height: 1.22;
   font-size: 0.92rem;
-  display: flex;
-  align-items: baseline;
+  /* خلية الجدول كـ table-cell — تجنّب تخطيط flex داخل الخلية الذي قد يُظهر خطوطاً أفقية بصرية بين أسطر الطباعة */
+  display: table-cell;
 }
 /* عمود افتراضي لموضع كل نوع ترقيم: عرض مرساة واحد لمستوى «الأرقام 1»، و+0.5 سم بين المستويات */
 .eval-preview-table.eval-structured .eval-el-line:not(.eval-el-tier--plain) {
@@ -3737,12 +3871,12 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 }
 .eval-list-page .eval-structured-layout__scroll {
   --eval-structured-thead-approx: 1.7rem;
-  --eval-structured-body-row-approx: 1.38rem;
+  --eval-structured-body-row-approx: 1.52rem;
 }
 .eval-list-page .eval-preview-table.eval-structured.eval-structured--tight .eval-preview-td,
 .eval-list-page .eval-preview-table.eval-structured.eval-structured--tight .eval-preview-th {
-  padding: 0.02rem 0.18rem;
-  line-height: 1.06;
+  padding: 0.09rem 0.2rem;
+  line-height: 1.12;
   font-size: 0.76rem;
   vertical-align: middle;
 }
@@ -3759,8 +3893,8 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 }
 .eval-list-page .eval-preview-table.eval-structured.eval-structured--tight td.eval-col--element {
   font-size: 0.76rem;
-  line-height: 1.08;
-  padding: 0.06rem 0.28rem !important;
+  line-height: 1.14;
+  padding: 0.12rem 0.28rem !important;
   vertical-align: middle;
 }
 .eval-list-page .eval-preview-table.eval-structured.eval-structured--tight .eval-section-banner {
@@ -3780,9 +3914,9 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .eval-list-page .eval-preview-table.eval-structured td.eval-col--pct,
 .eval-list-page .eval-preview-table.eval-structured td.eval-col--grade,
 .eval-list-page .eval-preview-table.eval-structured td.eval-col--acq {
-  padding: 0.04rem 0.14rem !important;
+  padding: 0.08rem 0.14rem !important;
   font-size: 0.74rem !important;
-  line-height: 1.08 !important;
+  line-height: 1.12 !important;
 }
 .eval-list-page .eval-preview-table.eval-structured .eval-pct-out,
 .eval-list-page .eval-preview-table.eval-structured .eval-grade-out {
@@ -3791,7 +3925,7 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 }
 .eval-list-page .eval-preview-table.eval-structured td.eval-col--notes {
   vertical-align: middle;
-  padding: 0.03rem 0.2rem !important;
+  padding: 0.08rem 0.2rem !important;
 }
 .eval-list-page .eval-structured .eval-preview-acquired-select {
   padding: 0.04rem 0.18rem !important;
@@ -3805,9 +3939,10 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   min-height: 1.28rem !important;
   min-block-size: 1.28rem !important;
   max-height: 2rem;
-  padding: 0.08rem 0.28rem !important;
+  padding: 0.1rem 0.3rem !important;
   font-size: 0.74rem !important;
-  line-height: 1.12 !important;
+  line-height: 1.18 !important;
+  background-image: none !important;
   field-sizing: fixed;
   resize: none;
   overflow-y: auto;
@@ -3866,7 +4001,7 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   -webkit-overflow-scrolling: touch;
   /* ارتفاع يعرض تقريباً صف العناوين + 12 صف بيانات ثم تمرير عمودي */
   --eval-structured-thead-approx: 3rem;
-  --eval-structured-body-row-approx: 2.08rem;
+  --eval-structured-body-row-approx: 2.12rem;
   --eval-structured-visible-rows: 12;
   max-height: min(
     62vh,
@@ -3945,6 +4080,14 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .btn.btn-icon.btn-icon-crit:hover {
   color: var(--brown-700, #4a382e);
   background: #f4f4f5;
+}
+/* تخفيف حدود أزرار التوثيق داخل الخلية — الحد الواضح يُخطأ لخط أفقي «مسطر» بين الصفوف */
+.eval-preview-table.eval-structured td.eval-col--crit .btn.btn-icon.btn-icon-crit {
+  border: none;
+  box-shadow: 0 0 0 1px rgba(228, 228, 231, 0.55);
+}
+.eval-preview-table.eval-structured td.eval-col--crit .btn.btn-icon.btn-icon-crit:hover {
+  box-shadow: 0 0 0 1px rgba(180, 180, 186, 0.75);
 }
 .eval-preview-table.eval-structured td.eval-col--delete {
   width: 1.85rem;
@@ -4050,8 +4193,8 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 }
 .eval-preview-table.eval-structured.eval-structured--tight .eval-preview-td,
 .eval-preview-table.eval-structured.eval-structured--tight .eval-preview-th {
-  padding: 0.06rem 0.28rem;
-  line-height: 1.12;
+  padding: 0.09rem 0.3rem;
+  line-height: 1.14;
   font-size: 0.8rem;
   vertical-align: middle;
 }
@@ -4773,6 +4916,290 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   margin-top: 0.5rem;
 }
 
+/* —— المحللين / عرض نتائج التقييم (صفحة رسوم بيانية — محفوظ فقط) —— */
+.aerc-page main {
+  max-width: none;
+}
+.aerc {
+  padding: 0 0 1.5rem;
+}
+.aerc-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.aerc-title {
+  margin: 0 0 0.25rem;
+  font-size: 1.35rem;
+}
+.aerc-panel--first {
+  margin-bottom: 1rem;
+}
+.aerc-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 1rem;
+  margin-bottom: 1rem;
+  align-items: stretch;
+}
+@media (max-width: 900px) {
+  .aerc-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.aerc-panel {
+  margin: 0;
+  padding: 1rem 1.1rem;
+  min-height: 14rem;
+  display: flex;
+  flex-direction: column;
+}
+.aerc-panel__title {
+  margin: 0 0 0.75rem;
+  font-size: 1.02rem;
+  color: var(--brown-800);
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.aerc-panel__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.75rem;
+}
+.aerc-panel__head .aerc-panel__title {
+  margin-bottom: 0;
+}
+.aerc-panel__overall {
+  margin: 0;
+  font-size: 0.88rem;
+}
+.aerc-panel__empty {
+  margin: auto 0;
+  text-align: center;
+}
+.aerc-donut-layout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem 1.5rem;
+  flex: 1 1 auto;
+  padding: 0.15rem 0;
+}
+.aerc-donut {
+  --donut-size: min(11.5rem, 42vw);
+  width: var(--donut-size);
+  height: var(--donut-size);
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 4px 18px rgba(40, 32, 26, 0.12);
+}
+.aerc-donut__hole {
+  width: 58%;
+  height: 58%;
+  border-radius: 50%;
+  background: linear-gradient(165deg, #fefdfb 0%, #f8f4ef 100%);
+  border: 1px solid var(--border-light);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0.35rem;
+  box-shadow: inset 0 1px 4px rgba(40, 32, 26, 0.06);
+}
+.aerc-donut__total {
+  font-size: clamp(1.35rem, 4vw, 1.85rem);
+  line-height: 1.1;
+  color: var(--brown-900);
+}
+.aerc-donut__hint {
+  font-size: 0.72rem;
+  margin-top: 0.15rem;
+}
+.aerc-donut-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 12rem;
+  min-width: min(100%, 14rem);
+  max-width: 22rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.aerc-donut-legend__row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.45rem 0.55rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--tint-100) 55%, transparent);
+}
+.aerc-donut-legend__swatch {
+  display: block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.aerc-donut-legend__name {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--brown-800);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.aerc-donut-legend__vals {
+  font-size: 0.82rem;
+  white-space: nowrap;
+  text-align: left;
+  direction: ltr;
+}
+.aerc-donut-legend__vals strong {
+  color: var(--brown-900);
+  margin-inline-end: 0.35rem;
+}
+.aerc-hbars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  flex: 1 1 auto;
+}
+.aerc-hbars__row {
+  display: grid;
+  grid-template-columns: minmax(4.5rem, 28%) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.45rem 0.55rem;
+}
+.aerc-hbars__name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--brown-800);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.aerc-hbars__track {
+  height: 1.15rem;
+  border-radius: 999px;
+  background: var(--tint-200);
+  overflow: hidden;
+}
+.aerc-hbars__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  min-width: 4px;
+  transition: width 0.35s ease;
+}
+.aerc-hbars__meta {
+  font-size: 0.82rem;
+  white-space: nowrap;
+  text-align: left;
+  direction: ltr;
+}
+.aerc-hbars__meta strong {
+  color: var(--brown-900);
+}
+.aerc-phase-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10.5rem), 1fr));
+  gap: 0.75rem;
+}
+.aerc-phase-card {
+  margin: 0;
+  padding: 0.85rem 0.9rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--phase-color, #8b7355) 35%, var(--border-light));
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--phase-color) 12%, #fff) 0%,
+    #fff 55%
+  );
+  box-shadow: 0 2px 12px rgba(40, 32, 26, 0.06);
+}
+.aerc-phase-card__label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--brown-700);
+  margin-bottom: 0.15rem;
+}
+.aerc-phase-card__pct {
+  display: block;
+  font-size: 1.65rem;
+  line-height: 1.1;
+  color: var(--phase-color, var(--brown-900));
+}
+.aerc-phase-card__grade {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 700;
+  margin-bottom: 0.2rem;
+}
+.aerc-phase-card__count {
+  display: block;
+  font-size: 0.72rem;
+  margin-bottom: 0.45rem;
+}
+.aerc-phase-card__bar {
+  display: block;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: var(--tint-200);
+  overflow: hidden;
+}
+.aerc-phase-card__bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--phase-color, #8b7355);
+}
+.aerc-legend {
+  margin: 0;
+  padding: 0.75rem 1rem;
+}
+.aerc-legend__title {
+  margin: 0 0 0.45rem;
+  font-size: 0.92rem;
+  color: var(--brown-700);
+}
+.aerc-legend__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  font-size: 0.82rem;
+}
+.aerc-legend__swatch {
+  display: inline-block;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 2px;
+  margin-inline-end: 0.25rem;
+  vertical-align: middle;
+}
+.aerc-empty {
+  margin-top: 0.5rem;
+}
+
 /* غرف المحادثة */
 .chat-room-grid {
   display: grid;
@@ -4891,23 +5318,55 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .control-report-page .layout {
   width: 100%;
 }
-.control-report-page main {
+/* استغلال ارتفاع الشاشة دون تمرير رأسي في main — التمرير داخل جدول التبويب الأول أو تمرير أفقي للمخططات عند الحاجة */
+body.control-report-page main {
   background: transparent;
-  padding-top: 0.25rem;
+  padding-block: 0.2rem 0.28rem;
+  padding-inline-start: var(--page-padding-inline-start);
+  padding-inline-end: var(--page-padding-inline-end);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 0;
+  overflow: hidden;
+}
+body.control-report-page .control-report {
+  overflow: hidden;
+}
+body.control-report-page .control-report-tab-panels,
+body.control-report-page .control-report-tab-panel.is-active {
+  overflow: hidden;
+  min-height: 0;
+}
+body.control-report-page .control-panel.control-panel--tabbed {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+body.control-report-page .control-panel--tabbed .control-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
 }
 .control-report {
-  min-height: calc(100dvh - 4rem);
-  padding: 0.35rem 1.1rem 1.4rem;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0.22rem 0 0.12rem;
   color: var(--text);
+  overflow: hidden;
 }
 .control-report__head {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 0.65rem;
-  margin-bottom: 0.35rem;
-  padding-bottom: 0.22rem;
+  gap: 0.5rem;
+  margin-bottom: 0.22rem;
+  padding-bottom: 0.18rem;
   border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
 }
 .control-report__head-main {
   min-width: 0;
@@ -4943,8 +5402,304 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .control-report__kpis {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.32rem;
+  margin-bottom: 0.32rem;
+  flex-shrink: 0;
+}
+
+/* تبويبات تقرير أداء التمرين — جدول تفصيلي | رسوم المجموعات والمراحل */
+.control-report-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.32rem;
+  margin-bottom: 0.28rem;
+  padding: 0.1rem;
+  border-radius: var(--radius-sm);
+  background: var(--tint-100);
+  border: 1px solid var(--border-light);
+}
+.control-report-tabs__btn {
+  flex: 1 1 auto;
+  min-width: min(100%, 12rem);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 0.4rem;
-  margin-bottom: 0.55rem;
+  padding: 0.48rem 0.72rem;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--brown-600);
+  font: inherit;
+  font-size: clamp(0.72rem, 1.05vw, 0.82rem);
+  font-weight: 600;
+  line-height: 1.35;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.control-report-tabs__btn i {
+  font-size: 0.95em;
+  opacity: 0.88;
+  flex-shrink: 0;
+}
+.control-report-tabs__btn:hover {
+  background: var(--surface);
+  color: var(--brown-800);
+  border-color: var(--border-light);
+}
+.control-report-tabs__btn:focus-visible {
+  outline: 2px solid var(--brown-300);
+  outline-offset: 2px;
+}
+.control-report-tabs__btn.is-active {
+  background: var(--white);
+  color: var(--brown-900);
+  border-color: var(--border);
+  box-shadow: var(--shadow-sm);
+}
+.control-report-tab-panels {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.control-report-tab-panel {
+  flex: 1 1 0;
+  min-height: 0;
+  display: none;
+}
+.control-report-tab-panel.is-active {
+  display: flex;
+  flex-direction: column;
+}
+.control-panel.control-panel--tabbed {
+  width: 100%;
+  flex: 1 1 0;
+  min-height: 0;
+}
+.control-report-tab2-split {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0.6rem;
+  width: 100%;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  overscroll-behavior-y: none;
+}
+/* لا تمرير عمودي داخل لوحة مخططات المجموعات/المراحل */
+body.control-report-page #cr-panel-charts.control-report-tab-panel {
+  overflow: hidden;
+  overscroll-behavior-y: none;
+}
+.control-report-tab2-groups {
+  flex: 3 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.control-report-tab2-phases {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.control-report-tab2-groups.control-panel--groups,
+.control-report-tab2-phases.control-panel--phase-bars {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+.control-report-tab2-groups.control-panel--groups h2,
+.control-report-tab2-phases.control-panel--phase-bars h2 {
+  flex-shrink: 0;
+  margin-bottom: 0.38rem;
+}
+.control-report-tab2-phases__empty {
+  margin: 0.35rem 0;
+  text-align: center;
+  font-size: 0.76rem;
+}
+/* المجموع العام — أعلى مخطط المراحل تحت خط فاصل علوي للكتلة الرسومية */
+.control-report-tab2-phases-chart-scroll {
+  border-top: 1px solid var(--border-light);
+}
+.control-phase-bar-total-head {
+  margin: 0;
+  padding: 0.28rem 0.45rem 0.36rem;
+  border-bottom: 1px solid var(--border-light);
+  text-align: center;
+  flex-shrink: 0;
+}
+.control-phase-bar-total-head__label {
+  display: block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 0.08rem;
+}
+.control-phase-bar-total-head strong {
+  font-size: 1.05rem;
+  color: var(--brown-800);
+  line-height: 1.1;
+}
+/* شبكة واحدة للمجموعات والمراحل — يملآن الارتفاع المتاح (بدون تمرير عمودي للصفحة) */
+.control-report-tab2-groups .control-group-chart--wide,
+.control-report-tab2-phases .control-group-chart--wide-tab2 {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  margin-top: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+.control-report-tab2-groups .control-group-chart__scroll,
+.control-report-tab2-phases .control-group-chart__scroll {
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  overflow-x: hidden;
+  overflow-y: hidden;
+}
+/* مسافة مرنة أسفل صف الأسماء: ترفع كتلة المخطط لتبقى فوق خط الحد السفلي للوحة */
+.control-report-tab2-groups .control-group-chart__scroll::after,
+.control-report-tab2-phases .control-group-chart__scroll::after {
+  content: '';
+  flex: 1 1 0;
+  min-height: 0;
+}
+.control-report-tab2-groups .control-group-chart__plot,
+.control-report-tab2-phases .control-group-chart__plot {
+  display: grid;
+  grid-template-columns: repeat(var(--group-count, 1), minmax(0, 1fr));
+  grid-template-rows: 1fr;
+  align-items: stretch;
+  justify-content: space-evenly;
+  justify-items: center;
+  column-gap: clamp(0.05rem, calc(10rem / (var(--group-count, 1) + 12)), 0.52rem);
+  row-gap: 0;
+  flex: 3 1 0;
+  min-height: 5.5rem;
+  height: 0;
+  padding: 0.12rem clamp(0.08rem, 1vmin, 0.38rem) 0;
+  border-bottom: none;
+  box-sizing: border-box;
+}
+.control-report-tab2-groups .control-group-chart__col,
+.control-report-tab2-phases .control-group-chart__col {
+  flex: unset;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  align-self: stretch;
+}
+/* خط قاعدة مرفوع قليلاً نحو قيعان الأعمدة */
+.control-report-tab2-groups .control-report-tab2-chart__baseline,
+.control-report-tab2-phases .control-report-tab2-chart__baseline {
+  flex-shrink: 0;
+  margin: -0.38rem 0 0;
+  border-top: 1px solid var(--border-light);
+  height: 0;
+}
+.control-report-tab2-groups .control-report-tab2-chart__names-row,
+.control-report-tab2-phases .control-report-tab2-chart__names-row {
+  display: grid;
+  grid-template-columns: repeat(var(--group-count, 1), minmax(0, 1fr));
+  align-items: flex-start;
+  justify-items: center;
+  justify-content: space-evenly;
+  column-gap: clamp(0.05rem, calc(10rem / (var(--group-count, 1) + 12)), 0.52rem);
+  flex-shrink: 0;
+  min-height: 3.55rem;
+  margin: 0;
+  padding: 0.12rem clamp(0.08rem, 1vmin, 0.38rem) 0;
+  box-sizing: border-box;
+}
+.control-report-tab2-groups .control-report-tab2-chart__name-cell,
+.control-report-tab2-phases .control-report-tab2-chart__name-cell {
+  width: 100%;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-height: 3.45rem;
+  padding-inline: 0;
+  overflow: visible;
+}
+/* بداية النص RTL (يمين الإطار) عند وسط عمود الرسم؛ مائل بحولان من الزاوية العلوية اليمنى */
+.control-report-tab2-groups .control-report-tab2-chart__unit-name,
+.control-report-tab2-phases .control-report-tab2-chart__unit-name {
+  position: absolute;
+  left: 50%;
+  top: 0.02rem;
+  display: inline-block;
+  direction: rtl;
+  unicode-bidi: plaintext;
+  color: var(--brown-800);
+  font-weight: 700;
+  font-size: clamp(0.84rem, calc(17rem / (var(--group-count, 1) + 6)), 1.14rem);
+  line-height: 1.22;
+  white-space: nowrap;
+  text-align: right;
+  margin: 0;
+  transform: translateX(-100%) rotate(-48deg);
+  transform-origin: 100% 0;
+  max-width: min(8.75rem, 100%);
+  overflow: visible;
+}
+@supports not (transform: rotate(-48deg)) {
+  .control-report-tab2-groups .control-report-tab2-chart__unit-name,
+  .control-report-tab2-phases .control-report-tab2-chart__unit-name {
+    position: static;
+    writing-mode: vertical-lr;
+    text-orientation: mixed;
+    transform: none;
+    text-align: center;
+  }
+}
+.control-report-tab2-groups .control-group-chart__bar-track,
+.control-report-tab2-phases .control-group-chart__bar-track {
+  width: min(1.85rem, 88%);
+  max-width: 100%;
+}
+.control-report-tab2-groups .control-group-chart__bar-value,
+.control-report-tab2-phases .control-group-chart__bar-value {
+  font-size: clamp(0.5rem, calc(4.72rem / (var(--group-count, 1) + 6)), 0.68rem);
+  font-weight: 800;
+}
+@media (max-width: 920px) {
+  .control-report-tab2-split {
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .control-report-tab2-groups,
+  .control-report-tab2-phases {
+    flex: 1 1 auto;
+    width: 100%;
+  }
 }
 .control-kpi {
   position: relative;
@@ -5026,10 +5781,20 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .control-kpi--violet strong { color: #6d28d9; }
 .control-report__layout {
   display: grid;
-  grid-template-columns: minmax(0, 2.25fr) minmax(0, 0.88fr);
-  grid-template-rows: auto auto;
-  gap: 0.6rem;
+  grid-template-columns: minmax(0, 2.78fr) minmax(12rem, 0.93fr);
+  grid-template-rows: 1fr;
+  gap: 0.54rem;
   align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.control-report__aside {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.42rem;
+  min-height: 0;
 }
 /* RTL: العمود 1 يمين، العمود 2 يسار */
 .control-panel--detail {
@@ -5047,23 +5812,24 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 }
 .cr-detail-grade-legend {
   flex-shrink: 0;
-  margin-top: 0.55rem;
-  padding-top: 0.5rem;
+  margin-top: 0.28rem;
+  padding-top: 0.26rem;
   border-top: 1px solid var(--border-light);
 }
 .cr-detail-grade-legend__title {
   display: block;
-  margin-bottom: 0.35rem;
-  font-size: 0.7rem;
+  margin-bottom: 0.12rem;
+  font-size: 0.64rem;
   font-weight: 800;
   color: var(--brown-800);
+  line-height: 1.2;
 }
 .cr-detail-grade-legend__list {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   align-items: center;
-  gap: 0.35rem 0.85rem;
+  gap: 0.14rem 0.48rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -5071,9 +5837,9 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .cr-detail-grade-legend__item {
   display: inline-flex;
   align-items: center;
-  gap: 0.28rem;
-  font-size: 0.66rem;
-  line-height: 1.2;
+  gap: 0.18rem;
+  font-size: 0.59rem;
+  line-height: 1.14;
 }
 .cr-detail-grade-legend__swatch {
   display: inline-block;
@@ -5088,7 +5854,72 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   color: var(--brown-800);
 }
 .cr-detail-grade-legend__range {
-  font-size: 0.6rem;
+  font-size: 0.55rem;
+}
+/* أعمدة المراحل بعرض متساوٍ لتتسع للنقط والأسماء */
+.control-panel--detail .cr-detail-table.cr-detail-table--phase-even {
+  table-layout: fixed;
+  width: 100%;
+}
+.control-panel--detail .cr-detail-table.cr-detail-table--phase-even thead th:first-child,
+.control-panel--detail .cr-detail-table.cr-detail-table--phase-even tbody th.cr-detail-table__unit {
+  width: clamp(9.75rem, 26%, 15.5rem);
+}
+.control-panel--detail .cr-detail-table.cr-detail-table--phase-even thead th.cr-detail-table__phase {
+  width: calc((100% - clamp(9.75rem, 26%, 15.5rem)) / max(var(--cr-phase-count, 1), 1));
+  min-width: 0;
+}
+.control-panel--detail .cr-detail-table.cr-detail-table--phase-even tbody td.cr-detail-table__phase-cell {
+  width: calc((100% - clamp(9.75rem, 26%, 15.5rem)) / max(var(--cr-phase-count, 1), 1));
+  min-width: 0;
+}
+.control-panel--detail .cr-detail-table.cr-detail-table--phase-even .cr-detail-cell {
+  justify-content: space-evenly;
+  gap: 0.06rem;
+}
+.control-report__aside .control-panel--groups {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.control-report__aside .control-panel--groups .control-group-chart {
+  flex: 1 1 auto;
+  min-height: 10rem;
+}
+.control-report__aside .control-panel--donut {
+  flex: 0 0 auto;
+  margin-top: auto;
+}
+/* تصغير ارتفاع «مربع» الدونات دون تصغير قطر الدائرة */
+.control-report__aside .control-donut-layout {
+  gap: 0.48rem;
+  min-height: 10rem;
+}
+.control-report__aside .control-donut-stack {
+  gap: 0.36rem;
+}
+.control-report__aside .control-panel--donut h2 {
+  margin-bottom: 0.42rem;
+}
+.control-report__aside .control-donut-legend {
+  gap: 0.26rem;
+  font-size: 0.66rem;
+}
+.control-report__aside .control-donut-legend span {
+  gap: 0.2rem;
+}
+.control-report__aside .control-donut__total-foot {
+  padding-top: 0.32rem;
+  margin-top: 0;
+}
+.control-report__aside .control-donut__total-label {
+  margin-bottom: 0.08rem;
+  font-size: 0.67rem;
+}
+.control-report__aside .control-donut__total-foot strong {
+  font-size: 1.48rem;
+  line-height: 1.05;
 }
 .control-panel--detail .cr-detail-table {
   width: 100%;
@@ -5130,14 +5961,7 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   background-color: var(--tint-50);
 }
 .control-panel--groups {
-  grid-column: 2;
-  grid-row: 1;
-  align-self: start;
-}
-.control-panel--donut {
-  grid-column: 2;
-  grid-row: 2;
-  align-self: start;
+  overflow: visible;
 }
 .control-panel {
   min-width: 0;
@@ -5219,7 +6043,7 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   color: var(--brown-800);
   text-align: left;
 }
-/* رسم «أداء المجموعات» — أعمدة مضغوطة وتسميات مائلة */
+/* رسم «أداء المجموعات» — النسخة في العمود الجانبي: شبكة بمسافات متساوية وتسميات عمودية counter-clockwise (vertical-lr) */
 .control-group-chart {
   --group-col-width: 1.65rem;
   --group-bar-width: 1.15rem;
@@ -5228,7 +6052,7 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   border-right: 1px solid var(--border-light);
   border-bottom: 1px solid var(--border-light);
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
 }
@@ -5244,6 +6068,72 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   gap: 0.1rem;
   height: 9.5rem;
   padding: 0.25rem 0.2rem 0;
+}
+.control-report__aside .control-group-chart__scroll {
+  min-width: 100%;
+  width: 100%;
+}
+.control-report__aside .control-group-chart {
+  overflow-x: hidden;
+  --group-bar-width: min(1.1rem, 74%);
+}
+.control-report__aside .control-group-chart__plot {
+  display: grid;
+  grid-template-columns: repeat(var(--group-count, 1), minmax(0, 1fr));
+  align-items: end;
+  justify-content: stretch;
+  gap: 0.2rem;
+  height: clamp(11.95rem, 29vh, 14.85rem);
+  padding: 0.22rem 0.06rem 0;
+}
+.control-report__aside .control-group-chart__col {
+  flex: unset;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  height: 100%;
+}
+.control-report__aside .control-group-chart__captions {
+  display: grid;
+  grid-template-columns: repeat(var(--group-count, 1), minmax(0, 1fr));
+  align-items: flex-start;
+  justify-items: center;
+  gap: 0.2rem;
+  min-height: 2.92rem;
+  padding: 0.26rem 0.06rem 0.42rem;
+}
+.control-report__aside .control-group-chart__caption {
+  flex: unset;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  height: auto;
+  min-height: 2.55rem;
+  align-items: flex-start;
+  justify-content: center;
+}
+.control-report__aside .control-group-chart__caption-label {
+  transform: none;
+  transform-origin: unset;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  direction: rtl;
+  writing-mode: vertical-lr;
+  text-orientation: mixed;
+  unicode-bidi: plaintext;
+  padding-top: 0;
+  max-height: 6.25rem;
+  font-size: 0.586rem;
+  line-height: 1.33;
 }
 .control-group-chart__col {
   display: flex;
@@ -5642,27 +6532,21 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   color: var(--brown-800);
   margin-right: auto;
 }
-.control-report__foot {
-  margin-top: 0.75rem;
-  color: var(--text-muted);
-  text-align: center;
-  font-size: 0.72rem;
-}
 @media (max-width: 1180px) {
   .control-report__kpis {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
   .control-report__layout {
     grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
   }
-  .control-panel--groups,
-  .control-panel--donut,
   .control-panel--detail {
     grid-column: 1;
-    grid-row: auto;
+    grid-row: 1;
   }
-  .control-panel--detail {
-    display: block;
+  .control-report__aside {
+    grid-column: 1;
+    grid-row: 2;
   }
 }
 @media (max-width: 760px) {
@@ -5675,6 +6559,9 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   }
   .control-report__kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .control-report__aside .control-donut-layout {
+    grid-template-columns: 1fr;
   }
   .control-donut-layout {
     grid-template-columns: 1fr;
@@ -5985,7 +6872,9 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
-  padding: 0.4rem var(--space-md) 0.45rem;
+  padding-block: 0.4rem 0.45rem;
+  padding-inline-start: var(--page-padding-inline-start);
+  padding-inline-end: var(--page-padding-inline-end);
 }
 .final-eval-page-layout footer {
   display: none;
@@ -6475,6 +7364,39 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .final-report-table--detail .final-eval-alloc-max-cell {
   text-align: center;
   vertical-align: middle;
+}
+
+.final-report-table--criteria-merged .final-eval-criteria-merged-row td {
+  background: #faf6f2;
+  border-bottom: 1px solid #ebe3db;
+}
+.final-report-table--criteria-merged .final-eval-criteria-merged-label {
+  font-weight: 500;
+  color: #2c241c;
+}
+.final-report-table--criteria-merged .final-eval-criteria-merged-max {
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #5c3d1e;
+}
+.final-report-table--criteria-merged .final-eval-criteria-total-row th,
+.final-report-table--criteria-merged .final-eval-criteria-total-row td {
+  background: #f3ebe3;
+  border-top: 2px solid #d4c4b4;
+  font-weight: 700;
+}
+.final-report-table--criteria-merged .final-eval-criteria-total-max {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: #5c3d1e;
+}
+.final-eval-alloc-max-cell--readonly .final-eval-max-display {
+  display: inline-block;
+  min-width: 4rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #5c3d1e;
 }
 
 .final-report-table--detail .final-eval-max-input {
@@ -7083,6 +8005,92 @@ main:has(.judge-pf-tabbed) > .judge-pf-root {
   text-align: center;
   white-space: nowrap;
   vertical-align: middle;
+}
+.analyst-criteria-distribution-wrap {
+  overflow-x: auto;
+}
+.analyst-criteria-actions-cell {
+  min-width: 13rem;
+  white-space: nowrap;
+}
+.analyst-criteria-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: nowrap;
+}
+.analyst-criteria-phase-select {
+  min-width: 10.5rem;
+  max-width: 14rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border-soft, #c9bfb5);
+  border-radius: var(--radius-sm, 6px);
+  background: #fff;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.analyst-criteria-phase-select:focus-visible {
+  outline: 2px solid var(--accent, #6b4423);
+  outline-offset: 2px;
+}
+.analyst-criteria-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #d9cfc4;
+  border-radius: var(--radius-sm, 6px);
+  background: #faf8f6;
+  color: #8b4513;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.analyst-criteria-delete-btn:hover,
+.analyst-criteria-delete-btn:focus-visible {
+  border-color: #c45c4a;
+  color: #b42318;
+  background: #fff5f3;
+}
+.analyst-criteria-delete-btn.is-armed {
+  border-color: #b42318;
+  background: #fee4e2;
+  color: #b42318;
+}
+.criteria-phase-eval-list-hint {
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-sm, 6px);
+  background: #f5f0ea;
+  border: 1px solid #e0d6cc;
+  font-size: 0.92rem;
+}
+.criteria-text-from-eval-list {
+  display: block;
+  font-weight: 500;
+  color: #2c241c;
+  line-height: 1.45;
+  padding: 0.2rem 0;
+}
+.criteria-planner-units-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.92rem;
+}
+.analyst-criteria-unit-cell {
+  min-width: 14rem;
+}
+.analyst-criteria-unit-label {
+  display: block;
+  font-weight: 600;
+  color: #2c241c;
+  line-height: 1.4;
+  padding: 0.15rem 0;
+}
+.analyst-criteria-new-unit-select {
+  max-width: 22rem;
 }
 
 /* بنك المعلومات — عرض شجري */

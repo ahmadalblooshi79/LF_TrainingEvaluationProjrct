@@ -18,6 +18,10 @@
       <i class="fa-solid fa-gavel" aria-hidden="true"></i>
       <span>قائمة المحكمين</span>
     </a>
+    <a class="admin-action-btn{% if request.path == '/admin/exercises/planner-flow-overview' %} admin-action-btn--active{% endif %}" href="{{ url_for('views.admin_planner_flow_bundle_overview') }}">
+      <i class="fa-solid fa-diagram-project" aria-hidden="true"></i>
+      <span>المجرى وربط التقييم (إطلاع)</span>
+    </a>
     <a class="admin-action-btn{% if request.path == '/admin/exercises/trainee-unit-roster' %} admin-action-btn--active{% endif %}" href="/admin/exercises/trainee-unit-roster">
       <i class="fa-solid fa-users" aria-hidden="true"></i>
       <span>قائمة الوحدة المتدربة</span>
@@ -34,10 +38,6 @@
       <i class="fa-solid fa-sitemap" aria-hidden="true"></i>
       <span>تنظيم المعركة</span>
     </a>
-    <a class="admin-action-btn{% if request.path.startswith('/admin/information-bank') %} admin-action-btn--active{% endif %}" href="/admin/information-bank">
-      <i class="fa-solid fa-database" aria-hidden="true"></i>
-      <span>بنك المعلومات</span>
-    </a>
     <a class="admin-action-btn{% if request.path.startswith('/admin/users') %} admin-action-btn--active{% endif %}" href="/admin/users">
       <i class="fa-solid fa-users-gear" aria-hidden="true"></i>
       <span>إدارة المستخدمين</span>
@@ -48,9 +48,9 @@
     </a>
     {% if workspace_exercise %}
     <hr class="admin-shell__divider" aria-hidden="true">
-    <button type="button" class="admin-action-btn admin-action-btn--finish" id="btn-finish-exercise" title="حفظ أرشيف التمرين ثم إفراغ بيانات التمرين من النظام">
-      <i class="fa-solid fa-flag-checkered" aria-hidden="true"></i>
-      <span>إنهاء التمرين</span>
+    <button type="button" class="admin-action-btn admin-action-btn--finish" id="btn-finish-exercise" title="مسح التمرين من النظام — بنك المعلومات لا يتأثر">
+      <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
+      <span>مسح بيانات التمرين</span>
     </button>
     {% endif %}
   </aside>
@@ -59,18 +59,25 @@
 {% if workspace_exercise %}
 <form id="form-finish-exercise" method="post" action="/admin/exercises/finish" class="sr-only">
   <input type="hidden" name="system_admin_password" id="finish-exercise-password-field" value="">
+  <input type="hidden" name="save_archive" id="finish-exercise-save-archive-field" value="1">
 </form>
 <div id="finish-exercise-overlay" class="import-password-overlay" role="dialog" aria-modal="true" aria-labelledby="finish-exercise-title" aria-hidden="true">
   <div class="import-password-dialog card">
-    <h2 id="finish-exercise-title" class="h2-in-card" style="margin-top:0;"><i class="fa-solid fa-flag-checkered fa-icon-title" aria-hidden="true"></i> إنهاء التمرين</h2>
-    <p class="muted">سيتم حفظ التمرين الحالي (<strong>{{ workspace_exercise.title }}</strong>) وجميع بياناته في ملف JSON، ثم إفراغ جميع صفحات التمرين من النظام. <strong>بنك المعلومات يبقى دون تغيير.</strong></p>
+    <h2 id="finish-exercise-title" class="h2-in-card" style="margin-top:0;"><i class="fa-solid fa-trash-can fa-icon-title" aria-hidden="true"></i> مسح بيانات التمرين</h2>
+    <p class="muted">سيتم حذف التمرين الحالي (<strong>{{ workspace_exercise.title }}</strong>) وجميع معلوماته ونتائجه وتقييماته من النظام (قوائم، محكمين، محادثات، تقارير…). <strong>بنك المعلومات لا يتأثر.</strong></p>
+    <div class="form-group" style="margin:0.75rem 0;">
+      <label class="checkbox-label" style="display:flex;align-items:flex-start;gap:0.5rem;cursor:pointer;">
+        <input type="checkbox" id="finish-exercise-save-archive" checked style="margin-top:0.2rem;">
+        <span>حفظ نسخة أرشيف (JSON + ملفات) في مجلد التصدير قبل المسح — يمكن فتحها لاحقاً من «فتح تمرين»</span>
+      </label>
+    </div>
     <p class="muted">أدخل كلمة مرور حساب إدارة النظام للتأكيد.</p>
     <div class="form-group">
       <label for="finish-exercise-password-input">كلمة المرور</label>
       <input type="password" id="finish-exercise-password-input" autocomplete="current-password" class="import-password-field">
     </div>
     <div class="btn-group" style="margin-top:1rem;justify-content:flex-start;">
-      <button type="button" class="btn btn-finish-exercise" id="finish-exercise-confirm"><i class="fa-solid fa-check" aria-hidden="true"></i> تأكيد الإنهاء</button>
+      <button type="button" class="btn btn-finish-exercise" id="finish-exercise-confirm"><i class="fa-solid fa-check" aria-hidden="true"></i> تأكيد المسح</button>
       <button type="button" class="btn btn-ghost" id="finish-exercise-cancel">إلغاء</button>
     </div>
   </div>
@@ -81,12 +88,14 @@
   const overlay = document.getElementById("finish-exercise-overlay");
   const pwdInput = document.getElementById("finish-exercise-password-input");
   const pwdHidden = document.getElementById("finish-exercise-password-field");
+  const archiveField = document.getElementById("finish-exercise-save-archive-field");
+  const archiveCheckbox = document.getElementById("finish-exercise-save-archive");
   const form = document.getElementById("form-finish-exercise");
   const confirmBtn = document.getElementById("finish-exercise-confirm");
   const cancelBtn = document.getElementById("finish-exercise-cancel");
   if (!btn || !overlay || !pwdInput || !form || !pwdHidden) return;
 
-  const MSG_CONFIRM = "هل تريد إنهاء التمرين الحالي؟\n\nسيتم:\n• حفظ نسخة كاملة (بيانات، قوائم، نتائج، محادثات، إشعارات…) في مجلد التصدير\n• إفراغ جميع صفحات التمرين من النظام\n• الإبقاء على بنك المعلومات فقط\n\nلا يمكن التراجع عن الإفراغ داخل النظام.";
+  const MSG_CONFIRM = "هل تريد مسح التمرين الحالي من النظام؟\n\nسيتم حذف جميع المعلومات والنتائج والتقييمات (قوائم، محكمين، محادثات، تقارير…).\nبنك المعلومات لا يتأثر.\n\nلا يمكن التراجع عن المسح داخل النظام.";
 
   function openOverlay() {
     pwdInput.value = "";
@@ -116,6 +125,9 @@
       return;
     }
     pwdHidden.value = pw;
+    if (archiveField && archiveCheckbox) {
+      archiveField.value = archiveCheckbox.checked ? "1" : "0";
+    }
     confirmBtn.disabled = true;
     form.submit();
   });
