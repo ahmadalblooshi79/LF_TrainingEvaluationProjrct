@@ -470,10 +470,11 @@ header {
   flex-wrap: nowrap;
   gap: 0.35rem 0.5rem;
   min-width: 0;
-  max-width: min(14rem, 22vw);
-  flex: 0 1 auto;
-  flex-shrink: 1;
-  padding: 0.2rem 0.5rem;
+  /* لا حد أقصى للعرض — تتمدّد الخانة مع طول اسم التمرين */
+  max-width: none;
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  padding: 0.2rem 0.7rem;
   border-radius: 999px;
   background: linear-gradient(135deg, var(--tint-100) 0%, var(--tint-200) 100%);
   border: 1px solid var(--border);
@@ -491,15 +492,16 @@ header {
 }
 
 .header-workspace-exercise__title {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-width: 0;
   font-size: var(--header-workspace-title-font);
   font-weight: 600;
   color: var(--brown-700);
   line-height: 1.3;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* السماح بظهور كامل الاسم بدون قص */
+  overflow: visible;
+  text-overflow: clip;
   text-decoration: none;
   border-bottom: 1px dashed transparent;
 }
@@ -939,29 +941,47 @@ footer {
   flex: 1;
 }
 
-/* الصفحة الرئيسية — صفّان × زرين ثم صف بتوسيط وزن واحد (يشمل حالات عدد بطاقات فردي بالأسفل) */
+/* الصفحة الرئيسية — كل الأزرار في صفّ واحد، بطاقات مربعة كبيرة بنفس الحجم */
 .role-grid.role-grid--pyramid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  max-width: min(100%, clamp(34rem, 88vw, 48rem));
-  margin-inline: auto;
-  justify-items: stretch;
-  align-items: stretch;
+  --dash-card-size: clamp(11rem, 16vw, 15rem) !important;
+  --dash-card-gap: clamp(0.8rem, 1.2vw, 1.4rem) !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  justify-content: center !important;
+  align-items: stretch !important;
+  gap: var(--dash-card-gap) !important;
+  /* العرض الأقصى = خمس بطاقات + أربع فجوات → صفّ واحد لكل الأزرار */
+  max-width: calc(5 * var(--dash-card-size) + 4 * var(--dash-card-gap)) !important;
+  margin-inline: auto !important;
+  grid-template-columns: none !important;
 }
-.role-grid.role-grid--pyramid .dashboard-role-card:nth-last-child(1):nth-child(odd) {
-  grid-column: 1 / -1;
-  justify-self: center;
-  width: 100%;
-  max-width: min(100%, clamp(17rem, 42vw, 22rem));
+.role-grid.role-grid--pyramid .dashboard-role-card {
+  width: var(--dash-card-size) !important;
+  aspect-ratio: 1 / 1 !important;
+  height: auto !important;
+  min-height: 0 !important;
+  grid-column: auto !important;
+  padding-block: 0.9rem !important;
+  padding-inline: 0.7rem !important;
+  gap: 0.55rem !important;
 }
-@media (max-width: 520px) {
+@media (max-width: 1100px) {
   .role-grid.role-grid--pyramid {
-    grid-template-columns: minmax(0, 1fr);
-    max-width: 28rem;
+    --dash-card-size: clamp(8.5rem, 17vw, 12rem) !important;
+    flex-wrap: wrap !important;
+    max-width: calc(5 * var(--dash-card-size) + 4 * var(--dash-card-gap)) !important;
   }
-  .role-grid.role-grid--pyramid .dashboard-role-card:nth-last-child(1):nth-child(odd) {
-    grid-column: auto;
-    justify-self: stretch;
-    max-width: none;
+}
+@media (max-width: 700px) {
+  .role-grid.role-grid--pyramid {
+    --dash-card-size: clamp(7.5rem, 28vw, 11rem) !important;
+    max-width: calc(3 * var(--dash-card-size) + 2 * var(--dash-card-gap)) !important;
+  }
+}
+@media (max-width: 460px) {
+  .role-grid.role-grid--pyramid {
+    --dash-card-size: clamp(7rem, 40vw, 10rem) !important;
+    max-width: calc(2 * var(--dash-card-size) + var(--dash-card-gap)) !important;
   }
 }
 
@@ -2011,12 +2031,46 @@ h2.h2-icon .fa-icon-title {
 
 .admin-users-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
   gap: 1rem;
   align-items: start;
 }
 @media (max-width: 900px) {
   .admin-users-grid { grid-template-columns: 1fr; }
+}
+
+/* جدول المستخدمين الحاليون — تصغير ارتفاع الصفوف */
+.admin-users-table th,
+.admin-users-table td {
+  padding-block: 0.28rem !important;
+  padding-inline: 0.6rem !important;
+  font-size: 0.88rem !important;
+  line-height: 1.25 !important;
+  vertical-align: middle !important;
+}
+
+/* أزرار تعديل/حذف — نفس الحجم بالضبط */
+.admin-users-actions {
+  white-space: nowrap;
+}
+.admin-users-actions .inline {
+  display: inline;
+  margin: 0;
+}
+.admin-users-action-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-width: 5.5rem;
+  padding: 0.32rem 0.7rem !important;
+  font-size: 0.82rem !important;
+  line-height: 1.2 !important;
+  box-sizing: border-box;
+  margin-inline-end: 0.25rem;
+}
+.admin-users-action-btn i {
+  font-size: 0.85em;
 }
 
 /* تعديلات إدارة النظام: بدون تغيير رأس الصفحة */
@@ -2028,6 +2082,11 @@ h2.h2-icon .fa-icon-title {
   cursor: pointer;
   transition: transform 0.12s ease, box-shadow 0.15s ease, border-color 0.15s ease;
   justify-content: center;
+  align-items: center;
+  position: relative;
+  padding-block: 1.1rem;
+  padding-inline: 0.9rem;
+  gap: 0.7rem;
 }
 .dashboard-role-card:hover {
   transform: translateY(-2px);
@@ -2036,34 +2095,93 @@ h2.h2-icon .fa-icon-title {
   border-color: var(--brown-200);
   box-shadow: 0 4px 12px rgba(80, 65, 55, 0.12);
 }
-.dashboard-role-hint {
-  margin-top: 0.85rem;
+.dashboard-role-start {
+  margin: 0;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  color: var(--brown-600);
+  font-weight: 700;
+  font-size: clamp(1.05rem, 1.3vw, 1.2rem);
+  letter-spacing: 0.02em;
+}
+.dashboard-role-start .fa-computer-mouse {
+  font-size: 1.2em;
   color: var(--brown-500);
-  font-weight: 600;
 }
 
-/* الصفحة الرئيسية فقط — توسيط عمودي لمجموعة الرأس والنص وسطر الدخول؛ فقرات دون امتلاك كل ارتفاع البطاقة */
-.role-grid .dashboard-role-card > p {
-  flex: 0 1 auto;
+/* Tooltip للواجبات — يظهر فوق البطاقة عند تحريك الماوس عليها فقط (للقراءة) */
+.dashboard-role-tooltip {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  left: 50%;
+  transform: translate(-50%, 4px);
+  width: max-content;
+  max-width: min(22rem, 90vw);
+  background: var(--surface, #fff);
+  color: var(--text, #2a221b);
+  border: 1px solid var(--border-light, #e4d9cd);
+  border-radius: var(--radius-sm, 0.4rem);
+  box-shadow: 0 8px 24px rgba(80, 65, 55, 0.18);
+  padding: 0.6rem 0.8rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  text-align: start;
+  white-space: pre-wrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s linear;
+  z-index: 50;
 }
+.dashboard-role-tooltip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 7px solid transparent;
+  border-top-color: var(--surface, #fff);
+  filter: drop-shadow(0 1px 0 var(--border-light, #e4d9cd));
+}
+.dashboard-role-card:hover .dashboard-role-tooltip,
+.dashboard-role-card:focus-visible .dashboard-role-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
+/* الصفحة الرئيسية فقط — تخطيط مربع: أيقونة فوق، اسم الدور وسط، "ابدأ" أسفل */
 .role-grid .dashboard-role-card > h3 {
-  justify-content: center;
-  align-items: center;
-  flex-wrap: wrap;
-  text-align: center;
-  width: 100%;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-items: center !important;
+  text-align: center !important;
+  width: 100% !important;
+  margin: 0 !important;
+  font-size: clamp(1rem, 1.4vw, 1.3rem) !important;
+  gap: 0.6rem !important;
+  flex: 1 1 auto !important;
+  line-height: 1.25 !important;
 }
 .role-grid .dashboard-role-card > h3 .fa-icon-role {
-  margin-top: 0;
+  margin: 0 !important;
+  font-size: clamp(2.8rem, 4.5vw, 4.2rem) !important;
+  line-height: 1 !important;
+  color: var(--brown-500) !important;
 }
-.role-grid .dashboard-role-card > .dashboard-role-hint {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 0.35rem;
-  flex-wrap: wrap;
-  text-align: center;
+.role-grid .dashboard-role-card > .dashboard-role-start {
   width: 100%;
+  text-align: center;
+  flex: 0 0 auto;
+  font-size: clamp(0.85rem, 1.1vw, 1.05rem) !important;
+  gap: 0.4rem !important;
+}
+.role-grid .dashboard-role-card > .dashboard-role-start .fa-computer-mouse {
+  font-size: 1.1em !important;
 }
 
 /* مساحات الأدوار (تخطيط/محكمين/سيطرة/محللين/…) — شبكة تعبئة متساوية وبطاقات مربعة عريضة؛ توسط عمودي في main تحت الرأس */
@@ -2073,7 +2191,9 @@ main:has(> aside.role-hub-menu.card) {
   gap: 0;
 }
 main > aside.role-hub-menu.card {
-  margin-block: auto;
+  /* رفع مربع أوامر الدور إلى الأعلى مع ترك 1.5 سم من الخط العلوي (تحت الترويسة) */
+  margin-block-start: 1.5cm;
+  margin-block-end: auto;
   flex: 0 0 auto;
   width: 100%;
 }
@@ -2088,8 +2208,10 @@ main > .role-grid:not(.role-grid--pyramid) {
   flex: 0 0 auto;
 }
 main > .role-grid.role-grid--pyramid {
-  margin-block: 0;
-  flex: 0 0 auto;
+  /* وضع الأزرار في الأعلى مع ترك 3 سم بينها وبين الخط العلوي */
+  margin-top: 3cm !important;
+  margin-bottom: 0 !important;
+  flex: 0 0 auto !important;
 }
 
 .role-hub-menu {
@@ -2605,7 +2727,19 @@ button.admin-action-btn {
   border-radius: var(--radius-sm);
   padding: 0.38rem 0.55rem;
   font: inherit;
-  line-height: 1.2;
+  line-height: 1.4;
+}
+.objectives-editor-row__input--autogrow {
+  resize: vertical;
+  overflow: hidden;
+  width: 100%;
+  min-height: 2.1rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  field-sizing: content;
+}
+.objectives-editor-row {
+  align-items: flex-start;
 }
 .objectives-editor-row__del {
   flex: 0 0 auto;
@@ -6737,7 +6871,9 @@ body.control-report-page #cr-panel-charts.control-report-tab-panel {
   grid-template-columns: 1fr;
 }
 .ibank-files-list-scroll {
-  max-height: min(58vh, 24rem);
+  /* تمتد قائمة الملفات حتى أسفل الصفحة قدر الإمكان */
+  max-height: calc(100vh - 18rem);
+  min-height: 24rem;
   overflow: auto;
   margin-top: 0.35rem;
   -webkit-overflow-scrolling: touch;
@@ -6786,7 +6922,9 @@ body.control-report-page #cr-panel-charts.control-report-tab-panel {
   vertical-align: middle;
 }
 .ibank-table-scroll {
-  max-height: 70vh;
+  /* تمتد الجداول من بدايتها حتى نهاية الصفحة */
+  max-height: calc(100vh - 16rem);
+  min-height: 26rem;
   overflow: auto;
 }
 .ibank-table th[scope="row"] {
@@ -6852,7 +6990,9 @@ body.control-report-page #cr-panel-charts.control-report-tab-panel {
   padding: 0.22rem 0.4rem !important;
 }
 .ibank-table-scroll--short {
-  max-height: 38vh;
+  /* النسخة القصيرة أيضاً تمتد حتى نهاية الصفحة */
+  max-height: calc(100vh - 16rem);
+  min-height: 22rem;
 }
 .js-ibank-drag[draggable="true"] {
   cursor: grab;
@@ -8007,7 +8147,32 @@ main:has(.judge-pf-tabbed) > .judge-pf-root {
   vertical-align: middle;
 }
 .analyst-criteria-distribution-wrap {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: calc(100vh - 12rem);
+  min-height: calc(100vh - 14rem);
+}
+.analyst-criteria-distribution-card {
+  padding-block-end: 0.75rem;
+}
+.analyst-criteria-distribution-table th,
+.analyst-criteria-distribution-table td {
+  padding-block: 0.25rem !important;
+  padding-inline: 0.5rem !important;
+  font-size: 0.9rem !important;
+  line-height: 1.25 !important;
+  vertical-align: middle !important;
+}
+.analyst-criteria-distribution-table .analyst-criteria-unit-label {
+  padding: 0 !important;
+  line-height: 1.25;
+}
+.analyst-criteria-distribution-table .analyst-criteria-delete-btn {
+  width: 1.85rem;
+  height: 1.85rem;
+}
+.analyst-criteria-distribution-table .analyst-criteria-phase-select {
+  padding: 0.2rem 0.4rem;
+  font-size: 0.88rem;
 }
 .analyst-criteria-actions-cell {
   min-width: 13rem;
@@ -8033,6 +8198,27 @@ main:has(.judge-pf-tabbed) > .judge-pf-root {
 .analyst-criteria-phase-select:focus-visible {
   outline: 2px solid var(--accent, #6b4423);
   outline-offset: 2px;
+}
+
+/* إدارة تقييمات الوحدات — تصغير ارتفاع الصفوف */
+.saved-results-table th,
+.saved-results-table td {
+  padding-block: 0.25rem !important;
+  padding-inline: 0.55rem !important;
+  font-size: 0.88rem !important;
+  line-height: 1.25 !important;
+  vertical-align: middle !important;
+}
+.saved-results-table .btn-sm {
+  padding-block: 0.15rem !important;
+  padding-inline: 0.55rem !important;
+  font-size: 0.82rem !important;
+  line-height: 1.2 !important;
+}
+.saved-results-table input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  vertical-align: middle;
 }
 .analyst-criteria-delete-btn {
   display: inline-flex;
@@ -8236,4 +8422,121 @@ main:has(.judge-pf-tabbed) > .judge-pf-root {
 }
 .ibank-tree-node[aria-expanded="false"] > .ibank-tree-children {
   display: none;
+}
+
+/* =================================================================
+   التوافق مع مختلف أحجام الشاشات (Responsive Layer)
+   يضبط حجم الخط، الهوامش، وعرض المكوّنات بناءً على دقة العرض.
+   ================================================================= */
+
+/* مقاسات سائلة افتراضية (تتغيّر تدريجياً مع عرض الشاشة) */
+:root {
+  --page-gutter-inline: clamp(0.5rem, 2vw, 1cm);
+  --responsive-font-base: clamp(13.5px, 0.9vw + 11px, 16px);
+}
+
+html {
+  font-size: var(--responsive-font-base);
+}
+
+/* الشاشات الكبيرة جداً (Desktop > 1400px) */
+@media (min-width: 1401px) {
+  :root {
+    --responsive-font-base: 16px;
+  }
+}
+
+/* الشاشات المتوسطة (Laptop 1100–1400px) */
+@media (min-width: 1101px) and (max-width: 1400px) {
+  :root {
+    --responsive-font-base: 15px;
+  }
+}
+
+/* الشاشات المتوسطة-الصغيرة (التابلت العريض 900–1100px) */
+@media (min-width: 901px) and (max-width: 1100px) {
+  :root {
+    --responsive-font-base: 14.5px;
+    --page-gutter-inline: 0.6rem;
+  }
+  main {
+    padding-block: var(--space-md) var(--space-lg);
+  }
+}
+
+/* التابلت (700–900px) */
+@media (max-width: 900px) {
+  :root {
+    --responsive-font-base: 14px;
+    --page-gutter-inline: 0.5rem;
+    --space-md: 1rem;
+    --space-lg: 1.35rem;
+    --space-xl: 1.85rem;
+    --header-nav-control-height: 2.35rem;
+  }
+  main h1 { font-size: 1.45rem; }
+  section.card h2,
+  .card h2,
+  h2.h2-in-card { font-size: 1rem; }
+  .card { padding: 0.9rem 0.95rem; }
+  .header-bar { flex-wrap: wrap; }
+  .header-bar__segment--center,
+  .header-bar__segment--trail { flex: 1 1 100%; min-width: 0; }
+  .header-bar__segment--center { border-inline-start: none; padding-inline-start: 0; margin-inline-start: 0; }
+  .header-bar__segment--trail { border-inline-start: none; padding-inline-start: 0; margin-inline-start: 0; }
+  .table-wrap,
+  .final-report-table-scroll,
+  .analyst-criteria-distribution-wrap { overflow-x: auto; }
+  table { min-width: 0; }
+}
+
+/* الهاتف العريض (560–700px) */
+@media (max-width: 700px) {
+  :root {
+    --responsive-font-base: 13.5px;
+    --page-gutter-inline: 0.4rem;
+    --space-md: 0.85rem;
+    --space-lg: 1.1rem;
+    --space-xl: 1.45rem;
+  }
+  main h1 { font-size: 1.25rem; }
+  .card { padding: 0.7rem 0.75rem; }
+  .btn,
+  .btn-ghost { padding-block: 0.4rem; padding-inline: 0.65rem; font-size: 0.9rem; }
+}
+
+/* الهاتف الصغير (≤ 560px) */
+@media (max-width: 560px) {
+  :root {
+    --responsive-font-base: 13px;
+    --page-gutter-inline: 0.35rem;
+  }
+  main h1 { font-size: 1.1rem; }
+  .header-workspace-exercise__title { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+/* جداول قابلة للتمرير الأفقي على كل الشاشات الصغيرة */
+@media (max-width: 1100px) {
+  .table-wrap,
+  .final-report-table-scroll,
+  .final-report-table-wrap,
+  .analyst-criteria-distribution-wrap,
+  .saved-results-table-wrap,
+  .ibank-tree-card,
+  .control-positives-negatives-wrap,
+  .analyst-positives-negatives-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  table {
+    width: 100%;
+    min-width: max-content;
+  }
+}
+
+/* عند الطباعة */
+@media print {
+  html, body { overflow: visible; height: auto; }
+  header, footer, .header-bar, .nav-hub-link, .btn { display: none !important; }
+  main { padding: 0; }
 }

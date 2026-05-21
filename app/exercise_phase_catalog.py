@@ -4,7 +4,7 @@ EXERCISE_PHASE_OPTIONS: list[tuple[str, str]] = [
     ("preparation", "مرحلة التحضير"),
     ("opening", "مرحلة الإنفتاح"),
     ("main", "مرحلة المعركة التعرضية"),
-    ("reorg", "مرحلة إعادة التنظيم"),
+    ("reorg", "مرحلة مسارات التقييم"),
 ]
 
 DEFAULT_EXERCISE_PHASE = EXERCISE_PHASE_OPTIONS[0][0]

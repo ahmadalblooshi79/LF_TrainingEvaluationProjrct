@@ -240,7 +240,7 @@ def ensure_information_bank_tree(db: Session, kind: str) -> None:
         if ph.is_system and ph.key not in primary_keys and ph.key in {
             p["key"] for p in TRAINING_PHASES if p["key"] not in PRIMARY_PHASE_KEYS
         }:
-            # مراحل نظام إضافية (مثل إعادة التنظيم) — تُنشأ عند وجودها في الكتالوج
+            # مراحل نظام إضافية (مثل مسارات التقييم) — تُنشأ عند وجودها في الكتالوج
             pass
         phase_node = _find_phase_folder(db, kind, ph.key)
         if phase_node is None:

@@ -6,15 +6,6 @@
   <p class="muted">لحسابات بصلاحية إدارة النظام فقط</p>
 </div>
 <div class="admin-users-grid">
-  <div class="card form-narrow-w">
-    <h2><i class="fa-solid fa-file-import fa-icon-title" aria-hidden="true"></i> توليد أسماء المستخدمين من ملف</h2>
-    <p class="muted">ارفع ملف TXT/CSV يحتوي على قائمة أسماء (كل اسم في سطر) وسيتم توليد اسم مستخدم فريد لكل اسم حسب الدور المختار.</p>
-    <div class="form-group">
-      <label for="names-file"><i class="fa-solid fa-paperclip fa-icon-label" aria-hidden="true"></i> ملف الأسماء</label>
-      <input id="names-file" type="file" accept=".txt,.csv,text/plain,text/csv">
-    </div>
-  </div>
-
   <form class="card form-narrow-w" method="post" action="/admin/users">
     <h2><i class="fa-solid fa-user-plus fa-icon-title" aria-hidden="true"></i> مستخدم جديد</h2>
     <div class="form-group">
@@ -35,12 +26,10 @@
         <input id="new-username" name="username" required placeholder="مثال: user001">
         <button class="btn btn-ghost" type="button" id="gen-username-btn"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> توليد تلقائي</button>
       </div>
-      <p class="muted mt-tight">للمحكمين: اجعل اسم المستخدم هو <strong>الرقم العسكري</strong>.</p>
     </div>
     <div class="form-group">
       <label><i class="fa-solid fa-key fa-icon-label" aria-hidden="true"></i> كلمة مرور مؤقتة</label>
       <input name="temp_password" type="password" placeholder="اتركها فارغة → demo123">
-      <p class="muted mt-tight">للمحكمين: اتركها فارغة وسيتم ضبط كلمة المرور = اسم المستخدم (الرقم العسكري).</p>
     </div>
     {% if has_exercise and trainee_choices %}
     <div class="form-group">
@@ -51,11 +40,39 @@
           <option value="{{ tr.id }}">{{ tr.label }}</option>
         {% endfor %}
       </select>
-      <p class="muted mt-tight">بعد التخصيص لن يرى المحكم إلا قوائم المتدرب المحدد (المعاضل + التقييم).</p>
     </div>
     {% endif %}
     <button class="btn" type="submit"><i class="fa-solid fa-check" aria-hidden="true"></i> إنشاء</button>
   </form>
+
+  <div class="card admin-users-list-card">
+    <h2 class="h2-in-card"><i class="fa-solid fa-list fa-icon-title" aria-hidden="true"></i> المستخدمون الحاليون</h2>
+    <div class="table-wrap">
+    <table class="admin-users-table">
+      <thead>
+        <tr><th>المعرف</th><th>نوع المستخدم / الاسم</th><th>اسم المستخدم</th><th>مفعّل</th><th>إجراءات</th></tr>
+      </thead>
+      <tbody>
+      {% for u in users %}
+        <tr>
+          <td>{{ u.id }}</td>
+          <td><i class="fa-solid fa-user fa-td" aria-hidden="true"></i> {% if rdefs.get(u.role_key) %}{{ rdefs[u.role_key].title_ar }}{% else %}غير محدد{% endif %} / {{ u.full_name }}</td>
+          <td><code>{{ u.username }}</code></td>
+          <td>{% if u.is_active %}<i class="fa-solid fa-check ok-check" aria-hidden="true"></i> نعم{% else %}<i class="fa-solid fa-xmark off-check" aria-hidden="true"></i> لا{% endif %}</td>
+          <td class="admin-users-actions">
+            <a class="btn btn-ghost admin-users-action-btn" href="/admin/users/{{ u.id }}/edit"><i class="fa-solid fa-pen" aria-hidden="true"></i> تعديل</a>
+            {% if user.id != u.id %}
+            <form method="post" action="/admin/users/{{ u.id }}/delete" class="inline" onsubmit="return confirm('هل أنت متأكد من حذف/تعطيل هذا المستخدم؟');">
+              <button class="btn btn-ghost admin-users-action-btn" type="submit"><i class="fa-solid fa-trash" aria-hidden="true"></i> حذف</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
 </div>
 <script>
 (() => {
@@ -64,7 +81,6 @@
   const username = document.getElementById("new-username");
   if (!btn || !role || !username) return;
 
-  // للمحكم: إخفاء زر التوليد لأن المطلوب username=الرقم العسكري
   const refreshJudgeUi = () => {
     const isJudge = (role.value || "").toLowerCase() === "judge";
     btn.style.display = isJudge ? "none" : "";
@@ -94,34 +110,4 @@
   });
 })();
 </script>
-<!-- زر طباعة النتائج أُلغي حسب الطلب -->
-
-<div class="card">
-  <h2 class="h2-in-card"><i class="fa-solid fa-list fa-icon-title" aria-hidden="true"></i> المستخدمون الحاليون</h2>
-  <div class="table-wrap">
-  <table>
-    <thead>
-      <tr><th>المعرف</th><th>نوع المستخدم / الاسم</th><th>اسم المستخدم</th><th>مفعّل</th><th>إجراءات</th></tr>
-    </thead>
-    <tbody>
-    {% for u in users %}
-      <tr>
-        <td>{{ u.id }}</td>
-        <td><i class="fa-solid fa-user fa-td" aria-hidden="true"></i> {% if rdefs.get(u.role_key) %}{{ rdefs[u.role_key].title_ar }}{% else %}غير محدد{% endif %} / {{ u.full_name }}</td>
-        <td><code>{{ u.username }}</code></td>
-        <td>{% if u.is_active %}<i class="fa-solid fa-check ok-check" aria-hidden="true"></i> نعم{% else %}<i class="fa-solid fa-xmark off-check" aria-hidden="true"></i> لا{% endif %}</td>
-        <td>
-          <a class="btn btn-ghost" href="/admin/users/{{ u.id }}/edit"><i class="fa-solid fa-pen" aria-hidden="true"></i> تعديل</a>
-          {% if user.id != u.id %}
-          <form method="post" action="/admin/users/{{ u.id }}/delete" class="inline" onsubmit="return confirm('هل أنت متأكد من حذف/تعطيل هذا المستخدم؟');">
-            <button class="btn btn-ghost" type="submit"><i class="fa-solid fa-trash" aria-hidden="true"></i> حذف</button>
-          </form>
-          {% endif %}
-        </td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-</div>
 {% endblock %}

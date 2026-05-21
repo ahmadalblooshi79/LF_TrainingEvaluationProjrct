@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/static/style.css?v=header42">
+  <link rel="stylesheet" href="/static/style.css?v=auto-refresh-1">
 </head>
 <body class="{% block body_class %}{% endblock %}">
 <header>
@@ -56,7 +56,6 @@
             <a role="menuitem" href="/admin/dilemmas-evaluation-unit-report"><i class="fa-solid fa-link" aria-hidden="true"></i> ربط المعاضل والتقييم</a>
             <a role="menuitem" href="/admin/battle-organization"><i class="fa-solid fa-sitemap" aria-hidden="true"></i> تنظيم المعركة</a>
             <a role="menuitem" href="/admin/users"><i class="fa-solid fa-users-gear" aria-hidden="true"></i> إدارة المستخدمين</a>
-            <a role="menuitem" href="/admin/system-checklist"><i class="fa-solid fa-list-check" aria-hidden="true"></i> Checklist محتويات النظام</a>
           </div>
         </div>
         {% endif %}
@@ -100,7 +99,7 @@
   var pollUrl = "/api/notifications/summary";
   var logUrl = {{ notifications_log_url | tojson }};
   var badge = document.getElementById("header-notif-badge");
-  var pollMs = 45000;
+  var pollMs = 4000;
   var lastToastId = 0;
   try {
     var raw = sessionStorage.getItem("notif_last_toast_id");
@@ -179,6 +178,161 @@
 
   setTimeout(poll, 4000);
   setInterval(poll, pollMs);
+})();
+</script>
+{% endif %}
+{% if user %}
+<script>
+(function () {
+  // التحديث التلقائي بين الخادم والعملاء — Auto-Refresh.
+  // يستعلم خادم النبضات الموحّد ويعيد تحميل الصفحة عند تغيّر أي
+  // مصدر متابعة (إشعارات، قوائم تقييم، حفظ/اعتماد، محادثات، ...).
+  var POLL_MS = 3000;
+  var FAST_POLL_MS = 1500;
+  var initialVersion = null;
+  var lastVersion = null;
+  var reloading = false;
+  var deferredReload = false;
+
+  function isChatRoomPage() {
+    return /\/chat-rooms\//.test(window.location.pathname);
+  }
+
+  function isUserBusy() {
+    var el = document.activeElement;
+    if (!el || el === document.body) return false;
+    var tag = (el.tagName || "").toLowerCase();
+    if (tag === "input") {
+      var t = (el.getAttribute("type") || "text").toLowerCase();
+      // لا توقف التحديث على المربعات غير النصية.
+      if (["checkbox", "radio", "submit", "button", "reset", "image", "file"].indexOf(t) >= 0) {
+        return false;
+      }
+      return (el.value || "").length > 0;
+    }
+    if (tag === "textarea") {
+      return true;
+    }
+    if (el.isContentEditable) return true;
+    return false;
+  }
+
+  function saveScroll() {
+    try {
+      sessionStorage.setItem(
+        "__autorefresh_scroll__:" + window.location.pathname,
+        String(window.scrollY || window.pageYOffset || 0)
+      );
+    } catch (e) {}
+  }
+
+  function restoreScroll() {
+    try {
+      var key = "__autorefresh_scroll__:" + window.location.pathname;
+      var raw = sessionStorage.getItem(key);
+      if (!raw) return;
+      sessionStorage.removeItem(key);
+      var y = parseInt(raw, 10);
+      if (!isNaN(y) && y > 0) window.scrollTo(0, y);
+    } catch (e) {}
+  }
+
+  function saveChatComposer() {
+    if (!isChatRoomPage()) return;
+    try {
+      var ta = document.querySelector(".chat-textarea") || document.querySelector('textarea[name="body"]');
+      if (ta && (ta.value || "").length) {
+        sessionStorage.setItem(
+          "__autorefresh_chat_draft__:" + window.location.pathname,
+          ta.value
+        );
+      }
+    } catch (e) {}
+  }
+
+  function restoreChatComposer() {
+    if (!isChatRoomPage()) return;
+    try {
+      var key = "__autorefresh_chat_draft__:" + window.location.pathname;
+      var raw = sessionStorage.getItem(key);
+      if (!raw) return;
+      sessionStorage.removeItem(key);
+      var ta = document.querySelector(".chat-textarea") || document.querySelector('textarea[name="body"]');
+      if (ta) {
+        ta.value = raw;
+        ta.focus();
+        try { ta.selectionStart = ta.selectionEnd = ta.value.length; } catch (e) {}
+      }
+    } catch (e) {}
+  }
+
+  function doReload() {
+    if (reloading) return;
+    // في صفحات المحادثة نحفظ المسودة ثم نُعيد التحميل دون تأخير
+    // لضمان وصول الرسائل الجديدة فوراً للمستلمين.
+    if (isChatRoomPage()) {
+      reloading = true;
+      saveChatComposer();
+      saveScroll();
+      window.location.reload();
+      return;
+    }
+    if (isUserBusy()) {
+      deferredReload = true;
+      return;
+    }
+    reloading = true;
+    saveScroll();
+    window.location.reload();
+  }
+
+  function checkDeferred() {
+    if (deferredReload && !isUserBusy()) {
+      doReload();
+    }
+  }
+
+  document.addEventListener("focusout", function () {
+    window.setTimeout(checkDeferred, 200);
+  });
+  document.addEventListener("click", function (ev) {
+    var t = ev.target;
+    if (t && (t.tagName || "").toLowerCase() === "button") {
+      window.setTimeout(checkDeferred, 800);
+    }
+  }, true);
+
+  function poll() {
+    if (reloading) return;
+    if (document.hidden) return;
+    fetch("/api/system/heartbeat", { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.ok) return;
+        var v = data.version;
+        if (initialVersion === null) {
+          initialVersion = v;
+          lastVersion = v;
+          return;
+        }
+        if (v !== lastVersion) {
+          lastVersion = v;
+          doReload();
+        }
+      })
+      .catch(function () {});
+  }
+
+  var intervalMs = isChatRoomPage() ? FAST_POLL_MS : POLL_MS;
+  window.setTimeout(poll, 800);
+  window.setInterval(poll, intervalMs);
+
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) poll();
+  });
+
+  restoreScroll();
+  restoreChatComposer();
 })();
 </script>
 {% endif %}

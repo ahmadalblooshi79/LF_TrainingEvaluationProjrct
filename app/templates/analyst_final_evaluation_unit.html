@@ -18,7 +18,7 @@
   <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
     الصفوف الأولى من كل مرحلة: <strong>معايير التقييم</strong> (قائمة التقييم + القصوى — للعرض فقط).
     صفوف إضافية (إن وُجدت): قوائم محكمين غير مكررة في المعايير؛ عمود القصوى للعرض فقط في مراحل التحضير والانفتاح والمعركة.
-    مرحلة إعادة التنظيم: القصوى لقوائم المحكمين قابلة للإدخال اليدوي.
+    مرحلة مسارات التقييم: القصوى لقوائم المحكمين قابلة للإدخال اليدوي.
     <span class="muted">المعتمدة: {{ n_approved_eval_lists }} | المحفوظة غير المعتمدة: {{ n_saved_pending_eval_lists }}</span>
     <span id="final-eval-unit-autosave-status" class="final-eval-autosave-status" role="status" aria-live="polite"></span>
   </p>
@@ -178,7 +178,7 @@
   {{ detail_table(unit.preparation_detail_rows, "نتيجة تقييم اجراءات الوحده في مرحلة التحضير", "العلامه المخصصه للوحده خلال مرحلة التحضير", "لا توجد قوائم تقييم لمرحلة التحضير.", unit.preparation_criteria_items, unit.preparation_criteria_total, unit.preparation_criteria_eval_max_total, unit.preparation_criteria_allocated_acquired_total, unit.preparation_criteria_acquired_total, unit.preparation_criteria_allocated_pct, unit.preparation_criteria_allocated_grade, true) }}
   {{ detail_table(unit.opening_detail_rows, "نتيجة تقييم الوحده في مرحلة الانفتاح", "العلامه المخصصه للوحده خلال مرحلة الانفتاح", "لا توجد قوائم تقييم لمرحلة الانفتاح.", unit.opening_criteria_items, unit.opening_criteria_total, unit.opening_criteria_eval_max_total, unit.opening_criteria_allocated_acquired_total, unit.opening_criteria_acquired_total, unit.opening_criteria_allocated_pct, unit.opening_criteria_allocated_grade, true) }}
   {{ detail_table(unit.main_detail_rows, "نتيجة تقييم الوحده في مرحلة المعركة التعرضية", "العلامه المخصصه للوحده خلال مرحلة المعركة التعرضية", "لا توجد قوائم تقييم لمرحلة المعركة التعرضية.", unit.main_criteria_items, unit.main_criteria_total, unit.main_criteria_eval_max_total, unit.main_criteria_allocated_acquired_total, unit.main_criteria_acquired_total, unit.main_criteria_allocated_pct, unit.main_criteria_allocated_grade, true) }}
-  {{ detail_table(unit.reorg_detail_rows, "نتيجة تقييم الوحده في مرحلة إعادة التنظيم", "العلامه المخصصه للوحده خلال مرحلة إعادة التنظيم", "لا توجد قوائم تقييم لمرحلة إعادة التنظيم.", unit.reorg_criteria_items, unit.reorg_criteria_total, unit.reorg_criteria_eval_max_total, unit.reorg_criteria_allocated_acquired_total, unit.reorg_criteria_acquired_total, unit.reorg_criteria_allocated_pct, unit.reorg_criteria_allocated_grade) }}
+  {{ detail_table(unit.reorg_detail_rows, "نتيجة تقييم الوحده في مرحلة مسارات التقييم", "العلامه المخصصه للوحده خلال مرحلة مسارات التقييم", "لا توجد قوائم تقييم لمرحلة مسارات التقييم.", unit.reorg_criteria_items, unit.reorg_criteria_total, unit.reorg_criteria_eval_max_total, unit.reorg_criteria_allocated_acquired_total, unit.reorg_criteria_acquired_total, unit.reorg_criteria_allocated_pct, unit.reorg_criteria_allocated_grade) }}
   {% if unit.show_evaluation_tracks %}
   {{ detail_table(unit.evaluation_tracks_detail_rows, "نتيجة تقييم الوحده في مرحلة مسارات التقييم", "العلامه المخصصه للوحده خلال مرحلة مسارات التقييم", "لا توجد قوائم تقييم لمرحلة مسارات التقييم.", unit.evaluation_tracks_criteria_items, unit.evaluation_tracks_criteria_total, unit.evaluation_tracks_criteria_eval_max_total, unit.evaluation_tracks_criteria_allocated_acquired_total, unit.evaluation_tracks_criteria_acquired_total, unit.evaluation_tracks_criteria_allocated_pct, unit.evaluation_tracks_criteria_allocated_grade) }}
   {% endif %}

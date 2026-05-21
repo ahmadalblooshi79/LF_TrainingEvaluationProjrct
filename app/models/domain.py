@@ -30,7 +30,7 @@ class ExercisePhase(str, enum.Enum):
     PREPARATION = "preparation"  # مرحلة التحضير
     OPENING = "opening"  # مرحلة الإنفتاح
     MAIN = "main"  # مرحلة المعركة التعرضية
-    REORG = "reorg"  # مرحلة إعادة التنظيم
+    REORG = "reorg"  # مرحلة مسارات التقييم
 
 
 class RoleDef(Base):

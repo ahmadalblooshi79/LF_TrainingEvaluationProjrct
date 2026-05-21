@@ -1213,6 +1213,44 @@ def _final_eval_phase_manual_max_map(db, exercise_id: int) -> dict[tuple[str, st
     return out
 
 
+def _analyst_criteria_phase_max_map(db, exercise_id: int) -> dict[tuple[str, str], float]:
+    """يبني خريطة (unit_level_key, phase_key) → مجموع 'القصوى' المُدخل في
+    «مساحة المحللين / معايير التقييم / جدول توزيع النسبة المئوية الإجمالية للتقييم».
+
+    تُستخدم في التقرير النهائي لتعبئة عمود «القصوى» تلقائياً عندما لا تتوفر قيمة
+    يدوية محفوظة في AnalystFinalEvaluationPhaseAllocatedMax.
+    """
+    criteria_units = (
+        db.query(AnalystEvaluationCriteriaUnit)
+        .filter(AnalystEvaluationCriteriaUnit.exercise_id == int(exercise_id))
+        .all()
+    )
+    unit_id_to_level: dict[int, str] = {}
+    for cu in criteria_units:
+        uk = _resolve_unit_level_key_for_criteria_label(cu.label or "")
+        if uk:
+            unit_id_to_level[int(cu.id)] = uk
+    if not unit_id_to_level:
+        return {}
+
+    phase_items = (
+        db.query(AnalystEvaluationCriteriaPhaseItem)
+        .filter(AnalystEvaluationCriteriaPhaseItem.exercise_id == int(exercise_id))
+        .all()
+    )
+    out: dict[tuple[str, str], float] = {}
+    for item in phase_items:
+        if item.allocated_mark is None:
+            continue
+        cu_id = int(item.criteria_unit_id or 0)
+        uk = unit_id_to_level.get(cu_id, "")
+        pk = _normalized_exercise_phase(item.phase_key or "")
+        if not uk or not pk:
+            continue
+        out[(uk, pk)] = out.get((uk, pk), 0.0) + float(item.allocated_mark)
+    return out
+
+
 def _upsert_final_eval_report_phase_max(
     db,
     *,
@@ -1307,7 +1345,14 @@ def _final_eval_phase_row_metrics(
     if manual_max is None:
         stored = _final_eval_phase_manual_max_map(db, int(exercise_id)).get((unit_key, phase_key))
         manual_max = float(stored) if stored is not None else None
-    max_mark = float(manual_max) if manual_max is not None else 0.0
+    if manual_max is not None:
+        max_mark = float(manual_max)
+    else:
+        # «القصوى» من معايير التقييم كقيمة افتراضية عند غياب الإدخال اليدوي
+        criteria_max = _analyst_criteria_phase_max_map(db, int(exercise_id)).get(
+            (unit_key, phase_key)
+        )
+        max_mark = float(criteria_max) if criteria_max is not None else 0.0
     phase_pct: float | None = None
     if max_mark > 0 and acquired_mark > 0:
         phase_pct = (acquired_mark / max_mark) * 100.0
@@ -1606,7 +1651,7 @@ def _phase_summary_from_eval_items(
 
 
 def _distribution_from_phase_summary(summary: dict) -> list[dict]:
-    """أعمدة مخطط «أداء الوحدات حسب مراحل التمرين»: كل مرحلة لها نسبة محسوبة (يشمل مرحلة إعادة التنظيم إن وُجدت بيانات)."""
+    """أعمدة مخطط «أداء الوحدات حسب مراحل التمرين»: كل مرحلة لها نسبة محسوبة (يشمل مرحلة مسارات التقييم إن وُجدت بيانات)."""
     phase_order = {key: idx for idx, key in enumerate(exercise_phase_keys())}
     items: list[dict] = []
     for ps in summary.get("phase_summaries") or []:
@@ -2680,6 +2725,10 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
     saved_pending_source_count = len(saved_source_rows) - approved_source_count
     manual_max_by_item = _final_eval_manual_max_map(db, int(ex.id))
     phase_manual_max_map = _final_eval_phase_manual_max_map(db, int(ex.id))
+    # «القصوى» الافتراضية لكل (وحدة، مرحلة) مأخوذة من جدول معايير التقييم
+    # (مساحة المحللين / معايير التقييم) — تظهر في التقرير النهائي عند عدم
+    # إدخال قيمة يدوية في AnalystFinalEvaluationPhaseAllocatedMax.
+    criteria_phase_max_map = _analyst_criteria_phase_max_map(db, int(ex.id))
 
     phase_acquired_totals: dict[tuple[str, str], dict] = {}
     unit_phase_slots: dict[tuple[str, str], dict] = {}
@@ -2822,7 +2871,11 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
         )
         manual_max = phase_manual_max_map.get(slot_key)
         has_phase_manual_max = manual_max is not None
-        max_mark = float(manual_max) if manual_max is not None else 0.0
+        if manual_max is not None:
+            max_mark = float(manual_max)
+        else:
+            # عدم وجود إدخال يدوي ⇒ استخدم القيمة من معايير التقييم (إن وُجدت)
+            max_mark = float(criteria_phase_max_map.get(slot_key) or 0.0)
         phase_pct: float | None = None
         if max_mark > 0 and acquired_mark > 0:
             phase_pct = (acquired_mark / max_mark) * 100.0
@@ -3894,7 +3947,7 @@ def analyst_hub_section(slug: str):
                 criteria_phases=dist.get("criteria_phases")
                 or list(ANALYST_EVALUATION_CRITERIA_PHASE_ORDER),
                 available_unit_levels=dist.get("available_unit_levels") or [],
-                ok_msg="تم حفظ قائمة وحدات معايير التقييم." if request.args.get("ok") else "",
+                ok_msg="تم الحفظ بنجاح." if request.args.get("ok") else "",
             ),
         )
     if slug_norm == "positives-negatives":
@@ -4557,12 +4610,7 @@ def analyst_evaluation_criteria_phase(unit_id: int, phase_key: str):
     if request.method == "POST":
         _save_criteria_phase_items_for_unit(db, ex, unit, phase_key)
         return redirect(
-            url_for(
-                "views.analyst_evaluation_criteria_phase",
-                unit_id=unit.id,
-                phase_key=phase_key,
-                ok=1,
-            )
+            url_for("views.analyst_hub_section", slug="evaluation-criteria", ok=1)
         )
     items = _criteria_phase_items_for_unit(db, ex, unit, phase_key)
     eval_list_titles = _evaluation_list_titles_for_criteria_unit(db, ex, unit, phase_key)
@@ -6873,6 +6921,112 @@ def notifications_mark_all_read():
     return redirect(url_for("views.notifications_log", **_role_hub_preserve_link_kwargs()))
 
 
+@bp.route("/api/system/heartbeat", methods=["GET"])
+def api_system_heartbeat():
+    """نقطة نهاية «نبضة الحياة» للتحديث التلقائي بين الخادم والعملاء.
+
+    تُرجع توقيع نسخة مركّب يتغيّر عند أي تغيير في الجداول الرئيسية
+    (الإشعارات، قوائم التقييم، نتائج التقييم، رسائل المحادثة، توثيق
+    مرئي، تقييمات المسارات/التقريرات النهائية). يستدعيها العميل
+    بشكل دوري لاكتشاف الحاجة لإعادة تحميل الصفحة تلقائياً.
+    """
+    user = get_current_user_optional()
+    if not user:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    from flask import g
+
+    db = g.db
+    parts: list[str] = []
+
+    def _add_max(query):
+        try:
+            ts = query.scalar()
+        except Exception:
+            ts = None
+        if ts is not None:
+            try:
+                parts.append(str(int(ts.timestamp())))
+            except Exception:
+                parts.append(str(ts))
+
+    # نطاق التمرين الحالي (لكل من المسؤول وغيره).
+    ex = None
+    try:
+        if is_system_admin(user):
+            ex = _admin_current_workspace_exercise(db, user)
+        else:
+            ex = _current_workspace_exercise(db, user)
+    except Exception:
+        ex = None
+    ex_id = int(ex.id) if ex is not None else 0
+    parts.append(f"ex={ex_id}")
+
+    # سجل الإشعارات الخاص بالمستخدم.
+    _add_max(
+        db.query(func.max(ExerciseNotification.created_at)).filter(
+            ExerciseNotification.user_id == int(user.id)
+        )
+    )
+    unread = (
+        db.query(func.count(ExerciseNotification.id))
+        .filter(
+            ExerciseNotification.user_id == int(user.id),
+            ExerciseNotification.is_read == False,
+        )
+        .scalar()
+        or 0
+    )
+    parts.append(f"unread={int(unread)}")
+
+    if ex_id:
+        # قوائم التقييم.
+        _add_max(
+            db.query(func.max(EvaluationListPdfItem.created_at)).filter(
+                EvaluationListPdfItem.exercise_id == ex_id
+            )
+        )
+        # نتائج التقييم (تشمل الحفظ والاعتماد والإعادة).
+        _add_max(
+            db.query(func.max(EvaluationListSavedResult.updated_at)).filter(
+                EvaluationListSavedResult.exercise_id == ex_id
+            )
+        )
+        _add_max(
+            db.query(func.max(EvaluationListSavedResult.approved_at)).filter(
+                EvaluationListSavedResult.exercise_id == ex_id
+            )
+        )
+        # رسائل المحادثة لكل غرف هذا التمرين.
+        _add_max(
+            db.query(func.max(ChatMessage.created_at))
+            .join(ChatRoom, ChatMessage.room_id == ChatRoom.id)
+            .filter(ChatRoom.exercise_id == ex_id)
+        )
+        # توثيق مرئي.
+        _add_max(
+            db.query(func.max(VisualDocument.created_at)).filter(
+                VisualDocument.exercise_id == ex_id
+            )
+        )
+        # معاضل/تقييمات.
+        _add_max(
+            db.query(func.max(DilemmaItem.created_at)).filter(
+                DilemmaItem.exercise_id == ex_id
+            )
+        )
+
+    version = "|".join(parts)
+    return jsonify(
+        {
+            "ok": True,
+            "version": version,
+            "unread_notifications": int(unread),
+            "exercise_id": ex_id,
+            "server_time": datetime.utcnow().isoformat(),
+        }
+    )
+
+
 @bp.route("/api/notifications/summary", methods=["GET"])
 def api_notifications_summary():
     user = get_current_user_optional()
@@ -8169,232 +8323,6 @@ def admin_root_redirect():
     if not is_system_admin(user):
         abort(403)
     return redirect("/dashboard")
-
-
-def _system_checklist_rows() -> list[dict]:
-    """Checklist تشغيلي يغطي محتويات النظام من الدخول حتى الخروج."""
-    rows: list[dict] = []
-
-    def add(stage: str, page: str, path: str, role: str, contents: str, actions: str, check: str) -> None:
-        rows.append(
-            {
-                "idx": len(rows) + 1,
-                "reviewed": False,
-                "stage": stage,
-                "page": page,
-                "path": path,
-                "role": role,
-                "contents": contents,
-                "actions": actions,
-                "check": check,
-            }
-        )
-
-    add("الدخول", "تسجيل الدخول", "/login", "جميع المستخدمين", "اسم المستخدم، كلمة المرور، رسالة خطأ عند فشل الدخول.", "تسجيل دخول، الانتقال للصفحة المطلوبة بعد الدخول.", "الدخول بحساب إدارة النظام وبحساب دور تشغيلي.")
-    add("الدخول", "الصفحة الرئيسية", "/dashboard", "جميع المستخدمين", "بطاقات الأدوار المتاحة للمستخدم، رابط المكتبة، روابط الوصول السريع في الشريط العلوي (غرفة المحادثة، معلومات التمرين، سجل الإشعارات حيث تُفعّل الصلاحية)، رابط الخروج.", "فتح مساحة الدور المناسبة حسب الصلاحية.", "ظهور البطاقات حسب الدور فقط.")
-    add("إدارة النظام", "إنشاء تمرين جديد", "/admin/exercises/create", "إدارة النظام", "بيانات التمرين، النوع، المستوى، المهمة، الوحدة المتدربة، الموقع، التاريخ، استيراد/تصدير JSON.", "إنشاء تمرين، فتح تمرين، استبدال تمرين، فتح مجلد التصدير.", "حفظ تمرين وظهوره كتمرين حالي.")
-    add("إدارة النظام", "الأهداف التدريبية", "/admin/exercises/objectives", "إدارة النظام", "قائمة أهداف تدريبية، إدخال يدوي أو ملف خارجي.", "إضافة، حفظ، حذف جميع الأهداف.", "ظهور الأهداف في تحليلات المحللين.")
-    add("إدارة النظام", "قائمة المحكمين", "/admin/exercises/judge-unit-roster", "إدارة النظام", "الرقم العسكري، الرتبة، الاسم، مستوى الوحدة.", "حفظ القائمة، الاستيراد من ملف، إنشاء/تحديث حسابات المحكمين تلقائياً.", "تسجيل دخول المحكم بالرقم العسكري.")
-    add("إدارة النظام", "قائمة الوحدة المتدربة", "/admin/exercises/trainee-unit-roster", "إدارة النظام", "الرقم العسكري، الرتبة، الاسم، مستوى الوحدة.", "حفظ القائمة، الاستيراد من ملف، ربط المتدرب بمستوى الوحدة.", "ظهور الوحدة في تقارير الربط والتحليل.")
-    add("إدارة النظام", "إدارة تقييمات الوحدات", "/admin/evaluation-lists/saved-results", "إدارة النظام", "نتائج التقييم المحفوظة والمعتمدة.", "عرض، حذف نتيجة محفوظة.", "تطابق الحالة مع اعتماد المحكم.")
-    add("إدارة النظام", "الربط المتكامل", "/admin/dilemmas-evaluation-unit-report", "إدارة النظام", "تقرير يربط قائمة الوحدة المتدربة بقائمة المحكمين حسب مستوى الوحدة.", "مراجعة أسماء المتدربين والمحكمين حسب المستوى.", "تطابق مستوى الوحدة بين القائمتين.")
-    add("إدارة النظام", "تنظيم المعركة", "/admin/battle-organization", "إدارة النظام", "رموز الوحدات، بيانات المتدربين، بيانات المحكمين، المواقع/التنظيم.", "تعبئة وحفظ تنظيم المعركة.", "انعكاس البيانات في الصورة العامة.")
-    add("إدارة النظام", "إدارة المستخدمين", "/admin/users", "إدارة النظام", "المستخدمون، الأدوار، الحالة، كلمة المرور.", "إضافة، تعديل، تعطيل/حذف.", "تطبيق الصلاحيات بعد التعديل.")
-    add("إدارة النظام", "Checklist محتويات النظام", "/admin/system-checklist", "إدارة النظام", "جدول spreadsheet لمراجعة صفحات ووظائف النظام.", "تحديد المراجعة، البحث، الطباعة/التصدير من المتصفح.", "اكتمال مراجعة جميع الصفوف.")
-    add("المحكمين", "مساحة المحكمين", "/judge", "محكم / إدارة النظام", "أوامر المحكمين: المعاضل، التقييم، المهام، التوثيق المرئي.", "فتح أقسام المحكم حسب الصلاحية.", "ظهور الأقسام المطلوبة للمحكم.")
-    add("المحكمين", "قوائم المعاضل", "/judge/dilemmas", "محكم", "مستويات الوحدة المتاحة وملفات PDF للمعاضل.", "فتح القوائم وملفات PDF.", "حصر المحكم في وحدته المخصصة.")
-    add("المحكمين", "قوائم التقييم", "/judge/evaluation-lists", "محكم", "قوائم Excel، إدخال المكتسبة، النسبة، النتيجة، ملاحظات المحكم.", "حفظ النتيجة واعتمادها.", "ظهور النتيجة المعتمدة في المحللين.")
-    add("المحكمين", "مهام غير مكتملة", "/judge/incomplete-tasks", "محكم", "مهام قوائم التقييم حسب مرحلة التمرين ثم مستوى الوحدة، الحالة، الأولوية، المكلف.", "تغيير الحالة وفتح قائمة التقييم.", "تطابق اسم المحكم مع قائمة المحكمين.")
-    add("المحكمين", "التوثيق المرئي", "/visual-documentation", "محكم / سيطرة / تخطيط / إدارة", "رفع ملف، تصوير بالكاميرا، تسجيل صوتي، وصف، موقع، ربط بمعضلة.", "رفع صورة/فيديو/صوت وفتح السجل.", "ظهور المادة في سجل التوثيق.")
-    add("المحللين", "مساحة المحللين", "/analyst", "محلل / إدارة النظام", "أدوات التحليل: النتائج، الإيجابيات والسلبيات، تحليل المحكمين، المراجعة.", "فتح أدوات التحليل.", "ظهور الأدوات حسب صلاحية المحلل.")
-    add("المحللين", "عرض نتائج التقييم", "/analyst/evaluation-results", "محلل", "مصفوفة نتائج قوائم التقييم المعتمدة حسب مستوى الوحدة والأهداف.", "عرض الحالة والقوائم غير المعبأة.", "عدم إدراج النتائج غير المعتمدة.")
-    add("المحللين", "عرض الإيجابيات والسلبيات", "/analyst/positives-negatives", "محلل", "نقاط الاستدامة والتطوير حسب مستوى الوحدة، وملاحظات المحكمين.", "اختيار مستوى الوحدة، عرض الإيجابيات أعلى والسلبيات أسفل.", "ظهور لا يوجد ملاحظات عند عدم وجود ملاحظات.")
-    add("المحللين", "تحليل وتقييم المحكمين", "/analyst/judges-eval-analysis", "محلل", "تحليل إنجاز المحكمين، القوائم المعتمدة وغير المعتمدة.", "عرض وفتح تقييمات المحكمين.", "تطابق بيانات الاعتماد مع المحكم.")
-    add("التخطيط", "مساحة التخطيط", "/planner", "مخطط / إدارة النظام", "قوائم التقييم والمهام ومجرى الأحداث عند الحاجة.", "فتح أقسام التخطيط وإدخال النتائج عند السماح.", "التحقق من صلاحيات التخطيط.")
-    add("التخطيط", "قوائم المعاضل — إدراج PDF", "/admin/dilemmas", "مخطط / إدارة النظام", "رفع ملفات PDF حسب مستوى الوحدة ومرحلة التمرين.", "رفع، فتح، حذف، تغيير المرحلة، مسح المستوى.", "الدخول من مساحة التخطيط؛ عرض المحكم من مساحة المحكمين.")
-    add("التخطيط", "قوائم التقييم — إدراج Excel", "/admin/evaluation-lists", "مخطط / إدارة النظام", "رفع ملفات Excel حسب مستوى الوحدة ومرحلة التمرين.", "رفع، فتح، حذف، تغيير المرحلة، مسح المستوى.", "الدخول من مساحة التخطيط؛ إدخال النتائج للمحكم من مساحة المحكمين.")
-    add("السيطرة", "مساحة السيطرة", "/control", "سيطرة / إدارة النظام", "موقف التقييم والمهام والتوثيق المرئي.", "متابعة المواقف وفتح التوثيق.", "ظهور البيانات المرتبطة بالتمرين الحالي.")
-    add("المكتبة", "المكتبة", "/library", "جميع المستخدمين", "المراجع والمعايير المتاحة.", "تصفح المراجع حسب الصلاحية.", "فتح المكتبة من الشريط العلوي.")
-    add("الخروج", "تسجيل الخروج", "/logout", "جميع المستخدمين", "إنهاء الجلسة والرجوع لتسجيل الدخول.", "خروج آمن ومنع الرجوع لصفحات محمية بدون دخول.", "بعد الخروج تُطلب المصادقة عند فتح صفحة محمية.")
-    return rows
-
-
-_SYSTEM_CHECKLIST_HEADERS = [
-    "مراجعة",
-    "#",
-    "المرحلة",
-    "الصفحة / الوظيفة",
-    "المسار",
-    "الدور",
-    "المحتويات بالتفصيل",
-    "الإجراءات",
-    "نقطة التحقق",
-]
-
-
-def _system_checklist_export_xlsx(rows: list[dict]):
-    from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Font, PatternFill
-    from openpyxl.utils import get_column_letter
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "System Checklist"
-    ws.sheet_view.rightToLeft = True
-    ws.append(_SYSTEM_CHECKLIST_HEADERS)
-
-    for r in rows:
-        ws.append(
-            [
-                "تم" if bool(r.get("reviewed")) else "",
-                r.get("idx", ""),
-                r.get("stage", ""),
-                r.get("page", ""),
-                r.get("path", ""),
-                r.get("role", ""),
-                r.get("contents", ""),
-                r.get("actions", ""),
-                r.get("check", ""),
-            ]
-        )
-
-    font = Font(name="Arial", size=12)
-    header_font = Font(name="Arial", size=12, bold=True)
-    header_fill = PatternFill("solid", fgColor="F4E9DC")
-    align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    align_text = Alignment(horizontal="right", vertical="center", wrap_text=True)
-    for row in ws.iter_rows():
-        for cell in row:
-            cell.font = header_font if cell.row == 1 else font
-            cell.alignment = align_center if cell.column <= 6 else align_text
-            if cell.row == 1:
-                cell.fill = header_fill
-
-    widths = [12, 8, 18, 28, 24, 24, 48, 42, 42]
-    for i, width in enumerate(widths, start=1):
-        ws.column_dimensions[get_column_letter(i)].width = width
-    ws.freeze_panes = "A2"
-
-    bio = io.BytesIO()
-    wb.save(bio)
-    bio.seek(0)
-    return bio
-
-
-def _system_checklist_rows_from_xlsx(file_storage) -> list[dict]:
-    from openpyxl import load_workbook
-
-    if not file_storage or not (getattr(file_storage, "filename", "") or "").strip():
-        return []
-    raw = file_storage.read()
-    if not raw:
-        return []
-    wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
-    ws = wb.active
-    out: list[dict] = []
-    for i, row in enumerate(ws.iter_rows(values_only=True), start=1):
-        if i == 1:
-            continue
-        vals = [("" if v is None else str(v).strip()) for v in row[:9]]
-        vals.extend([""] * (9 - len(vals)))
-        if not any(vals):
-            continue
-        reviewed_raw = vals[0].strip().lower()
-        out.append(
-            {
-                "idx": len(out) + 1,
-                "reviewed": reviewed_raw in ("تم", "نعم", "yes", "true", "1", "x", "✓"),
-                "stage": vals[2],
-                "page": vals[3],
-                "path": vals[4],
-                "role": vals[5],
-                "contents": vals[6],
-                "actions": vals[7],
-                "check": vals[8],
-            }
-        )
-    return out
-
-
-@bp.route("/admin/system-checklist", methods=["GET"])
-def admin_system_checklist():
-    user = get_current_user_optional()
-    if not user:
-        return redirect("/login?next=/admin/system-checklist")
-    if not can_manage_users(user):
-        abort(403)
-    return render_template(
-        "admin_system_checklist.html",
-        **_ctx(user, checklist_rows=_system_checklist_rows(), imported=False, import_error=""),
-    )
-
-
-@bp.route("/admin/system-checklist/export", methods=["POST"])
-def admin_system_checklist_export():
-    user = get_current_user_optional()
-    if not user:
-        return redirect("/login?next=/admin/system-checklist")
-    if not can_manage_users(user):
-        abort(403)
-    checked = set(request.form.getlist("reviewed_idx"))
-    custom_rows_raw = (request.form.get("checklist_rows_json") or "").strip()
-    rows = _system_checklist_rows()
-    if custom_rows_raw:
-        try:
-            payload = json.loads(custom_rows_raw)
-        except Exception:
-            payload = []
-        if isinstance(payload, list):
-            parsed_rows: list[dict] = []
-            for item in payload[:500]:
-                if not isinstance(item, dict):
-                    continue
-                parsed_rows.append(
-                    {
-                        "idx": len(parsed_rows) + 1,
-                        "reviewed": bool(item.get("reviewed")),
-                        "stage": str(item.get("stage") or "")[:500],
-                        "page": str(item.get("page") or "")[:500],
-                        "path": str(item.get("path") or "")[:500],
-                        "role": str(item.get("role") or "")[:500],
-                        "contents": str(item.get("contents") or "")[:2000],
-                        "actions": str(item.get("actions") or "")[:2000],
-                        "check": str(item.get("check") or "")[:2000],
-                    }
-                )
-            if parsed_rows:
-                rows = parsed_rows
-    for r in rows:
-        r["reviewed"] = bool(r.get("reviewed")) or str(r.get("idx")) in checked
-    bio = _system_checklist_export_xlsx(rows)
-    return send_file(
-        bio,
-        as_attachment=True,
-        download_name="system_checklist.xlsx",
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-
-
-@bp.route("/admin/system-checklist/import", methods=["POST"])
-def admin_system_checklist_import():
-    user = get_current_user_optional()
-    if not user:
-        return redirect("/login?next=/admin/system-checklist")
-    if not can_manage_users(user):
-        abort(403)
-    import_error = ""
-    try:
-        rows = _system_checklist_rows_from_xlsx(request.files.get("checklist_file"))
-    except Exception:
-        rows = []
-        import_error = "تعذر قراءة ملف Excel. تأكد من أن الملف بصيغة .xlsx وبنفس أعمدة التصدير."
-    if not rows and not import_error:
-        import_error = "لم يتم العثور على صفوف صالحة داخل ملف Excel."
-        rows = _system_checklist_rows()
-    return render_template(
-        "admin_system_checklist.html",
-        **_ctx(user, checklist_rows=rows, imported=not bool(import_error), import_error=import_error),
-    )
 
 
 @bp.route("/admin/exercises/create", methods=["GET", "POST"])
@@ -10613,6 +10541,48 @@ def admin_evaluation_saved_results_delete(saved_id: int):
     return redirect("/admin/evaluation-lists/saved-results")
 
 
+@bp.route("/admin/evaluation-lists/saved-results/bulk-delete", methods=["POST"])
+def admin_evaluation_saved_results_bulk_delete():
+    """حذف عدّة نتائج محفوظة دفعة واحدة.
+
+    يقبل:
+      • saved_ids=<id>&saved_ids=<id>… لحذف المحدد بـ checkbox.
+      • delete_all=1 لحذف جميع النتائج المحفوظة في التمرين الحالي.
+    """
+    user = get_current_user_optional()
+    if not user or not is_system_admin(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _admin_current_workspace_exercise(db, user)
+    if ex is None:
+        return redirect("/admin/evaluation-lists/saved-results")
+
+    delete_all = (request.form.get("delete_all") or "").strip() in ("1", "true", "True", "yes")
+    if delete_all:
+        db.query(EvaluationListSavedResult).filter(
+            EvaluationListSavedResult.exercise_id == ex.id
+        ).delete(synchronize_session=False)
+        db.commit()
+        return redirect("/admin/evaluation-lists/saved-results")
+
+    raw_ids = request.form.getlist("saved_ids")
+    ids: list[int] = []
+    for v in raw_ids:
+        s = (v or "").strip()
+        if s.isdigit():
+            ids.append(int(s))
+    if not ids:
+        return redirect("/admin/evaluation-lists/saved-results")
+    db.query(EvaluationListSavedResult).filter(
+        EvaluationListSavedResult.exercise_id == ex.id,
+        EvaluationListSavedResult.id.in_(ids),
+    ).delete(synchronize_session=False)
+    db.commit()
+    return redirect("/admin/evaluation-lists/saved-results")
+
+
 @bp.route("/admin/evaluation-lists/<unit_key>/clear", methods=["POST"])
 def admin_evaluation_list_clear(unit_key: str):
     user = get_current_user_optional()
@@ -10809,96 +10779,6 @@ def admin_evaluation_lists_home():
     _require_planner_hub_catalog_access(user)
     first = UNIT_LEVELS[0]["key"] if UNIT_LEVELS else "brigade_group"
     return redirect(url_for("views.admin_evaluation_lists", unit_key=first))
-
-
-def _build_dilemma_evaluation_unit_report(
-    db,
-    exercise_id: int | None = None,
-    *,
-    exercise_phase: str | None = None,
-) -> list[dict]:
-    """يعرض ربط مستويات الوحدات بين قائمة الوحدة المتدربة وقائمة المحكمين فقط."""
-    phase = _normalized_exercise_phase(exercise_phase)
-    out: list[dict] = []
-    for unit in UNIT_LEVELS:
-        uk = unit["key"]
-        ul = unit["label"]
-
-        def _pack_roster_row(r: ExerciseRosterRow) -> dict:
-            return {
-                "id": r.id,
-                "military_number": r.military_number or "",
-                "rank_ar": r.rank_ar or "",
-                "full_name": r.full_name or "",
-                "sort_order": r.sort_order,
-            }
-
-        if exercise_id is not None:
-            tr_rows = (
-                db.query(ExerciseRosterRow)
-                .filter(
-                    ExerciseRosterRow.exercise_id == exercise_id,
-                    ExerciseRosterRow.roster_kind == ExerciseRosterKind.TRAINEE.value,
-                    ExerciseRosterRow.unit_level_key == uk,
-                )
-                .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
-                .all()
-            )
-            j_rows = (
-                db.query(ExerciseRosterRow)
-                .filter(
-                    ExerciseRosterRow.exercise_id == exercise_id,
-                    ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
-                    ExerciseRosterRow.unit_level_key == uk,
-                )
-                .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
-                .all()
-            )
-            trainees = [_pack_roster_row(r) for r in tr_rows]
-            judges = [_pack_roster_row(r) for r in j_rows]
-        else:
-            trainees, judges = [], []
-
-        out.append(
-            {
-                "unit_key": uk,
-                "unit_label": ul,
-                "exercise_phase": phase,
-                "n_trainees": len(trainees),
-                "n_judges": len(judges),
-                "trainees": trainees,
-                "judges": judges,
-            }
-        )
-    return out
-
-
-@bp.route("/admin/dilemmas-evaluation-unit-report", methods=["GET"])
-def admin_dilemma_evaluation_unit_report():
-    user = get_current_user_optional()
-    if not user:
-        return redirect("/login?next=/admin/dilemmas-evaluation-unit-report")
-    if not is_system_admin(user):
-        abort(403)
-    from flask import g
-
-    db = g.db
-    current_exercise = _admin_current_workspace_exercise(db, user)
-    phase = _normalized_exercise_phase(request.args.get("phase"))
-    report_rows = _build_dilemma_evaluation_unit_report(
-        db,
-        current_exercise.id if current_exercise else None,
-        exercise_phase=phase,
-    )
-    return render_template(
-        "admin_dilemma_evaluation_unit_report.html",
-        **_ctx(
-            user,
-            report_rows=report_rows,
-            exercise_phase_options=EXERCISE_PHASE_OPTIONS,
-            selected_exercise_phase=phase,
-        ),
-    )
 
 
 @bp.route("/admin/battle-organization", methods=["GET"])

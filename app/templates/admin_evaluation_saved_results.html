@@ -3,7 +3,6 @@
 {% block admin_workspace %}
 <div class="page-header">
   <h1><i class="fa-solid fa-square-poll-vertical fa-icon-title" aria-hidden="true"></i> إدارة تقييمات الوحدات</h1>
-  <p class="muted">عرض جميع تقييمات الوحدات المحفوظة (لكل المحكمين) مع إمكانية فتحها للتعديل أو حذفها.</p>
 </div>
 
 {% if not has_exercise %}
@@ -12,48 +11,100 @@
 </section>
 {% else %}
 <section class="card">
-  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">التمرين الحالي: <strong>{{ exercise.title }}</strong> — <code>{{ exercise.code }}</code></p>
   {% if saved_display %}
-  <div class="table-wrap">
-    <table dir="rtl" aria-label="نتائج التقييم المحفوظة">
-      <thead>
-        <tr>
-          <th scope="col">مستوى الوحدة</th>
-          <th scope="col">مرحلة</th>
-          <th scope="col">النسبة</th>
-          <th scope="col">التقدير</th>
-          <th scope="col">محفوظ بواسطة (ID)</th>
-          <th scope="col">اعتماد</th>
-          <th scope="col">آخر تحديث</th>
-          <th scope="col">إجراءات</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for sd in saved_display %}
-        {% set r = sd.row %}
-        <tr>
-          <td>{{ sd.unit_label or r.unit_level_key or "—" }}</td>
-          <td>{{ phase_label_ar(r.exercise_phase) }}</td>
-          <td>{% if r.total_pct is not none %}{{ (r.total_pct | round(2)) }}%{% else %}—{% endif %}</td>
-          <td>{{ r.grade_label or "—" }}</td>
-          <td><code>{{ r.saved_by_id or "—" }}</code></td>
-          <td>{% if r.is_approved %}معتمد{% else %}غير معتمد{% endif %}</td>
-          <td>{% if r.updated_at %}{{ r.updated_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
-          <td>
-            <a href="{{ url_for('views.admin_evaluation_list_file_viewer', unit_key=r.unit_level_key, item_id=r.evaluation_item_id, saved_id=r.id) }}">فتح للتعديل</a>
-            <form method="post" action="{{ url_for('views.admin_evaluation_saved_results_delete', saved_id=r.id) }}" style="display:inline-block;margin:0 0.25rem;" onsubmit="return confirm('حذف التقييم المحفوظ؟');">
-              <button type="submit" class="btn btn-danger btn-sm">حذف</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <form id="saved-results-bulk-form" method="post" action="{{ url_for('views.admin_evaluation_saved_results_bulk_delete') }}" dir="rtl">
+    <div class="saved-results-toolbar" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin-bottom:0.6rem;">
+      <button type="submit" class="btn btn-danger btn-sm" id="saved-results-delete-selected"
+              onclick="return confirm('حذف الصفوف المحددة؟');">
+        <i class="fa-solid fa-trash" aria-hidden="true"></i> حذف المحدد
+      </button>
+      <button type="button" class="btn btn-danger btn-sm" id="saved-results-delete-all"
+              onclick="return saved_results_delete_all_submit();">
+        <i class="fa-solid fa-trash-can" aria-hidden="true"></i> حذف جميع الصفوف
+      </button>
+      <span class="muted" id="saved-results-selected-count" style="font-size:0.85rem;">لم يُحدّد أي صف</span>
+    </div>
+    <div class="table-wrap saved-results-table-wrap">
+      <table dir="rtl" aria-label="نتائج التقييم المحفوظة" class="saved-results-table">
+        <thead>
+          <tr>
+            <th scope="col" style="width:2.2rem;">
+              <input type="checkbox" id="saved-results-check-all" aria-label="تحديد الكل">
+            </th>
+            <th scope="col">مستوى الوحدة</th>
+            <th scope="col">مرحلة</th>
+            <th scope="col">النسبة</th>
+            <th scope="col">التقدير</th>
+            <th scope="col">محفوظ بواسطة (ID)</th>
+            <th scope="col">اعتماد</th>
+            <th scope="col">آخر تحديث</th>
+            <th scope="col">إجراءات</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for sd in saved_display %}
+          {% set r = sd.row %}
+          <tr>
+            <td>
+              <input type="checkbox" name="saved_ids" value="{{ r.id }}" class="saved-results-row-check" aria-label="تحديد الصف">
+            </td>
+            <td>{{ sd.unit_label or r.unit_level_key or "—" }}</td>
+            <td>{{ phase_label_ar(r.exercise_phase) }}</td>
+            <td>{% if r.total_pct is not none %}{{ (r.total_pct | round(2)) }}%{% else %}—{% endif %}</td>
+            <td>{{ r.grade_label or "—" }}</td>
+            <td><code>{{ r.saved_by_id or "—" }}</code></td>
+            <td>{% if r.is_approved %}معتمد{% else %}غير معتمد{% endif %}</td>
+            <td>{% if r.updated_at %}{{ r.updated_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+            <td>
+              <a href="{{ url_for('views.admin_evaluation_list_file_viewer', unit_key=r.unit_level_key, item_id=r.evaluation_item_id, saved_id=r.id) }}">فتح للتعديل</a>
+              <button type="submit" formaction="{{ url_for('views.admin_evaluation_saved_results_delete', saved_id=r.id) }}"
+                      formnovalidate
+                      class="btn btn-danger btn-sm"
+                      style="margin:0 0.25rem;"
+                      onclick="return confirm('حذف التقييم المحفوظ؟');">حذف</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
+  <script>
+  (() => {
+    const checkAll = document.getElementById("saved-results-check-all");
+    const rowChecks = document.querySelectorAll(".saved-results-row-check");
+    const counter = document.getElementById("saved-results-selected-count");
+    function refreshCount() {
+      const n = document.querySelectorAll(".saved-results-row-check:checked").length;
+      if (counter) counter.textContent = n === 0 ? "لم يُحدّد أي صف" : ("الصفوف المحددة: " + n);
+      if (checkAll) {
+        checkAll.checked = (n > 0 && n === rowChecks.length);
+        checkAll.indeterminate = (n > 0 && n < rowChecks.length);
+      }
+    }
+    if (checkAll) {
+      checkAll.addEventListener("change", () => {
+        rowChecks.forEach(c => { c.checked = checkAll.checked; });
+        refreshCount();
+      });
+    }
+    rowChecks.forEach(c => c.addEventListener("change", refreshCount));
+    refreshCount();
+  })();
+  function saved_results_delete_all_submit() {
+    if (!confirm("حذف جميع تقييمات الوحدات المحفوظة في هذا التمرين؟ لا يمكن التراجع.")) return false;
+    const form = document.getElementById("saved-results-bulk-form");
+    if (!form) return false;
+    const hid = document.createElement("input");
+    hid.type = "hidden"; hid.name = "delete_all"; hid.value = "1";
+    form.appendChild(hid);
+    form.submit();
+    return false;
+  }
+  </script>
   {% else %}
   <p class="muted" dir="rtl" style="margin:0;">لا توجد تقييمات محفوظة بعد.</p>
   {% endif %}
 </section>
 {% endif %}
 {% endblock %}
-

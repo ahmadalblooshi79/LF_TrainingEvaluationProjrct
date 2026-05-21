@@ -3,12 +3,11 @@
 {% block content %}
 <div class="page-header">
   <h1><i class="fa-solid fa-gauge-high fa-icon-title" aria-hidden="true"></i> مرحباً، {{ user.full_name or user.username }}</h1>
-  <p class="muted">دورك الحالي: <strong>{{ role_title }}</strong></p>
 </div>
 
 <div class="role-grid role-grid--pyramid">
 {% for c in dashboard_cards %}
-  <a class="card card--tint dashboard-role-card" href="{{ c.href }}" aria-label="{{ c.aria_label }}">
+  <a class="card card--tint dashboard-role-card" href="{{ c.href }}" aria-label="{{ c.aria_label }}" aria-describedby="role-tip-{{ c.role_key }}">
     <h3>
       {% if c.role_key == 'system_admin' %}
         <i class="fa-solid fa-screwdriver-wrench fa-icon-role" aria-hidden="true"></i>
@@ -25,8 +24,11 @@
       {% endif %}
       <span>{{ c.title_ar }}</span>
     </h3>
-    <p class="text-pre-wrap">{{ c.duties_ar }}</p>
-    <p class="muted dashboard-role-hint"><i class="fa-solid fa-arrow-pointer" aria-hidden="true"></i> {{ c.hint }}</p>
+    <p class="dashboard-role-start">
+      <span>ابدأ</span>
+      <i class="fa-solid fa-computer-mouse" aria-hidden="true"></i>
+    </p>
+    <span class="dashboard-role-tooltip text-pre-wrap" id="role-tip-{{ c.role_key }}" role="tooltip">{{ c.duties_ar }}</span>
   </a>
 {% endfor %}
 </div>

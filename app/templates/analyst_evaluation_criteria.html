@@ -3,7 +3,6 @@
 {% block content %}
 <div class="page-header">
   <h1><i class="fa-solid fa-list-check fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
-  <p class="muted">جدول توزيع النسب حسب الوحدة، مع تفاصيل مستقلة لكل مرحلة.</p>
   <p class="mt-tight">
     {% include 'partials/control_hub_back.html' %}
   </p>
@@ -14,17 +13,11 @@
   <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل. افتح أو أنشئ تمريناً لعرض معايير التقييم.</p>
 </section>
 {% else %}
-<section class="card">
+<section class="card analyst-criteria-distribution-card">
   <h2 class="h2-in-card"><i class="fa-solid fa-percent fa-icon-title" aria-hidden="true"></i> توزيع النسبة المئوية الاجماليه للتقييم</h2>
-  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
-    التمرين الحالي: <strong>{{ exercise.title }}</strong> — <code>{{ exercise.code }}</code>
-  </p>
   {% if ok_msg %}
   <p class="form-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
   {% endif %}
-  <p class="muted criteria-planner-units-hint" dir="rtl">
-    عمود <strong>الوحده</strong> يُنسخ من <strong>مساحة التخطيط → إنشاء قائمة التقييم → مستوى الوحدة</strong> (للقراءة فقط).
-  </p>
 
   <form method="post" action="{{ url_for('views.analyst_hub_section', slug='evaluation-criteria') }}" id="analyst-criteria-distribution-form">
     <div class="table-wrap analyst-criteria-distribution-wrap">
@@ -95,20 +88,6 @@
         </tfoot>
       </table>
     </div>
-    {% if available_unit_levels %}
-    <div class="form-group" style="margin-top:1rem;">
-      <label for="new-unit-level-key">إضافة مستوى وحدة من التخطيط</label>
-      <select id="new-unit-level-key" class="unit-level-select analyst-criteria-new-unit-select" name="new_unit_level_key" style="min-width:18rem;">
-        <option value="">— اختر مستوى الوحدة —</option>
-        {% for u in available_unit_levels %}
-        <option value="{{ u.key }}">{{ u.label }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    {% endif %}
-    <div class="btn-group" style="margin-top:1rem;">
-      <button class="btn" type="submit"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ قائمة الوحدات</button>
-    </div>
   </form>
 </section>
 {% endif %}
@@ -124,19 +103,20 @@
       sel.selectedIndex = 0;
     });
   });
+  var distForm = document.getElementById("analyst-criteria-distribution-form");
   document.querySelectorAll(".analyst-criteria-delete-btn").forEach(function (btn) {
     var input = btn.querySelector(".analyst-criteria-delete-input");
     if (!input) return;
-    input.addEventListener("change", function () {
-      btn.classList.toggle("is-armed", input.checked);
-    });
     btn.addEventListener("click", function (ev) {
-      if (!input.checked) return;
+      ev.preventDefault();
       if (!window.confirm("حذف هذه الوحدة من معايير التقييم؟")) {
-        ev.preventDefault();
         input.checked = false;
         btn.classList.remove("is-armed");
+        return;
       }
+      input.checked = true;
+      btn.classList.add("is-armed");
+      if (distForm) distForm.submit();
     });
   });
 })();

@@ -50,14 +50,14 @@
         {% for o in current_exercise.objectives|sort(attribute='sort_order') %}
         <li class="objectives-editor-row">
           <span class="objectives-editor-row__num" aria-hidden="true">{{ loop.index }}</span>
-          <input class="objectives-editor-row__input" type="text" name="objective_items" value="{{ o.text }}" maxlength="2000" autocomplete="off" placeholder="نص الهدف">
+          <textarea class="objectives-editor-row__input objectives-editor-row__input--autogrow" name="objective_items" maxlength="2000" autocomplete="off" placeholder="نص الهدف" rows="1">{{ o.text }}</textarea>
           <button type="button" class="btn btn-ghost objectives-editor-row__del" title="حذف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
         </li>
         {% endfor %}
       {% else %}
         <li class="objectives-editor-row">
           <span class="objectives-editor-row__num" aria-hidden="true">1</span>
-          <input class="objectives-editor-row__input" type="text" name="objective_items" value="" maxlength="2000" autocomplete="off" placeholder="نص الهدف">
+          <textarea class="objectives-editor-row__input objectives-editor-row__input--autogrow" name="objective_items" maxlength="2000" autocomplete="off" placeholder="نص الهدف" rows="1"></textarea>
           <button type="button" class="btn btn-ghost objectives-editor-row__del" title="حذف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
         </li>
       {% endif %}
@@ -108,11 +108,23 @@
     panelManual.hidden = !isManual;
     panelExcel.hidden = isManual;
     rows().forEach((row) => {
-      row.querySelectorAll("input, button").forEach((el) => {
+      row.querySelectorAll("input, textarea, button").forEach((el) => {
         el.disabled = !isManual;
       });
     });
     if (xlsxInput) xlsxInput.disabled = isManual;
+  }
+
+  function autoGrow(el) {
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = (el.scrollHeight + 2) + "px";
+  }
+
+  function wireAutoGrow(el) {
+    if (!el) return;
+    autoGrow(el);
+    el.addEventListener("input", function () { autoGrow(el); });
   }
 
   function addRow(focus) {
@@ -120,11 +132,12 @@
     li.className = "objectives-editor-row";
     li.innerHTML =
       '<span class="objectives-editor-row__num" aria-hidden="true">0</span>' +
-      '<input class="objectives-editor-row__input" type="text" name="objective_items" value="" maxlength="2000" autocomplete="off" placeholder="نص الهدف">' +
+      '<textarea class="objectives-editor-row__input objectives-editor-row__input--autogrow" name="objective_items" maxlength="2000" autocomplete="off" placeholder="نص الهدف" rows="1"></textarea>' +
       '<button type="button" class="btn btn-ghost objectives-editor-row__del" title="حذف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>';
     listEl.appendChild(li);
     renumber();
-    const inp = li.querySelector("input");
+    const inp = li.querySelector("textarea");
+    wireAutoGrow(inp);
     if (focus && inp) inp.focus();
   }
 
@@ -168,7 +181,7 @@
       return;
     }
     const nonEmpty = rows().some((row) => {
-      const inp = row.querySelector("input");
+      const inp = row.querySelector("textarea, input");
       return inp && inp.value.trim() !== "";
     });
     if (!nonEmpty) {
@@ -177,6 +190,10 @@
     }
   });
 
+  rows().forEach((row) => {
+    const ta = row.querySelector(".objectives-editor-row__input--autogrow");
+    wireAutoGrow(ta);
+  });
   renumber();
 })();
 </script>

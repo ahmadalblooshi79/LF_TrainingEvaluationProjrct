@@ -8,7 +8,7 @@ TRAINING_PHASES: list[dict[str, str]] = [
     {"key": "preparation", "label": "مرحلة التحضير"},
     {"key": "opening", "label": "مرحلة الإنفتاح"},
     {"key": "battle_exposure", "label": "مرحلة المعركة التعرضية"},
-    {"key": "reorganization", "label": "مرحلة إعادة التنظيم"},
+    {"key": "reorganization", "label": "مرحلة مسارات التقييم"},
 ]
 
 INFO_BANK_UNIT_LEVELS: list[dict[str, str]] = [

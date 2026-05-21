@@ -84,7 +84,6 @@
 </style>
 <div class="page-header">
   <h1><i class="fa-solid fa-plus-minus fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
-  <p class="muted" dir="rtl">تُؤخذ المعلومة من قوائم التقييم <strong>بعد أن يحفظ المحكم التقييم ويعتمده</strong> — الملاحظات <strong>الكتابية</strong> فقط. الإيجابيات بخلفية خضراء فاتحة (بنود ≥ 75%)، والسلبيات بخلفية حمراء فاتحة (بنود &lt; 50%).</p>
   {% include 'partials/control_hub_back.html' %}
 </div>
 
@@ -94,9 +93,6 @@
 </section>
 {% else %}
 <section class="card">
-  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
-    التمرين: <strong>{{ exercise.title }}</strong> — <code>{{ exercise.code }}</code>
-  </p>
   <div class="control-pn-summary" dir="rtl">
     <span class="control-pn-summary__chip">قوائم معتمدة من المحكم: <strong>{{ n_approved_eval_lists }}</strong> / {{ n_eval_lists }}</span>
     <span class="control-pn-summary__chip">قوائم معتمدة تحتوي ملاحظات كتابية: <strong>{{ n_lists_with_notes }}</strong></span>
