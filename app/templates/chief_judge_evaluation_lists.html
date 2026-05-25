@@ -5,10 +5,9 @@
 <div class="page-header page-header--judge-eval-lists">
   <h1><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> قوائم التقييم — {{ unit.label }}</h1>
   <p class="muted">الموقف (ينجز/لم ينجز) يعتمد على اعتماد المحكم فقط.</p>
-  <p class="mt-tight">
-    {% include 'partials/control_hub_back.html' %}
-    <a class="btn btn-ghost" href="{{ eval_lists_parent_href }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى مستويات الوحدات</a>
-  </p>
+  <div class="page-header__nav">
+    {% include 'partials/subpage_close.html' %}
+  </div>
 </div>
 
 <section class="card judge-eval-lists-fill-card">

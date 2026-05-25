@@ -981,6 +981,7 @@ class InformationBankTrainingPhase(Base):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     label: Mapped[str] = mapped_column(String(300), default="")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    included_in_exercise: Mapped[bool] = mapped_column(Boolean, default=False)
     is_system: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -996,6 +997,7 @@ class InformationBankUnitLevel(Base):
     key: Mapped[str] = mapped_column(String(128), primary_key=True)
     label: Mapped[str] = mapped_column(String(300), default="")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    included_in_exercise: Mapped[bool] = mapped_column(Boolean, default=False)
     is_system: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(

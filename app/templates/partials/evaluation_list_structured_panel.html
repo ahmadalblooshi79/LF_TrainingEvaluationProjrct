@@ -142,7 +142,7 @@
       </form>
       {% endif %}
       {% if show_chief_reopen|default(false) and eval_chief_reopen_url %}
-      <form method="post" action="{{ eval_chief_reopen_url }}" id="eval-chief-reopen-form" style="margin:0;" onsubmit="return confirm('إعادة القائمة للمحكم لإعادة التقييم؟ سيُرسل إشعار للمحكم. يبقى الموقف «ينجز» حتى يحفظ المحكم تعديلاته، ثم يصبح «لم ينجز» و«بانتظار الإعتماد».');">
+      <form method="post" action="{{ eval_chief_reopen_url }}" id="eval-chief-reopen-form" style="margin:0;">
         <button type="submit" class="btn btn-ghost eval-btn-footer"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> إعادة للمحكم</button>
       </form>
       {% endif %}
@@ -204,6 +204,20 @@
     }
   }
 
+  function submitEvalActionForm(formEl, busyHint, busyText) {
+    if (!formEl) return;
+    if (busyHint) busyHint.textContent = busyText || 'جاري التنفيذ…';
+    var fd = new FormData(formEl);
+    fetch(formEl.action, { method: 'POST', body: fd, credentials: 'same-origin', redirect: 'follow' })
+      .then(function (resp) {
+        var target = resp.url || (location.pathname + location.search);
+        location.replace(target);
+      })
+      .catch(function () {
+        if (busyHint) busyHint.textContent = 'تعذّر تنفيذ العملية — أعد المحاولة';
+      });
+  }
+
   if (approveForm) {
     approveForm.addEventListener('submit', function (e) {
       var emptyRows = collectEmptyAcquiredRows();
@@ -212,11 +226,32 @@
         showApproveBlockMsg(emptyRows);
         return false;
       }
+      e.preventDefault();
       clearAcqIncompleteHighlight();
       if (approveMsgEl) {
         approveMsgEl.hidden = true;
         approveMsgEl.textContent = '';
       }
+      submitEvalActionForm(approveForm, hintEl);
+    });
+  }
+
+  var chiefApproveForm = document.getElementById('eval-chief-approve-form');
+  if (chiefApproveForm) {
+    chiefApproveForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      submitEvalActionForm(chiefApproveForm, hintEl);
+    });
+  }
+
+  var chiefReopenForm = document.getElementById('eval-chief-reopen-form');
+  if (chiefReopenForm) {
+    chiefReopenForm.addEventListener('submit', function (e) {
+      if (!confirm('إعادة القائمة للمحكم لإعادة التقييم؟ سيُرسل إشعار للمحكم. يبقى الموقف «ينجز» حتى يحفظ المحكم تعديلاته، ثم يصبح «لم ينجز» و«بانتظار الإعتماد».')) {
+        return;
+      }
+      e.preventDefault();
+      submitEvalActionForm(chiefReopenForm, hintEl);
     });
   }
 
@@ -324,9 +359,11 @@
     return out;
   }
   if (form && payloadEl) {
-    form.addEventListener('submit', function () {
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
       payloadEl.value = JSON.stringify(buildPayload());
       if (hintEl) hintEl.textContent = 'جاري الحفظ…';
+      submitEvalActionForm(form, hintEl, 'جاري الحفظ…');
     });
   }
 

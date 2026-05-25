@@ -18,6 +18,9 @@ from app.database import (
     ensure_judge_trainee_assignment_planner_bundle_column,
     ensure_planner_bundle_action_eval_event_flow_column,
     ensure_information_bank_tree_nodes_table,
+    ensure_information_bank_tree_suppressions_table,
+    ensure_information_bank_phase_included_column,
+    ensure_information_bank_unit_included_column,
     ensure_analyst_final_eval_manual_tables,
 )
 
@@ -47,6 +50,9 @@ def create_app() -> Flask:
         ensure_judge_trainee_assignment_planner_bundle_column()
         ensure_planner_bundle_action_eval_event_flow_column()
         ensure_information_bank_tree_nodes_table()
+        ensure_information_bank_tree_suppressions_table()
+        ensure_information_bank_phase_included_column()
+        ensure_information_bank_unit_included_column()
         ensure_analyst_final_eval_manual_tables()
         from app.seed import seed_all
         db = SessionLocal()
@@ -60,6 +66,80 @@ def create_app() -> Flask:
         if request.path.startswith("/static/"):
             return
         g.db = SessionLocal()
+        from app.planning_catalog_sync import sync_planning_catalogs_from_db
+
+        sync_planning_catalogs_from_db(g.db)
+
+    @app.before_request
+    def _protected_admin_gate_sessions():
+        """إبطال بوابات الصفحات الحساسة عند مغادرتها؛ فرض كلمة المرور عند العودة."""
+        from flask import jsonify, redirect, session, url_for
+
+        from app.auth import get_current_user_optional
+        from app.info_bank_access import (
+            EVAL_SAVED_RESULTS_GATE_SESSION_KEY,
+            clear_information_bank_gate,
+            information_bank_gate_ok,
+            is_ibank_included_save_request,
+            is_information_bank_gate_exempt_path,
+            is_information_bank_path,
+        )
+        from app.permissions import can_manage_information_bank, can_view_information_bank
+
+        path = request.path or ""
+
+        if not is_information_bank_path(path):
+            clear_information_bank_gate(session)
+
+        if not path.startswith("/admin/evaluation-lists/saved-results"):
+            session.pop(EVAL_SAVED_RESULTS_GATE_SESSION_KEY, None)
+
+        if is_information_bank_path(path):
+            if is_information_bank_gate_exempt_path(path):
+                return
+            if information_bank_gate_ok(session):
+                return
+            user = get_current_user_optional()
+            if user is not None and can_manage_information_bank(user):
+                return
+            if user is None or not can_view_information_bank(user):
+                return
+            if is_ibank_included_save_request():
+                return (
+                    jsonify(
+                        {
+                            "ok": False,
+                            "gate_required": True,
+                            "error": (
+                                "انتهت جلسة بنك المعلومات. أعد الدخول من قائمة "
+                                "إدارة النظام وأدخل كلمة مرور إدارة النظام."
+                            ),
+                        }
+                    ),
+                    403,
+                )
+            return redirect(
+                url_for("views.admin_information_bank_gate", next=request.full_path)
+            )
+
+        if path.startswith("/admin/evaluation-lists/saved-results"):
+            if path.startswith("/admin/evaluation-lists/saved-results/gate"):
+                return
+            if session.get(EVAL_SAVED_RESULTS_GATE_SESSION_KEY):
+                return
+            user = get_current_user_optional()
+            if user is None:
+                return
+            from app.permissions import is_system_admin
+
+            if not is_system_admin(user):
+                return
+            return redirect(
+                url_for(
+                    "views.admin_evaluation_saved_results_gate",
+                    next=request.full_path,
+                )
+            )
 
     @app.teardown_request
     def _close_db(_exc):

@@ -3,25 +3,14 @@
 {% block content %}
 <div class="page-header">
   <h1><i class="fa-solid fa-flag fa-icon-title" aria-hidden="true"></i> تفاصيل {{ unit.unit_label }}</h1>
-  <p class="muted">صفحة خاصة بجداول التقييم النهائي لهذه الوحدة.</p>
-  <p class="mt-tight">
-    {% include 'partials/control_hub_back.html' %}
-    <a class="btn btn-ghost" href="{{ url_for('views.analyst_hub_section', slug='final-evaluation') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة إلى جدول التقرير النهائي</a>
-  </p>
+  <div class="page-header__nav">
+    {% include 'partials/subpage_close.html' %}
+  </div>
 </div>
 
 <section class="card final-report-card">
   <h2 class="h2-in-card"><i class="fa-solid fa-file-signature fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h2>
-  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
-    التمرين الحالي: <strong>{{ exercise.title }}</strong> — <code>{{ exercise.code }}</code>
-  </p>
-  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
-    الصفوف الأولى من كل مرحلة: <strong>معايير التقييم</strong> (قائمة التقييم + القصوى — للعرض فقط).
-    صفوف إضافية (إن وُجدت): قوائم محكمين غير مكررة في المعايير؛ عمود القصوى للعرض فقط في مراحل التحضير والانفتاح والمعركة.
-    مرحلة مسارات التقييم: القصوى لقوائم المحكمين قابلة للإدخال اليدوي.
-    <span class="muted">المعتمدة: {{ n_approved_eval_lists }} | المحفوظة غير المعتمدة: {{ n_saved_pending_eval_lists }}</span>
-    <span id="final-eval-unit-autosave-status" class="final-eval-autosave-status" role="status" aria-live="polite"></span>
-  </p>
+  <span id="final-eval-unit-autosave-status" class="final-eval-autosave-status" role="status" aria-live="polite"></span>
   {% if ok_msg %}
   <p class="form-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
   {% endif %}
@@ -70,8 +59,8 @@
             {% if item.allocated_pct is not none %}{{ item.allocated_pct|round(2) }}%{% else %}—{% endif %}
           </td>
           <td>{{ item.allocated_grade|default("—") }}</td>
-          <td>{% if item.evaluation_list_max_mark is number and item.evaluation_list_max_mark > 0 %}{{ item.evaluation_list_max_mark|round(2) }}{% else %}—{% endif %}</td>
-          <td>{% if item.evaluation_list_acquired_mark is number and item.evaluation_list_acquired_mark > 0 %}{{ item.evaluation_list_acquired_mark|round(2) }}{% elif item.evaluation_list_acquired_mark is number %}0{% else %}—{% endif %}</td>
+          <td>{% if item.evaluation_list_max_mark is number %}{{ item.evaluation_list_max_mark|round(2) }}{% else %}—{% endif %}</td>
+          <td>{% if item.evaluation_list_acquired_mark is number %}{{ item.evaluation_list_acquired_mark|round(2) }}{% else %}—{% endif %}</td>
         </tr>
         {% endfor %}
         {% endif %}
@@ -101,7 +90,7 @@
           <td>{% if row.allocated_pct is not none %}{{ row.allocated_pct|round(2) }}%{% elif row.has_saved_payload and row.evaluation_list_max_mark > 0 and row.evaluation_list_acquired_mark is number %}0%{% else %}—{% endif %}</td>
           <td>{{ row.allocated_grade }}</td>
           <td>{% if row.has_saved_payload %}{% if row.evaluation_list_max_mark > 0 %}{{ row.evaluation_list_max_mark|round(2) }}{% else %}—{% endif %}{% else %}—{% endif %}</td>
-          <td>{% if row.has_saved_payload and row.evaluation_list_acquired_mark > 0 %}{{ row.evaluation_list_acquired_mark|round(2) }}{% elif row.has_saved_payload %}—{% else %}—{% endif %}</td>
+          <td>{% if row.has_saved_payload and row.evaluation_list_acquired_mark is number %}{{ row.evaluation_list_acquired_mark|round(2) }}{% elif row.has_saved_payload %}—{% else %}—{% endif %}</td>
         </tr>
         {% endfor %}
         {% elif not criteria_rows %}

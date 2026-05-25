@@ -1,0 +1,4 @@
+{% set _subpage_close_target = subpage_close_fallback|default(eval_close_href|default(close_href|default(''))) %}
+<button type="button" class="btn btn--subpage-close" data-subpage-close{% if _subpage_close_target %} data-fallback-href="{{ _subpage_close_target }}"{% endif %}>
+  <i class="fa-solid fa-xmark" aria-hidden="true"></i> إغلاق
+</button>

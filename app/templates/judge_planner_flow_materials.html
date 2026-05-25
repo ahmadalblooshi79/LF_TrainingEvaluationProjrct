@@ -8,12 +8,9 @@
   {% if bundle is not none and planner_flow_unit_label %}
   <p class="judge-pf-unit-line"><i class="fa-solid fa-layer-group" aria-hidden="true"></i> مستوى الوحدة المعروض: <strong>{{ planner_flow_unit_label }}</strong></p>
   {% endif %}
-  <p class="mt-tight">
-    {% include 'partials/control_hub_back.html' %}
-    {% if hub_nav_href %}
-    <a class="btn btn-ghost" href="{{ hub_nav_href }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة لقائمة المحكمين</a>
-    {% endif %}
-  </p>
+  <div class="page-header__nav">
+    {% include 'partials/subpage_close.html' %}
+  </div>
 </div>
 
 {% if not has_exercise %}
@@ -21,29 +18,31 @@
 {% elif bundle is none %}
 <p class="muted">لم يتم بعد ربط حزمة «مجرى الأحداث وتقييم الإجراءات» بحسابك من قبل التخطيط. عند الإسناد ستظهر الملفات هنا.</p>
 {% else %}
-{% set ev_rel = bundle.event_flow_file_relpath or '' %}
-<section class="card judge-pf-tabbed">
+{% set pf_qs = planner_flow_url_kwargs or {} %}
+{% set ev_rel = planner_event_flow_relpath or bundle.event_flow_file_relpath or '' %}
+{% set _pf_tab = active_pf_tab|default('pf-event') %}
+<section class="card judge-pf-tabbed" data-initial-pf-tab="{{ _pf_tab }}">
   <div class="ibank-tabbed" dir="rtl">
     <div class="ibank-tabs-row" role="tablist" aria-label="مجرى الأحداث وقوائم التقييم">
-      <button type="button" class="ibank-tab is-active" data-tab-btn="pf-event" role="tab" aria-selected="true">مجرى الأحداث</button>
-      <button type="button" class="ibank-tab" data-tab-btn="pf-eval" role="tab" aria-selected="false">قوائم تقييم الإجراءات</button>
+      <button type="button" class="ibank-tab{% if _pf_tab == 'pf-event' %} is-active{% endif %}" data-tab-btn="pf-event" role="tab" aria-selected="{{ 'true' if _pf_tab == 'pf-event' else 'false' }}">مجرى الأحداث</button>
+      <button type="button" class="ibank-tab{% if _pf_tab == 'pf-eval' %} is-active{% endif %}" data-tab-btn="pf-eval" role="tab" aria-selected="{{ 'true' if _pf_tab == 'pf-eval' else 'false' }}">قوائم تقييم الإجراءات</button>
     </div>
     <div class="ibank-tab-body">
-      <div class="ibank-tabpane is-active" data-tab-pane="pf-event" role="tabpanel">
+      <div class="ibank-tabpane{% if _pf_tab == 'pf-event' %} is-active{% endif %}" data-tab-pane="pf-event" role="tabpanel">
         <div class="judge-pf-tab-pane-inner">
           <h2 class="h2-in-card"><i class="fa-solid fa-file-pdf fa-icon-title" aria-hidden="true"></i> مجرى الأحداث والمعاضل</h2>
           {% if ev_rel|trim %}
           <p class="planner-flow-event-filename" title="{{ planner_event_flow_display_name | e }}"><i class="fa-solid fa-file-lines" aria-hidden="true"></i> <strong>{{ planner_event_flow_display_name or 'ملف المجرى' }}</strong></p>
           <div class="planner-flow-master-actions-row">
             {% if planner_event_flow_file_ok %}
-            <a class="btn btn-ghost btn-sm-compact" href="{{ url_for('views.judge_planner_flow_materials_event_flow') }}" target="_blank" rel="noopener"><i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i> فتح في نافذة جديدة</a>
+            <a class="btn btn-ghost btn-sm-compact" href="{{ url_for('views.judge_planner_flow_materials_event_flow', **pf_qs) }}" target="_blank" rel="noopener"><i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i> فتح في نافذة جديدة</a>
             {% else %}
             <span class="btn btn-ghost btn-sm-compact muted judge-pf-btn-disabled" title="الملف غير متاح على الخادم"><i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i> فتح في نافذة جديدة</span>
             {% endif %}
           </div>
           {% if planner_event_flow_file_ok and ('.pdf' in ev_rel|lower) %}
           <div class="planner-flow-pdf-embed-wrap">
-            <iframe class="planner-flow-pdf-iframe" src="{{ url_for('views.judge_planner_flow_materials_event_flow') }}" title="معاينة مجرى الأحداث"></iframe>
+            <iframe class="planner-flow-pdf-iframe" src="{{ url_for('views.judge_planner_flow_materials_event_flow', **pf_qs) }}" title="معاينة مجرى الأحداث"></iframe>
           </div>
           {% elif planner_event_flow_file_ok and ('.doc' in ev_rel|lower) %}
           <p class="muted judge-pf-hint"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> ملف Word: استخدم «فتح في نافذة جديدة» أعلاه.</p>
@@ -56,7 +55,7 @@
         </div>
       </div>
 
-      <div class="ibank-tabpane" data-tab-pane="pf-eval" role="tabpanel">
+      <div class="ibank-tabpane{% if _pf_tab == 'pf-eval' %} is-active{% endif %}" data-tab-pane="pf-eval" role="tabpanel">
         <div class="judge-pf-tab-pane-inner judge-pf-tab-pane-inner--eval">
           <h2 class="h2-in-card"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> قوائم تقييم الإجراءات</h2>
           {% if planner_eval_rows %}
@@ -126,6 +125,10 @@
         activate(b.getAttribute("data-tab-btn"));
       });
     });
+    var initialTab = card.getAttribute("data-initial-pf-tab") || "pf-event";
+    if (initialTab === "pf-event" || initialTab === "pf-eval") {
+      activate(initialTab);
+    }
   })();
   </script>
 </section>

@@ -11,7 +11,7 @@
         {% endif %}
       </div>
     </div>
-    <a class="btn btn-ghost ibank-subheader__back" href="/dashboard"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> الصفحة الرئيسية</a>
+    <div class="ibank-subheader__back">{% with subpage_close_fallback=url_for('views.admin_information_bank_exit', next='/dashboard') %}{% include 'partials/subpage_close.html' %}{% endwith %}</div>
   </div>
   {% if not information_bank_can_manage %}
   <p class="form-ok-banner ibank-subheader__readonly-note" role="status"><i class="fa-solid fa-eye" aria-hidden="true"></i> <strong>عرض وتنزيل فقط</strong> — الإضافة والتعديل والحذف من صلاحية إدارة النظام فقط. يمكنك استخدام الروابط والسحب في أدوات التخطيط المرتبطة بالتمرين.</p>
@@ -58,14 +58,34 @@
               <tr>
                 <th scope="col" class="ibank-col-num">رقم</th>
                 <th scope="col">مرحلة التمرين</th>
+                <th scope="col" class="ibank-col-included">
+                  {% if information_bank_can_manage %}
+                  <label class="ibank-included-label ibank-included-label--header" title="تحديد الكل / إلغاء الكل">
+                    <input type="checkbox" class="ibank-included-check-all" data-form-id="ibank-phases-included-form" aria-label="تحديد كل مراحل التمرين">
+                    <span>مدرج في التمرين</span>
+                  </label>
+                  {% else %}
+                  مدرج في التمرين
+                  {% endif %}
+                </th>
                 {% if information_bank_can_manage %}<th scope="col">حذف</th>{% endif %}
               </tr>
             </thead>
             <tbody>
               {% for p in training_phases %}
-              <tr>
+              <tr data-was-included="{{ '1' if p.included_in_exercise else '0' }}">
                 <td class="ibank-col-num">{{ loop.index }}</td>
                 <th scope="row">{{ p.label }}</th>
+                <td class="ibank-col-included">
+                  {% if information_bank_can_manage %}
+                  <label class="ibank-included-label">
+                    <input type="checkbox" class="ibank-included-cb ibank-included-cb--phase" name="included_phase_keys" value="{{ p.key }}" form="ibank-phases-included-form" {% if p.included_in_exercise %}checked{% endif %} aria-label="مدرج في التمرين — {{ p.label }}">
+                    <span class="sr-only">مدرج في التمرين</span>
+                  </label>
+                  {% else %}
+                  <input type="checkbox" disabled {% if p.included_in_exercise %}checked{% endif %} aria-label="مدرج في التمرين — {{ p.label }}">
+                  {% endif %}
+                </td>
                 {% if information_bank_can_manage %}
                 <td>
                   <form method="post" action="{{ url_for('views.admin_information_bank_phase_delete') }}" onsubmit="return confirm('حذف هذه المرحلة من بنك المعلومات؟');">
@@ -79,6 +99,18 @@
             </tbody>
           </table>
         </div>
+        {% if information_bank_can_manage %}
+        <form method="post" action="{{ url_for('views.admin_information_bank_phases_included_save') }}" id="ibank-phases-included-form" class="ibank-units-included-form">
+          <input type="hidden" name="uncheck_password" id="ibank-phases-uncheck-password" value="" autocomplete="off">
+          <p class="ibank-units-included-actions mt-tight">
+            <button type="button" class="btn btn-ghost btn-sm ibank-included-select-all" data-form-id="ibank-phases-included-form"><i class="fa-solid fa-square-check" aria-hidden="true"></i> تحديد الكل</button>
+            <button type="button" class="btn btn-ghost btn-sm ibank-included-deselect-all" data-form-id="ibank-phases-included-form"><i class="fa-solid fa-square" aria-hidden="true"></i> إلغاء التحديد</button>
+            <button type="submit" class="btn btn-primary ibank-included-save-btn" aria-label="حفظ التحديدات والإلغاءات في التمرين دون مغادرة الصفحة"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ التحديدات والإلغاءات</button>
+            <span class="muted ibank-units-included-hint">يُطبَّق على قوائم التخطيط والمحكمين بعد الحفظ — تبقى في بنك المعلومات. إزالة صف كان مدرجاً سابقاً (تحديد الكل / إلغاء التحديد / حفظ مع إلغاء) تتطلب كلمة مرور إدارة النظام.</span>
+          </p>
+          <p class="ibank-included-save-status" role="status" aria-live="polite" hidden></p>
+        </form>
+        {% endif %}
       </div>
 
       <div class="ibank-tabpane{% if active_tab == 'units' %} is-active{% endif %}" data-tab-pane="units" role="tabpanel">
@@ -97,14 +129,34 @@
               <tr>
                 <th scope="col" class="ibank-col-num">رقم</th>
                 <th scope="col">مستوى الوحدة</th>
+                <th scope="col" class="ibank-col-included">
+                  {% if information_bank_can_manage %}
+                  <label class="ibank-included-label ibank-included-label--header" title="تحديد الكل / إلغاء الكل">
+                    <input type="checkbox" class="ibank-included-check-all" data-form-id="ibank-units-included-form" aria-label="تحديد كل مستويات الوحدات">
+                    <span>مدرج في التمرين</span>
+                  </label>
+                  {% else %}
+                  مدرج في التمرين
+                  {% endif %}
+                </th>
                 {% if information_bank_can_manage %}<th scope="col">حذف</th>{% endif %}
               </tr>
             </thead>
             <tbody>
               {% for u in info_bank_units %}
-              <tr>
+              <tr data-was-included="{{ '1' if u.included_in_exercise else '0' }}">
                 <td class="ibank-col-num">{{ loop.index }}</td>
                 <th scope="row">{{ u.label }}</th>
+                <td class="ibank-col-included">
+                  {% if information_bank_can_manage %}
+                  <label class="ibank-included-label">
+                    <input type="checkbox" class="ibank-included-cb" name="included_unit_keys" value="{{ u.key }}" form="ibank-units-included-form" {% if u.included_in_exercise %}checked{% endif %} aria-label="مدرج في التمرين — {{ u.label }}">
+                    <span class="sr-only">مدرج في التمرين</span>
+                  </label>
+                  {% else %}
+                  <input type="checkbox" disabled {% if u.included_in_exercise %}checked{% endif %} aria-label="مدرج في التمرين — {{ u.label }}">
+                  {% endif %}
+                </td>
                 {% if information_bank_can_manage %}
                 <td>
                   <form method="post" action="{{ url_for('views.admin_information_bank_unit_delete') }}" onsubmit="return confirm('حذف هذا المستوى من بنك المعلومات؟');">
@@ -118,6 +170,18 @@
             </tbody>
           </table>
         </div>
+        {% if information_bank_can_manage %}
+        <form method="post" action="{{ url_for('views.admin_information_bank_units_included_save') }}" id="ibank-units-included-form" class="ibank-units-included-form">
+          <input type="hidden" name="uncheck_password" id="ibank-uncheck-password" value="" autocomplete="off">
+          <p class="ibank-units-included-actions mt-tight">
+            <button type="button" class="btn btn-ghost btn-sm ibank-included-select-all" data-form-id="ibank-units-included-form"><i class="fa-solid fa-square-check" aria-hidden="true"></i> تحديد الكل</button>
+            <button type="button" class="btn btn-ghost btn-sm ibank-included-deselect-all" data-form-id="ibank-units-included-form"><i class="fa-solid fa-square" aria-hidden="true"></i> إلغاء التحديد</button>
+            <button type="submit" class="btn btn-primary ibank-included-save-btn" aria-label="حفظ التحديدات والإلغاءات في التمرين دون مغادرة الصفحة"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ التحديدات والإلغاءات</button>
+            <span class="muted ibank-units-included-hint">يُطبَّق على قوائم التخطيط والمحكمين بعد الحفظ — تبقى في بنك المعلومات. إزالة صف كان مدرجاً سابقاً تتطلب كلمة مرور إدارة النظام.</span>
+          </p>
+          <p class="ibank-included-save-status" role="status" aria-live="polite" hidden></p>
+        </form>
+        {% endif %}
       </div>
 
       <div class="ibank-tabpane{% if active_tab == 'event-flow' %} is-active{% endif %}" data-tab-pane="event-flow" role="tabpanel">
@@ -215,49 +279,93 @@
       var treeRoot = page.querySelector('.js-ibank-tree');
       var mvEl = page.querySelector('.js-ibank-tree-move-url-holder');
       var moveUrl = mvEl ? (mvEl.getAttribute('data-move-url') || '') : '';
-      var storageKeyExpand = 'lf_ibank_tree_exp:v4:' + kind;
       var targetId = '';
       var parentInputs = page.querySelectorAll('.js-ibank-tree-parent-id, .js-ibank-tree-upload-parent');
       var labelEl = page.querySelector('.js-ibank-tree-target-label');
       var folderNameInput = page.querySelector('.js-ibank-tree-folder-form input[name="folder_name"]');
 
-      function getOpenExpandedIds() {
-        var ids = [];
+      function setFolderExpanded(li, open) {
+        li.setAttribute('aria-expanded', open ? 'true' : 'false');
+        var ch = li.querySelector(':scope > .ibank-tree-children');
+        if (ch) ch.hidden = !open;
+        var row = li.querySelector(':scope > .ibank-tree-row');
+        var bt = row && row.querySelector('.ibank-tree-toggle');
+        var ic = bt && bt.querySelector('i');
+        if (ic) ic.className = open ? 'fa-solid fa-caret-down' : 'fa-solid fa-caret-left';
+      }
+
+      function collapseAllFolders() {
         page.querySelectorAll('.ibank-tree-has-children').forEach(function (li) {
-          if (li.getAttribute('aria-expanded') !== 'false') ids.push(String(li.getAttribute('data-node-id')));
+          setFolderExpanded(li, false);
         });
-        return ids;
       }
 
-      function saveExpandedSnapshot() {
+      var treeScrollEl = page.querySelector('.ibank-tree-scroll');
+      var expStorageKey = 'ibank_tree_exp_' + kind;
+      var scrollStorageKey = 'ibank_tree_scroll_' + kind;
+
+      function saveTreeUiState() {
+        var expanded = [];
+        page.querySelectorAll('.ibank-tree-has-children').forEach(function (li) {
+          if (li.getAttribute('aria-expanded') === 'true') {
+            expanded.push(String(li.getAttribute('data-node-id') || ''));
+          }
+        });
         try {
-          sessionStorage.setItem(storageKeyExpand, JSON.stringify(getOpenExpandedIds()));
-        } catch (e) {}
+          sessionStorage.setItem(expStorageKey, JSON.stringify(expanded));
+        } catch (err) {}
+        if (treeScrollEl) {
+          try {
+            sessionStorage.setItem(scrollStorageKey, String(treeScrollEl.scrollTop || 0));
+          } catch (err2) {}
+        }
       }
 
-      function restoreExpandedSnapshot() {
+      function restoreTreeUiState() {
         var raw = null;
         try {
-          raw = sessionStorage.getItem(storageKeyExpand);
-        } catch (e) {}
-        if (raw == null || raw === '') return;
-        var ids = [];
-        try { ids = JSON.parse(raw); } catch (e2) { return; }
-        if (!ids || typeof ids.slice !== 'function') return;
-        page.querySelectorAll('.ibank-tree-has-children').forEach(function (li) {
-          var id = String(li.getAttribute('data-node-id'));
-          var open = ids.indexOf(id) >= 0;
-          li.setAttribute('aria-expanded', open ? 'true' : 'false');
-          var ch = li.querySelector('.ibank-tree-children');
-          if (ch) ch.hidden = !open;
-          var row = li.firstElementChild;
-          var bt = row && row.querySelector('.ibank-tree-toggle');
-          var ic = bt && bt.querySelector('i');
-          if (ic) ic.className = open ? 'fa-solid fa-caret-down' : 'fa-solid fa-caret-left';
-        });
+          raw = sessionStorage.getItem(expStorageKey);
+        } catch (err) {}
+        if (raw) {
+          try {
+            var ids = JSON.parse(raw);
+            if (Array.isArray(ids)) {
+              ids.forEach(function (id) {
+                if (!id) return;
+                var li = page.querySelector('[data-node-id="' + id + '"]');
+                if (li && li.classList.contains('ibank-tree-has-children')) {
+                  setFolderExpanded(li, true);
+                }
+              });
+            }
+          } catch (err2) {
+            collapseAllFolders();
+          }
+        } else {
+          collapseAllFolders();
+        }
+        var st = null;
+        try {
+          st = sessionStorage.getItem(scrollStorageKey);
+        } catch (err3) {}
+        if (treeScrollEl && st !== null && st !== '') {
+          var top = parseInt(st, 10);
+          if (!isNaN(top)) {
+            requestAnimationFrame(function () {
+              treeScrollEl.scrollTop = top;
+            });
+          }
+        }
       }
 
-      restoreExpandedSnapshot();
+      restoreTreeUiState();
+
+      if (treeScrollEl) {
+        treeScrollEl.addEventListener('scroll', function () {
+          clearTimeout(treeScrollEl._ibankScrollT);
+          treeScrollEl._ibankScrollT = setTimeout(saveTreeUiState, 120);
+        }, { passive: true });
+      }
 
       function editingPending() {
         if (folderNameInput && folderNameInput.value.trim()) return true;
@@ -311,25 +419,81 @@
         });
       }
 
-      page.querySelectorAll('.js-ibank-tree-folder-form').forEach(function (frm) {
-        frm.addEventListener('submit', function () { saveExpandedSnapshot(); });
-      });
-      page.querySelectorAll('.js-ibank-tree-delete-form').forEach(function (frm) {
-        frm.addEventListener('submit', function () { saveExpandedSnapshot(); });
-      });
-
       page.querySelectorAll('.ibank-tree-node--folder > .ibank-tree-row .ibank-tree-toggle').forEach(function (btn) {
         btn.addEventListener('click', function (e) {
           e.stopPropagation();
           var li = btn.closest('.ibank-tree-node');
           if (!li || !li.classList.contains('ibank-tree-node--folder')) return;
           var open = li.getAttribute('aria-expanded') !== 'false';
-          li.setAttribute('aria-expanded', open ? 'false' : 'true');
-          var ch = li.querySelector('.ibank-tree-children');
-          if (ch) ch.hidden = open;
-          var ic = btn.querySelector('i');
-          if (ic) ic.className = open ? 'fa-solid fa-caret-left' : 'fa-solid fa-caret-down';
-          if (li.classList.contains('ibank-tree-has-children')) saveExpandedSnapshot();
+          setFolderExpanded(li, !open);
+          saveTreeUiState();
+        });
+      });
+
+      page.querySelectorAll('.js-ibank-tree-delete-form').forEach(function (form) {
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var msg = form.getAttribute('data-confirm-msg') || 'حذف هذا العنصر؟';
+          if (!window.confirm(msg)) return;
+          var li = form.closest('li.ibank-tree-node');
+          var deletedId = li ? String(li.getAttribute('data-node-id') || '') : '';
+          saveTreeUiState();
+          fetch(form.action, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+              Accept: 'application/json',
+              'X-Requested-With': 'XMLHttpRequest',
+            },
+          })
+            .then(function (r) {
+              var ct = (r.headers.get('content-type') || '').toLowerCase();
+              if (ct.indexOf('application/json') < 0) {
+                return { ok: false, error: 'استجابة غير متوقعة.' };
+              }
+              return r.json().then(function (j) {
+                if (!r.ok || !j || !j.ok) {
+                  return { ok: false, error: (j && j.error) || ('HTTP ' + r.status) };
+                }
+                return { ok: true };
+              });
+            })
+            .then(function (res) {
+              if (!res.ok) {
+                alert(res.error || 'تعذّر الحذف.');
+                return;
+              }
+              if (li && li.parentNode) {
+                li.parentNode.removeChild(li);
+              }
+              if (deletedId && targetId === deletedId) {
+                setTarget('', '');
+              }
+              page.querySelectorAll('.js-ibank-tree-select-target.is-active').forEach(function (b) {
+                if (String(b.getAttribute('data-node-id')) === deletedId) {
+                  b.classList.remove('is-active');
+                }
+              });
+              var rootList = treeRoot;
+              if (rootList && !rootList.querySelector('li.ibank-tree-node')) {
+                var emptyLi = document.createElement('li');
+                emptyLi.className = 'muted ibank-tree-empty';
+                emptyLi.textContent = 'لا توجد عناصر بعد — أضف مجلداً أو ارفق ملفات.';
+                rootList.appendChild(emptyLi);
+              }
+              requestAnimationFrame(function () {
+                if (treeScrollEl) {
+                  var st = sessionStorage.getItem(scrollStorageKey);
+                  if (st !== null && st !== '') {
+                    treeScrollEl.scrollTop = parseInt(st, 10) || 0;
+                  }
+                }
+              });
+            })
+            .catch(function () {
+              alert('تعذر الاتصال بالخادم.');
+            });
         });
       });
 
@@ -346,7 +510,6 @@
             inp.value = '';
             return;
           }
-          saveExpandedSnapshot();
           ibankSubmitting = true;
           btns.forEach(function (b) { b.disabled = true; });
           form.submit();
@@ -362,6 +525,21 @@
         if (!li || !li.classList.contains('ibank-tree-node--folder')) return null;
         return li;
       }
+      function resolveDropParentId(targetEl) {
+        var foldLi = folderDropTarget(targetEl.closest('li.ibank-tree-node--folder'));
+        if (foldLi) {
+          return parseInt(foldLi.getAttribute('data-node-id'), 10) || 0;
+        }
+        var fileLi = targetEl.closest('li.ibank-tree-node--file');
+        if (fileLi) {
+          var parentUl = fileLi.parentElement;
+          var parentFolder = parentUl && parentUl.closest('li.ibank-tree-node--folder');
+          if (parentFolder) {
+            return parseInt(parentFolder.getAttribute('data-node-id'), 10) || 0;
+          }
+        }
+        return 0;
+      }
       function clearDragHover() {
         if (dragHoverLi) {
           dragHoverLi.classList.remove('ibank-tree-node--drag-hover');
@@ -369,21 +547,39 @@
         }
       }
 
+      function isTreeNodeDrag(dt) {
+        if (!dt || !dt.types) return false;
+        for (var i = 0; i < dt.types.length; i++) {
+          if (dt.types[i] === 'application/x-lf-ibank-tree-node') return true;
+        }
+        return false;
+      }
+
       function postMove(fromId, toParentId) {
         if (!moveUrl) return;
-        saveExpandedSnapshot();
         fetch(moveUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
           credentials: 'same-origin',
-          body: JSON.stringify({ kind: kind, node_id: fromId, parent_id: toParentId }),
+          body: JSON.stringify({ kind: kind, node_id: fromId, parent_id: toParentId || 0 }),
         })
           .then(function (r) {
-            return r.json().catch(function () {
-              return { ok: false, error: r.status >= 400 ? ('HTTP ' + r.status) : 'استجابة غير متوقعة.' };
-            }).then(function (j) {
+            var ct = (r.headers.get('content-type') || '').toLowerCase();
+            if (ct.indexOf('application/json') < 0) {
+              return {
+                ok: false,
+                json: {
+                  error: r.status >= 400
+                    ? ('HTTP ' + r.status)
+                    : 'استجابة غير متوقعة — أعد تحميل الصفحة وحاول مجدداً.',
+                },
+              };
+            }
+            return r.json().then(function (j) {
               var payload = typeof j === 'object' && j !== null ? j : {};
-              if (!r.ok && !payload.error) payload.error = 'طلب غير مصرّح أو خطأ بالخادم.';
+              if (!r.ok && !payload.error) {
+                payload.error = 'طلب غير مصرّح أو خطأ بالخادم.';
+              }
               return { ok: r.ok, json: payload };
             });
           })
@@ -393,6 +589,7 @@
               alert(body.error || 'تعذّر النقل.');
               return;
             }
+            saveTreeUiState();
             window.location.reload();
           })
           .catch(function () { alert('تعذر الاتصال بالخادم.'); });
@@ -409,9 +606,8 @@
             if (!nid) return;
             try {
               e.dataTransfer.setData('application/x-lf-ibank-tree-node', nid);
-              e.dataTransfer.setData('text/plain', nid);
+              e.dataTransfer.effectAllowed = 'move';
             } catch (err) {}
-            e.dataTransfer.effectAllowed = 'move';
             li.classList.add('ibank-tree-node--dragging');
           });
           li.addEventListener('dragend', function () {
@@ -421,18 +617,20 @@
         });
 
         treeRoot.addEventListener('dragenter', function (e) {
-          var foldLi = folderDropTarget(e.target.closest('li.ibank-tree-node--folder'));
-          if (foldLi && page.contains(foldLi)) e.preventDefault();
+          if (!isTreeNodeDrag(e.dataTransfer)) return;
+          e.preventDefault();
         });
 
         treeRoot.addEventListener('dragover', function (e) {
+          if (!isTreeNodeDrag(e.dataTransfer)) return;
+          e.preventDefault();
+          e.stopPropagation();
           var foldLi = folderDropTarget(e.target.closest('li.ibank-tree-node--folder'));
           if (!foldLi || !page.contains(foldLi)) {
             clearDragHover();
+            try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
             return;
           }
-          e.preventDefault();
-          e.stopPropagation();
           if (dragHoverLi !== foldLi) {
             clearDragHover();
             dragHoverLi = foldLi;
@@ -455,14 +653,12 @@
           e.preventDefault();
           e.stopPropagation();
           clearDragHover();
-          var tgtLi = folderDropTarget(e.target.closest('li.ibank-tree-node'));
-          var rawId =
-            e.dataTransfer.getData('application/x-lf-ibank-tree-node') ||
-            e.dataTransfer.getData('text/plain');
-          if (!tgtLi || !rawId) return;
+          var rawId = e.dataTransfer.getData('application/x-lf-ibank-tree-node');
+          if (!rawId) return;
           var fromId = parseInt(rawId, 10);
-          var toPid = parseInt(tgtLi.getAttribute('data-node-id'), 10);
-          if (!fromId || !toPid || fromId === toPid) return;
+          if (!fromId) return;
+          var toPid = resolveDropParentId(e.target);
+          if (toPid && fromId === toPid) return;
           postMove(fromId, toPid);
         });
       }
@@ -488,6 +684,169 @@
         } catch (e) {}
       });
     });
+
+    var IBANK_UNCHECK_PROMPT = 'أدخل كلمة مرور إدارة النظام لإلغاء الإدراج في التمرين:';
+
+    function bindIncludedTable(formId, pwdInputId) {
+      var includedForm = document.getElementById(formId);
+      var uncheckPwd = document.getElementById(pwdInputId);
+      if (!includedForm) return;
+      var pane = includedForm.closest('.ibank-tabpane') || card;
+      var rowSelector = 'input.ibank-included-cb[form="' + formId + '"]';
+
+      function rowChecks() {
+        return Array.prototype.slice.call(pane.querySelectorAll(rowSelector));
+      }
+
+      function syncHeaderCheckAll() {
+        var header = pane.querySelector('.ibank-included-check-all[data-form-id="' + formId + '"]');
+        if (!header) return;
+        var boxes = rowChecks();
+        if (!boxes.length) {
+          header.checked = false;
+          header.indeterminate = false;
+          return;
+        }
+        var n = boxes.filter(function (b) { return b.checked; }).length;
+        header.checked = (n === boxes.length);
+        header.indeterminate = (n > 0 && n < boxes.length);
+      }
+
+      function needsUncheckPassword() {
+        return rowChecks().some(function (cb) {
+          var row = cb.closest('tr');
+          return row && row.getAttribute('data-was-included') === '1' && !cb.checked;
+        });
+      }
+
+      function willRemoveIncludedOnBulkUncheck(boxesToUncheck) {
+        return boxesToUncheck.some(function (cb) {
+          var row = cb.closest('tr');
+          return row && row.getAttribute('data-was-included') === '1' && cb.checked;
+        });
+      }
+
+      function ensureUncheckPassword() {
+        if (!uncheckPwd || uncheckPwd.value.trim()) return true;
+        var pwd = window.prompt(IBANK_UNCHECK_PROMPT);
+        if (!pwd) return false;
+        uncheckPwd.value = pwd;
+        return true;
+      }
+
+      rowChecks().forEach(function (cb) {
+        cb.addEventListener('change', syncHeaderCheckAll);
+      });
+      syncHeaderCheckAll();
+
+      var headerAll = pane.querySelector('.ibank-included-check-all[data-form-id="' + formId + '"]');
+      if (headerAll) {
+        headerAll.addEventListener('change', function () {
+          if (headerAll.checked) {
+            rowChecks().forEach(function (cb) { cb.checked = true; });
+            syncHeaderCheckAll();
+            return;
+          }
+          var boxes = rowChecks();
+          if (willRemoveIncludedOnBulkUncheck(boxes)) {
+            if (!ensureUncheckPassword()) {
+              headerAll.checked = true;
+              syncHeaderCheckAll();
+              return;
+            }
+          }
+          boxes.forEach(function (cb) { cb.checked = false; });
+          syncHeaderCheckAll();
+        });
+      }
+
+      pane.querySelectorAll('.ibank-included-select-all[data-form-id="' + formId + '"]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          rowChecks().forEach(function (cb) { cb.checked = true; });
+          syncHeaderCheckAll();
+        });
+      });
+
+      pane.querySelectorAll('.ibank-included-deselect-all[data-form-id="' + formId + '"]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var boxes = rowChecks().filter(function (cb) { return cb.checked; });
+          if (!boxes.length) return;
+          if (willRemoveIncludedOnBulkUncheck(boxes)) {
+            if (!ensureUncheckPassword()) return;
+          }
+          boxes.forEach(function (cb) { cb.checked = false; });
+          syncHeaderCheckAll();
+        });
+      });
+
+      function showIncludedSaveStatus(msg, isError) {
+        var statusEl = includedForm.querySelector('.ibank-included-save-status');
+        if (!statusEl) return;
+        statusEl.hidden = false;
+        statusEl.className = 'ibank-included-save-status ' + (isError ? 'form-error-banner' : 'form-ok-banner');
+        statusEl.innerHTML = '<i class="fa-solid ' + (isError ? 'fa-circle-exclamation' : 'fa-check') + '" aria-hidden="true"></i> ' + msg;
+      }
+
+      function markRowsSavedFromChecks() {
+        rowChecks().forEach(function (cb) {
+          var row = cb.closest('tr');
+          if (row) row.setAttribute('data-was-included', cb.checked ? '1' : '0');
+        });
+        if (uncheckPwd) uncheckPwd.value = '';
+        syncHeaderCheckAll();
+      }
+
+      includedForm.addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        if (needsUncheckPassword() && !ensureUncheckPassword()) {
+          return;
+        }
+        var saveBtn = includedForm.querySelector('.ibank-included-save-btn');
+        var prevHtml = saveBtn ? saveBtn.innerHTML : '';
+        if (saveBtn) {
+          saveBtn.disabled = true;
+          saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> جاري الحفظ…';
+        }
+        var fd = new FormData(includedForm);
+        fetch(includedForm.action, {
+          method: 'POST',
+          body: fd,
+          credentials: 'same-origin',
+          redirect: 'manual',
+          headers: { 'X-IBank-Included-Save': '1', 'Accept': 'application/json' }
+        })
+          .then(function (r) {
+            var ct = (r.headers.get('content-type') || '').toLowerCase();
+            if (r.status === 302 || r.status === 301 || r.type === 'opaqueredirect') {
+              throw new Error('انتهت جلسة بنك المعلومات. أعد الدخول من إدارة النظام بكلمة مرور إدارة النظام.');
+            }
+            if (!ct.includes('application/json')) {
+              throw new Error('تعذر حفظ التحديدات — استجابة غير متوقعة من الخادم.');
+            }
+            return r.json().then(function (data) {
+              if (!r.ok || !data.ok) {
+                throw new Error((data && data.error) || 'تعذر حفظ التحديدات.');
+              }
+              return data;
+            });
+          })
+          .then(function (data) {
+            markRowsSavedFromChecks();
+            showIncludedSaveStatus(data.message || 'تم الحفظ.', false);
+          })
+          .catch(function (err) {
+            showIncludedSaveStatus(err.message || 'تعذر حفظ التحديدات.', true);
+          })
+          .finally(function () {
+            if (saveBtn) {
+              saveBtn.disabled = false;
+              saveBtn.innerHTML = prevHtml;
+            }
+          });
+      });
+    }
+    bindIncludedTable('ibank-units-included-form', 'ibank-uncheck-password');
+    bindIncludedTable('ibank-phases-included-form', 'ibank-phases-uncheck-password');
   })();
   </script>
 </section>

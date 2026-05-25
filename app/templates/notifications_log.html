@@ -11,16 +11,17 @@
 </style>
 <div class="page-header">
   <h1><i class="fa-solid fa-bell fa-icon-title" aria-hidden="true"></i> سجل الإشعارات</h1>
-  {% include 'partials/control_hub_back.html' %}
-  <p class="mt-tight">
-    <a class="btn btn-ghost" href="/dashboard"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
-    {% if has_exercise and notifications %}
+  <div class="page-header__nav">
+    {% include 'partials/subpage_close.html' %}
+  </div>
+  {% if has_exercise and notifications %}
+  <div class="page-header__tools">
     <form method="post" action="{{ url_for('views.notifications_mark_all_read') }}" class="notif-log-preserve-scroll" style="display:inline;">
       {% if hub_from_form_param %}<input type="hidden" name="{{ hub_from_form_param }}" value="1">{% endif %}
       <button type="submit" class="btn btn-ghost"><i class="fa-solid fa-check-double" aria-hidden="true"></i> تعليم الكل كمقروء</button>
     </form>
-    {% endif %}
-  </p>
+  </div>
+  {% endif %}
 </div>
 
 {% if not has_exercise %}

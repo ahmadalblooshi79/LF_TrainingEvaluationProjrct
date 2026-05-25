@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import logging
 import mimetypes
 import re
 import uuid
@@ -22,6 +23,7 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 from sqlalchemy import case, delete, desc, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from app.config import (
@@ -132,6 +134,7 @@ from app import exercise_options as ex_opts
 from app.exercise_phase_catalog import (
     DEFAULT_EXERCISE_PHASE,
     EXERCISE_PHASE_OPTIONS,
+    default_exercise_phase_key,
     exercise_phase_keys,
     exercise_phase_label,
     normalize_exercise_phase,
@@ -139,8 +142,10 @@ from app.exercise_phase_catalog import (
 from app.unit_levels_catalog import (
     UNIT_LEVELS,
     coerce_roster_import_position_cell,
+    default_unit_level_key,
     label_for_unit_level_key,
     normalize_unit_level_key,
+    unit_level_row,
 )
 from app.information_bank_catalog import (
     INFO_BANK_UNIT_LEVELS,
@@ -170,6 +175,15 @@ from app.exercise_store import (
 )
 from app.seed import DEMO_PASSWORD
 from app.battle_organization import BATTLE_ORG_DEMO_ROOT
+from app.ai_service import suggest_instructions_or_notes
+from app.info_bank_access import (
+    EVAL_SAVED_RESULTS_GATE_SESSION_KEY,
+    INFO_BANK_GATE_SESSION_KEY,
+    clear_information_bank_gate,
+    information_bank_gate_ok,
+    is_ibank_included_save_request,
+    is_information_bank_path,
+)
 
 bp = Blueprint("views", __name__)
 
@@ -458,19 +472,37 @@ def _normalized_exercise_phase(val: str | None) -> str:
 
 
 def _exercise_phase_order_expr(column):
+    """ترتيب SQL حسب كتالوج المراحل؛ عند فراغ الكتالوج يُرتب بالقيمة الخام."""
+    keys = exercise_phase_keys()
+    if not keys:
+        return column
     return case(
-        {key: idx for idx, key in enumerate(exercise_phase_keys())},
+        {key: idx for idx, key in enumerate(keys)},
         value=column,
-        else_=len(exercise_phase_keys()),
+        else_=len(keys),
     )
 
 
 def _unit_level_order_expr(column):
+    """ترتيب SQL حسب كتالوج مستويات الوحدة؛ عند فراغ الكتالوج يُرتب بالقيمة الخام."""
+    if not UNIT_LEVELS:
+        return column
     return case(
         {row["key"]: idx for idx, row in enumerate(UNIT_LEVELS)},
         value=column,
         else_=len(UNIT_LEVELS),
     )
+
+
+def _require_unit_level_row(unit_key: str | None) -> dict[str, str] | None:
+    """صف كتالوج التخطيط؛ ``None`` إذا المفتاح فارغاً؛ 404 إذا المفتاح غير معروف."""
+    k = (unit_key or "").strip()
+    if not k:
+        return None
+    row = unit_level_row(k)
+    if row is None:
+        abort(404)
+    return row
 
 
 def _can_manage_dilemma_eval_catalog(user: User) -> bool:
@@ -723,13 +755,60 @@ def _evaluation_saved_total_pct(sr: EvaluationListSavedResult | None) -> float |
     return (sum(pcts) / len(pcts)) if pcts else None
 
 
-_CONTROL_REPORT_PHASE_COLUMNS: tuple[tuple[str, str], ...] = (
+_CONTROL_REPORT_PHASE_FALLBACK: tuple[tuple[str, str], ...] = (
     ("preparation", "مرحلة التحضير"),
     ("opening", "مرحلة الإنفتاح"),
-    ("main", "مرحلة المعركة التعرضية"),
+    ("battle_exposure", "مرحلة المعركة التعرضية"),
+    ("reorganization", "مرحلة مسارات التقييم"),
 )
-_CONTROL_REPORT_PHASE_KEYS: tuple[str, ...] = tuple(pk for pk, _ in _CONTROL_REPORT_PHASE_COLUMNS)
-_CONTROL_REPORT_PHASE_KEYS_SET: frozenset[str] = frozenset(_CONTROL_REPORT_PHASE_KEYS)
+
+
+def _control_report_catalog_phase_columns() -> list[tuple[str, str]]:
+    """ترتيب مراحل التمرين من كتالوج التخطيط (بنك المعلومات — المدرجة في التمرين)."""
+    if EXERCISE_PHASE_OPTIONS:
+        return list(EXERCISE_PHASE_OPTIONS)
+    return list(_CONTROL_REPORT_PHASE_FALLBACK)
+
+
+def _control_report_effective_phase_key(raw: str | None) -> str:
+    """مفتاح مرحلة موحّد للتقرير — يطابق كتالوج التخطيط مع دعم المفاتيح القديمة."""
+    ph = _normalized_exercise_phase(raw)
+    if not ph:
+        return ""
+    catalog_keys = {pk for pk, _ in _control_report_catalog_phase_columns()}
+    if ph in catalog_keys:
+        return ph
+    legacy_to_catalog = {
+        "main": "battle_exposure",
+        "reorg": "reorganization",
+    }
+    alt = legacy_to_catalog.get(ph)
+    if alt and alt in catalog_keys:
+        return alt
+    catalog_to_legacy = {
+        "battle_exposure": "main",
+        "reorganization": "reorg",
+    }
+    alt2 = catalog_to_legacy.get(ph)
+    if alt2 and alt2 in catalog_keys:
+        return alt2
+    return ph
+
+
+def _control_active_phase_columns(
+    dots_by_unit_phase: dict[tuple[str, str], list[dict]],
+) -> list[tuple[str, str]]:
+    """مراحل لها تقييم محفوظ فعلياً فقط — بنفس ترتيب الكتالوج."""
+    active_keys = {
+        pk
+        for (_uk, pk), dots in dots_by_unit_phase.items()
+        if pk and dots
+    }
+    return [
+        (pk, lbl)
+        for pk, lbl in _control_report_catalog_phase_columns()
+        if pk in active_keys
+    ]
 
 # مفتاح ألوان نتائج القوائم — متوافق مع grade_label_from_percent
 _CONTROL_REPORT_GRADE_LEGEND: tuple[tuple[str, str, str], ...] = (
@@ -772,14 +851,87 @@ def _control_report_approval_location_ar(saved: EvaluationListSavedResult | None
     return "محفوظ — بانتظار اعتماد المحكم"
 
 
+def _control_report_dot_sort_key(dot: dict) -> tuple:
+    """قوائم المحكم أولاً ثم قوائم المجرى/الإجراءات."""
+    src = (dot.get("source") or "judge_eval").strip()
+    return (0 if src == "judge_eval" else 1, int(dot.get("sort_id") or 0))
+
+
+def _control_planner_flow_detail_dots(
+    db,
+    exercise_id: int,
+    *,
+    users_by_id: dict[int, str],
+    judge_roster: dict[str, str],
+) -> list[dict]:
+    """نقاط تقرير السيطرة من حزم المجرى — قوائم تقييم الإجراءات المحفوظة للمحكم."""
+    action_rows = (
+        db.query(ExercisePlannerFlowBundleActionEval)
+        .join(ExercisePlannerFlowBundle)
+        .filter(ExercisePlannerFlowBundle.exercise_id == int(exercise_id))
+        .order_by(
+            ExercisePlannerFlowBundle.unit_level_key,
+            ExercisePlannerFlowBundle.exercise_phase,
+            ExercisePlannerFlowBundleActionEval.slot_index,
+            ExercisePlannerFlowBundleActionEval.id,
+        )
+        .all()
+    )
+    if not action_rows:
+        return []
+    dots: list[dict] = []
+    for action_row in action_rows:
+        bundle = action_row.bundle
+        if bundle is None:
+            continue
+        canon = _planner_bundle_eval_canonical_saved(db, int(exercise_id), int(action_row.id))
+        if canon is None or not (getattr(canon, "payload_json", None) or "").strip():
+            continue
+        pct_f = _evaluation_saved_total_pct(canon)
+        if pct_f is None:
+            continue
+        uk = (getattr(bundle, "unit_level_key", None) or "").strip()
+        ph = _control_report_effective_phase_key(getattr(bundle, "exercise_phase", None))
+        if not uk or not ph:
+            continue
+        title = _planner_blob_display_filename(
+            stored_title=action_row.title or "",
+            relpath=action_row.file_relpath or "",
+            fallback=f"قائمة تقييم إجراءات {int(action_row.slot_index)}",
+        )
+        jid = getattr(canon, "saved_by_id", None)
+        jname = users_by_id.get(int(jid)) if jid is not None else None
+        if not jname:
+            jname = judge_roster.get(uk, "—")
+        pv = int(round(float(pct_f)))
+        dots.append(
+            {
+                "source": "planner_flow",
+                "sort_id": int(action_row.id),
+                "unit_key": uk,
+                "phase_key": ph,
+                "pct": pv,
+                "color": _control_report_dot_color(pv),
+                "list_title": title,
+                "judge_name": jname,
+                "approval_location": _control_report_approval_location_ar(canon),
+                "view_url": url_for(
+                    "views.control_planner_flow_action_view",
+                    unit_key=uk,
+                    action_eval_id=int(action_row.id),
+                ),
+            }
+        )
+    return dots
+
+
 def _control_build_unit_detail_rows(
     db,
     exercise_id: int,
     eval_items: list,
     saved_by_item: dict[int, EvaluationListSavedResult],
-) -> list[dict]:
+) -> tuple[list[dict], list[tuple[str, str]]]:
     """صفوف جدول أداء الوحدات التفصيلي: نقطة ملونة لكل قائمة تقييم محفوظة ضمن مرحلة."""
-    phase_keys = set(_CONTROL_REPORT_PHASE_KEYS)
     dots_by_unit_phase: dict[tuple[str, str], list[dict]] = {}
 
     user_ids = {
@@ -815,8 +967,8 @@ def _control_build_unit_detail_rows(
         if pct_f is None:
             continue
         uk = (getattr(it, "unit_level_key", None) or "").strip()
-        ph = _normalized_exercise_phase(getattr(it, "exercise_phase", None))
-        if not uk or ph not in phase_keys:
+        ph = _control_report_effective_phase_key(getattr(it, "exercise_phase", None))
+        if not uk or not ph:
             continue
         title = (getattr(it, "text", None) or "قائمة تقييم").strip()
         jid = getattr(sr, "saved_by_id", None)
@@ -826,8 +978,10 @@ def _control_build_unit_detail_rows(
         approval_loc = _control_report_approval_location_ar(sr)
         pv = int(round(float(pct_f)))
         dot = {
-            "item_id": iid,
+            "source": "judge_eval",
+            "sort_id": iid,
             "unit_key": uk,
+            "phase_key": ph,
             "pct": pv,
             "color": _control_report_dot_color(pv),
             "list_title": title,
@@ -841,13 +995,25 @@ def _control_build_unit_detail_rows(
         }
         dots_by_unit_phase.setdefault((uk, ph), []).append(dot)
 
+    for pdot in _control_planner_flow_detail_dots(
+        db,
+        exercise_id,
+        users_by_id=users_by_id,
+        judge_roster=judge_roster,
+    ):
+        uk = (pdot.get("unit_key") or "").strip()
+        ph = (pdot.get("phase_key") or "").strip()
+        if uk and ph:
+            dots_by_unit_phase.setdefault((uk, ph), []).append(pdot)
+
+    active_phase_columns = _control_active_phase_columns(dots_by_unit_phase)
     units_with_data: list[str] = []
     seen_uk: set[str] = set()
     for ul in UNIT_LEVELS:
         uk = (ul.get("key") or "").strip()
         if not uk or uk in seen_uk:
             continue
-        if any(dots_by_unit_phase.get((uk, pk)) for pk, _ in _CONTROL_REPORT_PHASE_COLUMNS):
+        if any(dots_by_unit_phase.get((uk, pk)) for pk, _ in active_phase_columns):
             units_with_data.append(uk)
             seen_uk.add(uk)
     for uk in sorted({k[0] for k in dots_by_unit_phase}):
@@ -857,14 +1023,14 @@ def _control_build_unit_detail_rows(
     unit_rows: list[dict] = []
     for uk in units_with_data:
         phases_out = []
-        for pk, plbl in _CONTROL_REPORT_PHASE_COLUMNS:
+        for pk, plbl in active_phase_columns:
             phases_out.append(
                 {
                     "key": pk,
                     "label": plbl,
                     "dots": sorted(
                         dots_by_unit_phase.get((uk, pk)) or [],
-                        key=lambda d: int(d.get("item_id") or 0),
+                        key=_control_report_dot_sort_key,
                     ),
                 }
             )
@@ -875,12 +1041,14 @@ def _control_build_unit_detail_rows(
                 "phases": phases_out,
             }
         )
-    return unit_rows
+    return unit_rows, active_phase_columns
 
 
 def _control_phase_max_dot_counts(unit_detail_rows: list[dict]) -> list[int]:
     """أقصى عدد نقاط تقييم لكل عمود مرحلة — لضبط عرض العمود في التقرير."""
-    n_phases = len(_CONTROL_REPORT_PHASE_COLUMNS)
+    if not unit_detail_rows:
+        return []
+    n_phases = len(unit_detail_rows[0].get("phases") or [])
     maxes = [0] * n_phases
     for urow in unit_detail_rows:
         for i, ph in enumerate(urow.get("phases") or []):
@@ -925,6 +1093,95 @@ def _evaluation_delete_duplicate_saves(db, *, exercise_id: int, evaluation_item_
         EvaluationListSavedResult.exercise_id == exercise_id,
         EvaluationListSavedResult.evaluation_item_id == evaluation_item_id,
         EvaluationListSavedResult.id != keep_id,
+    ).delete(synchronize_session=False)
+
+
+def _purge_eval_criterion_media_rows(db, media_rows: list) -> None:
+    for m in media_rows:
+        abs_p = criterion_media_absolute_path((getattr(m, "file_relpath", None) or "").strip())
+        if abs_p is not None and abs_p.is_file():
+            try:
+                abs_p.unlink()
+            except OSError:
+                pass
+        db.delete(m)
+
+
+def _sync_evaluation_list_item_phase(
+    db, item: EvaluationListPdfItem, phase_key: str
+) -> None:
+    """تحديث مرحلة التمرين على العنصر وجميع السجلات المرتبطة به في التمرين."""
+    from app.models import JudgeIncompleteTaskStatus
+
+    item.exercise_phase = phase_key
+    if item.exercise_id is not None:
+        db.query(EvaluationListSavedResult).filter(
+            EvaluationListSavedResult.exercise_id == item.exercise_id,
+            EvaluationListSavedResult.evaluation_item_id == item.id,
+        ).update(
+            {EvaluationListSavedResult.exercise_phase: phase_key},
+            synchronize_session=False,
+        )
+        db.query(JudgeIncompleteTaskStatus).filter(
+            JudgeIncompleteTaskStatus.exercise_id == item.exercise_id,
+            JudgeIncompleteTaskStatus.evaluation_item_id == item.id,
+        ).update(
+            {JudgeIncompleteTaskStatus.exercise_phase: phase_key},
+            synchronize_session=False,
+        )
+
+
+def _admin_purge_judge_evaluation_data(
+    db, exercise_id: int, evaluation_item_id: int
+) -> None:
+    """إزالة نتائج التقييم وتوثيق المعايير وحالات المهام لعنصر قائمة واحد."""
+    from app.models import JudgeIncompleteTaskStatus
+
+    media_rows = (
+        db.query(EvaluationCriterionMedia)
+        .filter(
+            EvaluationCriterionMedia.exercise_id == exercise_id,
+            EvaluationCriterionMedia.evaluation_list_item_id == evaluation_item_id,
+        )
+        .all()
+    )
+    _purge_eval_criterion_media_rows(db, media_rows)
+    db.query(EvaluationListSavedResult).filter(
+        EvaluationListSavedResult.exercise_id == exercise_id,
+        EvaluationListSavedResult.evaluation_item_id == evaluation_item_id,
+    ).delete(synchronize_session=False)
+    db.query(AnalystFinalEvaluationAllocatedMax).filter(
+        AnalystFinalEvaluationAllocatedMax.exercise_id == exercise_id,
+        AnalystFinalEvaluationAllocatedMax.evaluation_item_id == evaluation_item_id,
+    ).delete(synchronize_session=False)
+    db.query(JudgeIncompleteTaskStatus).filter(
+        JudgeIncompleteTaskStatus.exercise_id == exercise_id,
+        JudgeIncompleteTaskStatus.evaluation_item_id == evaluation_item_id,
+    ).delete(synchronize_session=False)
+
+
+def _admin_purge_planner_flow_evaluation_data(
+    db, exercise_id: int, bundle_action_eval_id: int
+) -> None:
+    """إزالة نتائج تقييم إجراءات المجرى وتوثيقها وحالات المهام المرتبطة."""
+    from app.models import JudgeIncompleteTaskStatus
+
+    media_rows = (
+        db.query(EvaluationCriterionMedia)
+        .filter(
+            EvaluationCriterionMedia.exercise_id == exercise_id,
+            EvaluationCriterionMedia.bundle_action_eval_id == bundle_action_eval_id,
+        )
+        .all()
+    )
+    _purge_eval_criterion_media_rows(db, media_rows)
+    db.query(PlannerFlowBundleEvalSavedResult).filter(
+        PlannerFlowBundleEvalSavedResult.exercise_id == exercise_id,
+        PlannerFlowBundleEvalSavedResult.bundle_action_eval_id == bundle_action_eval_id,
+    ).delete(synchronize_session=False)
+    db.query(JudgeIncompleteTaskStatus).filter(
+        JudgeIncompleteTaskStatus.exercise_id == exercise_id,
+        JudgeIncompleteTaskStatus.evaluation_item_id == bundle_action_eval_id,
     ).delete(synchronize_session=False)
 
 
@@ -1071,6 +1328,76 @@ def _evaluation_list_judge_sum_totals(
     return sum_max, _round_mark(sum_acquired)
 
 
+def _evaluation_list_page_footer_stats(
+    saved_rows: list | None,
+    template_rows: list | None = None,
+    *,
+    saved_total_pct: float | None = None,
+    saved_grade: str | None = None,
+) -> dict:
+    """إحصائيات تذييل قائمة التقييم: مجموع القصوى، المكتسبة، النسبة الفعلية، التقدير."""
+    sum_max, sum_acquired = _evaluation_list_judge_sum_totals(saved_rows, template_rows)
+    actual_pct = saved_total_pct
+    grade = (saved_grade or "").strip()
+    if actual_pct is None and saved_rows:
+        actual_pct, grade_computed = _evaluation_grade_from_payload_rows(saved_rows)
+        if not grade:
+            grade = grade_computed or ""
+    elif actual_pct is not None and not grade:
+        grade = grade_label_from_percent(actual_pct) or ""
+    return {
+        "sum_max": sum_max,
+        "sum_acquired": sum_acquired,
+        "actual_pct": actual_pct,
+        "grade": grade or "—",
+    }
+
+
+_FINAL_EVAL_PHASE_ALIASES: dict[str, tuple[str, ...]] = {
+    "preparation": ("preparation",),
+    "opening": ("opening",),
+    "main": ("main", "battle_exposure"),
+    "reorg": ("reorg", "reorganization", "evaluation_tracks"),
+    "evaluation_tracks": ("evaluation_tracks", "reorg", "reorganization"),
+}
+
+
+def _final_eval_logical_phase_key(phase_key: str) -> str:
+    pk = (phase_key or "").strip()
+    if pk in ("main", "battle_exposure"):
+        return "main"
+    if pk in ("reorg", "reorganization", "evaluation_tracks"):
+        return "reorg"
+    return pk
+
+
+def _final_eval_detail_rows_for_unit_phase(
+    details_by_unit_phase: dict[tuple[str, str], list[dict]],
+    unit_key: str,
+    phase_key: str,
+) -> list[dict]:
+    """صفوف قوائم التقييم لوحدة ومرحلة مع دمج مفاتيح المراحل المرادفة."""
+    keys = _FINAL_EVAL_PHASE_ALIASES.get(
+        (phase_key or "").strip(),
+        ((phase_key or "").strip(),),
+    )
+    merged: list[dict] = []
+    seen_ids: set[int] = set()
+    for pk in keys:
+        if not pk:
+            continue
+        for row in details_by_unit_phase.get((unit_key, pk), []):
+            item_id = row.get("item_id")
+            if item_id is not None:
+                iid = int(item_id)
+                if iid in seen_ids:
+                    continue
+                seen_ids.add(iid)
+            merged.append(row)
+    merged.sort(key=lambda x: (x.get("item_sort_order", 0), x.get("item_id", 0)))
+    return merged
+
+
 def _final_report_phase_summary(rows: list[dict]) -> dict:
     max_mark = sum(float(r.get("max_mark") or 0.0) for r in rows)
     acquired_mark = sum(float(r.get("acquired_mark") or 0.0) for r in rows)
@@ -1100,7 +1427,7 @@ def _apply_criteria_totals_to_phase_rows(
     """جدول جميع المراحل: القصوى/المكتسبة/النسبة/التقدير من صف الإجمالي في جدول تفاصيل المرحلة."""
     grades = criteria_grade_by_phase or {}
     for row in phase_rows:
-        phase_key = (row.get("phase_key") or "").strip()
+        phase_key = _final_eval_logical_phase_key(row.get("phase_key") or "")
         if phase_key not in criteria_max_by_phase:
             continue
         max_mark = float(criteria_max_by_phase.get(phase_key) or 0.0)
@@ -1480,34 +1807,44 @@ def _allocated_acquired_from_pct_and_max(
 
 def _eval_list_marks_by_label(
     detail_rows: list[dict],
-) -> tuple[dict[str, float], dict[str, float]]:
-    """قصوى ومكتسبة حسب قوائم التقييم (من نتائج المحكمين) لكل عنوان قائمة."""
+) -> tuple[dict[str, float], dict[str, float], dict[str, float | None], dict[str, str]]:
+    """قصوى ومكتسبة ونسبة فعلية وتقدير حسب عنوان قائمة التقييم."""
     max_by_label: dict[str, float] = {}
     acq_by_label: dict[str, float] = {}
+    pct_by_label: dict[str, float | None] = {}
+    grade_by_label: dict[str, str] = {}
     for row in detail_rows or []:
         key = _norm_eval_list_label_for_match(row.get("list_label") or "")
         if not key or not row.get("has_saved_payload"):
             continue
         max_by_label[key] = float(row.get("evaluation_list_max_mark") or 0.0)
         acq_by_label[key] = float(row.get("evaluation_list_acquired_mark") or 0.0)
-    return max_by_label, acq_by_label
+        pct_by_label[key] = row.get("evaluation_list_actual_pct")
+        grade_by_label[key] = (row.get("evaluation_list_grade") or row.get("allocated_grade") or "—")
+    return max_by_label, acq_by_label, pct_by_label, grade_by_label
 
 
 def _enrich_criteria_items_with_acquired(
     criteria_items: list[dict],
     all_detail_rows: list[dict],
 ) -> list[dict]:
-    """ربط علامات قوائم التقييم وحساب النسبة = مكتسبة/قصوى من «العلامه حسب قوائم التقييم»."""
-    max_by_label, acq_by_label = _eval_list_marks_by_label(all_detail_rows)
+    """ربط علامات قوائم التقييم — النسبة = النسبة المئوية الفعلية من صفحة قائمة التقييم."""
+    max_by_label, acq_by_label, pct_by_label, grade_by_label = _eval_list_marks_by_label(
+        all_detail_rows
+    )
     enriched: list[dict] = []
     for item in criteria_items or []:
         row = {**item}
         key = _norm_eval_list_label_for_match(row.get("criteria_text") or "")
         eval_max = max_by_label.get(key) if key in max_by_label else None
         eval_acq = acq_by_label.get(key) if key in acq_by_label else None
+        actual_pct = pct_by_label.get(key) if key in pct_by_label else None
         row["evaluation_list_max_mark"] = eval_max
         row["evaluation_list_acquired_mark"] = eval_acq
-        pct = _allocated_pct_from_marks(eval_acq, eval_max)
+        row["evaluation_list_actual_pct"] = actual_pct
+        pct = actual_pct
+        if pct is None:
+            pct = _allocated_pct_from_marks(eval_acq, eval_max)
         row["allocated_pct"] = pct
         alloc_max = row.get("allocated_mark")
         if alloc_max is not None:
@@ -1516,7 +1853,11 @@ def _enrich_criteria_items_with_acquired(
             except (TypeError, ValueError):
                 alloc_max = None
         row["allocated_acquired_mark"] = _allocated_acquired_from_pct_and_max(pct, alloc_max)
-        row["allocated_grade"] = grade_label_from_percent(pct) if pct is not None else "—"
+        row["allocated_grade"] = (
+            grade_by_label.get(key)
+            if key in grade_by_label
+            else (grade_label_from_percent(pct) if pct is not None else "—")
+        )
         enriched.append(row)
     return enriched
 
@@ -1543,6 +1884,38 @@ def _criteria_items_eval_list_acquired_total(items: list[dict]) -> float:
         for item in (items or [])
         if item.get("evaluation_list_acquired_mark") is not None
     )
+
+
+def _criteria_items_eval_list_footer_pct(items: list[dict]) -> float | None:
+    """نسبة إجمالية للمرحلة من النسب الفعلية لقوائم التقييم."""
+    if not items:
+        return None
+    actuals = [
+        float(item["evaluation_list_actual_pct"])
+        for item in items
+        if item.get("evaluation_list_actual_pct") is not None
+    ]
+    if len(actuals) == len(items) and len(actuals) == 1:
+        return actuals[0]
+    return _allocated_pct_from_marks(
+        _criteria_items_eval_list_acquired_total(items),
+        _criteria_items_eval_list_max_total(items),
+    )
+
+
+def _criteria_items_eval_list_footer_grade(items: list[dict], pct: float | None) -> str:
+    if pct is None:
+        return "—"
+    grades = {
+        (item.get("allocated_grade") or item.get("evaluation_list_grade") or "").strip()
+        for item in (items or [])
+        if (item.get("allocated_grade") or item.get("evaluation_list_grade"))
+    }
+    grades.discard("")
+    grades.discard("—")
+    if len(grades) == 1:
+        return next(iter(grades))
+    return grade_label_from_percent(pct) or "—"
 
 
 def _round_pct_display(value: float) -> float:
@@ -1603,7 +1976,9 @@ _CONTROL_PHASE_BAR_HEX: dict[str, str] = {
     "preparation": "#3b82f6",
     "opening": "#10b981",
     "main": "#f59e0b",
+    "battle_exposure": "#f59e0b",
     "reorg": "#14b8a6",
+    "reorganization": "#14b8a6",
 }
 
 
@@ -1650,9 +2025,77 @@ def _phase_summary_from_eval_items(
     return _build_final_report_exercise_summary(final_rows)
 
 
+def _phase_summary_for_control_report(
+    db,
+    exercise_id: int,
+    eval_items: list,
+    saved_by_item: dict[int, EvaluationListSavedResult],
+) -> dict:
+    """ملخص مراحل التقرير من قوائم المحكم + قوائم المجرى/الإجراءات."""
+    phase_totals: dict[tuple[str, str], dict] = {}
+
+    def _accumulate(unit_key: str, phase_key: str, rows: list) -> None:
+        max_mark, acquired_mark = _evaluation_payload_mark_totals(rows)
+        if max_mark <= 0:
+            return
+        block = phase_totals.setdefault(
+            (unit_key, phase_key),
+            {
+                "unit_key": unit_key,
+                "phase_key": phase_key,
+                "phase_label": _phase_label_ar(phase_key),
+                "max_mark": 0.0,
+                "acquired_mark": 0.0,
+            },
+        )
+        block["max_mark"] += max_mark
+        block["acquired_mark"] += acquired_mark
+
+    for it in eval_items:
+        saved = saved_by_item.get(int(getattr(it, "id", 0) or 0))
+        if saved is None:
+            continue
+        rows = _parse_saved_eval_rows(getattr(saved, "payload_json", None))
+        uk = (
+            getattr(it, "unit_level_key", None) or getattr(saved, "unit_level_key", None) or ""
+        ).strip()
+        ph = _control_report_effective_phase_key(
+            getattr(it, "exercise_phase", None) or getattr(saved, "exercise_phase", None)
+        )
+        if uk and ph:
+            _accumulate(uk, ph, rows)
+
+    for action_row in (
+        db.query(ExercisePlannerFlowBundleActionEval)
+        .join(ExercisePlannerFlowBundle)
+        .filter(ExercisePlannerFlowBundle.exercise_id == int(exercise_id))
+        .all()
+    ):
+        bundle = action_row.bundle
+        if bundle is None:
+            continue
+        canon = _planner_bundle_eval_canonical_saved(db, int(exercise_id), int(action_row.id))
+        if canon is None or not (getattr(canon, "payload_json", None) or "").strip():
+            continue
+        rows = _parse_saved_eval_rows(getattr(canon, "payload_json", None))
+        uk = (getattr(bundle, "unit_level_key", None) or "").strip()
+        ph = _control_report_effective_phase_key(getattr(bundle, "exercise_phase", None))
+        if uk and ph:
+            _accumulate(uk, ph, rows)
+
+    final_rows: list[dict] = []
+    for block in phase_totals.values():
+        max_mark = float(block.get("max_mark") or 0.0)
+        phase_pct = (float(block["acquired_mark"]) / max_mark) * 100.0 if max_mark > 0 else None
+        final_rows.append({**block, "phase_pct": phase_pct})
+    return _build_final_report_exercise_summary(final_rows)
+
+
 def _distribution_from_phase_summary(summary: dict) -> list[dict]:
-    """أعمدة مخطط «أداء الوحدات حسب مراحل التمرين»: كل مرحلة لها نسبة محسوبة (يشمل مرحلة مسارات التقييم إن وُجدت بيانات)."""
-    phase_order = {key: idx for idx, key in enumerate(exercise_phase_keys())}
+    """أعمدة مخطط «أداء الوحدات حسب مراحل التمرين»: مراحل مُقيَّمة فقط (لا مرحلة بلا نتيجة)."""
+    phase_order = {
+        key: idx for idx, key in enumerate(pk for pk, _ in _control_report_catalog_phase_columns())
+    }
     items: list[dict] = []
     for ps in summary.get("phase_summaries") or []:
         phase_key = (ps.get("phase_key") or "").strip()
@@ -1694,9 +2137,9 @@ FINAL_EVALUATION_TRACK_PHASE_LABEL = "مرحلة مسارات التقييم"
 _FINAL_EVAL_TO_CRITERIA_PHASE: dict[str, tuple[str, ...]] = {
     "preparation": ("preparation",),
     "opening": ("opening",),
-    "main": ("main",),
-    "reorg": ("reorg", "evaluation_tracks"),
-    "evaluation_tracks": ("evaluation_tracks", "reorg"),
+    "main": ("main", "battle_exposure"),
+    "reorg": ("reorg", "reorganization", "evaluation_tracks"),
+    "evaluation_tracks": ("evaluation_tracks", "reorg", "reorganization"),
 }
 
 
@@ -2644,7 +3087,8 @@ def _build_analyst_evaluation_criteria_distribution(db, user: User) -> dict:
     grand_total = 0.0
     for unit in criteria_units:
         phase_totals: dict[str, float | None] = {}
-        for phase_key, _label in ANALYST_EVALUATION_CRITERIA_PHASE_ORDER:
+        phase_order = ANALYST_EVALUATION_CRITERIA_PHASE_ORDER or tuple(EXERCISE_PHASE_OPTIONS)
+        for phase_key, _label in phase_order:
             marks = marks_by_unit_phase.get((unit.id, phase_key), [])
             phase_totals[phase_key] = sum(marks) if marks else None
         parts = [x for x in phase_totals.values() if x is not None]
@@ -2683,7 +3127,7 @@ def _build_analyst_evaluation_criteria_distribution(db, user: User) -> dict:
         "exercise": ex,
         "distribution_rows": rows,
         "grand_total": grand_total if grand_total > 0 else None,
-        "criteria_phases": list(ANALYST_EVALUATION_CRITERIA_PHASE_ORDER),
+        "criteria_phases": _analyst_criteria_phases_for_display(bool(rows)),
         "available_unit_levels": available_unit_levels,
         "planner_unit_levels": list(UNIT_LEVELS),
     }
@@ -2759,6 +3203,8 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
         allocated_grade = "—"
         evaluation_list_max_mark = 0.0
         evaluation_list_acquired_mark = 0.0
+        evaluation_list_actual_pct: float | None = None
+        evaluation_list_grade = "—"
         has_saved_payload = False
         acquired_mark = 0.0
         if saved is not None and (getattr(saved, "payload_json", "") or "").strip():
@@ -2768,18 +3214,30 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
             relpath = (item.pdf_relpath or "").strip()
             if relpath not in template_rows_cache:
                 template_rows_cache[relpath] = _evaluation_list_template_rows(item)
-            list_max_mark, list_acquired_mark = _evaluation_list_judge_sum_totals(
+            footer = _evaluation_list_page_footer_stats(
                 rows,
                 template_rows_cache.get(relpath) or [],
+                saved_total_pct=getattr(saved, "total_pct", None),
+                saved_grade=getattr(saved, "grade_label", None),
             )
-            evaluation_list_max_mark = list_max_mark
-            evaluation_list_acquired_mark = list_acquired_mark
-        if has_saved_payload and evaluation_list_max_mark > 0:
-            allocated_pct = _allocated_pct_from_marks(
-                evaluation_list_acquired_mark, evaluation_list_max_mark
-            )
+            evaluation_list_max_mark = float(footer["sum_max"] or 0.0)
+            evaluation_list_acquired_mark = float(footer["sum_acquired"] or 0.0)
+            evaluation_list_actual_pct = footer.get("actual_pct")
+            evaluation_list_grade = footer.get("grade") or "—"
+        if has_saved_payload:
+            allocated_pct = evaluation_list_actual_pct
+            if allocated_pct is None and evaluation_list_max_mark > 0:
+                allocated_pct = _allocated_pct_from_marks(
+                    evaluation_list_acquired_mark, evaluation_list_max_mark
+                )
             allocated_grade = (
-                grade_label_from_percent(allocated_pct) if allocated_pct is not None else "—"
+                evaluation_list_grade
+                if evaluation_list_grade and evaluation_list_grade != "—"
+                else (
+                    grade_label_from_percent(allocated_pct)
+                    if allocated_pct is not None
+                    else "—"
+                )
             )
         elif has_allocated_max and allocated_max_mark is not None and allocated_max_mark > 0:
             allocated_pct = _allocated_pct_from_marks(acquired_mark, allocated_max_mark)
@@ -2824,6 +3282,8 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
                 "allocated_grade": allocated_grade,
                 "evaluation_list_max_mark": evaluation_list_max_mark,
                 "evaluation_list_acquired_mark": evaluation_list_acquired_mark,
+                "evaluation_list_actual_pct": evaluation_list_actual_pct,
+                "evaluation_list_grade": evaluation_list_grade,
                 "has_allocated_max": has_allocated_max,
                 "has_saved_payload": has_saved_payload,
             }
@@ -2946,10 +3406,18 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
         )
         rows_by_unit[unit_key] = unit_phase_rows
         phase_rows = unit_phase_rows
-        preparation_detail_rows = details_by_unit_phase.get((unit_key, "preparation"), [])
-        opening_detail_rows = details_by_unit_phase.get((unit_key, "opening"), [])
-        main_detail_rows = details_by_unit_phase.get((unit_key, "main"), [])
-        reorg_detail_rows = details_by_unit_phase.get((unit_key, "reorg"), [])
+        preparation_detail_rows = _final_eval_detail_rows_for_unit_phase(
+            details_by_unit_phase, unit_key, "preparation"
+        )
+        opening_detail_rows = _final_eval_detail_rows_for_unit_phase(
+            details_by_unit_phase, unit_key, "opening"
+        )
+        main_detail_rows = _final_eval_detail_rows_for_unit_phase(
+            details_by_unit_phase, unit_key, "main"
+        )
+        reorg_detail_rows = _final_eval_detail_rows_for_unit_phase(
+            details_by_unit_phase, unit_key, "reorg"
+        )
         preparation_criteria_items = _final_eval_criteria_items_for_unit_phase(
             db, ex, unit_key, "preparation"
         )
@@ -2992,7 +3460,9 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
         )
         evaluation_tracks_detail_rows_raw = [
             {**r, "phase_label": FINAL_EVALUATION_TRACK_PHASE_LABEL}
-            for r in details_by_unit_phase.get((unit_key, FINAL_EVALUATION_TRACK_PHASE_KEY), [])
+            for r in _final_eval_detail_rows_for_unit_phase(
+                details_by_unit_phase, unit_key, FINAL_EVALUATION_TRACK_PHASE_KEY
+            )
         ]
         evaluation_tracks_criteria_items = _final_eval_criteria_items_for_unit_phase(
             db, ex, unit_key, "evaluation_tracks"
@@ -3018,30 +3488,25 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
         )
         main_allocated_acquired = _criteria_items_allocated_acquired_total(main_criteria_items)
         reorg_allocated_acquired = _criteria_items_allocated_acquired_total(reorg_criteria_items)
-        preparation_allocated_pct = _allocated_pct_from_marks(
-            _criteria_items_eval_list_acquired_total(preparation_criteria_items),
-            _criteria_items_eval_list_max_total(preparation_criteria_items),
+        preparation_allocated_pct = _criteria_items_eval_list_footer_pct(
+            preparation_criteria_items
         )
-        opening_allocated_pct = _allocated_pct_from_marks(
-            _criteria_items_eval_list_acquired_total(opening_criteria_items),
-            _criteria_items_eval_list_max_total(opening_criteria_items),
-        )
-        main_allocated_pct = _allocated_pct_from_marks(
-            _criteria_items_eval_list_acquired_total(main_criteria_items),
-            _criteria_items_eval_list_max_total(main_criteria_items),
-        )
-        reorg_allocated_pct = _allocated_pct_from_marks(
-            _criteria_items_eval_list_acquired_total(reorg_criteria_items),
-            _criteria_items_eval_list_max_total(reorg_criteria_items),
-        )
+        opening_allocated_pct = _criteria_items_eval_list_footer_pct(opening_criteria_items)
+        main_allocated_pct = _criteria_items_eval_list_footer_pct(main_criteria_items)
+        reorg_allocated_pct = _criteria_items_eval_list_footer_pct(reorg_criteria_items)
 
-        def _grade_for_pct(pct: float | None) -> str:
-            return grade_label_from_percent(pct) if pct is not None else "—"
-
-        preparation_allocated_grade = _grade_for_pct(preparation_allocated_pct)
-        opening_allocated_grade = _grade_for_pct(opening_allocated_pct)
-        main_allocated_grade = _grade_for_pct(main_allocated_pct)
-        reorg_allocated_grade = _grade_for_pct(reorg_allocated_pct)
+        preparation_allocated_grade = _criteria_items_eval_list_footer_grade(
+            preparation_criteria_items, preparation_allocated_pct
+        )
+        opening_allocated_grade = _criteria_items_eval_list_footer_grade(
+            opening_criteria_items, opening_allocated_pct
+        )
+        main_allocated_grade = _criteria_items_eval_list_footer_grade(
+            main_criteria_items, main_allocated_pct
+        )
+        reorg_allocated_grade = _criteria_items_eval_list_footer_grade(
+            reorg_criteria_items, reorg_allocated_pct
+        )
         _apply_criteria_totals_to_phase_rows(
             unit_phase_rows,
             criteria_max_by_phase={
@@ -3143,15 +3608,12 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
                 "evaluation_tracks_criteria_acquired_total": _criteria_items_eval_list_acquired_total(
                     evaluation_tracks_criteria_items
                 ),
-                "evaluation_tracks_criteria_allocated_pct": _allocated_pct_from_marks(
-                    _criteria_items_eval_list_acquired_total(evaluation_tracks_criteria_items),
-                    _criteria_items_eval_list_max_total(evaluation_tracks_criteria_items),
+                "evaluation_tracks_criteria_allocated_pct": _criteria_items_eval_list_footer_pct(
+                    evaluation_tracks_criteria_items
                 ),
-                "evaluation_tracks_criteria_allocated_grade": _grade_for_pct(
-                    _allocated_pct_from_marks(
-                        _criteria_items_eval_list_acquired_total(evaluation_tracks_criteria_items),
-                        _criteria_items_eval_list_max_total(evaluation_tracks_criteria_items),
-                    )
+                "evaluation_tracks_criteria_allocated_grade": _criteria_items_eval_list_footer_grade(
+                    evaluation_tracks_criteria_items,
+                    _criteria_items_eval_list_footer_pct(evaluation_tracks_criteria_items),
                 ),
             }
         )
@@ -3189,32 +3651,90 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
     }
 
 
-DEFAULT_ANALYST_EVALUATION_CRITERIA_UNITS: tuple[str, ...] = (
-    "قيادة مجموعة اللواء",
-    "كتيبة المشاة الآلية/1",
-    "كتيبة المشاة الآلية /2",
-    "كتيبة الدبابات/3",
-    "سرية الاستطلاع",
-    "سرية الـ م/د",
-    "كتيبة المدفعية",
-    "سرية الهاون",
-    "سرية هندسة الميدان",
-    "سرية الإشارة",
-    "سرية الدفاع الجوي",
-    "كتيبة الاسناد الإداري",
-    "سرية الدفاع الكيميائي",
-    "تقييم إدارة التمرين",
-)
+DEFAULT_ANALYST_EVALUATION_CRITERIA_UNITS: tuple[str, ...] = ()
 
-ANALYST_EVALUATION_CRITERIA_PHASE_ORDER: tuple[tuple[str, str], ...] = (
-    ("preparation", "مرحلة التحضير"),
-    ("evaluation_tracks", "مرحلة مسارات التقييم"),
-    ("opening", "مرحلة الانفتاح"),
-    ("main", "مرحلة العمليات التعرضية"),
+ANALYST_EVALUATION_CRITERIA_PHASE_ORDER: tuple[tuple[str, str], ...] = ()
+# عرض البيانات القديمة عند فراغ كتالوج مراحل التخطيط
+_LEGACY_ANALYST_CRITERIA_PHASE_ORDER: tuple[tuple[str, str], ...] = (
+    ("preparation", "التهيئة"),
+    ("evaluation_tracks", "مسارات التقييم"),
+    ("opening", "الافتتاح"),
+    ("main", "العمليات"),
 )
 ANALYST_EVALUATION_CRITERIA_PHASES: dict[str, str] = dict(
-    ANALYST_EVALUATION_CRITERIA_PHASE_ORDER
+    ANALYST_EVALUATION_CRITERIA_PHASE_ORDER or _LEGACY_ANALYST_CRITERIA_PHASE_ORDER
 )
+
+
+def _analyst_criteria_phases_for_display(has_rows: bool) -> list[tuple[str, str]]:
+    if ANALYST_EVALUATION_CRITERIA_PHASE_ORDER:
+        return list(ANALYST_EVALUATION_CRITERIA_PHASE_ORDER)
+    if EXERCISE_PHASE_OPTIONS:
+        return list(EXERCISE_PHASE_OPTIONS)
+    return []
+
+
+_CRITERIA_PHASE_LEGACY_ALIASES: tuple[tuple[str, str], ...] = (
+    ("main", "battle_exposure"),
+    ("reorg", "reorganization"),
+    ("evaluation_tracks", "reorganization"),
+)
+
+
+def _analyst_criteria_valid_phase_keys() -> set[str]:
+    return {pk for pk, _ in _analyst_criteria_phases_for_display(True)}
+
+
+def _resolve_analyst_criteria_phase_key(raw: str) -> str | None:
+    """مفتاح مرحلة معيّن للتخزين والمسار — متوافق مع كتالوج التخطيط والمفاتيح القديمة."""
+    key = (raw or "").strip()
+    if not key:
+        return None
+    valid = _analyst_criteria_valid_phase_keys()
+    if key in valid:
+        return key
+    for legacy_key, catalog_key in _CRITERIA_PHASE_LEGACY_ALIASES:
+        if key == legacy_key and catalog_key in valid:
+            return catalog_key
+        if key == catalog_key and legacy_key in valid:
+            return legacy_key
+    norm = normalize_exercise_phase(key)
+    if norm and norm in valid:
+        return norm
+    for pk, _ in _CONTROL_REPORT_PHASE_FALLBACK:
+        if pk == key and pk in valid:
+            return pk
+    legacy_label = ANALYST_EVALUATION_CRITERIA_PHASES.get(key)
+    if legacy_label:
+        for pk, lbl in _analyst_criteria_phases_for_display(True):
+            if lbl == legacy_label:
+                return pk
+        return key if key in ANALYST_EVALUATION_CRITERIA_PHASES else None
+    return None
+
+
+def _analyst_criteria_phase_label(phase_key: str) -> str:
+    """تسمية المرحلة كما في جدول معايير التقييم."""
+    key = (phase_key or "").strip()
+    resolved = _resolve_analyst_criteria_phase_key(key) or key
+    for pk, lbl in _analyst_criteria_phases_for_display(True):
+        if pk == resolved:
+            return lbl
+    label = exercise_phase_label(resolved)
+    if label:
+        return label
+    return ANALYST_EVALUATION_CRITERIA_PHASES.get(resolved) or ANALYST_EVALUATION_CRITERIA_PHASES.get(key) or key
+
+
+def _analyst_criteria_phase_db_keys(canonical_key: str) -> list[str]:
+    """كل مفاتيح phase_key المحتملة في قاعدة البيانات لنفس المرحلة."""
+    keys = [(canonical_key or "").strip()]
+    for a, b in _CRITERIA_PHASE_LEGACY_ALIASES:
+        if canonical_key == a and b not in keys:
+            keys.append(b)
+        elif canonical_key == b and a not in keys:
+            keys.append(a)
+    return [k for k in keys if k]
 
 
 def _planner_unit_keys_for_exercise(db, ex: Exercise) -> list[str]:
@@ -3453,11 +3973,26 @@ def _evaluation_list_phase_for_criteria_phase(criteria_phase_key: str) -> str:
 
 
 def _evaluation_list_phases_for_criteria_phase(criteria_phase_key: str) -> list[str]:
-    """مراحل قوائم التقييم المحتملة (للمرادفات مثل المعركة التعرضية)."""
+    """مراحل قوائم التقييم المحتملة (للمرادفات مثل المعركة التعرضية ومسارات التقييم)."""
     primary = _evaluation_list_phase_for_criteria_phase(criteria_phase_key)
-    phases = [primary]
-    if primary == "main" and "battle_exposure" not in phases:
-        phases.append("battle_exposure")
+    phases: list[str] = []
+    if primary:
+        phases.append(primary)
+    key = (criteria_phase_key or "").strip()
+    if key and key not in phases:
+        phases.append(key)
+    if primary == "main" or key in ("main", "battle_exposure"):
+        for alias in ("main", "battle_exposure"):
+            if alias not in phases:
+                phases.append(alias)
+    if primary in ("reorg", "reorganization", "evaluation_tracks") or key in (
+        "reorg",
+        "reorganization",
+        "evaluation_tracks",
+    ):
+        for alias in ("reorg", "reorganization", "evaluation_tracks"):
+            if alias not in phases:
+                phases.append(alias)
     return phases
 
 
@@ -3572,12 +4107,13 @@ def _criteria_phase_items_for_unit(
     unit: AnalystEvaluationCriteriaUnit,
     phase_key: str,
 ) -> list[dict]:
+    phase_db_keys = _analyst_criteria_phase_db_keys(phase_key)
     rows = (
         db.query(AnalystEvaluationCriteriaPhaseItem)
         .filter(
             AnalystEvaluationCriteriaPhaseItem.exercise_id == ex.id,
             AnalystEvaluationCriteriaPhaseItem.criteria_unit_id == unit.id,
-            AnalystEvaluationCriteriaPhaseItem.phase_key == phase_key,
+            AnalystEvaluationCriteriaPhaseItem.phase_key.in_(phase_db_keys),
         )
         .order_by(
             AnalystEvaluationCriteriaPhaseItem.sort_order,
@@ -3673,11 +4209,13 @@ def _save_criteria_phase_items_for_unit(
     unit: AnalystEvaluationCriteriaUnit,
     phase_key: str,
 ) -> None:
+    phase_db_keys = _analyst_criteria_phase_db_keys(phase_key)
     db.query(AnalystEvaluationCriteriaPhaseItem).filter(
         AnalystEvaluationCriteriaPhaseItem.exercise_id == ex.id,
         AnalystEvaluationCriteriaPhaseItem.criteria_unit_id == unit.id,
-        AnalystEvaluationCriteriaPhaseItem.phase_key == phase_key,
+        AnalystEvaluationCriteriaPhaseItem.phase_key.in_(phase_db_keys),
     ).delete(synchronize_session=False)
+    storage_key = _resolve_analyst_criteria_phase_key(phase_key) or phase_key
     list_titles = _evaluation_list_titles_for_criteria_unit(db, ex, unit, phase_key)
     marks = request.form.getlist("allocated_mark")
     if list_titles:
@@ -3696,7 +4234,7 @@ def _save_criteria_phase_items_for_unit(
             AnalystEvaluationCriteriaPhaseItem(
                 exercise_id=ex.id,
                 criteria_unit_id=unit.id,
-                phase_key=phase_key,
+                phase_key=storage_key,
                 sort_order=idx,
                 criteria_text=text_value,
                 allocated_mark=mark,
@@ -3945,7 +4483,7 @@ def analyst_hub_section(slug: str):
                 distribution_rows=dist["distribution_rows"],
                 grand_total=dist["grand_total"],
                 criteria_phases=dist.get("criteria_phases")
-                or list(ANALYST_EVALUATION_CRITERIA_PHASE_ORDER),
+                or _analyst_criteria_phases_for_display(bool(dist.get("distribution_rows"))),
                 available_unit_levels=dist.get("available_unit_levels") or [],
                 ok_msg="تم الحفظ بنجاح." if request.args.get("ok") else "",
             ),
@@ -4576,10 +5114,11 @@ def analyst_evaluation_criteria_phase(unit_id: int, phase_key: str):
         return redirect(f"/login?next=/analyst/evaluation-criteria/{unit_id}/{phase_key}")
     if not can_access_analyst_hub(user):
         abort(403)
-    phase_key = (phase_key or "").strip()
-    phase_label = ANALYST_EVALUATION_CRITERIA_PHASES.get(phase_key)
-    if not phase_label:
+    phase_key_raw = (phase_key or "").strip()
+    phase_key = _resolve_analyst_criteria_phase_key(phase_key_raw)
+    if not phase_key:
         abort(404)
+    phase_label = _analyst_criteria_phase_label(phase_key)
     from flask import g
 
     db = g.db
@@ -4917,14 +5456,40 @@ def _build_planner_flow_bundle_page_context(
     )
     if ex is None:
         return {**empty_base, "exercise": None}
-    phase_key = normalize_exercise_phase(
-        request.args.get("phase") or DEFAULT_EXERCISE_PHASE
-    )
+    phase_key = normalize_exercise_phase(request.args.get("phase") or "")
+    if not phase_key and EXERCISE_PHASE_OPTIONS:
+        phase_key = default_exercise_phase_key()
+    err_msg = _UI_MSG_PLANNER_BUNDLE.get(err, "") if err else ""
+    ok_msg = _UI_MSG_PLANNER_BUNDLE.get(ok, "") if ok else ""
+    if readonly:
+        err_msg = ""
+        ok_msg = ""
     unit_param = (request.args.get("unit") or "").strip()
-    unit_key = unit_param if unit_param else (UNIT_LEVELS[0]["key"] if UNIT_LEVELS else "")
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if unit is None:
-        abort(404)
+    unit_key = unit_param if unit_param else default_unit_level_key()
+    unit = unit_level_row(unit_key)
+    if unit is None or not phase_key or not EXERCISE_PHASE_OPTIONS:
+        return {
+            **empty_base,
+            "has_exercise": True,
+            "exercise": ex,
+            "bundle": None,
+            "slots": [],
+            "judges": [],
+            "phase_key": phase_key if phase_key else "",
+            "unit_key": unit_key if unit else "",
+            "phase_options": EXERCISE_PHASE_OPTIONS,
+            "unit_levels": UNIT_LEVELS,
+            "phase_label_display": _phase_label_ar(phase_key) if phase_key else "",
+            "unit_label_display": unit["label"] if unit else "",
+            "err_msg": err_msg,
+            "ok_msg": ok_msg,
+            "catalog_empty": not UNIT_LEVELS,
+            "phases_catalog_empty": not EXERCISE_PHASE_OPTIONS,
+            "event_flow_rows": [],
+            "action_slot_rows": [],
+            "selected_event_flow_id": None,
+            "planner_event_flow_file_ok": False,
+        }
     bundle = (
         _get_planner_bundle_if_exists(db, ex.id, phase_key, unit_key)
         if readonly
@@ -4933,11 +5498,6 @@ def _build_planner_flow_bundle_page_context(
         )
     )
     judges = _planner_bundle_judge_assignments(db, ex.id, unit_key)
-    err_msg = _UI_MSG_PLANNER_BUNDLE.get(err, "") if err else ""
-    ok_msg = _UI_MSG_PLANNER_BUNDLE.get(ok, "") if ok else ""
-    if readonly:
-        err_msg = ""
-        ok_msg = ""
     if bundle is None:
         return {
             **empty_base,
@@ -5572,7 +6132,17 @@ def planner_flow_bundle_assign_judge(bundle_id: int):
 
 def _planner_flow_oversee_judge_id_from_request() -> int | None:
     raw = (request.args.get("judge_user_id") or "").strip()
-    return int(raw) if raw.isdigit() else None
+    if raw.isdigit():
+        return int(raw)
+    from flask import session
+
+    sid = session.get("planner_flow_oversee_judge_id")
+    if sid is not None:
+        try:
+            return int(sid)
+        except (TypeError, ValueError):
+            pass
+    return None
 
 
 def _planner_flow_is_readonly_oversee(
@@ -5629,6 +6199,18 @@ def _planner_flow_materials_query_kwargs(viewer: User) -> dict[str, int]:
     if jid is not None:
         return {"judge_user_id": jid}
     return {}
+
+
+_JUDGE_PF_TAB_QUERY = "tab"
+_JUDGE_PF_TAB_EVENT = "pf-event"
+_JUDGE_PF_TAB_EVAL_LISTS = "pf-eval"
+
+
+def _judge_planner_flow_materials_active_tab() -> str:
+    tab = (request.args.get(_JUDGE_PF_TAB_QUERY) or "").strip()
+    if tab in (_JUDGE_PF_TAB_EVENT, _JUDGE_PF_TAB_EVAL_LISTS):
+        return tab
+    return _JUDGE_PF_TAB_EVENT
 
 
 def _planner_flow_oversee_assignment_rows(db, ex: Exercise) -> list[dict]:
@@ -5851,6 +6433,12 @@ def judge_planner_flow_materials():
                 )
     if oversee and ex is not None and oversee_jid is not None and bundle is None:
         abort(404)
+    from flask import session
+
+    if oversee and oversee_jid is not None:
+        session["planner_flow_oversee_judge_id"] = int(oversee_jid)
+    else:
+        session.pop("planner_flow_oversee_judge_id", None)
     hub_nav_href = url_for("views.judge_planner_flow_materials", **_role_hub_preserve_link_kwargs())
     if not oversee:
         hub_nav_href = ""
@@ -5866,11 +6454,13 @@ def judge_planner_flow_materials():
             planner_flow_unit_label=unit_label_pf,
             planner_event_flow_file_ok=planner_event_flow_file_ok,
             planner_event_flow_display_name=planner_event_flow_display_name,
+            planner_event_flow_relpath=ev_rel_j if bundle else "",
             planner_flow_oversee_picker=False,
             planner_flow_oversee_rows=[],
             planner_flow_view_only=_planner_flow_is_readonly_oversee(user, oversee_judge_id=oversee_jid),
             planner_flow_viewing_judge_label=viewing_judge_label,
             planner_flow_url_kwargs=pf_qs,
+            active_pf_tab=_judge_planner_flow_materials_active_tab(),
             hub_nav_href=hub_nav_href,
             **_hub_back_ctx_for_request_path(),
         ),
@@ -5979,7 +6569,7 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
         abort(404)
     bundle, action_row = pair
     unit_key = bundle.unit_level_key
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
+    unit = unit_level_row(unit_key)
     unit_label_pf = (
         (unit.get("label") or "").strip()
         if unit
@@ -6026,7 +6616,11 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
         slot=int(slot),
         **pf_qs,
     )
-    eval_close_href = url_for("views.judge_planner_flow_materials", **pf_qs)
+    eval_close_href = url_for(
+        "views.judge_planner_flow_materials",
+        tab=_JUDGE_PF_TAB_EVAL_LISTS,
+        **pf_qs,
+    )
 
     shown_date = getattr(ex, "planned_start", None) or getattr(ex, "created_at", None)
     commander_name = "—"
@@ -6074,6 +6668,7 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
             saved_updated_at=saved_updated_at,
             **wf,
             eval_close_href=eval_close_href,
+            subpage_close_fallback=eval_close_href,
             **ev,
             **_eval_crit_media_sheet_ctx(
                 db,
@@ -6284,9 +6879,7 @@ def planner_evaluation_lists(unit_key: str):
         return redirect(f"/login?next=/planner/evaluation-lists/{unit_key}")
     if not can_access_planner_hub(user):
         abort(403)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -6343,9 +6936,7 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
         return redirect(f"/login?next=/planner/evaluation-lists/{unit_key}/view/{item_id}")
     if not can_access_planner_hub(user):
         abort(403)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -6455,6 +7046,7 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
             show_eval_approve=show_eval_approve,
             eval_can_edit=crit_edit,
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
+            subpage_close_fallback=url_for("views.planner_evaluation_lists", unit_key=unit_key),
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -6470,9 +7062,7 @@ def planner_evaluation_list_save_results(unit_key: str, item_id: int):
         abort(403)
     if not can_access_planner_hub(user):
         abort(403)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -6507,9 +7097,7 @@ def planner_evaluation_list_approve(unit_key: str, item_id: int):
         abort(403)
     if not can_approve_evaluation_results(user):
         abort(403)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -7139,7 +7727,7 @@ def visual_documentation():
     if assigned_uk and not is_system_admin(user):
         unit_key = assigned_uk
     if not unit_key:
-        unit_key = assigned_uk or (UNIT_LEVELS[0]["key"] if UNIT_LEVELS else "")
+        unit_key = assigned_uk or default_unit_level_key()
 
     q = db.query(VisualDocument).filter(VisualDocument.exercise_id == int(ex.id))
     if unit_key:
@@ -7304,6 +7892,11 @@ CONTROL_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("assign-task", "إسناد مهمة جديدة", "fa-user-plus"),
 )
 CONTROL_HUB_SLUGS: dict[str, str] = {s: t for s, t, _ in CONTROL_HUB_ITEMS}
+CONTROL_HUB_ICONS: dict[str, str] = {s: ic for s, t, ic in CONTROL_HUB_ITEMS}
+
+
+def _control_section_icon(slug: str) -> str:
+    return CONTROL_HUB_ICONS.get((slug or "").strip().lower(), "fa-eye")
 
 
 def _request_from_control_hub() -> bool:
@@ -7466,6 +8059,118 @@ def _visual_doc_redirect_kwargs(**extra) -> dict:
     return kw
 
 
+_CONTROL_EVAL_LIST_TYPE_JUDGE = "judge_eval"
+_CONTROL_EVAL_LIST_TYPE_PLANNER_ACTION = "planner_flow_action"
+
+_CONTROL_EVAL_LIST_TYPE_LABELS: dict[str, str] = {
+    _CONTROL_EVAL_LIST_TYPE_JUDGE: "قائمة التقييم",
+    _CONTROL_EVAL_LIST_TYPE_PLANNER_ACTION: "المجرى وتقييم الإجراءات — قوائم تقييم الإجراءات",
+}
+
+_CONTROL_EVAL_LIST_TYPE_SORT: dict[str, int] = {
+    _CONTROL_EVAL_LIST_TYPE_JUDGE: 0,
+    _CONTROL_EVAL_LIST_TYPE_PLANNER_ACTION: 1,
+}
+
+
+def _control_eval_list_type_label(kind: str) -> str:
+    return _CONTROL_EVAL_LIST_TYPE_LABELS.get((kind or "").strip(), "—")
+
+
+def _control_eval_status_row_sort_key(row: dict) -> tuple:
+    kind = (row.get("list_type_kind") or "").strip()
+    return (
+        _CONTROL_EVAL_LIST_TYPE_SORT.get(kind, 9),
+        (row.get("item_title") or ""),
+        int(row.get("sort_tiebreaker") or 0),
+    )
+
+
+def _control_append_planner_flow_status_rows(
+    db,
+    *,
+    exercise_id: int,
+    exercise,
+    by_phase: dict[str, list[dict]],
+) -> None:
+    """إضافة صفوف قوائم تقييم الإجراءات (المجرى) إلى موقف قوائم التقييم."""
+    bundles = (
+        db.query(ExercisePlannerFlowBundle)
+        .filter(ExercisePlannerFlowBundle.exercise_id == int(exercise_id))
+        .order_by(
+            ExercisePlannerFlowBundle.unit_level_key,
+            ExercisePlannerFlowBundle.exercise_phase,
+            ExercisePlannerFlowBundle.id,
+        )
+        .all()
+    )
+    if not bundles:
+        return
+
+    for bundle in bundles:
+        uk = (bundle.unit_level_key or "").strip()
+        phase_key = _normalized_exercise_phase(getattr(bundle, "exercise_phase", None))
+        if not uk:
+            continue
+
+        action_rows = (
+            db.query(ExercisePlannerFlowBundleActionEval)
+            .filter(ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id)
+            .order_by(
+                ExercisePlannerFlowBundleActionEval.slot_index,
+                ExercisePlannerFlowBundleActionEval.id,
+            )
+            .all()
+        )
+        for action_row in action_rows:
+            rel = (action_row.file_relpath or "").strip()
+            if not rel:
+                continue
+            title = _planner_blob_display_filename(
+                stored_title=action_row.title or "",
+                relpath=rel,
+                fallback=f"قائمة تقييم إجراءات {int(action_row.slot_index)}",
+            )
+            canon = _planner_bundle_eval_canonical_saved(
+                db, int(exercise_id), int(action_row.id)
+            )
+            total_pct = _evaluation_saved_total_pct(canon)
+            shim = type(
+                "_PfActionShim",
+                (),
+                {
+                    "id": int(action_row.id),
+                    "text": title,
+                    "created_at": getattr(action_row, "created_at", None),
+                },
+            )()
+            by_phase.setdefault(phase_key, []).append(
+                {
+                    **build_evaluation_list_row(
+                        item=shim,
+                        saved=canon,
+                        exercise=exercise,
+                        open_href=url_for(
+                            "views.control_planner_flow_action_view",
+                            unit_key=uk,
+                            action_eval_id=int(action_row.id),
+                        ),
+                    ),
+                    "list_type_kind": _CONTROL_EVAL_LIST_TYPE_PLANNER_ACTION,
+                    "list_type_label": _control_eval_list_type_label(
+                        _CONTROL_EVAL_LIST_TYPE_PLANNER_ACTION
+                    ),
+                    "phase_key": phase_key,
+                    "phase_label": _phase_label_ar(phase_key),
+                    "workflow_label": eval_workflow_label_ar(canon),
+                    "unit_key": uk,
+                    "unit_label": label_for_unit_level_key(uk) or uk or "—",
+                    "total_pct": total_pct,
+                    "sort_tiebreaker": int(action_row.id),
+                }
+            )
+
+
 def _build_control_evaluation_lists_status(db, user: User) -> dict:
     """موقف قوائم التقييم مجمّع حسب مراحل التمرين (تبويب لكل مرحلة)."""
     ex0 = _current_workspace_exercise(db, user)
@@ -7540,14 +8245,23 @@ def _build_control_evaluation_lists_status(db, user: User) -> dict:
                         item_id=int(it.id),
                     ),
                 ),
+                "list_type_kind": _CONTROL_EVAL_LIST_TYPE_JUDGE,
+                "list_type_label": _control_eval_list_type_label(
+                    _CONTROL_EVAL_LIST_TYPE_JUDGE
+                ),
                 "phase_key": phase_key,
                 "phase_label": _phase_label_ar(phase_key),
                 "workflow_label": eval_workflow_label_ar(saved),
                 "unit_key": uk,
                 "unit_label": label_for_unit_level_key(uk) or uk or "—",
                 "total_pct": total_pct,
+                "sort_tiebreaker": int(it.id),
             }
         )
+
+    _control_append_planner_flow_status_rows(
+        db, exercise_id=int(ex.id), exercise=ex, by_phase=by_phase
+    )
 
     unit_order = {row.get("key"): idx for idx, row in enumerate(UNIT_LEVELS)}
     phase_keys_seen = set(by_phase.keys())
@@ -7567,7 +8281,7 @@ def _build_control_evaluation_lists_status(db, user: User) -> dict:
             by_unit.keys(),
             key=lambda k: (unit_order.get(k, len(unit_order)), label_for_unit_level_key(k) or k),
         ):
-            unit_rows = by_unit[uk]
+            unit_rows = sorted(by_unit[uk], key=_control_eval_status_row_sort_key)
             n_assigned = len(unit_rows)
             n_done = sum(1 for r in unit_rows if r.get("status_done"))
             unit_tabs.append(
@@ -7773,10 +8487,11 @@ def _control_exercise_performance_report(db, user: User) -> dict:
             "distribution": [],
             "phase_summary": {"phase_summaries": [], "exercise_pct": None, "exercise_grade": "—", "phase_count": 0},
             "unit_detail_rows": [],
-            "unit_detail_phase_headers": [lbl for _, lbl in _CONTROL_REPORT_PHASE_COLUMNS],
-            "unit_detail_phase_max_dots": _control_phase_max_dot_counts([]),
+            "unit_detail_phase_headers": [],
+            "unit_detail_phase_max_dots": [],
             "unit_detail_list_number_row": [],
             "grade_legend": _control_report_grade_legend(),
+            "detail_source_legend": _control_report_detail_source_legend(),
             "n_saved_eval": 0,
             "n_eval_lists_total": 0,
             "radar_series": [],
@@ -7835,7 +8550,9 @@ def _control_exercise_performance_report(db, user: User) -> dict:
             scored_row_pcts.append(float(pc))
     criteria_count = len(scored_row_pcts)
 
-    phase_summary = _phase_summary_from_eval_items(eval_items, saved_by_item)
+    phase_summary = _phase_summary_for_control_report(
+        db, ex0.id, eval_items, saved_by_item
+    )
     distribution = _distribution_from_phase_summary(phase_summary)
 
     # حالة الإنجاز: نسبة المعتمد مقابل الإجمالي (وأي عنصر غير معتمد يعتبر "قيد التقييم")
@@ -7867,6 +8584,36 @@ def _control_exercise_performance_report(db, user: User) -> dict:
         v = getattr(sr, "total_pct", None)
         if v is None:
             rows = [float(x) for x in (_eval_row_score_pct(r) for r in _parse_saved_eval_rows(sr.payload_json)) if x is not None]
+            v = (sum(rows) / len(rows)) if rows else None
+        if v is None:
+            continue
+        by_unit_vals.setdefault(uk, []).append(float(v))
+
+    for action_row in (
+        db.query(ExercisePlannerFlowBundleActionEval)
+        .join(ExercisePlannerFlowBundle)
+        .filter(ExercisePlannerFlowBundle.exercise_id == ex0.id)
+        .all()
+    ):
+        bundle = action_row.bundle
+        if bundle is None:
+            continue
+        canon = _planner_bundle_eval_canonical_saved(db, ex0.id, int(action_row.id))
+        if canon is None or not (getattr(canon, "payload_json", None) or "").strip():
+            continue
+        uk = (getattr(bundle, "unit_level_key", "") or "").strip()
+        if not uk:
+            continue
+        v = getattr(canon, "total_pct", None)
+        if v is None:
+            rows = [
+                float(x)
+                for x in (
+                    _eval_row_score_pct(r)
+                    for r in _parse_saved_eval_rows(canon.payload_json)
+                )
+                if x is not None
+            ]
             v = (sum(rows) / len(rows)) if rows else None
         if v is None:
             continue
@@ -8073,7 +8820,7 @@ def _control_exercise_performance_report(db, user: User) -> dict:
         {"label": "معايير التقييم", "value": str(criteria_count), "hint": "إجمالي المعايير", "icon": "fa-list", "tone": "indigo"},
     ]
 
-    unit_detail_rows = _control_build_unit_detail_rows(
+    unit_detail_rows, unit_detail_phase_columns = _control_build_unit_detail_rows(
         db, ex0.id, eval_items, saved_by_item
     )
     unit_detail_phase_max_dots = _control_phase_max_dot_counts(unit_detail_rows)
@@ -8096,14 +8843,30 @@ def _control_exercise_performance_report(db, user: User) -> dict:
         "table_rows": table_rows,
         "table_headers": table_headers,
         "unit_detail_rows": unit_detail_rows,
-        "unit_detail_phase_headers": [lbl for _, lbl in _CONTROL_REPORT_PHASE_COLUMNS],
+        "unit_detail_phase_headers": [lbl for _, lbl in unit_detail_phase_columns],
         "unit_detail_phase_max_dots": unit_detail_phase_max_dots,
         "unit_detail_list_number_row": unit_detail_list_number_row,
         "grade_legend": _control_report_grade_legend(),
+        "detail_source_legend": _control_report_detail_source_legend(),
         "n_saved_eval": n_saved,
         "n_eval_lists_total": n_eval_lists,
         "radar_series": radar_series,
     }
+
+
+def _control_report_detail_source_legend() -> list[dict]:
+    return [
+        {
+            "kind": "judge_eval",
+            "label": "قوائم التقييم (المحكم)",
+            "hint": "دائرة ملونة",
+        },
+        {
+            "kind": "planner_flow",
+            "label": "المجرى وتقييم الإجراءات — قائمة التقييم",
+            "hint": "مربع ملون",
+        },
+    ]
 
 
 @bp.route("/control/evaluation-lists/<unit_key>/view/<int:item_id>", methods=["GET"])
@@ -8114,9 +8877,7 @@ def control_evaluation_list_file_viewer(unit_key: str, item_id: int):
         return redirect(f"/login?next=/control/evaluation-lists/{unit_key}/view/{item_id}")
     if not can_access_control_hub(user):
         abort(403)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -8191,6 +8952,7 @@ def control_evaluation_list_file_viewer(unit_key: str, item_id: int):
             evaluation_item_id=row.id,
             can_edit=False,
             close_href=url_for("views.control_hub_section", slug="evaluation-lists-status"),
+            subpage_close_fallback=url_for("views.control_hub_section", slug="evaluation-lists-status"),
             close_label="العودة إلى موقف القوائم",
             **_control_hub_back_ctx_always(),
             saved_row_id=saved_row_id,
@@ -8211,6 +8973,131 @@ def control_evaluation_list_file_viewer(unit_key: str, item_id: int):
                 bundle_action_eval_id=None,
                 eval_can_edit=False,
             ),
+        ),
+    )
+
+
+@bp.route(
+    "/control/planner-flow-action/<unit_key>/view/<int:action_eval_id>",
+    methods=["GET"],
+)
+def control_planner_flow_action_view(unit_key: str, action_eval_id: int):
+    """عرض قائمة تقييم إجراءات (المجرى) للسيطرة — قراءة فقط من تقرير النتائج."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect(
+            f"/login?next=/control/planner-flow-action/{unit_key}/view/{int(action_eval_id)}"
+        )
+    if not can_access_control_hub(user):
+        abort(403)
+    unit = _require_unit_level_row(unit_key)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    if ex is None:
+        abort(404)
+    action_row = db.get(ExercisePlannerFlowBundleActionEval, int(action_eval_id))
+    if action_row is None:
+        abort(404)
+    bundle = db.get(ExercisePlannerFlowBundle, int(action_row.bundle_id))
+    if (
+        bundle is None
+        or bundle.exercise_id != ex.id
+        or (bundle.unit_level_key or "").strip() != unit_key
+    ):
+        abort(404)
+    path = _planner_bundle_file_abspath(action_row.file_relpath)
+    if path is None:
+        abort(404)
+    ev = _evaluation_sheet_view_context(path)
+    canon = _planner_bundle_eval_canonical_saved(db, ex.id, action_row.id)
+    saved_payload: dict = {}
+    saved_updated_at = None
+    saved_row_id = None
+    if canon is not None and (canon.payload_json or "").strip():
+        try:
+            saved_payload = json.loads(canon.payload_json)
+        except Exception:
+            saved_payload = {}
+        if not isinstance(saved_payload, dict):
+            saved_payload = {}
+        saved_updated_at = canon.updated_at
+        saved_row_id = canon.id
+    unit_label_pf = label_for_unit_level_key(unit_key) or (
+        bundle.unit_level_label or ""
+    ).strip() or unit_key
+    item_title = _planner_blob_display_filename(
+        stored_title=action_row.title or "",
+        relpath=action_row.file_relpath or "",
+        fallback=f"قائمة تقييم إجراءات — {int(action_row.slot_index)}",
+    ).strip()
+    shown_date = getattr(ex, "planned_start", None) or getattr(ex, "created_at", None)
+    commander_name = "—"
+    commander_row = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == ex.id,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.TRAINEE.value,
+            ExerciseRosterRow.unit_level_key == unit_key,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .first()
+    )
+    if commander_row is not None:
+        commander_name = (commander_row.full_name or "").strip() or commander_name
+    judge_name = "—"
+    judge_row = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == ex.id,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+            ExerciseRosterRow.unit_level_key == unit_key,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .first()
+    )
+    if judge_row is not None:
+        judge_name = (judge_row.full_name or "").strip() or judge_name
+    return render_template(
+        "judge_evaluation_list_viewer.html",
+        **_ctx(
+            user,
+            unit_key=unit_key,
+            item_id=int(action_row.id),
+            evaluation_item_id=int(action_row.id),
+            saved_row_id=saved_row_id,
+            item_title=item_title,
+            saved_payload=saved_payload,
+            saved_updated_at=saved_updated_at,
+            eval_can_edit=False,
+            eval_can_approve=False,
+            eval_can_chief_approve=False,
+            eval_can_chief_reopen=False,
+            eval_can_control_approve=False,
+            eval_close_href=url_for("views.control_hub_section", slug="evaluation-results"),
+            eval_close_label="العودة إلى التقرير الشامل",
+            subpage_close_fallback=url_for("views.control_hub_section", slug="evaluation-results"),
+            **ev,
+            **_eval_crit_media_sheet_ctx(
+                db,
+                user,
+                exercise=ex,
+                list_item_id=None,
+                bundle_action_eval_id=int(action_row.id),
+                eval_can_edit=False,
+            ),
+            unit_label=unit_label_pf or "—",
+            shown_date=shown_date,
+            commander_name=commander_name or "—",
+            judge_name=judge_name or "—",
+            has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
+            eval_save_url="",
+            eval_approve_url="",
+            eval_chief_approve_url="",
+            eval_chief_reopen_url="",
+            eval_approve_incomplete=False,
+            **_control_hub_back_ctx_always(),
         ),
     )
 
@@ -8253,6 +9140,7 @@ def control_hub_section(slug: str):
             **_ctx(
                 user,
                 section_title=title,
+                section_icon=_control_section_icon(slug_norm),
                 report=_control_exercise_performance_report(g.db, user),
                 **_control_hub_back_ctx_always(),
             ),
@@ -8267,6 +9155,7 @@ def control_hub_section(slug: str):
                 **_ctx(
                     user,
                     section_title=title,
+                    section_icon=_control_section_icon(slug_norm),
                     has_exercise=False,
                     **_control_hub_back_ctx_always(),
                 ),
@@ -8276,6 +9165,7 @@ def control_hub_section(slug: str):
             **_ctx(
                 user,
                 section_title=title,
+                section_icon=_control_section_icon(slug_norm),
                 **_control_hub_back_ctx_always(),
                 **status,
             ),
@@ -8290,6 +9180,7 @@ def control_hub_section(slug: str):
                 **_ctx(
                     user,
                     section_title=title,
+                    section_icon=_control_section_icon(slug_norm),
                     has_exercise=False,
                     **_control_hub_back_ctx_always(),
                 ),
@@ -8299,6 +9190,7 @@ def control_hub_section(slug: str):
             **_ctx(
                 user,
                 section_title=title,
+                section_icon=_control_section_icon(slug_norm),
                 **_control_hub_back_ctx_always(),
                 **pn,
             ),
@@ -8309,6 +9201,7 @@ def control_hub_section(slug: str):
             user,
             section_title=title,
             section_slug=slug,
+            section_icon=_control_section_icon(slug_norm),
             **_control_hub_back_ctx_always(),
         ),
     )
@@ -8428,20 +9321,11 @@ def admin_exercise_create():
             400,
         )
 
-    desc = "\n".join(
-        [
-            f"نوع التمرين: {et}",
-            f"مستوى التمرين: {el}",
-            f"المهمة: {mission}",
-            f"اسم الوحدة المتدربة: {unit}",
-            f"مكان التمرين: {loc}",
-        ]
-    )
     purge_all_exercises_and_dilemmas(db)
     ex = Exercise(
         code=f"EX-{uuid.uuid4().hex[:8].upper()}",
         title=title,
-        description=desc,
+        description="",
         exercise_type=et,
         exercise_level=el,
         mission_label=mission,
@@ -9101,9 +9985,7 @@ def admin_exercise_open_export():
 def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
     user = get_current_user_optional()
     _require_planner_hub_catalog_access(user)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -9209,6 +10091,7 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
             evaluation_item_id=row.id,
             can_edit=not saved_is_approved,
             close_href=url_for("views.admin_evaluation_lists", unit_key=unit_key),
+            subpage_close_fallback=url_for("views.admin_evaluation_lists", unit_key=unit_key),
             close_label="إغلاق والعودة",
             saved_row_id=saved_row_id,
             saved_payload=saved_payload,
@@ -9248,9 +10131,7 @@ def analyst_evaluation_list_file_viewer(unit_key: str, item_id: int):
     # نسمح للمحلل (وأيضاً إدارة النظام) بالعرض
     if not (can_access_analyst_hub(user) or is_system_admin(user)):
         abort(403)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -9352,6 +10233,7 @@ def analyst_evaluation_list_file_viewer(unit_key: str, item_id: int):
             evaluation_item_id=row.id,
             can_edit=False,
             close_href="/analyst/judges-eval-analysis",
+            subpage_close_fallback="/analyst/judges-eval-analysis",
             close_label="إغلاق والعودة للتحليل",
             saved_row_id=saved_row_id,
             saved_payload=saved_payload,
@@ -9385,9 +10267,7 @@ def analyst_evaluation_list_file_viewer(unit_key: str, item_id: int):
 def admin_evaluation_list_file(unit_key: str, item_id: int):
     user = get_current_user_optional()
     _require_planner_hub_catalog_access(user)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -9417,9 +10297,7 @@ def admin_evaluation_list_file(unit_key: str, item_id: int):
 def admin_evaluation_list_delete_item(unit_key: str, item_id: int):
     user = get_current_user_optional()
     _require_planner_hub_catalog_access(user)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -9445,9 +10323,7 @@ def admin_evaluation_list_delete_item(unit_key: str, item_id: int):
 def admin_evaluation_list_set_phase(unit_key: str, item_id: int):
     user = get_current_user_optional()
     _require_planner_hub_catalog_access(user)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -9459,7 +10335,11 @@ def admin_evaluation_list_set_phase(unit_key: str, item_id: int):
         or (current_exercise is not None and row.exercise_id != current_exercise.id)
     ):
         abort(404)
-    row.exercise_phase = _normalized_exercise_phase(request.form.get("exercise_phase"))
+    phase = _normalized_exercise_phase(request.form.get("exercise_phase"))
+    if not phase and EXERCISE_PHASE_OPTIONS:
+        return redirect(url_for("views.admin_evaluation_lists", unit_key=unit_key))
+    if phase:
+        _sync_evaluation_list_item_phase(db, row, phase)
     db.commit()
     return redirect(url_for("views.admin_evaluation_lists", unit_key=unit_key))
 
@@ -9471,9 +10351,7 @@ def admin_evaluation_list_set_phase(unit_key: str, item_id: int):
 def admin_evaluation_list_save_results(unit_key: str, item_id: int):
     user = get_current_user_optional()
     _require_planner_hub_catalog_access(user)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -9506,9 +10384,7 @@ def admin_evaluation_list_approve(unit_key: str, item_id: int):
         abort(403)
     if not can_approve_evaluation_results(user):
         abort(403)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -9559,7 +10435,7 @@ def judge_evaluation_lists_home():
     # إن كان المحكم مخصصاً لوحدة واحدة، افتحها مباشرة
     a = _judge_assignment_for_current_exercise(db, user, ex)
     assigned_uk = (getattr(a, "unit_level_key", "") or "").strip() if a else ""
-    if assigned_uk and not is_system_admin(user):
+    if assigned_uk and unit_level_row(assigned_uk) and not is_system_admin(user):
         return redirect(url_for("views.judge_evaluation_lists", unit_key=assigned_uk))
     units = [u for u in UNIT_LEVELS if not assigned_uk or u.get("key") == assigned_uk]
     unit_rows = evaluation_unit_home_rows(db, ex, units)
@@ -9592,7 +10468,7 @@ def judge_dilemmas_home():
     _ensure_judge_roster_synced(db, user, ex)
     a = _judge_assignment_for_current_exercise(db, user, ex)
     assigned_uk = (getattr(a, "unit_level_key", "") or "").strip() if a else ""
-    if assigned_uk and not is_system_admin(user):
+    if assigned_uk and unit_level_row(assigned_uk) and not is_system_admin(user):
         return redirect(url_for("views.judge_dilemmas", unit_key=assigned_uk))
     return render_template(
         "judge_dilemmas_home.html",
@@ -9613,9 +10489,7 @@ def judge_dilemmas(unit_key: str):
         return redirect(f"/login?next=/judge/dilemmas/{unit_key}")
     if not can_access_judge_hub(user):
         abort(403)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -9652,9 +10526,7 @@ def judge_dilemma_viewer(unit_key: str, item_id: int):
         return redirect(f"/login?next=/judge/dilemmas/{unit_key}/view/{item_id}")
     if not can_access_judge_hub(user):
         abort(403)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -9707,9 +10579,7 @@ def judge_evaluation_lists(unit_key: str):
         return redirect(f"/login?next=/judge/evaluation-lists/{unit_key}")
     if not can_access_judge_hub(user):
         abort(403)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -9775,9 +10645,7 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
         return redirect(f"/login?next=/judge/evaluation-lists/{unit_key}/view/{item_id}")
     if not can_access_judge_hub(user):
         abort(403)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -9884,6 +10752,7 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
             eval_chief_approve_url="",
             eval_chief_reopen_url="",
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
+            subpage_close_fallback=list_url,
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -9899,9 +10768,7 @@ def judge_evaluation_list_save_results(unit_key: str, item_id: int):
         abort(403)
     if not can_access_judge_hub(user):
         abort(403)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -9937,9 +10804,7 @@ def judge_evaluation_list_approve(unit_key: str, item_id: int):
         abort(403)
     if not can_access_judge_hub(user):
         abort(403)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -10221,9 +11086,7 @@ def chief_judge_evaluation_lists(unit_key: str):
         return redirect(f"/login?next=/chief-judge/evaluation-lists/{unit_key}")
     if not can_access_chief_judge_hub(user):
         abort(403)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -10282,9 +11145,7 @@ def chief_judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
         return redirect(f"/login?next=/chief-judge/evaluation-lists/{unit_key}/view/{item_id}")
     if not can_access_chief_judge_hub(user):
         abort(403)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -10387,6 +11248,7 @@ def chief_judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
                 item_id=item_id,
             ),
             eval_close_href=list_url,
+            subpage_close_fallback=list_url,
             eval_approve_incomplete=False,
             viewer_readonly_chief=True,
             **_hub_back_ctx_for_request_path(),
@@ -10406,9 +11268,7 @@ def chief_judge_evaluation_list_chief_approve(unit_key: str, item_id: int):
         abort(403)
     if not can_access_chief_judge_hub(user):
         abort(403)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -10443,9 +11303,7 @@ def chief_judge_evaluation_list_chief_reopen(unit_key: str, item_id: int):
         abort(403)
     if not can_access_chief_judge_hub(user):
         abort(403)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -10482,6 +11340,190 @@ def chief_judge_evaluation_list_chief_reopen(unit_key: str, item_id: int):
     )
 
 
+_ADMIN_SAVED_SOURCE_JUDGE = "judge_eval"
+_ADMIN_SAVED_SOURCE_PLANNER = "planner_flow"
+
+
+def _admin_saved_result_source_label(source_kind: str) -> str:
+    if source_kind == _ADMIN_SAVED_SOURCE_PLANNER:
+        return "المجرى وتقييم الإجراءات — قائمة التقييم"
+    return "قوائم التقييم (المحكم)"
+
+
+def _admin_build_saved_results_display(db, ex: Exercise) -> list[dict]:
+    """صفوف موحّدة: نتائج قوائم المحكم + نتائج قوائم تقييم الإجراءات (المجرى)."""
+    display: list[dict] = []
+    eval_rows = (
+        db.query(EvaluationListSavedResult)
+        .filter(EvaluationListSavedResult.exercise_id == ex.id)
+        .order_by(EvaluationListSavedResult.updated_at.desc(), EvaluationListSavedResult.id.desc())
+        .all()
+    )
+    item_ids = [
+        int(r.evaluation_item_id)
+        for r in eval_rows
+        if getattr(r, "evaluation_item_id", None) is not None
+    ]
+    items_by_id: dict[int, EvaluationListPdfItem] = {}
+    if item_ids:
+        for it in (
+            db.query(EvaluationListPdfItem)
+            .filter(EvaluationListPdfItem.id.in_(item_ids))
+            .all()
+        ):
+            items_by_id[int(it.id)] = it
+    for r in eval_rows:
+        uk = (r.unit_level_key or "").strip()
+        iid = int(r.evaluation_item_id) if r.evaluation_item_id is not None else 0
+        it = items_by_id.get(iid)
+        list_title = (getattr(it, "text", None) or "").strip() if it else ""
+        display.append(
+            {
+                "source_kind": _ADMIN_SAVED_SOURCE_JUDGE,
+                "source_label": _admin_saved_result_source_label(_ADMIN_SAVED_SOURCE_JUDGE),
+                "saved_id": int(r.id),
+                "checkbox_value": f"eval:{int(r.id)}",
+                "unit_label": label_for_unit_level_key(uk) if uk else "",
+                "unit_level_key": uk,
+                "exercise_phase": r.exercise_phase,
+                "list_title": list_title or "—",
+                "total_pct": r.total_pct,
+                "grade_label": r.grade_label,
+                "saved_by_id": r.saved_by_id,
+                "is_approved": bool(r.is_approved),
+                "updated_at": r.updated_at,
+                "open_href": (
+                    url_for(
+                        "views.admin_evaluation_list_file_viewer",
+                        unit_key=uk,
+                        item_id=iid,
+                        saved_id=int(r.id),
+                    )
+                    if uk and iid
+                    else ""
+                ),
+            }
+        )
+    pf_rows = (
+        db.query(PlannerFlowBundleEvalSavedResult)
+        .filter(PlannerFlowBundleEvalSavedResult.exercise_id == ex.id)
+        .order_by(
+            PlannerFlowBundleEvalSavedResult.updated_at.desc(),
+            PlannerFlowBundleEvalSavedResult.id.desc(),
+        )
+        .all()
+    )
+    for r in pf_rows:
+        action_row = db.get(
+            ExercisePlannerFlowBundleActionEval, int(r.bundle_action_eval_id)
+        )
+        if action_row is None:
+            continue
+        bundle = db.get(ExercisePlannerFlowBundle, int(action_row.bundle_id))
+        if bundle is None or bundle.exercise_id != ex.id:
+            continue
+        uk = (r.unit_level_key or bundle.unit_level_key or "").strip()
+        list_title = _planner_blob_display_filename(
+            stored_title=action_row.title or "",
+            relpath=action_row.file_relpath or "",
+            fallback=f"قائمة تقييم إجراءات {int(action_row.slot_index)}",
+        )
+        pf_open_href = ""
+        if uk:
+            pf_kw: dict[str, int] = {}
+            ja = (
+                db.query(JudgeTraineeAssignment)
+                .filter(
+                    JudgeTraineeAssignment.exercise_id == ex.id,
+                    JudgeTraineeAssignment.planner_flow_bundle_id == bundle.id,
+                )
+                .first()
+            )
+            if ja is not None:
+                pf_kw["judge_user_id"] = int(ja.judge_user_id)
+            pf_open_href = url_for(
+                "views.judge_planner_flow_materials_action_evaluate",
+                slot=int(action_row.slot_index),
+                **pf_kw,
+            )
+        display.append(
+            {
+                "source_kind": _ADMIN_SAVED_SOURCE_PLANNER,
+                "source_label": _admin_saved_result_source_label(
+                    _ADMIN_SAVED_SOURCE_PLANNER
+                ),
+                "saved_id": int(r.id),
+                "checkbox_value": f"pf:{int(r.id)}",
+                "unit_label": label_for_unit_level_key(uk) if uk else "",
+                "unit_level_key": uk,
+                "exercise_phase": r.exercise_phase or bundle.exercise_phase,
+                "list_title": list_title or "—",
+                "total_pct": r.total_pct,
+                "grade_label": r.grade_label,
+                "saved_by_id": r.saved_by_id,
+                "is_approved": bool(r.is_approved),
+                "updated_at": r.updated_at,
+                "open_href": pf_open_href,
+            }
+        )
+    display.sort(
+        key=lambda d: (
+            d.get("updated_at") is not None,
+            d.get("updated_at") or datetime.min,
+            int(d.get("saved_id") or 0),
+        ),
+        reverse=True,
+    )
+    return display
+
+
+def _admin_parse_saved_results_bulk_ids(raw_ids: list[str]) -> tuple[list[int], list[int]]:
+    eval_ids: list[int] = []
+    pf_ids: list[int] = []
+    for v in raw_ids:
+        s = (v or "").strip()
+        if s.startswith("eval:") and s[5:].isdigit():
+            eval_ids.append(int(s[5:]))
+        elif s.startswith("pf:") and s[3:].isdigit():
+            pf_ids.append(int(s[3:]))
+        elif s.isdigit():
+            eval_ids.append(int(s))
+    return eval_ids, pf_ids
+
+
+@bp.route("/admin/evaluation-lists/saved-results/gate", methods=["GET", "POST"])
+def admin_evaluation_saved_results_gate():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/admin/evaluation-lists/saved-results/gate")
+    if not is_system_admin(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    nxt = (
+        request.args.get("next")
+        or request.form.get("next")
+        or "/admin/evaluation-lists/saved-results"
+    ).strip()
+    if not nxt.startswith("/"):
+        nxt = "/admin/evaluation-lists/saved-results"
+    err = ""
+    if request.method == "POST":
+        pwd = (request.form.get("password") or "").strip()
+        if _verify_system_admin_password(db, pwd):
+            session[EVAL_SAVED_RESULTS_GATE_SESSION_KEY] = True
+            session.permanent = True
+            return redirect(nxt)
+        err = "كلمة المرور غير صحيحة. أدخل كلمة مرور حساب إدارة النظام."
+    if session.get(EVAL_SAVED_RESULTS_GATE_SESSION_KEY):
+        return redirect(nxt)
+    return render_template(
+        "admin_evaluation_saved_results_gate.html",
+        **_ctx(user, next_url=nxt, gate_error=err),
+    )
+
+
 @bp.route("/admin/evaluation-lists/saved-results", methods=["GET"])
 def admin_evaluation_saved_results():
     user = get_current_user_optional()
@@ -10498,21 +11540,7 @@ def admin_evaluation_saved_results():
             "admin_evaluation_saved_results.html",
             **_ctx(user, has_exercise=False),
         )
-    saved_rows = (
-        db.query(EvaluationListSavedResult)
-        .filter(EvaluationListSavedResult.exercise_id == ex.id)
-        .order_by(EvaluationListSavedResult.updated_at.desc(), EvaluationListSavedResult.id.desc())
-        .all()
-    )
-    saved_display = []
-    for r in saved_rows:
-        uk = (r.unit_level_key or "").strip()
-        saved_display.append(
-            {
-                "row": r,
-                "unit_label": label_for_unit_level_key(uk) if uk else "",
-            }
-        )
+    saved_display = _admin_build_saved_results_display(db, ex)
     return render_template(
         "admin_evaluation_saved_results.html",
         **_ctx(
@@ -10532,11 +11560,28 @@ def admin_evaluation_saved_results_delete(saved_id: int):
     from flask import g
 
     db = g.db
-    row = db.get(EvaluationListSavedResult, saved_id)
     ex = _admin_current_workspace_exercise(db, user)
-    if row is None or ex is None or row.exercise_id != ex.id:
+    if ex is None:
         abort(404)
-    db.delete(row)
+    kind = (
+        request.form.get("source_kind")
+        or request.args.get("source_kind")
+        or _ADMIN_SAVED_SOURCE_JUDGE
+    ).strip()
+    if kind == _ADMIN_SAVED_SOURCE_PLANNER:
+        row = db.get(PlannerFlowBundleEvalSavedResult, saved_id)
+        if row is None or row.exercise_id != ex.id:
+            abort(404)
+        _admin_purge_planner_flow_evaluation_data(
+            db, ex.id, int(row.bundle_action_eval_id)
+        )
+    else:
+        row = db.get(EvaluationListSavedResult, saved_id)
+        if row is None or row.exercise_id != ex.id:
+            abort(404)
+        _admin_purge_judge_evaluation_data(
+            db, ex.id, int(row.evaluation_item_id)
+        )
     db.commit()
     return redirect("/admin/evaluation-lists/saved-results")
 
@@ -10546,8 +11591,8 @@ def admin_evaluation_saved_results_bulk_delete():
     """حذف عدّة نتائج محفوظة دفعة واحدة.
 
     يقبل:
-      • saved_ids=<id>&saved_ids=<id>… لحذف المحدد بـ checkbox.
-      • delete_all=1 لحذف جميع النتائج المحفوظة في التمرين الحالي.
+      • saved_ids=eval:<id> أو pf:<id> لحذف المحدد بـ checkbox.
+      • delete_all=1 لحذف جميع النتائج المحفوظة في التمرين الحالي (المحكم + المجرى).
     """
     user = get_current_user_optional()
     if not user or not is_system_admin(user):
@@ -10561,24 +11606,56 @@ def admin_evaluation_saved_results_bulk_delete():
 
     delete_all = (request.form.get("delete_all") or "").strip() in ("1", "true", "True", "yes")
     if delete_all:
-        db.query(EvaluationListSavedResult).filter(
-            EvaluationListSavedResult.exercise_id == ex.id
-        ).delete(synchronize_session=False)
+        eval_item_ids = [
+            int(r[0])
+            for r in db.query(EvaluationListSavedResult.evaluation_item_id)
+            .filter(EvaluationListSavedResult.exercise_id == ex.id)
+            .distinct()
+            .all()
+            if r[0] is not None
+        ]
+        for iid in eval_item_ids:
+            _admin_purge_judge_evaluation_data(db, ex.id, iid)
+        pf_action_ids = [
+            int(r[0])
+            for r in db.query(PlannerFlowBundleEvalSavedResult.bundle_action_eval_id)
+            .filter(PlannerFlowBundleEvalSavedResult.exercise_id == ex.id)
+            .distinct()
+            .all()
+            if r[0] is not None
+        ]
+        for aid in pf_action_ids:
+            _admin_purge_planner_flow_evaluation_data(db, ex.id, aid)
         db.commit()
         return redirect("/admin/evaluation-lists/saved-results")
 
-    raw_ids = request.form.getlist("saved_ids")
-    ids: list[int] = []
-    for v in raw_ids:
-        s = (v or "").strip()
-        if s.isdigit():
-            ids.append(int(s))
-    if not ids:
+    eval_ids, pf_ids = _admin_parse_saved_results_bulk_ids(request.form.getlist("saved_ids"))
+    if not eval_ids and not pf_ids:
         return redirect("/admin/evaluation-lists/saved-results")
-    db.query(EvaluationListSavedResult).filter(
-        EvaluationListSavedResult.exercise_id == ex.id,
-        EvaluationListSavedResult.id.in_(ids),
-    ).delete(synchronize_session=False)
+    if eval_ids:
+        eval_rows = (
+            db.query(EvaluationListSavedResult)
+            .filter(
+                EvaluationListSavedResult.exercise_id == ex.id,
+                EvaluationListSavedResult.id.in_(eval_ids),
+            )
+            .all()
+        )
+        for r in eval_rows:
+            _admin_purge_judge_evaluation_data(db, ex.id, int(r.evaluation_item_id))
+    if pf_ids:
+        pf_rows = (
+            db.query(PlannerFlowBundleEvalSavedResult)
+            .filter(
+                PlannerFlowBundleEvalSavedResult.exercise_id == ex.id,
+                PlannerFlowBundleEvalSavedResult.id.in_(pf_ids),
+            )
+            .all()
+        )
+        for r in pf_rows:
+            _admin_purge_planner_flow_evaluation_data(
+                db, ex.id, int(r.bundle_action_eval_id)
+            )
     db.commit()
     return redirect("/admin/evaluation-lists/saved-results")
 
@@ -10587,9 +11664,7 @@ def admin_evaluation_saved_results_bulk_delete():
 def admin_evaluation_list_clear(unit_key: str):
     user = get_current_user_optional()
     _require_planner_hub_catalog_access(user)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -10607,18 +11682,14 @@ def admin_evaluation_list_clear(unit_key: str):
     return redirect(url_for("views.admin_evaluation_lists", unit_key=unit_key))
 
 
-@bp.route("/admin/evaluation-lists/<unit_key>", methods=["GET", "POST"])
-def admin_evaluation_lists(unit_key: str):
-    user = get_current_user_optional()
-    if not user:
-        return redirect(f"/login?next=/admin/evaluation-lists/{unit_key}")
-    _require_planner_hub_catalog_access(user)
-    from flask import g
-
-    db = g.db
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+def _render_admin_evaluation_lists(
+    db,
+    user: User,
+    *,
+    unit_key: str,
+    unit: dict[str, str] | None,
+):
+    unit_key = (unit_key or "").strip()
     current_exercise = _admin_current_workspace_exercise(db, user)
 
     def _display_name_for_upload(filename: str) -> str:
@@ -10630,12 +11701,26 @@ def admin_evaluation_lists(unit_key: str):
     error = ""
     ok_msg = ""
     if request.method == "POST":
+        if unit is None:
+            error = (
+                "لا توجد مستويات وحدة في كتالوج التخطيط. "
+                "أضف مستويات الوحدة إلى الكتالوج أولاً (بنك المعلومات له كتالوج مستقل)."
+            )
         phase = _normalized_exercise_phase(request.form.get("exercise_phase"))
-        if current_exercise is None:
+        if unit is not None and not phase and EXERCISE_PHASE_OPTIONS:
+            error = "اختر مرحلة التمرين قبل إضافة الملفات."
+        if unit is not None and not EXERCISE_PHASE_OPTIONS:
+            error = (
+                "لا توجد مراحل تمرين في كتالوج التخطيط. "
+                "أضف المراحل أولاً (بنك المعلومات له كتالوج مستقل)."
+            )
+        if unit is not None and current_exercise is None:
             error = "لا يوجد تمرين حالي. أنشئ تمريناً جديداً قبل إدراج قوائم التقييم."
             files = []
-        else:
+        elif unit is not None and phase:
             files = request.files.getlist("evaluation_lists_file")
+        else:
+            files = []
         valid_files: list[tuple[bytes, str]] = []
         for f in files:
             if not f or not getattr(f, "filename", ""):
@@ -10656,9 +11741,9 @@ def admin_evaluation_lists(unit_key: str):
                 error = "الملف كبير جداً (الحد 30 ميغابايت لكل ملف)."
                 break
             valid_files.append((data, _display_name_for_upload(f.filename)))
-        if not error and not valid_files:
+        if unit is not None and phase and not error and not valid_files:
             error = "اختر ملفاً بصيغة .xlsx (يمكن اختيار عدة ملفات دفعة واحدة)."
-        if not error and valid_files:
+        if unit is not None and phase and not error and valid_files:
             stored_hashes = _hashes_of_unit_pdfs(
                 db,
                 EvaluationListPdfItem,
@@ -10744,41 +11829,64 @@ def admin_evaluation_lists(unit_key: str):
                     else:
                         ok_msg = f"تمت إضافة {n} ملفاً إلى قوائم التقييم لهذا المستوى."
 
-    existing_q = db.query(EvaluationListPdfItem).filter(EvaluationListPdfItem.unit_level_key == unit_key)
-    if current_exercise is not None:
-        existing_q = existing_q.filter(EvaluationListPdfItem.exercise_id == current_exercise.id)
-    else:
-        existing_q = existing_q.filter(EvaluationListPdfItem.exercise_id == -1)
-    existing = existing_q.order_by(
-        _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
-        EvaluationListPdfItem.sort_order,
-        EvaluationListPdfItem.id,
-    ).all()
+    existing: list = []
+    if unit is not None:
+        existing_q = db.query(EvaluationListPdfItem).filter(
+            EvaluationListPdfItem.unit_level_key == unit_key
+        )
+        if current_exercise is not None:
+            existing_q = existing_q.filter(EvaluationListPdfItem.exercise_id == current_exercise.id)
+        else:
+            existing_q = existing_q.filter(EvaluationListPdfItem.exercise_id == -1)
+        existing = existing_q.order_by(
+            _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
+            EvaluationListPdfItem.sort_order,
+            EvaluationListPdfItem.id,
+        ).all()
+    unit_label = unit["label"] if unit else "—"
     return render_template(
         "admin_evaluation_lists.html",
         **_ctx(
             user,
             unit_levels=UNIT_LEVELS,
             selected_unit_key=unit_key,
-            selected_unit_label=unit["label"],
+            selected_unit_label=unit_label,
             exercise_phase_options=EXERCISE_PHASE_OPTIONS,
             upload_phase_default=DEFAULT_EXERCISE_PHASE,
             items=existing,
             error=error,
             ok_msg=ok_msg,
+            catalog_empty=not UNIT_LEVELS,
+            phases_catalog_empty=not EXERCISE_PHASE_OPTIONS,
         ),
     )
 
 
+@bp.route("/admin/evaluation-lists/<unit_key>", methods=["GET", "POST"])
+def admin_evaluation_lists(unit_key: str):
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/admin/evaluation-lists/{unit_key}")
+    _require_planner_hub_catalog_access(user)
+    from flask import g
+
+    unit = _require_unit_level_row(unit_key)
+    return _render_admin_evaluation_lists(g.db, user, unit_key=unit_key, unit=unit)
+
+
 @bp.route("/admin/evaluation-lists")
-@bp.route("/admin/evaluation-lists/")
+@bp.route("/admin/evaluation-lists/", methods=["GET", "POST"])
 def admin_evaluation_lists_home():
     user = get_current_user_optional()
     if not user:
         return redirect("/login?next=/admin/evaluation-lists")
     _require_planner_hub_catalog_access(user)
-    first = UNIT_LEVELS[0]["key"] if UNIT_LEVELS else "brigade_group"
-    return redirect(url_for("views.admin_evaluation_lists", unit_key=first))
+    from flask import g
+
+    first = default_unit_level_key()
+    if request.method == "GET" and first:
+        return redirect(url_for("views.admin_evaluation_lists", unit_key=first))
+    return _render_admin_evaluation_lists(g.db, user, unit_key="", unit=None)
 
 
 @bp.route("/admin/battle-organization", methods=["GET"])
@@ -10886,28 +11994,28 @@ def admin_battle_organization_save():
 
 
 @bp.route("/admin/dilemmas")
-@bp.route("/admin/dilemmas/")
+@bp.route("/admin/dilemmas/", methods=["GET", "POST"])
 def admin_dilemmas_home():
     user = get_current_user_optional()
     if not user:
         return redirect("/login?next=/admin/dilemmas")
     _require_planner_hub_catalog_access(user)
-    first = UNIT_LEVELS[0]["key"] if UNIT_LEVELS else "brigade_group"
-    return redirect(url_for("views.admin_dilemmas", unit_key=first))
-
-
-@bp.route("/admin/dilemmas/<unit_key>", methods=["GET", "POST"])
-def admin_dilemmas(unit_key: str):
-    user = get_current_user_optional()
-    if not user:
-        return redirect(f"/login?next=/admin/dilemmas/{unit_key}")
-    _require_planner_hub_catalog_access(user)
     from flask import g
 
-    db = g.db
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    first = default_unit_level_key()
+    if request.method == "GET" and first:
+        return redirect(url_for("views.admin_dilemmas", unit_key=first))
+    return _render_admin_dilemmas(g.db, user, unit_key="", unit=None)
+
+
+def _render_admin_dilemmas(
+    db,
+    user: User,
+    *,
+    unit_key: str,
+    unit: dict[str, str] | None,
+):
+    unit_key = (unit_key or "").strip()
     current_exercise = _admin_current_workspace_exercise(db, user)
 
     def _display_name_for_upload(filename: str) -> str:
@@ -10919,12 +12027,26 @@ def admin_dilemmas(unit_key: str):
     error = ""
     ok_msg = ""
     if request.method == "POST":
+        if unit is None:
+            error = (
+                "لا توجد مستويات وحدة في كتالوج التخطيط. "
+                "أضف مستويات الوحدة إلى الكتالوج أولاً (بنك المعلومات له كتالوج مستقل)."
+            )
         phase = _normalized_exercise_phase(request.form.get("exercise_phase"))
-        if current_exercise is None:
+        if unit is not None and not phase and EXERCISE_PHASE_OPTIONS:
+            error = "اختر مرحلة التمرين قبل إضافة الملفات."
+        if unit is not None and not EXERCISE_PHASE_OPTIONS:
+            error = (
+                "لا توجد مراحل تمرين في كتالوج التخطيط. "
+                "أضف المراحل أولاً (بنك المعلومات له كتالوج مستقل)."
+            )
+        if unit is not None and current_exercise is None:
             error = "لا يوجد تمرين حالي. أنشئ تمريناً جديداً قبل إدراج قوائم المعاضل."
             files = []
-        else:
+        elif unit is not None and phase:
             files = request.files.getlist("dilemmas_file")
+        else:
+            files = []
         valid_files: list[tuple[bytes, str]] = []
         for f in files:
             if not f or not getattr(f, "filename", ""):
@@ -10941,9 +12063,9 @@ def admin_dilemmas(unit_key: str):
                 error = "الملف كبير جداً (الحد 30 ميغابايت لكل ملف)."
                 break
             valid_files.append((data, _display_name_for_upload(f.filename)))
-        if not error and not valid_files:
+        if unit is not None and phase and not error and not valid_files:
             error = "اختر ملفاً بصيغة PDF (يمكن اختيار عدة ملفات دفعة واحدة)."
-        if not error and valid_files:
+        if unit is not None and phase and not error and valid_files:
             stored_hashes = _hashes_of_unit_pdfs(
                 db,
                 DilemmaItem,
@@ -11029,39 +12151,54 @@ def admin_dilemmas(unit_key: str):
                     else:
                         ok_msg = f"تمت إضافة {n} ملفاً معضلة لهذا المستوى."
 
-    existing_q = db.query(DilemmaItem).filter(DilemmaItem.unit_level_key == unit_key)
-    if current_exercise is not None:
-        existing_q = existing_q.filter(DilemmaItem.exercise_id == current_exercise.id)
-    else:
-        existing_q = existing_q.filter(DilemmaItem.exercise_id == -1)
-    existing = existing_q.order_by(
-        _exercise_phase_order_expr(DilemmaItem.exercise_phase),
-        DilemmaItem.sort_order,
-        DilemmaItem.id,
-    ).all()
+    existing: list = []
+    if unit is not None:
+        existing_q = db.query(DilemmaItem).filter(DilemmaItem.unit_level_key == unit_key)
+        if current_exercise is not None:
+            existing_q = existing_q.filter(DilemmaItem.exercise_id == current_exercise.id)
+        else:
+            existing_q = existing_q.filter(DilemmaItem.exercise_id == -1)
+        existing = existing_q.order_by(
+            _exercise_phase_order_expr(DilemmaItem.exercise_phase),
+            DilemmaItem.sort_order,
+            DilemmaItem.id,
+        ).all()
+    unit_label = unit["label"] if unit else "—"
     return render_template(
         "admin_dilemmas.html",
         **_ctx(
             user,
             unit_levels=UNIT_LEVELS,
             selected_unit_key=unit_key,
-            selected_unit_label=unit["label"],
+            selected_unit_label=unit_label,
             exercise_phase_options=EXERCISE_PHASE_OPTIONS,
             upload_phase_default=DEFAULT_EXERCISE_PHASE,
             items=existing,
             error=error,
             ok_msg=ok_msg,
+            catalog_empty=not UNIT_LEVELS,
+            phases_catalog_empty=not EXERCISE_PHASE_OPTIONS,
         ),
     )
+
+
+@bp.route("/admin/dilemmas/<unit_key>", methods=["GET", "POST"])
+def admin_dilemmas(unit_key: str):
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/admin/dilemmas/{unit_key}")
+    _require_planner_hub_catalog_access(user)
+    from flask import g
+
+    unit = _require_unit_level_row(unit_key)
+    return _render_admin_dilemmas(g.db, user, unit_key=unit_key, unit=unit)
 
 
 @bp.route("/admin/dilemmas/<unit_key>/view/<int:item_id>", methods=["GET"])
 def admin_dilemma_viewer(unit_key: str, item_id: int):
     user = get_current_user_optional()
     _require_planner_hub_catalog_access(user)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -11093,9 +12230,7 @@ def admin_dilemma_viewer(unit_key: str, item_id: int):
 def admin_dilemma_pdf_file(unit_key: str, item_id: int):
     user = get_current_user_optional()
     _require_planner_hub_catalog_access(user)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -11116,9 +12251,7 @@ def admin_dilemma_pdf_file(unit_key: str, item_id: int):
 def admin_dilemmas_delete_item(unit_key: str, item_id: int):
     user = get_current_user_optional()
     _require_planner_hub_catalog_access(user)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -11144,9 +12277,7 @@ def admin_dilemmas_delete_item(unit_key: str, item_id: int):
 def admin_dilemmas_set_phase(unit_key: str, item_id: int):
     user = get_current_user_optional()
     _require_planner_hub_catalog_access(user)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -11167,9 +12298,7 @@ def admin_dilemmas_set_phase(unit_key: str, item_id: int):
 def admin_dilemmas_clear(unit_key: str):
     user = get_current_user_optional()
     _require_planner_hub_catalog_access(user)
-    unit = next((x for x in UNIT_LEVELS if x["key"] == unit_key), None)
-    if not unit:
-        abort(404)
+    unit = _require_unit_level_row(unit_key)
     from flask import g
 
     db = g.db
@@ -11247,24 +12376,109 @@ def _ensure_information_bank_catalog_rows(db) -> None:
         db.commit()
 
 
-def _information_bank_training_phases(db) -> list[dict[str, str]]:
+def _information_bank_training_phases(db) -> list[dict[str, str | bool]]:
     _ensure_information_bank_catalog_rows(db)
     rows = (
         db.query(InformationBankTrainingPhase)
-        .order_by(InformationBankTrainingPhase.sort_order, InformationBankTrainingPhase.created_at, InformationBankTrainingPhase.key)
+        .order_by(
+            InformationBankTrainingPhase.sort_order,
+            InformationBankTrainingPhase.created_at,
+            InformationBankTrainingPhase.key,
+        )
         .all()
     )
-    return [{"key": r.key, "label": r.label} for r in rows if (r.key or "").strip()]
+    return [
+        {
+            "key": r.key,
+            "label": r.label,
+            "included_in_exercise": bool(getattr(r, "included_in_exercise", False)),
+        }
+        for r in rows
+        if (r.key or "").strip()
+    ]
 
 
-def _information_bank_unit_levels(db) -> list[dict[str, str]]:
+def _information_bank_unit_levels(db) -> list[dict[str, str | bool]]:
     _ensure_information_bank_catalog_rows(db)
     rows = (
         db.query(InformationBankUnitLevel)
         .order_by(InformationBankUnitLevel.sort_order, InformationBankUnitLevel.created_at, InformationBankUnitLevel.key)
         .all()
     )
-    return [{"key": r.key, "label": r.label} for r in rows if (r.key or "").strip()]
+    return [
+        {
+            "key": r.key,
+            "label": r.label,
+            "included_in_exercise": bool(getattr(r, "included_in_exercise", False)),
+        }
+        for r in rows
+        if (r.key or "").strip()
+    ]
+
+
+def _information_bank_gate_ok() -> bool:
+    return information_bank_gate_ok(session)
+
+
+def _verify_system_admin_password(db, password: str) -> bool:
+    """كلمة مرور أي حساب نشط بدور إدارة النظام."""
+    pwd = (password or "").strip()
+    if not pwd:
+        return False
+    admins = (
+        db.query(User)
+        .filter(User.role_key == RoleKey.SYSTEM_ADMIN.value, User.is_active.is_(True))
+        .all()
+    )
+    for adm in admins:
+        if verify_password(pwd, adm.password_hash):
+            return True
+    return False
+
+
+def _require_information_bank_gate():
+    """إعادة توجيه لبوابة كلمة مرور إدارة النظام إن لم تُفتح الجلسة."""
+    if _information_bank_gate_ok():
+        return None
+    nxt = (request.full_path or request.path or "/admin/information-bank").strip()
+    return redirect(url_for("views.admin_information_bank_gate", next=nxt))
+
+
+def _included_unit_keys_from_form() -> set[str]:
+    raw = request.form.getlist("included_unit_keys")
+    return {(x or "").strip() for x in raw if (x or "").strip()}
+
+
+def _included_phase_keys_from_form() -> set[str]:
+    raw = request.form.getlist("included_phase_keys")
+    return {(x or "").strip() for x in raw if (x or "").strip()}
+
+
+def _ibank_included_save_http_response(*, tab: str, ok_msg: str = "", err_msg: str = ""):
+    """حفظ التحديدات دون إعادة تحميل كاملة عند طلب AJAX من واجهة بنك المعلومات."""
+    if is_ibank_included_save_request():
+        if err_msg:
+            return jsonify({"ok": False, "error": err_msg}), 400
+        return jsonify({"ok": True, "message": ok_msg})
+    if err_msg:
+        return redirect(
+            url_for("views.admin_information_bank", tab=tab, err=err_msg)
+        )
+    return redirect(url_for("views.admin_information_bank", tab=tab, ok=ok_msg))
+
+
+def _ibank_included_save_auth_or_response(tab: str):
+    """تحقق الجلسة والصلاحية؛ يُرجع استجابة JSON أو إعادة توجيه عند فشل حفظ AJAX."""
+    user = get_current_user_optional()
+    if not user:
+        if is_ibank_included_save_request():
+            return jsonify({"ok": False, "error": "يجب تسجيل الدخول أولاً."}), 401
+        return redirect("/login?next=/admin/information-bank")
+    if not can_manage_information_bank(user):
+        if is_ibank_included_save_request():
+            return jsonify({"ok": False, "error": "ليس لديك صلاحية تعديل بنك المعلومات."}), 403
+        abort(403)
+    return None
 
 
 def _information_bank_training_phase_label(db, key: str | None) -> str:
@@ -11295,6 +12509,134 @@ def _is_valid_information_bank_unit(db, key: str | None) -> bool:
 
 def _custom_catalog_key(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
+
+
+@bp.route("/admin/information-bank/exit", methods=["GET"])
+def admin_information_bank_exit():
+    """إنهاء جلسة بنك المعلومات والخروج دون طلب كلمة مرور."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login")
+    clear_information_bank_gate(session)
+    dest = (request.args.get("next") or "/dashboard").strip()
+    if not dest.startswith("/") or dest.startswith("//"):
+        dest = "/dashboard"
+    if is_information_bank_path(dest):
+        dest = "/dashboard"
+    return redirect(dest)
+
+
+@bp.route("/admin/information-bank/gate", methods=["GET", "POST"])
+def admin_information_bank_gate():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/admin/information-bank/gate")
+    if not can_view_information_bank(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    nxt = (request.args.get("next") or request.form.get("next") or "/admin/information-bank").strip()
+    if not nxt.startswith("/"):
+        nxt = "/admin/information-bank"
+    err = ""
+    if request.method == "POST":
+        pwd = (request.form.get("password") or "").strip()
+        if _verify_system_admin_password(db, pwd):
+            session[INFO_BANK_GATE_SESSION_KEY] = True
+            session.modified = True
+            return redirect(nxt)
+        err = "كلمة المرور غير صحيحة. أدخل كلمة مرور حساب إدارة النظام."
+    if _information_bank_gate_ok():
+        return redirect(nxt)
+    return render_template(
+        "admin_information_bank_gate.html",
+        **_ctx(user, next_url=nxt, gate_error=err),
+    )
+
+
+@bp.route("/admin/information-bank/phases/included", methods=["POST"])
+def admin_information_bank_phases_included_save():
+    auth_resp = _ibank_included_save_auth_or_response("phases")
+    if auth_resp is not None:
+        return auth_resp
+    from flask import g
+
+    db = g.db
+    try:
+        _ensure_information_bank_catalog_rows(db)
+        new_keys = _included_phase_keys_from_form()
+        rows = db.query(InformationBankTrainingPhase).all()
+        prev_keys = {
+            r.key for r in rows if bool(getattr(r, "included_in_exercise", False))
+        }
+        removed = prev_keys - new_keys
+        if removed:
+            uncheck_pwd = (request.form.get("uncheck_password") or "").strip()
+            if not _verify_system_admin_password(db, uncheck_pwd):
+                return _ibank_included_save_http_response(
+                    tab="phases",
+                    err_msg="إلغاء الإدراج في التمرين يتطلب كلمة مرور إدارة النظام الصحيحة.",
+                )
+        for row in rows:
+            row.included_in_exercise = (row.key or "").strip() in new_keys
+        db.commit()
+        from app.planning_catalog_sync import sync_planning_catalogs_from_db
+
+        sync_planning_catalogs_from_db(db)
+        return _ibank_included_save_http_response(
+            tab="phases",
+            ok_msg="تم حفظ تحديدات وإلغاءات مراحل التمرين — تُطبَّق على قوائم التخطيط والمحكمين.",
+        )
+    except Exception:
+        db.rollback()
+        logging.getLogger(__name__).exception("phases included save failed")
+        return _ibank_included_save_http_response(
+            tab="phases",
+            err_msg="حدث خطأ أثناء الحفظ. أعد المحاولة.",
+        )
+
+
+@bp.route("/admin/information-bank/units/included", methods=["POST"])
+def admin_information_bank_units_included_save():
+    auth_resp = _ibank_included_save_auth_or_response("units")
+    if auth_resp is not None:
+        return auth_resp
+    from flask import g
+
+    db = g.db
+    try:
+        _ensure_information_bank_catalog_rows(db)
+        new_keys = _included_unit_keys_from_form()
+        rows = db.query(InformationBankUnitLevel).all()
+        prev_keys = {
+            r.key for r in rows if bool(getattr(r, "included_in_exercise", False))
+        }
+        removed = prev_keys - new_keys
+        if removed:
+            uncheck_pwd = (request.form.get("uncheck_password") or "").strip()
+            if not _verify_system_admin_password(db, uncheck_pwd):
+                return _ibank_included_save_http_response(
+                    tab="units",
+                    err_msg="إلغاء الإدراج في التمرين يتطلب كلمة مرور إدارة النظام الصحيحة.",
+                )
+        for row in rows:
+            row.included_in_exercise = (row.key or "").strip() in new_keys
+        db.commit()
+        from app.planning_catalog_sync import sync_planning_catalogs_from_db
+
+        sync_planning_catalogs_from_db(db)
+        return _ibank_included_save_http_response(
+            tab="units",
+            ok_msg="تم حفظ تحديدات وإلغاءات مستويات الوحدات — تُطبَّق على قوائم التخطيط والمحكمين.",
+        )
+    except Exception:
+        db.rollback()
+        logging.getLogger(__name__).exception("units included save failed")
+        return _ibank_included_save_http_response(
+            tab="units",
+            err_msg="حدث خطأ أثناء الحفظ. أعد المحاولة.",
+        )
 
 
 @bp.route("/admin/information-bank", methods=["GET"])
@@ -11611,6 +12953,12 @@ def admin_information_bank_tree_delete(node_id: int):
     tab = kind_tab(row.kind)
     delete_node(db, row)
     db.commit()
+    if (
+        request.accept_mimetypes.best_match(["application/json", "text/html"])
+        == "application/json"
+        or (request.headers.get("X-Requested-With") or "").strip() == "XMLHttpRequest"
+    ):
+        return jsonify(ok=True, node_id=int(node_id), tab=tab)
     return redirect(url_for("views.admin_information_bank", tab=tab, ok="تم الحذف."))
 
 
@@ -11629,12 +12977,17 @@ def admin_information_bank_tree_move():
         return jsonify(ok=False, error="نوع المرفقات غير صالح."), 400
     try:
         nid = int(data.get("node_id"))
-        pid = int(data.get("parent_id"))
     except (TypeError, ValueError):
         return jsonify(ok=False, error="بيانات غير صالحة."), 400
+    parent_raw = data.get("parent_id")
+    try:
+        pid = int(parent_raw) if parent_raw is not None and parent_raw != "" else 0
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="بيانات غير صالحة."), 400
+    parent_id = None if pid < 1 else pid
     db = g.db
     try:
-        move_tree_node(db, kind=kind, node_id=nid, parent_id=pid)
+        move_tree_node(db, kind=kind, node_id=nid, parent_id=parent_id)
         db.commit()
     except ValueError as exc:
         db.rollback()
@@ -12108,7 +13461,11 @@ def admin_users():
             password_hash=hash_password(temp_pwd),
         )
         db.add(u)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            return redirect("/admin/users?err=duplicate_username")
         # ربط المحكم بمتدرب (اختياري) ضمن التمرين الحالي
         if rk == RoleKey.JUDGE.value:
             ex = _admin_current_workspace_exercise(db, user)
@@ -12162,6 +13519,10 @@ def admin_users():
                     "label": f"{(tr.full_name or '').strip() or 'متدرب'} — {(tr.military_number or '').strip() or '—'} — {label_for_unit_level_key(uk) or uk or '—'}",
                 }
             )
+    err_key = (request.args.get("err") or "").strip()
+    user_errors = {
+        "duplicate_username": "اسم المستخدم مستخدم مسبقاً. اختر اسماً آخر.",
+    }
     return render_template(
         "admin_users.html",
         **_ctx(
@@ -12171,6 +13532,7 @@ def admin_users():
             role_choices=role_choices,
             has_exercise=ex is not None,
             trainee_choices=trainee_choices,
+            user_error=user_errors.get(err_key, ""),
         ),
     )
 

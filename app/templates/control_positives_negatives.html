@@ -83,8 +83,10 @@
   }
 </style>
 <div class="page-header">
-  <h1><i class="fa-solid fa-star fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
-  {% include 'partials/control_hub_back.html' %}
+  <h1><i class="fa-solid {{ section_icon | default('fa-star') }} fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+  <div class="page-header__nav">
+    {% include 'partials/control_hub_back.html' %}
+  </div>
 </div>
 
 {% if not has_exercise %}

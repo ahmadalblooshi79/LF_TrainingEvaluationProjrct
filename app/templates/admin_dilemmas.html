@@ -1,17 +1,23 @@
 {% extends "base.html" %}
 {% block title %}قوائم المعاضل — مساحة التخطيط{% endblock %}
 {% block content %}
-<p class="mt-tight catalog-tools-back" style="margin-bottom:0.65rem;">
-  <a class="btn btn-ghost" href="{{ url_for('views.planner_hub') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> مساحة التخطيط</a>
-</p>
 <div class="page-header">
   <h1><i class="fa-solid fa-triangle-exclamation fa-icon-title" aria-hidden="true"></i> قوائم المعاضل</h1>
+  <div class="page-header__nav">
+    {% include 'partials/subpage_close.html' %}
+  </div>
 </div>
 {% if error %}
 <p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ error }}</p>
 {% endif %}
 {% if ok_msg %}
 <p class="form-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
+{% endif %}
+{% if catalog_empty %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا توجد مستويات وحدة في كتالوج التخطيط. بنك المعلومات يستخدم كتالوجاً منفصلاً ولم يُمس.</p>
+{% endif %}
+{% if phases_catalog_empty %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا توجد مراحل تمرين في كتالوج التخطيط. بنك المعلومات يستخدم كتالوج مراحل منفصلاً ولم يُمس.</p>
 {% endif %}
 
 <div class="dilemmas-page">
@@ -73,7 +79,8 @@
       <form method="post" action="{{ url_for('views.admin_dilemmas', unit_key=selected_unit_key) }}" enctype="multipart/form-data" class="dilemmas-upload-form">
         <div class="form-group">
           <label for="upload-phase-dilemmas"><i class="fa-solid fa-timeline fa-icon-label" aria-hidden="true"></i> مرحلة التمرين (للملفات الجديدة)</label>
-          <select id="upload-phase-dilemmas" name="exercise_phase" class="unit-level-select" aria-label="مرحلة التمرين للملفات المضافة">
+          <select id="upload-phase-dilemmas" name="exercise_phase" class="unit-level-select" aria-label="مرحلة التمرين للملفات المضافة" {% if phases_catalog_empty %}disabled{% endif %}>
+            <option value="">— اختر مرحلة التمرين —</option>
             {% for pk, pl in exercise_phase_options %}
               <option value="{{ pk }}" {% if pk == upload_phase_default %}selected{% endif %}>{{ pl }}</option>
             {% endfor %}
@@ -81,7 +88,8 @@
         </div>
         <div class="form-group">
           <label for="unit-level-select-dilemmas"><i class="fa-solid fa-layer-group fa-icon-label" aria-hidden="true"></i> مستوى الوحدة</label>
-          <select id="unit-level-select-dilemmas" class="unit-level-select">
+          <select id="unit-level-select-dilemmas" class="unit-level-select" {% if catalog_empty %}disabled{% endif %}>
+            <option value="">— اختر مستوى الوحدة —</option>
             {% for u in unit_levels %}
               <option value="{{ u.key }}" {% if u.key == selected_unit_key %}selected{% endif %}>{{ u.label }}</option>
             {% endfor %}

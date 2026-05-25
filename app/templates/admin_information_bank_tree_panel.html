@@ -35,10 +35,10 @@
       <ul class="ibank-tree-root js-ibank-tree" role="tree" aria-label="{{ tree_title }}">
         {% macro render_nodes(nodes, depth=0) %}
           {% for n in nodes %}
-          <li class="ibank-tree-node{% if n.is_folder %} ibank-tree-node--folder{% else %} ibank-tree-node--file{% endif %}{% if n.is_system %} ibank-tree-node--system{% endif %}{% if n.children %} ibank-tree-has-children{% endif %}" role="treeitem" aria-expanded="true" data-node-id="{{ n.id }}" data-is-folder="{{ '1' if n.is_folder else '0' }}"{% if information_bank_can_manage %} draggable="true"{% endif %}>
+          <li class="ibank-tree-node{% if n.is_folder %} ibank-tree-node--folder{% else %} ibank-tree-node--file{% endif %}{% if n.is_system %} ibank-tree-node--system{% endif %}{% if n.children %} ibank-tree-has-children{% endif %}" role="treeitem"{% if n.children %} aria-expanded="false"{% endif %} data-node-id="{{ n.id }}" data-is-folder="{{ '1' if n.is_folder else '0' }}"{% if information_bank_can_manage %} draggable="true"{% endif %}>
             <div class="ibank-tree-row" style="--ibank-depth: {{ depth }}">
               {% if n.is_folder %}
-              <button type="button" class="ibank-tree-toggle" aria-label="طي أو توسيع"><i class="fa-solid fa-caret-down" aria-hidden="true"></i></button>
+              <button type="button" class="ibank-tree-toggle" aria-label="طي أو توسيع"><i class="fa-solid fa-caret-left" aria-hidden="true"></i></button>
               <span class="ibank-tree-icon"><i class="fa-solid fa-folder" aria-hidden="true"></i></span>
               {% else %}
               <span class="ibank-tree-toggle-spacer"></span>
@@ -49,7 +49,7 @@
               <a class="ibank-tree-open" href="{{ url_for('views.admin_information_bank_tree_file', node_id=n.id) }}" target="_blank" rel="noopener">فتح</a>
               {% endif %}
               {% if information_bank_can_manage %}
-              <form method="post" action="{{ url_for('views.admin_information_bank_tree_delete', node_id=n.id) }}" class="ibank-tree-delete-form js-ibank-tree-delete-form" onsubmit="return confirm('حذف هذا العنصر{% if n.is_folder %} وجميع محتوياته{% endif %}؟');">
+              <form method="post" action="{{ url_for('views.admin_information_bank_tree_delete', node_id=n.id) }}" class="ibank-tree-delete-form js-ibank-tree-delete-form" data-confirm-msg="حذف هذا العنصر{% if n.is_folder %} وجميع محتوياته{% endif %}؟">
                 <button type="submit" class="btn btn-ghost btn-sm-compact" title="حذف"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
               </form>
               {% endif %}
@@ -58,7 +58,7 @@
               {% endif %}
             </div>
             {% if n.children %}
-            <ul class="ibank-tree-children" role="group">
+            <ul class="ibank-tree-children" role="group" hidden>
               {{ render_nodes(n.children, depth + 1) }}
             </ul>
             {% endif %}

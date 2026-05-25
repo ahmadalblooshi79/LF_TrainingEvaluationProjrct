@@ -4,10 +4,12 @@
 <div class="page-header">
   <h1><i class="fa-solid fa-comments fa-icon-title" aria-hidden="true"></i> إدارة غرف المحادثة</h1>
   <p class="muted">إنشاء غرف مرتبطة بالتمرين الحالي، وإضافة أو إزالة الأعضاء.</p>
-  <p class="mt-tight">
-    <a class="btn btn-ghost" href="/dashboard"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> الصفحة الرئيسية</a>
+  <div class="page-header__nav">
+    {% include 'partials/subpage_close.html' %}
+  </div>
+  <div class="page-header__tools">
     <a class="btn btn-ghost" href="{{ url_for('views.chat_rooms_list') }}"><i class="fa-solid fa-comments" aria-hidden="true"></i> فتح غرف المحادثة</a>
-  </p>
+  </div>
 </div>
 
 {% if error %}

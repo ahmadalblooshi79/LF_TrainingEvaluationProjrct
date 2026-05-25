@@ -1,0 +1,602 @@
+{
+  "schema_version": 3,
+  "exported_at": "2026-05-22T21:16:46.208222",
+  "exercise": {
+    "id": 1,
+    "code": "EX-F8511D3A",
+    "title": "الإتحاد العربي",
+    "description": "نوع التمرين: تمرين لعبات الحرب\nمستوى التمرين: مجموعة لواء\nالمهمة: عملية تعرضيه\nاسم الوحدة المتدربة: مجموعة لواء الإتحاد\nمكان التمرين: منطقة التدريب الشمالية",
+    "exercise_type": "تمرين لعبات الحرب",
+    "exercise_level": "مجموعة لواء",
+    "mission_label": "عملية تعرضيه",
+    "trained_unit": "مجموعة لواء الإتحاد",
+    "location_label": "منطقة التدريب الشمالية",
+    "status": "draft",
+    "owner_id": 1,
+    "planned_start": "2026-05-21T16:36:00",
+    "planned_end": "2026-05-21T16:36:00",
+    "control_approved": false,
+    "created_at": "2026-05-21T12:49:52.856415",
+    "updated_at": "2026-05-21T12:49:52.856415"
+  },
+  "objectives": [
+    {
+      "id": 1,
+      "sort_order": 0,
+      "text": "تقييم القادة وهيئة ركن مجموعة اللواء المتدرب باستخدام نظام مشبهات لعبات الحرب (كورا) من خلال تنفيذ قيادة المهمة في العمليات الدفاعية وتنفيذ واجبات مختارة من قائمة الواجبات الأساسية للمهمة.",
+      "created_at": "2026-05-21T12:49:55.589884"
+    },
+    {
+      "id": 2,
+      "sort_order": 1,
+      "text": "تنفيذ عملية صنع القرار العسكري لتجهيز خطط وأوامر العمليات.",
+      "created_at": "2026-05-21T12:49:55.589884"
+    },
+    {
+      "id": 3,
+      "sort_order": 2,
+      "text": "تقييم مركز قيادة مجموعة اللواء والكتائب مع التركيز على إدارة المعلومات، إعداد تقديرات الموقف، كيفية إسناد هيئة الركن لعملية صنع القرار، عمل إيجازات تبديل المناوبات، إيجازات تحديث معلومات القائد ورفع التقارير للمستوى الأعلى.",
+      "created_at": "2026-05-21T12:49:55.589884"
+    },
+    {
+      "id": 4,
+      "sort_order": 3,
+      "text": "الإشراف على تخطيط نيران الإسناد المشتركة ونيران مدفعية الاسناد المباشر.",
+      "created_at": "2026-05-21T12:49:55.589884"
+    },
+    {
+      "id": 5,
+      "sort_order": 4,
+      "text": "التأكد من إلمام الوحدة المتدربة بالعقائد والإجراءات والأساليب التعبوية للقوات البرية.",
+      "created_at": "2026-05-21T12:49:55.589884"
+    },
+    {
+      "id": 6,
+      "sort_order": 5,
+      "text": "التقييم على استخدام نظام الاتصالات التعبوية (C4I ).",
+      "created_at": "2026-05-21T12:49:55.589884"
+    }
+  ],
+  "trainee_unit_roster": [
+    {
+      "sort_order": 0,
+      "military_number": "1111",
+      "rank_ar": "مدني/5",
+      "full_name": "خليفة عبدالله مبارك البلوشي",
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "position_ar": "قيادة مجموعة اللواء",
+      "created_at": "2026-05-22T21:16:38.802862"
+    },
+    {
+      "sort_order": 1,
+      "military_number": "2222",
+      "rank_ar": "مدني/6",
+      "full_name": "راشد سيف راشد الجابري",
+      "unit_level_key": "ul_mech2_bn_cmd",
+      "position_ar": "قيادة كتيبة المشاة الآلية/2",
+      "created_at": "2026-05-22T21:16:38.802862"
+    },
+    {
+      "sort_order": 2,
+      "military_number": "3333",
+      "rank_ar": "مدني/7",
+      "full_name": "زايد أحمد عبدالله البلوشي",
+      "unit_level_key": "ul_mech2_bn_c1",
+      "position_ar": "كتيبة المشاة الآلية/2- السرية/1",
+      "created_at": "2026-05-22T21:16:38.802862"
+    },
+    {
+      "sort_order": 3,
+      "military_number": "4444",
+      "rank_ar": "مدني/8",
+      "full_name": "حمدان خالد حمدان السويدي",
+      "unit_level_key": "ul_brigade_grp_staff",
+      "position_ar": "هيئة ركن مجموعة اللواء",
+      "created_at": "2026-05-22T21:16:38.802862"
+    }
+  ],
+  "judge_unit_roster": [
+    {
+      "sort_order": 0,
+      "military_number": "123456",
+      "rank_ar": "مدني/1",
+      "full_name": "أحمد عبدالله مبارك البلوشي",
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "position_ar": "قيادة مجموعة اللواء",
+      "created_at": "2026-05-22T21:16:46.076892"
+    },
+    {
+      "sort_order": 1,
+      "military_number": "654321",
+      "rank_ar": "مدني/2",
+      "full_name": "عارف عيضة الجابري",
+      "unit_level_key": "ul_mech2_bn_cmd",
+      "position_ar": "قيادة كتيبة المشاة الآلية/2",
+      "created_at": "2026-05-22T21:16:46.076892"
+    },
+    {
+      "sort_order": 2,
+      "military_number": "456789",
+      "rank_ar": "مدني/3",
+      "full_name": "عبدالله أحمد مبارك آل علي",
+      "unit_level_key": "ul_mech2_bn_c1",
+      "position_ar": "كتيبة المشاة الآلية/2- السرية/1",
+      "created_at": "2026-05-22T21:16:46.076892"
+    },
+    {
+      "sort_order": 3,
+      "military_number": "987654",
+      "rank_ar": "مدني/3",
+      "full_name": "سعيد سالم سعيد الحنطوبي",
+      "unit_level_key": "ul_brigade_grp_staff",
+      "position_ar": "هيئة ركن مجموعة اللواء",
+      "created_at": "2026-05-22T21:16:46.076892"
+    }
+  ],
+  "event_flows": [],
+  "problems": [],
+  "checklists": [],
+  "evaluation_notes": [],
+  "exercise_ref_links": [],
+  "dilemma_items": [],
+  "evaluation_list_items": [
+    {
+      "id": 1,
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "unit_level_label": "قيادة مجموعة اللواء",
+      "exercise_phase": "preparation",
+      "sort_order": 0,
+      "text": "01 تقييم رفع الحالة.xlsx",
+      "pdf_relpath": "ul_brigade_grp_cmd/01d9cbf362394d2a9589bd29dd67974d.xlsx",
+      "created_at": "2026-05-22T20:09:42.369192"
+    },
+    {
+      "id": 2,
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "unit_level_label": "قيادة مجموعة اللواء",
+      "exercise_phase": "opening",
+      "sort_order": 1,
+      "text": "1. تقييم السرية في تجهيز الطاولة الرملية ووصف الأرض.xlsx",
+      "pdf_relpath": "ul_brigade_grp_cmd/50d6fc5927764b00a683c274de5c6245.xlsx",
+      "created_at": "2026-05-22T20:09:42.369192"
+    },
+    {
+      "id": 3,
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "unit_level_label": "قيادة مجموعة اللواء",
+      "exercise_phase": "battle_exposure",
+      "sort_order": 2,
+      "text": "6. تقييم تجارب مجموعة اللواء.xlsx",
+      "pdf_relpath": "ul_brigade_grp_cmd/1fa29b246a5f40a4b8fcb786c8ae213a.xlsx",
+      "created_at": "2026-05-22T20:09:42.369192"
+    },
+    {
+      "id": 4,
+      "unit_level_key": "ul_brigade_grp_staff",
+      "unit_level_label": "هيئة ركن مجموعة اللواء",
+      "exercise_phase": "reorganization",
+      "sort_order": 0,
+      "text": "2. تقييم أمر عمليات قائد السرية - فريق القتال 1.xlsx",
+      "pdf_relpath": "ul_brigade_grp_staff/22aac73361ee4d4590eb2fe3a1af7f26.xlsx",
+      "created_at": "2026-05-22T20:27:20.475103"
+    }
+  ],
+  "timeline_items": [],
+  "battle_unit_personnel": [],
+  "planner_flow_bundles": [
+    {
+      "id": 1,
+      "exercise_phase": "preparation",
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "unit_level_label": "قيادة مجموعة اللواء",
+      "event_flow_title": "مجرى اليوم الاول_1.pdf",
+      "event_flow_file_relpath": "1/event_flow_1.pdf",
+      "dilemma_count": 3,
+      "linked_at": "2026-05-22T20:57:31.560846",
+      "created_at": "2026-05-22T12:42:19.482071",
+      "updated_at": "2026-05-22T20:57:31.560846",
+      "event_flow_items": [
+        {
+          "id": 1,
+          "slot_index": 1,
+          "title": "مجرى اليوم الاول_1.pdf",
+          "file_relpath": "1/event_flow_1.pdf",
+          "created_at": "2026-05-22T20:57:18.088184"
+        }
+      ],
+      "action_eval_slots": [
+        {
+          "id": 1,
+          "slot_index": 1,
+          "event_flow_item_id": 1,
+          "title": "05 تقييم التحرك واحتلال مناطق الانتشار.xlsx",
+          "file_relpath": "1/action_1.xlsx",
+          "created_at": "2026-05-22T20:57:28.746765",
+          "eval_saved": {
+            "id": 1,
+            "evaluation_item_id": null,
+            "bundle_action_eval_id": 1,
+            "exercise_id": 1,
+            "exercise_phase": "preparation",
+            "unit_level_key": "ul_brigade_grp_cmd",
+            "payload_json": "{\"rows\":[{\"row_kind\":\"section\",\"element\":\"إجراءات 1\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"1\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2\",\"max_val\":\"6\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"3\",\"max_val\":\"6\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"4\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"إجراءات 2\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"1\",\"max_val\":\"8\",\"acquired\":\"7\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2\",\"max_val\":\"8\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"3\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"4\",\"max_val\":\"6\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"إجراءات 3\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"1\",\"max_val\":\"6\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2\",\"max_val\":\"6\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"3\",\"max_val\":\"6\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"4\",\"max_val\":\"6\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"5\",\"max_val\":\"6\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"تجهيز وإعداد 4\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"1\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"3\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"4\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"5\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"6\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"7\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"8\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"9\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"10\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"إجراءات الإسناد الإداري 5\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"1\",\"max_val\":\"6\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"3\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"4\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"}]}",
+            "total_pct": 66.66666666666666,
+            "grade_label": "متوسط",
+            "saved_by_id": 8,
+            "is_approved": true,
+            "approved_by_id": 8,
+            "approved_at": "2026-05-22T21:00:43.145603",
+            "reopened_for_judge": false,
+            "is_chief_approved": false,
+            "chief_approved_by_id": null,
+            "chief_approved_at": null,
+            "is_control_approved": false,
+            "control_approved_by_id": null,
+            "control_approved_at": null,
+            "created_at": "2026-05-22T21:00:40.551466",
+            "updated_at": "2026-05-22T21:00:43.145603"
+          }
+        },
+        {
+          "id": 2,
+          "slot_index": 2,
+          "event_flow_item_id": 1,
+          "title": "5. تقييم  الكتائب في التنقل التعبوي.xlsx",
+          "file_relpath": "1/action_2.xlsx",
+          "created_at": "2026-05-22T20:57:28.749819",
+          "eval_saved": {
+            "id": 2,
+            "evaluation_item_id": null,
+            "bundle_action_eval_id": 2,
+            "exercise_id": 1,
+            "exercise_phase": "preparation",
+            "unit_level_key": "ul_brigade_grp_cmd",
+            "payload_json": "{\"rows\":[{\"row_kind\":\"section\",\"element\":\"مرحلة التخطيط\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"1\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"2\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"3\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"4\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"5\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"6\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"7\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"8\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"9\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"أ.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(1)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(2)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(3)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(4)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(5)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"ب.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(1)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(2)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"جـ.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(1)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(2)\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(3)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"د.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(1)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(2)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(3)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(4)\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"10\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"11\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"12\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"13\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"مرحلة التحضير\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"1\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ز.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"3\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"مرحلة التنفيذ\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"1\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"3\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"4\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"5\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"6\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"7\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"8\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"9\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"10\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"11\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"12\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"13\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"14\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"15\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"16\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"}]}",
+            "total_pct": 78.63013698630137,
+            "grade_label": "جيد",
+            "saved_by_id": 8,
+            "is_approved": false,
+            "approved_by_id": null,
+            "approved_at": null,
+            "reopened_for_judge": false,
+            "is_chief_approved": false,
+            "chief_approved_by_id": null,
+            "chief_approved_at": null,
+            "is_control_approved": false,
+            "control_approved_by_id": null,
+            "control_approved_at": null,
+            "created_at": "2026-05-22T21:01:05.338470",
+            "updated_at": "2026-05-22T21:01:05.338470"
+          }
+        },
+        {
+          "id": 3,
+          "slot_index": 3,
+          "event_flow_item_id": 1,
+          "title": "06 تقييم التنقل الإداري.xlsx",
+          "file_relpath": "1/action_3.xlsx",
+          "created_at": "2026-05-22T20:57:28.751328",
+          "eval_saved": {
+            "id": 3,
+            "evaluation_item_id": null,
+            "bundle_action_eval_id": 3,
+            "exercise_id": 1,
+            "exercise_phase": "preparation",
+            "unit_level_key": "ul_brigade_grp_cmd",
+            "payload_json": "{\"rows\":[{\"row_kind\":\"section\",\"element\":\"1\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"8\",\"acquired\":\"7\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2\",\"max_val\":\"10\",\"acquired\":\"8\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"3\",\"max_val\":\"10\",\"acquired\":\"7\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"4\",\"max_val\":\"10\",\"acquired\":\"9\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"5\",\"max_val\":\"10\",\"acquired\":\"9\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"6\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"7\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"6\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"6\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"6\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"8\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"6\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"10\",\"acquired\":\"9\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"9\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"10\",\"acquired\":\"8\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"10\",\"acquired\":\"8\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"10\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"6\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"6\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"6\",\"acquired\":\"5\",\"notes\":\"\"}]}",
+            "total_pct": 84.66666666666667,
+            "grade_label": "جيد جدا",
+            "saved_by_id": 8,
+            "is_approved": true,
+            "approved_by_id": 8,
+            "approved_at": "2026-05-22T21:01:14.945314",
+            "reopened_for_judge": false,
+            "is_chief_approved": false,
+            "chief_approved_by_id": null,
+            "chief_approved_at": null,
+            "is_control_approved": false,
+            "control_approved_by_id": null,
+            "control_approved_at": null,
+            "created_at": "2026-05-22T21:01:14.245130",
+            "updated_at": "2026-05-22T21:01:14.945314"
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "exercise_phase": "preparation",
+      "unit_level_key": "ul_brigade_grp_staff",
+      "unit_level_label": "هيئة ركن مجموعة اللواء",
+      "event_flow_title": "",
+      "event_flow_file_relpath": "",
+      "dilemma_count": 0,
+      "linked_at": null,
+      "created_at": "2026-05-22T12:42:27.436025",
+      "updated_at": "2026-05-22T12:42:27.436025",
+      "event_flow_items": [],
+      "action_eval_slots": []
+    }
+  ],
+  "evaluation_list_saved_results": [
+    {
+      "id": 1,
+      "evaluation_item_id": 1,
+      "bundle_action_eval_id": null,
+      "exercise_id": 1,
+      "exercise_phase": "preparation",
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "payload_json": "{\"rows\":[{\"row_kind\":\"score\",\"element\":\"1\",\"max_val\":\"10\",\"acquired\":\"10\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"2\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"8\",\"acquired\":\"8\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"10\",\"acquired\":\"10\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"10\",\"acquired\":\"10\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ز.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ح.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ط.\",\"max_val\":\"6\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ي.\",\"max_val\":\"8\",\"acquired\":\"8\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ك.\",\"max_val\":\"6\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ل.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"3\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ز.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"4\",\"max_val\":\"6\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"5\",\"max_val\":\"6\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"6\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"7\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"6\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"6\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"6\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"6\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"6\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"6\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ز.\",\"max_val\":\"6\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ح.\",\"max_val\":\"6\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ط.\",\"max_val\":\"6\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ي.\",\"max_val\":\"6\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ك.\",\"max_val\":\"6\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ل.\",\"max_val\":\"6\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"م.\",\"max_val\":\"10\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"8\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"10\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"10\",\"acquired\":\"8\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"8\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"8\",\"acquired\":\"8\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"8\",\"acquired\":\"8\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"8\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"9\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"10\",\"acquired\":\"8\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"8\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"8\",\"acquired\":\"7\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"8\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"10\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"5\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ز.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ح.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ط.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ي.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ك.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ل.\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"م.\",\"max_val\":\"5\",\"acquired\":\"0\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ن.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"11\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ز.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ح.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ط.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ي.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ك.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"12\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"6\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"13\",\"max_val\":\"8\",\"acquired\":\"8\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"14\",\"max_val\":\"8\",\"acquired\":\"7\",\"notes\":\"\"}]}",
+      "total_pct": 78.08510638297872,
+      "grade_label": "جيد",
+      "saved_by_id": 1,
+      "is_approved": false,
+      "approved_by_id": null,
+      "approved_at": null,
+      "reopened_for_judge": false,
+      "is_chief_approved": false,
+      "chief_approved_by_id": null,
+      "chief_approved_at": null,
+      "is_control_approved": false,
+      "control_approved_by_id": null,
+      "control_approved_at": null,
+      "created_at": "2026-05-22T20:25:53.661079",
+      "updated_at": "2026-05-22T20:25:53.661079"
+    },
+    {
+      "id": 2,
+      "evaluation_item_id": 2,
+      "bundle_action_eval_id": null,
+      "exercise_id": 1,
+      "exercise_phase": "opening",
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "payload_json": "{\"rows\":[{\"row_kind\":\"section\",\"element\":\"1\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ز.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ح.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ط.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ي.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ك.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ل.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"م.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"2\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"10\",\"acquired\":\"10\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ز.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ح.\",\"max_val\":\"10\",\"acquired\":\"10\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"3\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"10\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"10\",\"acquired\":\"9\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"10\",\"acquired\":\"8\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"10\",\"acquired\":\"7\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"4\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ز.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ح.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ط.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ي.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"ك.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(1)\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(2)\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(3)\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(4)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(5)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(6)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(7)\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(8)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(9)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(10)\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(11)\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(12)\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"5\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"0\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"0\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"6\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"}]}",
+      "total_pct": 69.33333333333334,
+      "grade_label": "متوسط",
+      "saved_by_id": 1,
+      "is_approved": false,
+      "approved_by_id": null,
+      "approved_at": null,
+      "reopened_for_judge": false,
+      "is_chief_approved": false,
+      "chief_approved_by_id": null,
+      "chief_approved_at": null,
+      "is_control_approved": false,
+      "control_approved_by_id": null,
+      "control_approved_at": null,
+      "created_at": "2026-05-22T20:26:02.160091",
+      "updated_at": "2026-05-22T20:26:02.160091"
+    },
+    {
+      "id": 3,
+      "evaluation_item_id": 3,
+      "bundle_action_eval_id": null,
+      "exercise_id": 1,
+      "exercise_phase": "battle_exposure",
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "payload_json": "{\"rows\":[{\"row_kind\":\"section\",\"element\":\"1\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"ب.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(1)\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(2)\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(3)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(4)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(5)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"د.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(1)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(2)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(3)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"هـ.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(1)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(2)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(3)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"2\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ز.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ح.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ط.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ي.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ك.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ل.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"3\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"أ.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(1)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(2)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(3)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(4)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"ب.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(1)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(2)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(3)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(4)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ز.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ح.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"}]}",
+      "total_pct": 69.5,
+      "grade_label": "متوسط",
+      "saved_by_id": 1,
+      "is_approved": true,
+      "approved_by_id": 1,
+      "approved_at": "2026-05-22T20:26:11.260843",
+      "reopened_for_judge": false,
+      "is_chief_approved": false,
+      "chief_approved_by_id": null,
+      "chief_approved_at": null,
+      "is_control_approved": false,
+      "control_approved_by_id": null,
+      "control_approved_at": null,
+      "created_at": "2026-05-22T20:26:09.618425",
+      "updated_at": "2026-05-22T20:26:11.262350"
+    },
+    {
+      "id": 4,
+      "evaluation_item_id": 4,
+      "bundle_action_eval_id": null,
+      "exercise_id": 1,
+      "exercise_phase": "reorganization",
+      "unit_level_key": "ul_brigade_grp_staff",
+      "payload_json": "{\"rows\":[{\"row_kind\":\"score\",\"element\":\"1\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"3\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"4\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"5\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"15\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ز.\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ح.\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ط.\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ي.\",\"max_val\":\"10\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"6\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"7\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"8\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"أ.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(1)\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(2)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(3)\",\"max_val\":\"5\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"ب.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(1)\",\"max_val\":\"10\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(2)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(3)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(4)\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(5)\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(6)\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"جـ.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"9\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"و.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(1)\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(2)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(3)\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ز.\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"10\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"(1)\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"( أ )\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(ب)\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(جـ)\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"( د )\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(2)\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(3)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"د.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(1)\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(2)\",\"max_val\":\"5\",\"acquired\":\"2\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(3)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(4)\",\"max_val\":\"5\",\"acquired\":\"1\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(5)\",\"max_val\":\"5\",\"acquired\":\"3\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"11\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"أ.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(1)\",\"max_val\":\"5\",\"acquired\":\"4.25\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(2)\",\"max_val\":\"5\",\"acquired\":\"4.25\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(3)\",\"max_val\":\"5\",\"acquired\":\"4.25\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"ب.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(1)\",\"max_val\":\"5\",\"acquired\":\"4.25\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(2)\",\"max_val\":\"5\",\"acquired\":\"4.25\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"جـ.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(1)\",\"max_val\":\"5\",\"acquired\":\"4.25\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"(2)\",\"max_val\":\"5\",\"acquired\":\"4.25\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"12\",\"max_val\":\"5\",\"acquired\":\"4.25\",\"notes\":\"\"}]}",
+      "total_pct": 45.83333333333333,
+      "grade_label": "راسب",
+      "saved_by_id": 1,
+      "is_approved": true,
+      "approved_by_id": 1,
+      "approved_at": "2026-05-22T21:11:44.833624",
+      "reopened_for_judge": false,
+      "is_chief_approved": false,
+      "chief_approved_by_id": null,
+      "chief_approved_at": null,
+      "is_control_approved": false,
+      "control_approved_by_id": null,
+      "control_approved_at": null,
+      "created_at": "2026-05-22T20:27:29.411066",
+      "updated_at": "2026-05-22T21:11:44.833624"
+    }
+  ],
+  "judge_trainee_assignments": [
+    {
+      "id": 85,
+      "judge_user_id": 8,
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "trainee_name": "خليفة عبدالله مبارك البلوشي",
+      "trainee_military_number": "1111",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-05-22T21:16:46.104932"
+    },
+    {
+      "id": 86,
+      "judge_user_id": 9,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-05-22T21:16:46.130811"
+    },
+    {
+      "id": 87,
+      "judge_user_id": 10,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-05-22T21:16:46.157370"
+    },
+    {
+      "id": 88,
+      "judge_user_id": 11,
+      "unit_level_key": "ul_brigade_grp_staff",
+      "trainee_name": "حمدان خالد حمدان السويدي",
+      "trainee_military_number": "4444",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-05-22T21:16:46.180291"
+    }
+  ],
+  "analyst_evaluation_criteria_units": [
+    {
+      "id": 1,
+      "sort_order": 0,
+      "label": "قيادة مجموعة اللواء",
+      "created_at": "2026-05-22T13:07:25.582222",
+      "updated_at": "2026-05-22T13:07:25.582222"
+    }
+  ],
+  "analyst_evaluation_criteria_phase_items": [],
+  "analyst_evaluation_criteria_results": [],
+  "judge_incomplete_task_status": [
+    {
+      "id": 1,
+      "judge_id": 1,
+      "unit_level_key": "",
+      "exercise_phase": "",
+      "pair_index": 0,
+      "dilemma_id": null,
+      "evaluation_item_id": null,
+      "status_key": "ontime",
+      "updated_at": "2026-05-22T09:39:07.901361"
+    }
+  ],
+  "evaluation_criterion_media": [],
+  "visual_documents": [],
+  "chat_rooms": [],
+  "exercise_notifications": [
+    {
+      "id": 1,
+      "user_id": 1,
+      "type": "document",
+      "title": "تم رفع قائمة تقييم جديدة",
+      "body": "تمت إضافة 3 ملفاً Excel لقوائم التقييم — قيادة مجموعة اللواء.",
+      "priority": "important",
+      "is_read": false,
+      "related_file": "",
+      "related_room_id": null,
+      "action_url": "/judge/evaluation-lists/ul_brigade_grp_cmd",
+      "created_at": "2026-05-22T12:44:12.747051"
+    },
+    {
+      "id": 2,
+      "user_id": 8,
+      "type": "document",
+      "title": "تم رفع قائمة تقييم جديدة",
+      "body": "تمت إضافة 3 ملفاً Excel لقوائم التقييم — قيادة مجموعة اللواء.",
+      "priority": "important",
+      "is_read": false,
+      "related_file": "",
+      "related_room_id": null,
+      "action_url": "/judge/evaluation-lists/ul_brigade_grp_cmd",
+      "created_at": "2026-05-22T19:53:25.933367"
+    },
+    {
+      "id": 3,
+      "user_id": 1,
+      "type": "document",
+      "title": "تم رفع قائمة تقييم جديدة",
+      "body": "تمت إضافة 3 ملفاً Excel لقوائم التقييم — قيادة مجموعة اللواء.",
+      "priority": "important",
+      "is_read": false,
+      "related_file": "",
+      "related_room_id": null,
+      "action_url": "/judge/evaluation-lists/ul_brigade_grp_cmd",
+      "created_at": "2026-05-22T19:53:25.933367"
+    },
+    {
+      "id": 4,
+      "user_id": 8,
+      "type": "document",
+      "title": "تم رفع قائمة تقييم جديدة",
+      "body": "تمت إضافة 3 ملفاً Excel لقوائم التقييم — قيادة مجموعة اللواء.",
+      "priority": "important",
+      "is_read": false,
+      "related_file": "",
+      "related_room_id": null,
+      "action_url": "/judge/evaluation-lists/ul_brigade_grp_cmd",
+      "created_at": "2026-05-22T20:09:42.379811"
+    },
+    {
+      "id": 5,
+      "user_id": 1,
+      "type": "document",
+      "title": "تم رفع قائمة تقييم جديدة",
+      "body": "تمت إضافة 3 ملفاً Excel لقوائم التقييم — قيادة مجموعة اللواء.",
+      "priority": "important",
+      "is_read": false,
+      "related_file": "",
+      "related_room_id": null,
+      "action_url": "/judge/evaluation-lists/ul_brigade_grp_cmd",
+      "created_at": "2026-05-22T20:09:42.379811"
+    },
+    {
+      "id": 6,
+      "user_id": 1,
+      "type": "document",
+      "title": "تم رفع قائمة تقييم جديدة",
+      "body": "تمت إضافة 1 ملفاً Excel لقوائم التقييم — هيئة ركن مجموعة اللواء.",
+      "priority": "important",
+      "is_read": false,
+      "related_file": "",
+      "related_room_id": null,
+      "action_url": "/judge/evaluation-lists/ul_brigade_grp_staff",
+      "created_at": "2026-05-22T20:27:20.487333"
+    }
+  ],
+  "archive_files": {
+    "bundle_dir": "الإتحاد العربي_files",
+    "entries": [
+      {
+        "bucket": "evaluation_list_xlsx",
+        "relpath": "ul_brigade_grp_cmd/01d9cbf362394d2a9589bd29dd67974d.xlsx"
+      },
+      {
+        "bucket": "evaluation_list_xlsx",
+        "relpath": "ul_brigade_grp_staff/22aac73361ee4d4590eb2fe3a1af7f26.xlsx"
+      },
+      {
+        "bucket": "evaluation_list_xlsx",
+        "relpath": "ul_brigade_grp_cmd/50d6fc5927764b00a683c274de5c6245.xlsx"
+      },
+      {
+        "bucket": "planner_flow_bundles",
+        "relpath": "1/action_3.xlsx"
+      },
+      {
+        "bucket": "planner_flow_bundles",
+        "relpath": "1/event_flow_1.pdf"
+      },
+      {
+        "bucket": "planner_flow_bundles",
+        "relpath": "1/action_1.xlsx"
+      },
+      {
+        "bucket": "evaluation_list_xlsx",
+        "relpath": "ul_brigade_grp_cmd/1fa29b246a5f40a4b8fcb786c8ae213a.xlsx"
+      },
+      {
+        "bucket": "planner_flow_bundles",
+        "relpath": "1/action_2.xlsx"
+      }
+    ],
+    "file_count": 8
+  }
+}

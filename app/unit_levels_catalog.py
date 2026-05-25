@@ -1,40 +1,23 @@
-"""مستويات الوحدة الموحدة — المعاضل، التقييم، قوائم الوحدة (متدربين/محكمين)."""
+"""مستويات الوحدة الموحدة — المعاضل، التقييم، قوائم الوحدة (متدربين/محكمين).
 
-UNIT_LEVELS: list[dict[str, str]] = [
-    {"key": "brigade_group", "label": "قيادة مجموعة اللواء"},
-    {"key": "brigade_group_staff", "label": "هيئة ركن مجموعة اللواء"},
-    {"key": "mech_infantry_bn", "label": "قيادة كتيبة المشاة الآلية/2"},
-    {"key": "mech_infantry_bn_2_c1", "label": "كتيبة المشاة الآلية/2- السرية/1"},
-    {"key": "mech_infantry_bn_2_c2", "label": "كتيبة المشاة الآلية/2 - السرية/2"},
-    {"key": "mech_infantry_bn_2_c3", "label": "كتيبة المشاة الآلية/2- السرية/3"},
-    {"key": "mech_infantry_bn_13", "label": "قيادة كتيبة المشاة الآلية/13"},
-    {"key": "mech_infantry_bn_3_c1", "label": "كتيبة المشاة الآلية/3 - السرية/1"},
-    {"key": "mech_infantry_bn_3_c2", "label": "كتيبة المشاة الآلية/3 - السرية/2"},
-    {"key": "mech_infantry_bn_3_c3", "label": "كتيبة المشاة الآلية/3 - السرية/3"},
-    {"key": "tank_bn", "label": "قيادة كتيبة الدبابات/14"},
-    {"key": "tank_bn_4_c1", "label": "كتيبة الدبابات/4 - السرية/1"},
-    {"key": "tank_bn_4_c2", "label": "كتيبة الدبابات/4 - السرية/2"},
-    {"key": "tank_bn_4_c3", "label": "كتيبة الدبابات/4 - السرية/3"},
-    {"key": "recon_co", "label": "سرية الاستطلاع"},
-    {"key": "anti_tank_co", "label": "سرية الـ م/د"},
-    {"key": "artillery_bn", "label": "قيادة كتيبة المدفعية"},
-    {"key": "artillery_bn_c1", "label": "قيادة كتيبة المدفعية - السرية/1"},
-    {"key": "artillery_bn_c2", "label": "قيادة كتيبة المدفعية - السرية/2"},
-    {"key": "artillery_bn_c3", "label": "قيادة كتيبة المدفعية - السرية/3"},
-    {"key": "mortar_co", "label": "سرية الهاون"},
-    {"key": "field_eng_co", "label": "سرية الهندسة"},
-    {"key": "signal_co", "label": "سرية الإشارة"},
-    {"key": "command_control", "label": "القيادة والسيطرة"},
-    {"key": "air_defense_co", "label": "سرية الدفاع الجوي"},
-    {"key": "chemical_def_co", "label": "سرية الدفاع الكيميائي"},
-    {"key": "admin_support_bn", "label": "كتيبة الإسناد الإداري"},
-    {"key": "medical_co", "label": "السرية الطبية"},
-    {"key": "maintenance_co", "label": "سرية الصيانة"},
-    {"key": "supply_transport_co", "label": "سرية التزويد والنقل"},
-    {"key": "military_police_platoon", "label": "فصيل الشرطة العسكرية"},
-    {"key": "electronic_warfare_co", "label": "سرية الحرب الإلكترونية"},
-    {"key": "nco", "label": "ضباط الصف"},
-]
+بنك المعلومات يستخدم ``INFO_BANK_UNIT_LEVELS`` في ``information_bank_catalog.py``.
+``UNIT_LEVELS`` هنا يُملأ تلقائياً من صفوف «مدرج في التمرين» عبر ``planning_catalog_sync``.
+"""
+
+UNIT_LEVELS: list[dict[str, str]] = []
+
+
+def default_unit_level_key() -> str:
+    """أول مفتاح في كتالوج التخطيط، أو سلسلة فارغة إن كان الكتالوج فارغاً."""
+    return UNIT_LEVELS[0]["key"] if UNIT_LEVELS else ""
+
+
+def unit_level_row(unit_key: str | None) -> dict[str, str] | None:
+    """صف الكتالوج لمفتاح معيّن، أو ``None`` إن كان المفتاح فارغاً."""
+    k = (unit_key or "").strip()
+    if not k:
+        return None
+    return next((x for x in UNIT_LEVELS if x["key"] == k), None)
 
 
 def normalize_unit_level_key(raw: str | None) -> str:

@@ -237,6 +237,25 @@ def ensure_information_bank_tree_nodes_table() -> None:
     return
 
 
+def ensure_information_bank_tree_suppressions_table() -> None:
+    """منع إعادة إنشاء مجلدات مرحلة/وحدة بعد حذفها يدوياً من الشجرة."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS information_bank_tree_suppressions (
+                    kind VARCHAR(32) NOT NULL,
+                    catalog_phase_key VARCHAR(64) NOT NULL DEFAULT '',
+                    catalog_unit_key VARCHAR(128) NOT NULL DEFAULT '',
+                    PRIMARY KEY (kind, catalog_phase_key, catalog_unit_key)
+                )
+                """
+            )
+        )
+
+
 def ensure_planner_bundle_action_eval_event_flow_column() -> None:
     """ربط قائمة تقييم الإجراءات بملف مجرى أحداث محدد ضمن الحزمة."""
     if not DATABASE_URL.startswith("sqlite"):
@@ -280,6 +299,50 @@ def ensure_judge_trainee_assignment_planner_bundle_column() -> None:
             text(
                 "ALTER TABLE judge_trainee_assignments "
                 "ADD COLUMN planner_flow_bundle_id INTEGER"
+            )
+        )
+
+
+def ensure_information_bank_phase_included_column() -> None:
+    """عمود «مدرج في التمرين» لمراحل التمرين في بنك المعلومات."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    try:
+        insp = inspect(engine)
+        if "information_bank_training_phases" not in insp.get_table_names():
+            return
+    except Exception:
+        return
+    cols = {c["name"] for c in insp.get_columns("information_bank_training_phases")}
+    if "included_in_exercise" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE information_bank_training_phases "
+                "ADD COLUMN included_in_exercise BOOLEAN DEFAULT 0 NOT NULL"
+            )
+        )
+
+
+def ensure_information_bank_unit_included_column() -> None:
+    """عمود «مدرج في التمرين» لمستويات الوحدات في بنك المعلومات."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    try:
+        insp = inspect(engine)
+        if "information_bank_unit_levels" not in insp.get_table_names():
+            return
+    except Exception:
+        return
+    cols = {c["name"] for c in insp.get_columns("information_bank_unit_levels")}
+    if "included_in_exercise" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE information_bank_unit_levels "
+                "ADD COLUMN included_in_exercise BOOLEAN DEFAULT 0 NOT NULL"
             )
         )
 

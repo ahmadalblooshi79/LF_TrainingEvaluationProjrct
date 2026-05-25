@@ -1,11 +1,11 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}{{ section_title }} — المحللين{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1><i class="fa-solid fa-list-check fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
-  <p class="mt-tight">
+  <div class="page-header__nav">
     {% include 'partials/control_hub_back.html' %}
-  </p>
+  </div>
 </div>
 
 {% if not has_exercise %}
@@ -13,6 +13,9 @@
   <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل. افتح أو أنشئ تمريناً لعرض معايير التقييم.</p>
 </section>
 {% else %}
+{% if not criteria_phases %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا توجد مراحل تقييم في كتالوج التخطيط. أضف مراحل التمرين أولاً أو استخدم البيانات المحفوظة سابقاً من بنك المعلومات (كتالوج مستقل).</p>
+{% endif %}
 <section class="card analyst-criteria-distribution-card">
   <h2 class="h2-in-card"><i class="fa-solid fa-percent fa-icon-title" aria-hidden="true"></i> توزيع النسبة المئوية الاجماليه للتقييم</h2>
   {% if ok_msg %}

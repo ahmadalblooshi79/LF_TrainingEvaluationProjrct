@@ -9,9 +9,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/static/style.css?v=auto-refresh-1">
+  <link rel="stylesheet" href="/static/style.css?v=final-report-frame-dark">
 </head>
-<body class="{% block body_class %}{% endblock %}">
+<body class="{% block body_class %}{% endblock %}{% if hub_landing_preserve_buttons %} hub-landing-preserve-buttons{% endif %}">
 <header>
     <div class="header-bar">
       <div class="header-bar__segment header-bar__segment--lead">
@@ -424,6 +424,90 @@
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape") closeMenu();
     });
+  });
+})();
+</script>
+<script>
+(function () {
+  var STORAGE_PREFIX = "subpage-return:";
+
+  function pathKey() {
+    return (location.pathname || "/").replace(/\/+$/, "") || "/";
+  }
+
+  function storageKey() {
+    return STORAGE_PREFIX + pathKey();
+  }
+
+  function urlPath(url) {
+    try {
+      return new URL(url, location.origin).pathname.replace(/\/+$/, "") || "/";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function sameOrigin(url) {
+    try {
+      return new URL(url, location.origin).origin === location.origin;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function isInternalActionUrl(url) {
+    var p = urlPath(url);
+    return /\/(save-results|approve|chief-approve|reopen|save|submit)(\/|$)/i.test(p);
+  }
+
+  function registerReturnUrl() {
+    var btn = document.querySelector("[data-subpage-close]");
+    if (!btn) return;
+    var key = storageKey();
+    var fallback = btn.getAttribute("data-fallback-href") || "";
+    var ref = document.referrer || "";
+
+    if (isInternalActionUrl(ref) || urlPath(ref) === pathKey()) {
+      if (!sessionStorage.getItem(key) && fallback) {
+        sessionStorage.setItem(key, fallback);
+      }
+      return;
+    }
+
+    var returnUrl = "";
+    if (ref && sameOrigin(ref) && urlPath(ref) !== pathKey()) {
+      returnUrl = ref;
+    } else if (fallback) {
+      returnUrl = fallback;
+    }
+
+    if (returnUrl && returnUrl !== location.href) {
+      sessionStorage.setItem(key, returnUrl);
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", registerReturnUrl);
+
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-subpage-close]");
+    if (!btn) return;
+    e.preventDefault();
+    var fallback = btn.getAttribute("data-fallback-href") || "/dashboard";
+    var stored = sessionStorage.getItem(storageKey());
+    if (stored) {
+      sessionStorage.removeItem(storageKey());
+      window.location.href = stored;
+      return;
+    }
+    if (fallback && fallback !== "/dashboard") {
+      window.location.href = fallback;
+      return;
+    }
+    if (window.history.length > 1) {
+      history.back();
+      return;
+    }
+    window.location.href = fallback;
   });
 })();
 </script>

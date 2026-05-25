@@ -1,7 +1,9 @@
 {% extends "admin_shell.html" %}
 {% block title %}إدارة تقييمات الوحدات{% endblock %}
+{% block body_class %}saved-results-page-layout{% endblock %}
 {% block admin_workspace %}
-<div class="page-header">
+<div class="saved-results-page">
+<div class="page-header page-header--saved-results">
   <h1><i class="fa-solid fa-square-poll-vertical fa-icon-title" aria-hidden="true"></i> إدارة تقييمات الوحدات</h1>
 </div>
 
@@ -10,10 +12,10 @@
   <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل لهذا المستخدم. افتح/أنشئ تمريناً أولاً.</p>
 </section>
 {% else %}
-<section class="card">
+<section class="card saved-results-page__card">
   {% if saved_display %}
-  <form id="saved-results-bulk-form" method="post" action="{{ url_for('views.admin_evaluation_saved_results_bulk_delete') }}" dir="rtl">
-    <div class="saved-results-toolbar" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin-bottom:0.6rem;">
+  <form id="saved-results-bulk-form" class="saved-results-page__form" method="post" action="{{ url_for('views.admin_evaluation_saved_results_bulk_delete') }}" dir="rtl">
+    <div class="saved-results-toolbar">
       <button type="submit" class="btn btn-danger btn-sm" id="saved-results-delete-selected"
               onclick="return confirm('حذف الصفوف المحددة؟');">
         <i class="fa-solid fa-trash" aria-hidden="true"></i> حذف المحدد
@@ -22,15 +24,18 @@
               onclick="return saved_results_delete_all_submit();">
         <i class="fa-solid fa-trash-can" aria-hidden="true"></i> حذف جميع الصفوف
       </button>
-      <span class="muted" id="saved-results-selected-count" style="font-size:0.85rem;">لم يُحدّد أي صف</span>
+      <span class="muted saved-results-toolbar__count" id="saved-results-selected-count">لم يُحدّد أي صف</span>
     </div>
     <div class="table-wrap saved-results-table-wrap">
       <table dir="rtl" aria-label="نتائج التقييم المحفوظة" class="saved-results-table">
         <thead>
           <tr>
-            <th scope="col" style="width:2.2rem;">
+            <th scope="col" class="saved-results-table__check">
               <input type="checkbox" id="saved-results-check-all" aria-label="تحديد الكل">
             </th>
+            <th scope="col" class="eval-lists-table__seq">ت</th>
+            <th scope="col">نوع القائمة</th>
+            <th scope="col">عنوان القائمة</th>
             <th scope="col">مستوى الوحدة</th>
             <th scope="col">مرحلة</th>
             <th scope="col">النسبة</th>
@@ -43,24 +48,31 @@
         </thead>
         <tbody>
           {% for sd in saved_display %}
-          {% set r = sd.row %}
           <tr>
-            <td>
-              <input type="checkbox" name="saved_ids" value="{{ r.id }}" class="saved-results-row-check" aria-label="تحديد الصف">
+            <td class="saved-results-table__check">
+              <input type="checkbox" name="saved_ids" value="{{ sd.checkbox_value }}" class="saved-results-row-check" aria-label="تحديد الصف">
             </td>
-            <td>{{ sd.unit_label or r.unit_level_key or "—" }}</td>
-            <td>{{ phase_label_ar(r.exercise_phase) }}</td>
-            <td>{% if r.total_pct is not none %}{{ (r.total_pct | round(2)) }}%{% else %}—{% endif %}</td>
-            <td>{{ r.grade_label or "—" }}</td>
-            <td><code>{{ r.saved_by_id or "—" }}</code></td>
-            <td>{% if r.is_approved %}معتمد{% else %}غير معتمد{% endif %}</td>
-            <td>{% if r.updated_at %}{{ r.updated_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+            <td class="eval-lists-table__seq">{{ loop.index }}</td>
             <td>
-              <a href="{{ url_for('views.admin_evaluation_list_file_viewer', unit_key=r.unit_level_key, item_id=r.evaluation_item_id, saved_id=r.id) }}">فتح للتعديل</a>
-              <button type="submit" formaction="{{ url_for('views.admin_evaluation_saved_results_delete', saved_id=r.id) }}"
+              <span class="saved-results-source saved-results-source--{{ sd.source_kind }}">{{ sd.source_label }}</span>
+            </td>
+            <td>{{ sd.list_title or "—" }}</td>
+            <td>{{ sd.unit_label or sd.unit_level_key or "—" }}</td>
+            <td>{{ phase_label_ar(sd.exercise_phase) }}</td>
+            <td>{% if sd.total_pct is not none %}{{ (sd.total_pct | round(2)) }}%{% else %}—{% endif %}</td>
+            <td>{{ sd.grade_label or "—" }}</td>
+            <td><code class="saved-results-table__id">{{ sd.saved_by_id or "—" }}</code></td>
+            <td>{% if sd.is_approved %}معتمد{% else %}غير معتمد{% endif %}</td>
+            <td>{% if sd.updated_at %}{{ sd.updated_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+            <td class="saved-results-actions">
+              {% if sd.open_href %}
+              <a class="saved-results-actions__link" href="{{ sd.open_href }}">فتح للتعديل</a>
+              {% else %}
+              <span class="muted">—</span>
+              {% endif %}
+              <button type="submit" formaction="{{ url_for('views.admin_evaluation_saved_results_delete', saved_id=sd.saved_id, source_kind=sd.source_kind) }}"
                       formnovalidate
-                      class="btn btn-danger btn-sm"
-                      style="margin:0 0.25rem;"
+                      class="btn btn-danger btn-sm saved-results-actions__del"
                       onclick="return confirm('حذف التقييم المحفوظ؟');">حذف</button>
             </td>
           </tr>
@@ -92,7 +104,7 @@
     refreshCount();
   })();
   function saved_results_delete_all_submit() {
-    if (!confirm("حذف جميع تقييمات الوحدات المحفوظة في هذا التمرين؟ لا يمكن التراجع.")) return false;
+    if (!confirm("حذف جميع تقييمات الوحدات المحفوظة في هذا التمرين (قوائم المحكم + المجرى)؟ لا يمكن التراجع.")) return false;
     const form = document.getElementById("saved-results-bulk-form");
     if (!form) return false;
     const hid = document.createElement("input");
@@ -103,8 +115,9 @@
   }
   </script>
   {% else %}
-  <p class="muted" dir="rtl" style="margin:0;">لا توجد تقييمات محفوظة بعد.</p>
+  <p class="muted" dir="rtl" style="margin:0;">لا توجد تقييمات محفوظة بعد (قوائم المحكم أو قوائم تقييم الإجراءات من المجرى).</p>
   {% endif %}
 </section>
 {% endif %}
+</div>
 {% endblock %}

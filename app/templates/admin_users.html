@@ -5,6 +5,9 @@
   <h1><i class="fa-solid fa-users-gear fa-icon-title" aria-hidden="true"></i> إدارة المستخدمين</h1>
   <p class="muted">لحسابات بصلاحية إدارة النظام فقط</p>
 </div>
+{% if user_error %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ user_error }}</p>
+{% endif %}
 <div class="admin-users-grid">
   <form class="card form-narrow-w" method="post" action="/admin/users">
     <h2><i class="fa-solid fa-user-plus fa-icon-title" aria-hidden="true"></i> مستخدم جديد</h2>

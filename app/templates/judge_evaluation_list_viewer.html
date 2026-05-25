@@ -2,8 +2,6 @@
 {% block title %}تقييم — {{ item_title }}{% endblock %}
 {% block body_class %}eval-list-page-layout{% endblock %}
 {% block content %}
-{% if hub_back_href %}{% include 'partials/control_hub_back.html' %}{% endif %}
-{% set eval_back_href = eval_close_href if eval_close_href is defined else url_for('views.judge_evaluation_lists', unit_key=unit_key) %}
 {% if header_row and eval_structured %}
 <div class="eval-list-page dilemma-viewer-page">
   <div class="eval-list-page__sticky-top">
@@ -12,7 +10,7 @@
         <h1 class="dilemma-viewer-title"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ item_title }}</h1>
       </div>
       <div class="dilemma-viewer-toolbar__actions">
-        <a class="btn btn-ghost dilemma-viewer-close-btn" href="{{ eval_back_href }}"><i class="fa-solid fa-xmark" aria-hidden="true"></i> إغلاق والعودة</a>
+        {% include 'partials/subpage_close.html' %}
       </div>
     </div>
 
@@ -66,7 +64,7 @@
       <h1 class="dilemma-viewer-title"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ item_title }}</h1>
     </div>
     <div class="dilemma-viewer-toolbar__actions">
-      <a class="btn btn-ghost dilemma-viewer-close-btn" href="{{ eval_back_href }}"><i class="fa-solid fa-xmark" aria-hidden="true"></i> إغلاق والعودة</a>
+      {% include 'partials/subpage_close.html' %}
     </div>
   </div>
 

@@ -31,6 +31,8 @@ from app.models import (
     AnalystEvaluationCriteriaPhaseItem,
     AnalystEvaluationCriteriaResult,
     AnalystEvaluationCriteriaUnit,
+    AnalystFinalEvaluationAllocatedMax,
+    AnalystFinalEvaluationPhaseAllocatedMax,
     ChatMessage,
     ChatRoom,
     ChatRoomMember,
@@ -1093,6 +1095,130 @@ def purge_all_exercises_and_dilemmas(db: Session) -> None:
         _reset_upload_directory(root)
 
     purge_exercise_export_archives()
+
+
+def clear_app_unit_level_data(db: Session) -> dict[str, int]:
+    """تفريغ مستوى الوحدة في التطبيق (قوائم منسدلة ومخزون) دون المساس ببنك المعلومات."""
+    stats: dict[str, int] = {}
+
+    stats["analyst_criteria_phase_items"] = (
+        db.query(AnalystEvaluationCriteriaPhaseItem).delete(synchronize_session=False)
+    )
+    stats["analyst_criteria_units"] = (
+        db.query(AnalystEvaluationCriteriaUnit).delete(synchronize_session=False)
+    )
+    stats["analyst_criteria_results"] = (
+        db.query(AnalystEvaluationCriteriaResult).delete(synchronize_session=False)
+    )
+    stats["analyst_final_phase_max"] = (
+        db.query(AnalystFinalEvaluationPhaseAllocatedMax).delete(synchronize_session=False)
+    )
+    stats["analyst_final_alloc_max"] = (
+        db.query(AnalystFinalEvaluationAllocatedMax).delete(synchronize_session=False)
+    )
+
+    stats["planner_bundle_eval_saved"] = (
+        db.query(PlannerFlowBundleEvalSavedResult).delete(synchronize_session=False)
+    )
+    stats["planner_bundle_action_evals"] = (
+        db.query(ExercisePlannerFlowBundleActionEval).delete(synchronize_session=False)
+    )
+    stats["planner_bundle_event_flows"] = (
+        db.query(ExercisePlannerFlowBundleEventFlow).delete(synchronize_session=False)
+    )
+    stats["planner_flow_bundles"] = (
+        db.query(ExercisePlannerFlowBundle).delete(synchronize_session=False)
+    )
+
+    stats["judge_incomplete_tasks"] = (
+        db.query(JudgeIncompleteTaskStatus).delete(synchronize_session=False)
+    )
+    stats["judge_trainee_assignments"] = db.query(JudgeTraineeAssignment).update(
+        {JudgeTraineeAssignment.unit_level_key: ""},
+        synchronize_session=False,
+    )
+    stats["evaluation_saved_results"] = db.query(EvaluationListSavedResult).update(
+        {EvaluationListSavedResult.unit_level_key: ""},
+        synchronize_session=False,
+    )
+    stats["evaluation_criterion_media"] = db.query(EvaluationCriterionMedia).update(
+        {EvaluationCriterionMedia.unit_level_key: ""},
+        synchronize_session=False,
+    )
+    stats["visual_documents"] = db.query(VisualDocument).update(
+        {VisualDocument.unit_level_key: ""},
+        synchronize_session=False,
+    )
+    stats["chat_rooms"] = db.query(ChatRoom).update(
+        {ChatRoom.unit_level_key: ""},
+        synchronize_session=False,
+    )
+    stats["exercise_roster_rows"] = db.query(ExerciseRosterRow).update(
+        {
+            ExerciseRosterRow.unit_level_key: "",
+            ExerciseRosterRow.position_ar: "",
+        },
+        synchronize_session=False,
+    )
+    stats["dilemma_items"] = db.query(DilemmaItem).update(
+        {
+            DilemmaItem.unit_level_key: "",
+            DilemmaItem.unit_level_label: "",
+        },
+        synchronize_session=False,
+    )
+    stats["evaluation_list_items"] = db.query(EvaluationListPdfItem).update(
+        {
+            EvaluationListPdfItem.unit_level_key: "",
+            EvaluationListPdfItem.unit_level_label: "",
+        },
+        synchronize_session=False,
+    )
+
+    db.commit()
+    return stats
+
+
+def clear_app_exercise_phase_data(db: Session) -> dict[str, int]:
+    """تفريغ مراحل التمرين في التطبيق (قوائم منسدلة ومخزون) دون المساس ببنك المعلومات."""
+    stats: dict[str, int] = {}
+
+    stats["analyst_criteria_phase_items"] = (
+        db.query(AnalystEvaluationCriteriaPhaseItem).delete(synchronize_session=False)
+    )
+    stats["analyst_final_phase_max"] = (
+        db.query(AnalystFinalEvaluationPhaseAllocatedMax).delete(synchronize_session=False)
+    )
+    stats["planner_bundle_eval_saved"] = (
+        db.query(PlannerFlowBundleEvalSavedResult).delete(synchronize_session=False)
+    )
+    stats["planner_bundle_action_evals"] = (
+        db.query(ExercisePlannerFlowBundleActionEval).delete(synchronize_session=False)
+    )
+    stats["planner_bundle_event_flows"] = (
+        db.query(ExercisePlannerFlowBundleEventFlow).delete(synchronize_session=False)
+    )
+    stats["planner_flow_bundles"] = (
+        db.query(ExercisePlannerFlowBundle).delete(synchronize_session=False)
+    )
+    stats["judge_incomplete_tasks"] = (
+        db.query(JudgeIncompleteTaskStatus).delete(synchronize_session=False)
+    )
+    stats["evaluation_saved_results"] = db.query(EvaluationListSavedResult).update(
+        {EvaluationListSavedResult.exercise_phase: ""},
+        synchronize_session=False,
+    )
+    stats["dilemma_items"] = db.query(DilemmaItem).update(
+        {DilemmaItem.exercise_phase: ""},
+        synchronize_session=False,
+    )
+    stats["evaluation_list_items"] = db.query(EvaluationListPdfItem).update(
+        {EvaluationListPdfItem.exercise_phase: ""},
+        synchronize_session=False,
+    )
+
+    db.commit()
+    return stats
 
 
 def _parse_dt(val: Any) -> datetime | None:

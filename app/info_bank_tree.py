@@ -13,7 +13,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.config import INFO_BANK_DIR
@@ -213,6 +213,113 @@ def _find_phase_folder(
     )
 
 
+def _record_tree_suppression(
+    db: Session,
+    *,
+    kind: str,
+    catalog_phase_key: str = "",
+    catalog_unit_key: str = "",
+) -> None:
+    """تسجيل حذف يدوي لمجلد مرحلة/وحدة حتى لا يُعاد إنشاؤه تلقائياً."""
+    from app.database import ensure_information_bank_tree_suppressions_table
+
+    ensure_information_bank_tree_suppressions_table()
+    pk = (catalog_phase_key or "").strip()
+    uk = (catalog_unit_key or "").strip()
+    if not pk and not uk:
+        return
+    db.execute(
+        text(
+            """
+            INSERT OR IGNORE INTO information_bank_tree_suppressions
+                (kind, catalog_phase_key, catalog_unit_key)
+            VALUES (:kind, :pk, :uk)
+            """
+        ),
+        {"kind": kind, "pk": pk, "uk": uk},
+    )
+
+
+def _is_tree_suppressed(
+    db: Session,
+    *,
+    kind: str,
+    catalog_phase_key: str = "",
+    catalog_unit_key: str = "",
+) -> bool:
+    pk = (catalog_phase_key or "").strip()
+    uk = (catalog_unit_key or "").strip()
+    row = db.execute(
+        text(
+            """
+            SELECT 1 FROM information_bank_tree_suppressions
+            WHERE kind = :kind
+              AND catalog_phase_key = :pk
+              AND catalog_unit_key = :uk
+            LIMIT 1
+            """
+        ),
+        {"kind": kind, "pk": pk, "uk": uk},
+    ).first()
+    return row is not None
+
+
+def _phase_key_for_node(db: Session, node: InformationBankTreeNode) -> str:
+    pk = (node.catalog_phase_key or "").strip()
+    if pk:
+        return pk
+    pid = node.parent_id
+    hops = 0
+    while pid is not None and hops < 50:
+        parent = db.get(InformationBankTreeNode, int(pid))
+        if parent is None:
+            break
+        pk = (parent.catalog_phase_key or "").strip()
+        if pk:
+            return pk
+        pid = parent.parent_id
+        hops += 1
+    return ""
+
+
+def _record_suppression_for_node(db: Session, node: InformationBankTreeNode) -> None:
+    pk = (node.catalog_phase_key or "").strip()
+    uk = (node.catalog_unit_key or "").strip()
+    if pk and not uk:
+        _record_tree_suppression(db, kind=node.kind, catalog_phase_key=pk)
+    elif uk:
+        phase_key = _phase_key_for_node(db, node)
+        _record_tree_suppression(
+            db,
+            kind=node.kind,
+            catalog_phase_key=phase_key,
+            catalog_unit_key=uk,
+        )
+
+
+def _clear_catalog_keys_subtree(db: Session, root_id: int) -> None:
+    """فك ربط مجلدات النظام بالكتالوج بعد النقل اليدوي."""
+    queue = [int(root_id)]
+    seen: set[int] = set()
+    while queue:
+        nid = queue.pop(0)
+        if nid in seen:
+            continue
+        seen.add(nid)
+        row = db.get(InformationBankTreeNode, nid)
+        if row is None:
+            continue
+        row.catalog_phase_key = ""
+        row.catalog_unit_key = ""
+        children = (
+            db.query(InformationBankTreeNode.id)
+            .filter(InformationBankTreeNode.parent_id == nid)
+            .all()
+        )
+        for (cid,) in children:
+            queue.append(int(cid))
+
+
 def _find_unit_folder(
     db: Session, kind: str, phase_folder_id: int, unit_key: str
 ) -> InformationBankTreeNode | None:
@@ -242,6 +349,8 @@ def ensure_information_bank_tree(db: Session, kind: str) -> None:
         }:
             # مراحل نظام إضافية (مثل مسارات التقييم) — تُنشأ عند وجودها في الكتالوج
             pass
+        if _is_tree_suppressed(db, kind=kind, catalog_phase_key=ph.key):
+            continue
         phase_node = _find_phase_folder(db, kind, ph.key)
         if phase_node is None:
             phase_node = InformationBankTreeNode(
@@ -262,6 +371,13 @@ def ensure_information_bank_tree(db: Session, kind: str) -> None:
             phase_node.sort_order = ph.sort_order
             changed = True
         for un in units:
+            if _is_tree_suppressed(
+                db,
+                kind=kind,
+                catalog_phase_key=ph.key,
+                catalog_unit_key=un.key,
+            ):
+                continue
             unit_node = _find_unit_folder(db, kind, int(phase_node.id), un.key)
             if unit_node is None:
                 db.add(
@@ -382,31 +498,49 @@ def _node_is_descendant_or_self(db: Session, ancestor_id: int, node_id: int) -> 
 def delete_node(db: Session, node: InformationBankTreeNode) -> None:
     descendants = _collect_descendants_post_order(db, int(node.id))
     for ch in descendants:
+        if ch.is_folder:
+            _record_suppression_for_node(db, ch)
         if not ch.is_folder and ch.file_relpath:
             unlink_node_file(ch.kind, ch.file_relpath)
         db.delete(ch)
     if not node.is_folder and node.file_relpath:
         unlink_node_file(node.kind, node.file_relpath)
+    if node.is_folder:
+        _record_suppression_for_node(db, node)
     db.delete(node)
 
 
-def move_tree_node(db: Session, *, kind: str, node_id: int, parent_id: int) -> None:
-    """نقل مجلد أو ملف أسفل مجلد أب محدّد (نفس kind). لا يُسمح بتعيين parent_id فارغًا هنا."""
-    if parent_id is None or int(parent_id) < 1:
-        raise ValueError("المجلد الأب غير صالح.")
+def move_tree_node(
+    db: Session, *, kind: str, node_id: int, parent_id: int | None
+) -> None:
+    """نقل مجلد أو ملف إلى مجلد أب (أو إلى جذر الشجرة عند parent_id فارغ)."""
     row = get_node(db, node_id, kind)
     if row is None:
         raise ValueError("العنصر غير موجود.")
-    dest = get_node(db, parent_id, kind)
-    if dest is None or not dest.is_folder:
-        raise ValueError("المجلد المستهدف غير صالح.")
-    if int(row.id) == int(parent_id):
-        raise ValueError("لا يمكن نقل العنصر إلى نفس المجلد.")
-    if row.is_folder and _node_is_descendant_or_self(db, int(row.id), int(parent_id)):
-        raise ValueError("لا يمكن نقل مجلد داخل نفسه أو داخل مجلد فرعي منه.")
-    row.parent_id = parent_id
+    new_parent_id: int | None
+    if parent_id is None or int(parent_id) < 1:
+        new_parent_id = None
+    else:
+        new_parent_id = int(parent_id)
+        dest = get_node(db, new_parent_id, kind)
+        if dest is None or not dest.is_folder:
+            raise ValueError("المجلد المستهدف غير صالح.")
+        if int(row.id) == new_parent_id:
+            raise ValueError("لا يمكن نقل العنصر إلى نفس المجلد.")
+        if row.is_folder and _node_is_descendant_or_self(
+            db, int(row.id), new_parent_id
+        ):
+            raise ValueError(
+                "لا يمكن نقل مجلد داخل نفسه أو داخل مجلد فرعي منه."
+            )
+    row.parent_id = new_parent_id
     db.flush()
-    row.sort_order = _next_sort(db, kind, parent_id)
+    row.sort_order = _next_sort(db, kind, new_parent_id)
+    if row.is_folder:
+        _clear_catalog_keys_subtree(db, int(row.id))
+    else:
+        row.catalog_phase_key = ""
+        row.catalog_unit_key = ""
 
 
 def _write_file_bytes(

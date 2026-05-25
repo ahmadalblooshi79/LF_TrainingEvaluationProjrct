@@ -4,13 +4,14 @@
 <div class="page-header">
   <h1><i class="fa-solid fa-comments fa-icon-title" aria-hidden="true"></i> {{ room.title or 'غرفة محادثة' }}</h1>
   <p class="muted" dir="rtl">{% if exercise %}التمرين: <strong>{{ exercise.title }}</strong>{% endif %}</p>
-  <p class="mt-tight">
-    {% include 'partials/control_hub_back.html' %}
-    <a class="btn btn-ghost" href="{{ url_for('views.chat_rooms_list', **(control_link_kwargs or {})) }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> كل الغرف</a>
-    {% if can_manage %}
+  <div class="page-header__nav">
+    {% include 'partials/subpage_close.html' %}
+  </div>
+  {% if can_manage %}
+  <div class="page-header__tools">
     <a class="btn btn-ghost" href="{{ url_for('views.admin_chat_rooms') }}"><i class="fa-solid fa-users-gear" aria-hidden="true"></i> إدارة الأعضاء</a>
-    {% endif %}
-  </p>
+  </div>
+  {% endif %}
 </div>
 
 <section class="card chat-thread" dir="rtl">

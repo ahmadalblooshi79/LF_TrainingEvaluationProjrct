@@ -4,9 +4,9 @@
 <div class="page-header">
   <h1><i class="fa-solid fa-file-pdf fa-icon-title" aria-hidden="true"></i> قوائم المعاضل — {{ unit.label }}</h1>
   <p class="muted">عرض ملفات المعاضل (PDF) الخاصة بوحدتك.</p>
-  <p class="mt-tight">
-    <a class="btn btn-ghost" href="{{ url_for('views.judge_dilemmas_home') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> رجوع</a>
-  </p>
+  <div class="page-header__nav">
+    {% include 'partials/subpage_close.html' %}
+  </div>
 </div>
 
 <section class="card dilemmas-current">

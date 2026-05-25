@@ -2,13 +2,6 @@
 {% block title %}معاينة تقييم — قوائم التقييم{% endblock %}
 {% block body_class %}eval-list-page-layout{% endblock %}
 {% block content %}
-{% if hub_back_href %}
-{% include 'partials/control_hub_back.html' %}
-{% else %}
-<p class="mt-tight catalog-tools-back" style="margin-bottom:0.65rem;">
-  <a class="btn btn-ghost" href="{{ url_for('views.planner_hub') }}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> مساحة التخطيط</a>
-</p>
-{% endif %}
 {% if header_row and eval_structured %}
 <div class="eval-list-page dilemma-viewer-page">
   <div class="eval-list-page__sticky-top">
@@ -17,7 +10,7 @@
         <h1 class="dilemma-viewer-title"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ item_title }}</h1>
       </div>
       <div class="dilemma-viewer-toolbar__actions">
-        <a class="btn btn-ghost dilemma-viewer-close-btn" href="{{ close_href or url_for('views.admin_evaluation_lists', unit_key=unit_key) }}"><i class="fa-solid fa-xmark" aria-hidden="true"></i> {{ close_label or "إغلاق والعودة" }}</a>
+        {% include 'partials/subpage_close.html' %}
       </div>
     </div>
 
@@ -62,7 +55,7 @@
       <h1 class="dilemma-viewer-title"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ item_title }}</h1>
     </div>
     <div class="dilemma-viewer-toolbar__actions">
-      <a class="btn btn-ghost dilemma-viewer-close-btn" href="{{ close_href or url_for('views.admin_evaluation_lists', unit_key=unit_key) }}"><i class="fa-solid fa-xmark" aria-hidden="true"></i> {{ close_label or "إغلاق والعودة" }}</a>
+      {% include 'partials/subpage_close.html' %}
     </div>
   </div>
 

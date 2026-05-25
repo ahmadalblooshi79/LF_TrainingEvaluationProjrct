@@ -3,13 +3,14 @@
 {% block content %}
 <div class="page-header">
   <h1><i class="fa-solid fa-comments fa-icon-title" aria-hidden="true"></i> غرف المحادثة</h1>
-  <p class="mt-tight">
-    {% include 'partials/control_hub_back.html' %}
-    <a class="btn btn-ghost" href="/dashboard"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
-    {% if can_manage %}
+  <div class="page-header__nav">
+    {% include 'partials/subpage_close.html' %}
+  </div>
+  {% if can_manage %}
+  <div class="page-header__tools">
     <a class="btn" href="{{ url_for('views.admin_chat_rooms') }}"><i class="fa-solid fa-gear" aria-hidden="true"></i> إدارة الغرف</a>
-    {% endif %}
-  </p>
+  </div>
+  {% endif %}
 </div>
 
 {% if not has_exercise %}

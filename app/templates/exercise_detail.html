@@ -3,8 +3,7 @@
 {% block content %}
 <div class="page-header">
   <h1><i class="fa-solid fa-clipboard-list fa-icon-title" aria-hidden="true"></i> {{ ex.title }} <span class="badge">{{ ex.code }}</span></h1>
-  <p class="muted text-pre-wrap">{{ ex.description }}</p>
-  {% if ex.exercise_type or ex.mission_label or ex.trained_unit or ex.location_label %}
+  {% if ex.exercise_type or ex.exercise_level or ex.mission_label or ex.trained_unit or ex.location_label %}
   <dl class="exercise-meta-dl">
     {% if ex.exercise_type %}<dt>نوع التمرين</dt><dd>{{ ex.exercise_type }}</dd>{% endif %}
     {% if ex.exercise_level %}<dt>مستوى التمرين</dt><dd>{{ ex.exercise_level }}</dd>{% endif %}
@@ -13,12 +12,9 @@
     {% if ex.location_label %}<dt>مكان التمرين</dt><dd>{{ ex.location_label }}</dd>{% endif %}
   </dl>
   {% endif %}
-  <p>
-    <i class="fa-solid fa-signal meta-ic" aria-hidden="true"></i> الحالة: <span class="badge">{{ ex.status }}</span>
-  </p>
-  <p class="mt-tight">
-    <a class="btn btn-ghost" href="/dashboard"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> العودة للصفحة الرئيسية</a>
-  </p>
+  <div class="page-header__nav">
+    {% include 'partials/subpage_close.html' %}
+  </div>
 </div>
 
 {% if ex.objectives %}

@@ -14,6 +14,7 @@
     <div class="planner-flow-field planner-flow-field--inline">
       <label class="muted" for="pf-phase">مرحلة التمرين</label>
       <select id="pf-phase" name="phase" class="unit-level-select planner-flow-select-compact" autocomplete="off">
+        <option value="" {% if not phase_key %}selected{% endif %}>— اختر مرحلة التمرين —</option>
         {% for pk, pl in phase_options %}
         <option value="{{ pk }}" {% if pk == phase_key %}selected{% endif %}>{{ pl }}</option>
         {% endfor %}
@@ -22,6 +23,7 @@
     <div class="planner-flow-field planner-flow-field--inline">
       <label class="muted" for="pf-unit">مستوى الوحدة</label>
       <select id="pf-unit" name="unit_level_key" class="unit-level-select planner-flow-select-compact" autocomplete="off">
+        <option value="" {% if not unit_key %}selected{% endif %}>— اختر مستوى الوحدة —</option>
         {% for u in unit_levels %}
         <option value="{{ u.key }}" {% if u.key == unit_key %}selected{% endif %}>{{ u.label }}</option>
         {% endfor %}
@@ -51,7 +53,14 @@
 
 {% set effective_bid = bundle.id if bundle else none %}
 
-{% if bundle is none %}
+{% if phases_catalog_empty %}
+<p class="form-error-banner" dir="rtl" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا توجد مراحل تمرين في كتالوج التخطيط. بنك المعلومات له كتالوج مراحل مستقل ولم يُمس.</p>
+{% endif %}
+{% if catalog_empty %}
+<p class="form-error-banner" dir="rtl" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا توجد مستويات وحدة في كتالوج التخطيط. أضفها إلى <code>UNIT_LEVELS</code> في النظام (بنك المعلومات له كتالوج مستقل ولا يتأثر).</p>
+{% elif not unit_key %}
+<p class="muted card" dir="rtl" role="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> اختر مستوى وحدة من القائمة أعلاه لعرض حزمة المجرى وتقييم الإجراءات.</p>
+{% elif bundle is none %}
 <p class="muted card" dir="rtl" role="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> لا توجد حزمة مهيّأة بعد لهذا المزيج (المرحلة ومستوى الوحدة) ضمن مساحة العمل الحالية — يمكن لمسؤول التخطيط إنشاؤها وتجهيزها من مساحة التخطيط.</p>
 {% else %}
 

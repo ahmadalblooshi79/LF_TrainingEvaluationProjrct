@@ -80,10 +80,31 @@
   .control-eval-unit-summary__item--pending strong {
     color: #991b1b;
   }
+  .control-eval-list-type {
+    display: inline-block;
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--border-light);
+    background: var(--tint-50);
+    color: var(--brown-800);
+    white-space: nowrap;
+  }
+  .control-eval-list-type--judge_eval {
+    border-color: rgba(37, 99, 235, 0.35);
+    background: rgba(37, 99, 235, 0.08);
+  }
+  .control-eval-list-type--planner_flow_action {
+    border-color: rgba(124, 58, 237, 0.35);
+    background: rgba(124, 58, 237, 0.08);
+  }
 </style>
 <div class="page-header page-header--judge-eval-lists">
-  <h1><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
-  {% include 'partials/control_hub_back.html' %}
+  <h1><i class="fa-solid {{ section_icon | default('fa-file-excel') }} fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+  <div class="page-header__nav">
+    {% include 'partials/control_hub_back.html' %}
+  </div>
 </div>
 
 {% if not has_exercise %}
@@ -152,6 +173,7 @@
                 <thead>
                   <tr>
                     <th scope="col" class="eval-lists-table__seq">ت</th>
+                    <th scope="col">نوع القائمة</th>
                     <th scope="col">مسمى التقييم</th>
                     <th scope="col">النسبة</th>
                     <th scope="col">التقدير</th>
@@ -164,6 +186,9 @@
                   {% for r in ut.rows %}
                   <tr class="{% if r.row_tone and r.row_tone != 'none' %}eval-row-tone--{{ r.row_tone }}{% endif %}">
                     <td class="eval-lists-table__seq">{{ loop.index }}</td>
+                    <td>
+                      <span class="control-eval-list-type control-eval-list-type--{{ r.list_type_kind|default('judge_eval') }}">{{ r.list_type_label|default('قائمة التقييم') }}</span>
+                    </td>
                     <td>{{ r.item_title }}</td>
                     <td>{% if r.total_pct is not none %}{{ (r.total_pct | round(2)) }}%{% else %}—{% endif %}</td>
                     <td>{{ r.grade_label or "—" }}</td>

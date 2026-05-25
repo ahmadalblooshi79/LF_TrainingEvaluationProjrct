@@ -68,10 +68,9 @@
 </style>
 <div class="page-header">
   <h1><i class="fa-solid fa-photo-film fa-icon-title" aria-hidden="true"></i> التوثيق المرئي</h1>
-  {% include 'partials/control_hub_back.html' %}
-  <p class="mt-tight">
-    <a class="btn btn-ghost" href="/dashboard"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
-  </p>
+  <div class="page-header__nav">
+    {% include 'partials/subpage_close.html' %}
+  </div>
 </div>
 
 {% if not has_exercise %}

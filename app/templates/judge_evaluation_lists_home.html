@@ -1,12 +1,12 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}قوائم التقييم{% endblock %}
 {% block body_class %}judge-eval-lists-page-layout{% endblock %}
 {% block content %}
 <div class="page-header page-header--judge-eval-lists">
   <h1><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ page_title | default('قوائم التقييم') }}</h1>
-  <p class="mt-tight">
+  <div class="page-header__nav">
     {% include 'partials/control_hub_back.html' %}
-  </p>
+  </div>
 </div>
 
 {% if not has_exercise %}

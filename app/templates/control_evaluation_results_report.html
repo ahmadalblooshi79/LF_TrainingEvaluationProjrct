@@ -2,26 +2,18 @@
 {% block title %}{{ section_title }} — السيطرة{% endblock %}
 {% block body_class %}control-report-page{% endblock %}
 {% block content %}
+<div class="page-header page-header--control-report">
+  <h1><i class="fa-solid {{ section_icon | default('fa-square-poll-vertical') }} fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+  <div class="page-header__nav">{% include 'partials/subpage_close.html' %}</div>
+  {% if report.meta %}
+  <p class="muted control-report__meta">
+    {% for item in report.meta %}
+    <span>{{ item }}</span>
+    {% endfor %}
+  </p>
+  {% endif %}
+</div>
 <div class="control-report" dir="rtl">
-  <section class="control-report__head">
-    <div class="control-report__head-main">
-      <h1>{{ report.report_title }}</h1>
-      {% if report.meta %}
-      <p class="control-report__meta">
-        {% for item in report.meta %}
-        <span>{{ item }}</span>
-        {% endfor %}
-      </p>
-      {% endif %}
-    </div>
-    <div class="control-report__actions">
-      {% if hub_back_href %}
-      <a class="btn btn-ghost control-report__back" href="{{ hub_back_href }}">
-        <i class="fa-solid fa-arrow-right" aria-hidden="true"></i> {{ hub_back_label | default('العودة إلى مساحة السيطرة') }}
-      </a>
-      {% endif %}
-    </div>
-  </section>
 
   <section class="control-report__kpis" aria-label="مؤشرات الأداء">
     {% for kpi in report.kpis %}
@@ -89,13 +81,14 @@
                     <span class="cr-detail-slot{% if slot_i >= phase.dots | length %} cr-detail-slot--empty{% endif %}">
                       {% if slot_i < phase.dots | length %}
                       {% set dot = phase.dots[slot_i] %}
-                      <span class="cr-detail-dot-wrap">
+                      {% set is_pf = (dot.source | default('judge_eval')) == 'planner_flow' %}
+                      <span class="cr-detail-dot-wrap{% if is_pf %} cr-detail-dot-wrap--planner-flow{% endif %}">
                         <button
                           type="button"
-                          class="cr-detail-dot"
+                          class="cr-detail-dot{% if is_pf %} cr-detail-dot--planner-flow{% endif %}"
                           style="background-color: {{ dot.color }};"
                           data-href="{{ dot.view_url }}"
-                          title="قائمة التقييم: {{ dot.list_title }}&#10;المحكم: {{ dot.judge_name }}&#10;{{ dot.approval_location }}"
+                          title="{% if is_pf %}المجرى وتقييم الإجراءات{% else %}قائمة التقييم{% endif %}: {{ dot.list_title }}&#10;المحكم: {{ dot.judge_name }}&#10;{{ dot.approval_location }}"
                           aria-label="{{ dot.list_title }} — {{ dot.pct }}%"
                         ></button>
                         <span class="cr-detail-dot-pct">{{ dot.pct }}%</span>
@@ -111,21 +104,39 @@
             </tbody>
           </table>
           {% else %}
-          <p class="muted" style="margin:0.5rem 0;">لا توجد قوائم تقييم محفوظة لعرضها — يُعرض الجدول بعد حفظ المحكمين لنتائج القوائم.</p>
+          <p class="muted" style="margin:0.5rem 0;">لا توجد نتائج محفوظة لعرضها — يُعرض الجدول بعد حفظ المحكمين لقوائم التقييم أو لقوائم تقييم الإجراءات (المجرى).</p>
           {% endif %}
         </div>
-        {% if report.grade_legend | default([]) %}
-        <div class="cr-detail-grade-legend" aria-label="مفتاح ألوان النتيجة">
-          <span class="cr-detail-grade-legend__title">مفتاح الألوان (النتيجة)</span>
-          <ul class="cr-detail-grade-legend__list">
-            {% for item in report.grade_legend %}
-            <li class="cr-detail-grade-legend__item">
-              <i class="cr-detail-grade-legend__swatch" style="background-color: {{ item.color }};" aria-hidden="true"></i>
-              <span class="cr-detail-grade-legend__label">{{ item.label }}</span>
-              <span class="cr-detail-grade-legend__range muted">{{ item.range }}</span>
-            </li>
-            {% endfor %}
-          </ul>
+        {% if report.detail_source_legend | default([]) or report.grade_legend | default([]) %}
+        <div class="cr-detail-legends-row" dir="rtl">
+          {% if report.detail_source_legend | default([]) %}
+          <div class="cr-detail-source-legend" aria-label="تمييز مصدر القائمة">
+            <span class="cr-detail-grade-legend__title">مصدر النتيجة</span>
+            <ul class="cr-detail-source-legend__list">
+              {% for item in report.detail_source_legend %}
+              <li class="cr-detail-source-legend__item">
+                <span class="cr-detail-source-legend__sample{% if item.kind == 'planner_flow' %} cr-detail-source-legend__sample--planner-flow{% endif %}" aria-hidden="true"></span>
+                <span class="cr-detail-source-legend__label">{{ item.label }}</span>
+                <span class="cr-detail-source-legend__hint muted">{{ item.hint }}</span>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+          {% if report.grade_legend | default([]) %}
+          <div class="cr-detail-grade-legend" aria-label="مفتاح ألوان النتيجة">
+            <span class="cr-detail-grade-legend__title">مفتاح الألوان (النتيجة)</span>
+            <ul class="cr-detail-grade-legend__list">
+              {% for item in report.grade_legend %}
+              <li class="cr-detail-grade-legend__item">
+                <i class="cr-detail-grade-legend__swatch" style="background-color: {{ item.color }};" aria-hidden="true"></i>
+                <span class="cr-detail-grade-legend__label">{{ item.label }}</span>
+                <span class="cr-detail-grade-legend__range muted">{{ item.range }}</span>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
         </div>
         {% endif %}
       </article>

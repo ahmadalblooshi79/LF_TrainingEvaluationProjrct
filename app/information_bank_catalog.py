@@ -48,11 +48,24 @@ INFO_BANK_UNIT_LEVELS: list[dict[str, str]] = [
 ]
 
 
+_TRAINING_PHASE_LEGACY_KEYS: dict[str, str] = {
+    "main": "battle_exposure",
+    "reorg": "reorganization",
+}
+
+
 def training_phase_label(key: str | None) -> str:
     k = (key or "").strip()
+    if not k:
+        return ""
     for row in TRAINING_PHASES:
         if row["key"] == k:
             return row["label"]
+    catalog_key = _TRAINING_PHASE_LEGACY_KEYS.get(k)
+    if catalog_key:
+        for row in TRAINING_PHASES:
+            if row["key"] == catalog_key:
+                return row["label"]
     return ""
 
 

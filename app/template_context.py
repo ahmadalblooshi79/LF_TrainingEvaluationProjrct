@@ -21,6 +21,15 @@ from app.permissions import (
     is_system_admin,
 )
 
+# صفحات لا يُطبَّق عليها تدرج الأزرار العسكري الجديد (تبقى الألوان السابقة)
+_HUB_LANDING_PRESERVE_BUTTON_ENDPOINTS = frozenset({
+    "views.dashboard",
+    "views.planner_hub",
+    "views.control_hub",
+    "views.judge_hub",
+    "views.analyst_hub",
+})
+
 
 def _nav_show_judge_hub_link(user) -> bool:
     """مساحة المحكمين الموحدة — تشمل أيضاً أوامر كبير المحكمين عند منح الدور."""
@@ -39,12 +48,15 @@ def inject_header_exercise():
         "user_can_manage_information_bank": False,
         "header_chat_rooms_url": None,
         "header_exercise_info_url": None,
+        "hub_landing_preserve_buttons": False,
     }
 
     if not has_request_context():
         return base
     if request.path.startswith("/static/"):
         return base
+    ep = request.endpoint or ""
+    base["hub_landing_preserve_buttons"] = ep in _HUB_LANDING_PRESERVE_BUTTON_ENDPOINTS
     db = getattr(g, "db", None)
     if db is None:
         return base
@@ -115,7 +127,6 @@ def inject_header_exercise():
             base["notifications_log_url"] = url_for("views.notifications_log")
 
     row = None
-    ep = request.endpoint
     if ep == "views.exercise_detail":
         eid = (request.view_args or {}).get("eid")
         if eid is not None:
