@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ section_title }}{% endblock %}
+{% block content %}
+<style>
+  .incomplete-eval-page .control-eval-list-type {
+    display: inline-block;
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--border-light);
+    background: var(--tint-50);
+    color: var(--brown-800);
+    white-space: nowrap;
+  }
+  .incomplete-eval-page .control-eval-list-type--judge_eval {
+    border-color: rgba(37, 99, 235, 0.35);
+    background: rgba(37, 99, 235, 0.08);
+  }
+  .incomplete-eval-page .control-eval-list-type--planner_flow_action {
+    border-color: rgba(124, 58, 237, 0.35);
+    background: rgba(124, 58, 237, 0.08);
+  }
+  .incomplete-eval-page .incomplete-eval-summary {
+    margin: 0 0 0.65rem;
+    font-size: 0.9rem;
+  }
+</style>
+<div class="incomplete-eval-page">
+  <div class="page-header page-header--judge-eval-lists">
+    <h1><i class="fa-solid {{ section_icon | default('fa-hourglass-half') }} fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+    <div class="page-header__nav">
+      {% if role == 'control' %}
+      {% include 'partials/control_hub_back.html' %}
+      {% else %}
+      {% include 'partials/subpage_close.html' %}
+      {% endif %}
+    </div>
+  </div>
+
+  {% if not has_exercise %}
+  <section class="card">
+    <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل. افتح أو أنشئ تمريناً أولاً.</p>
+  </section>
+  {% else %}
+  <section class="card judge-eval-lists-fill-card">
+    <p class="incomplete-eval-summary muted" dir="rtl">
+      قوائم التقييم وقوائم إجراءات المجرى التي لم تُنجَز بعد (موقف «غير منجزة»)، مرتبة حسب وقت بدء المهمة.
+      {% if incomplete_count is defined %}<strong> — العدد: {{ incomplete_count }}</strong>{% endif %}
+    </p>
+    {% include 'partials/incomplete_evaluations_table.html' %}
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

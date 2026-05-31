@@ -4,10 +4,14 @@
 <div class="judge-pf-root">
 <div class="page-header judge-pf-page-header">
   <h1><i class="fa-solid fa-diagram-project fa-icon-title" aria-hidden="true"></i> المجرى وتقييم الإجراءات</h1>
-  <p class="muted">المواد المخصّصة لك من فريق التخطيط لمستوى وحدتك في التمرين الحالي — التقييم داخل المتصفح مثل صفحة «قوائم التقييم».</p>
-  {% if bundle is not none and planner_flow_unit_label %}
-  <p class="judge-pf-unit-line"><i class="fa-solid fa-layer-group" aria-hidden="true"></i> مستوى الوحدة المعروض: <strong>{{ planner_flow_unit_label }}</strong></p>
-  {% endif %}
+  <div class="judge-pf-page-header-meta">
+    {% if planner_flow_viewing_judge_label|default('')|trim %}
+    <p class="judge-pf-unit-line"><i class="fa-solid fa-user-tie" aria-hidden="true"></i> اعتماد تقييم المحكم: <strong>{{ planner_flow_viewing_judge_label }}</strong></p>
+    {% endif %}
+    {% if bundle is not none and planner_flow_unit_label %}
+    <p class="judge-pf-unit-line"><i class="fa-solid fa-layer-group" aria-hidden="true"></i> مستوى الوحدة المعروض: <strong>{{ planner_flow_unit_label }}</strong></p>
+    {% endif %}
+  </div>
   <div class="page-header__nav">
     {% include 'partials/subpage_close.html' %}
   </div>
@@ -15,6 +19,33 @@
 
 {% if not has_exercise %}
 <p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يوجد تمرين حالي.</p>
+{% elif planner_flow_oversee_picker|default(false) and planner_flow_oversee_rows %}
+<section class="card">
+  <h2 class="h2-in-card"><i class="fa-solid fa-stamp fa-icon-title" aria-hidden="true"></i> اختيار المحكم للاعتماد</h2>
+  <p class="muted">اختر المحكم المرتبط بحزمة المجرى لفتح صفحة «المجرى وتقييم الإجراءات» واعتماد قوائم تقييم الإجراءات. بعد اعتماد كبير المحكمين يُرسل التقييم إلى <strong>اعتماد السيطرة</strong>.</p>
+  <div class="table-wrap">
+    <table class="ibank-table" dir="rtl" aria-label="محكمون مرتبطون بحزمة المجرى">
+      <thead>
+        <tr>
+          <th scope="col">المحكم</th>
+          <th scope="col">مستوى الوحدة</th>
+          <th scope="col">الحزمة</th>
+          <th scope="col">اعتماد</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in planner_flow_oversee_rows %}
+        <tr>
+          <td>{{ row.judge_label }}</td>
+          <td>{{ row.unit_label }}</td>
+          <td>{{ row.bundle_label }}</td>
+          <td><a class="btn btn-ghost btn-sm-compact" href="{{ row.view_href }}"><i class="fa-solid fa-stamp" aria-hidden="true"></i> اعتماد</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% elif bundle is none %}
 <p class="muted">لم يتم بعد ربط حزمة «مجرى الأحداث وتقييم الإجراءات» بحسابك من قبل التخطيط. عند الإسناد ستظهر الملفات هنا.</p>
 {% else %}
@@ -58,6 +89,12 @@
       <div class="ibank-tabpane{% if _pf_tab == 'pf-eval' %} is-active{% endif %}" data-tab-pane="pf-eval" role="tabpanel">
         <div class="judge-pf-tab-pane-inner judge-pf-tab-pane-inner--eval">
           <h2 class="h2-in-card"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> قوائم تقييم الإجراءات</h2>
+          {% if request.args.get('pf_reopened') %}
+          <p class="form-ok-banner" role="status"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> تم إعادة التقييم إلى المحكم — يظهر في عمود «إرسال للاعتماد» كـ <strong>معاد للتعديل</strong>.</p>
+          {% elif request.args.get('pf_chief_approved') %}
+          <p class="form-ok-banner" role="status"><i class="fa-solid fa-stamp" aria-hidden="true"></i> تم اعتماد كبير المحكمين — التقييم في مسار <strong>اعتماد السيطرة</strong>.</p>
+          {% endif %}
+          <p class="muted judge-pf-eval-hint">الموقف (ينجز/لم ينجز) يعتمد على اعتماد المحكم؛ يبقى «ينجز» بعد إعادة الفتح حتى يحفظ المحكم تعديلاته.</p>
           {% if planner_eval_rows %}
           <div class="table-wrap">
             <table class="pf-judge-eval-table ibank-table" dir="rtl" aria-label="قوائم تقييم الإجراءات">
@@ -69,19 +106,25 @@
                   <th scope="col">قائمة التقييم</th>
                   <th scope="col">توقيت التسليم</th>
                   <th scope="col">الموقف</th>
+                  <th scope="col">إرسال للاعتماد</th>
+                  <th scope="col">مسار الاعتماد</th>
                   <th scope="col">التقدير العام</th>
                   <th scope="col">فتح</th>
                 </tr>
               </thead>
               <tbody>
                 {% for r in planner_eval_rows %}
-                <tr>
+                <tr class="{% if r.row_tone and r.row_tone != 'none' %}eval-row-tone--{{ r.row_tone }}{% endif %}">
                   <td>{% if r.dt %}{{ r.dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
                   <td>{{ r.exercise_type or "—" }}</td>
                   <td>{{ r.trained_unit or "—" }}</td>
                   <td>{{ r.item_title }}</td>
                   <td>{% if r.delivery_dt %}{{ r.delivery_dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
                   <td>{% if r.status_done %}<span class="badge badge--done">ينجز</span>{% else %}<span class="badge badge--not-done">لم ينجز</span>{% endif %}</td>
+                  <td>
+                    <span class="judge-eval-dispatch-badge judge-eval-dispatch-badge--{{ r.row_tone | default('none') }}">{{ r.dispatch_label or "—" }}</span>
+                  </td>
+                  <td>{{ r.workflow_label or "—" }}</td>
                   <td>{{ r.grade_label or "—" }}</td>
                   <td>
                     {% if r.open_href %}

@@ -2,62 +2,127 @@
 {% block title %}التوثيق المرئي{% endblock %}
 {% block content %}
 <style>
-  .visual-doc-table th,
-  .visual-doc-table td { text-align: center; vertical-align: middle; }
-  .visual-doc-table td.visual-doc-table__desc { text-align: start; max-width: 22rem; }
+  .visual-doc-page .page-header { margin-bottom: 0.65rem; }
+  .visual-doc-page .card { padding: 0.75rem 0.95rem; margin-bottom: 0.65rem; }
+  .visual-doc-page .h2-in-card { margin: 0 0 0.5rem; font-size: 1.05rem; }
+  .visual-doc-page .form-group { margin-bottom: 0.45rem; }
+  .visual-doc-page .form-group label { margin-bottom: 0.2rem; font-size: 0.88rem; }
+  .visual-doc-unit-form { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: end; margin: 0; }
+  .visual-doc-unit-form .form-group { margin: 0; min-width: 14rem; }
+  .visual-doc-upload-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.4rem;
+  }
   .visual-capture-options {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-bottom: 0.75rem;
+    gap: 0.3rem;
+    margin: 0;
+    flex: 1 1 auto;
   }
   .visual-capture-options label {
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
-    padding: 0.45rem 0.75rem;
+    gap: 0.28rem;
+    padding: 0.18rem 0.5rem;
     border: 1px solid var(--border-light);
     border-radius: var(--radius-sm);
     background: var(--tint-50);
     cursor: pointer;
     font-weight: 600;
+    font-size: 0.82rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    margin: 0;
+  }
+  .visual-capture-options input[type="radio"] {
+    width: 0.9rem;
+    height: 0.9rem;
+    margin: 0;
+    flex-shrink: 0;
+  }
+  .visual-doc-upload-btn {
+    flex-shrink: 0;
+    padding: 0.32rem 0.75rem;
+    font-size: 0.88rem;
+    line-height: 1.2;
   }
   .visual-media-input[hidden] { display: none; }
+  .visual-media-input { margin-top: 0.25rem; }
+  .visual-media-input input[type="file"] { font-size: 0.85rem; max-width: 100%; }
   .visual-camera-box,
   .visual-audio-box {
     border: 1px solid var(--border-light);
     border-radius: var(--radius-sm);
-    padding: 0.75rem;
+    padding: 0.5rem;
     background: var(--tint-50);
   }
   .visual-camera-preview {
-    width: min(100%, 520px);
+    width: min(100%, 480px);
     aspect-ratio: 16 / 9;
     background: #111;
     border-radius: var(--radius-sm);
     display: block;
     object-fit: cover;
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.45rem;
   }
   .visual-camera-actions,
   .visual-audio-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
+    gap: 0.35rem;
     align-items: center;
+  }
+  .visual-camera-actions .btn,
+  .visual-audio-actions .btn {
+    padding: 0.28rem 0.55rem;
+    font-size: 0.82rem;
   }
   .visual-camera-status,
   .visual-audio-status {
-    margin: 0.45rem 0 0;
-    font-size: 0.88rem;
+    margin: 0.3rem 0 0;
+    font-size: 0.82rem;
+  }
+  .visual-rec-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin: 0.35rem 0 0.5rem;
+    padding: 0.35rem 0.55rem;
+    border-radius: var(--radius-sm);
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: #991b1b;
+    max-width: 22rem;
+  }
+  .visual-rec-bar[hidden] { display: none !important; }
+  .visual-rec-bar__dot {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    background: #dc2626;
+    animation: visual-rec-pulse 1s ease-in-out infinite;
+  }
+  @keyframes visual-rec-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+  .visual-rec-bar__time {
+    font-variant-numeric: tabular-nums;
+    margin-inline-start: auto;
   }
   .visual-audio-meter {
-    width: min(100%, 420px);
-    height: 0.65rem;
+    width: min(100%, 380px);
+    height: 0.5rem;
     border-radius: 999px;
     overflow: hidden;
     background: var(--tint-200);
-    margin: 0.45rem 0 0.75rem;
+    margin: 0.3rem 0 0.45rem;
   }
   .visual-audio-meter__bar {
     width: 0%;
@@ -65,7 +130,66 @@
     background: var(--brown-400);
     transition: width 0.08s linear;
   }
+  .visual-doc-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.45);
+    padding: 1rem;
+  }
+  .visual-doc-modal[hidden] { display: none !important; }
+  .visual-doc-modal__panel {
+    width: min(100%, 22rem);
+    background: #fff;
+    border-radius: var(--radius-md);
+    padding: 0.85rem 1rem;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+    border: 1px solid var(--border-light);
+  }
+  .visual-doc-modal__panel h3 {
+    margin: 0 0 0.55rem;
+    font-size: 1rem;
+  }
+  .visual-doc-modal__panel input[type="text"] {
+    width: 100%;
+    margin-bottom: 0.65rem;
+  }
+  .visual-doc-modal__actions {
+    display: flex;
+    gap: 0.4rem;
+    justify-content: flex-end;
+  }
+  .visual-doc-table th,
+  .visual-doc-table td {
+    text-align: center;
+    vertical-align: middle;
+    padding: 0.22rem 0.4rem;
+    font-size: 0.86rem;
+    line-height: 1.2;
+  }
+  .visual-doc-table td.visual-doc-table__name {
+    text-align: start;
+    max-width: 14rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .visual-doc-table .badge {
+    font-size: 0.78rem;
+    padding: 0.1rem 0.35rem;
+  }
+  .visual-doc-delete-form { margin: 0; display: inline; }
+  .btn--visual-del {
+    padding: 0.15rem 0.45rem;
+    font-size: 0.8rem;
+    color: #b91c1c;
+    border-color: #fecaca;
+  }
 </style>
+<div class="visual-doc-page">
 <div class="page-header">
   <h1><i class="fa-solid fa-photo-film fa-icon-title" aria-hidden="true"></i> التوثيق المرئي</h1>
   <div class="page-header__nav">
@@ -80,9 +204,9 @@
 {% else %}
 
 <section class="card">
-  <form method="get" action="{{ url_for('views.visual_documentation') }}" style="display:flex;flex-wrap:wrap;gap:0.6rem;align-items:end;">
+  <form method="get" action="{{ url_for('views.visual_documentation') }}" class="visual-doc-unit-form">
     {% if hub_from_form_param %}<input type="hidden" name="{{ hub_from_form_param }}" value="1">{% endif %}
-    <div class="form-group" style="margin:0;min-width:16rem;">
+    <div class="form-group">
       <label for="vd_unit"><i class="fa-solid fa-layer-group fa-icon-label" aria-hidden="true"></i> مستوى الوحدة</label>
       <select id="vd_unit" name="unit_key" onchange="this.form.submit()">
         {% for u in unit_levels %}
@@ -94,13 +218,19 @@
   </form>
 </section>
 
+{% if upload_error_message %}
+<p class="form-error-banner" role="alert" dir="rtl" style="margin:0 0 0.5rem;"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ upload_error_message }}</p>
+{% elif upload_ok %}
+<p class="form-ok-banner" role="status" dir="rtl" style="margin:0 0 0.5rem;"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> تم رفع الملف وإضافته إلى السجل.</p>
+{% endif %}
+
 <section class="card">
   <h2 class="h2-in-card"><i class="fa-solid fa-cloud-arrow-up fa-icon-title" aria-hidden="true"></i> رفع مادة توثيق</h2>
-  <form method="post" action="{{ url_for('views.visual_documentation_upload') }}" enctype="multipart/form-data">
+  <form method="post" action="{{ url_for('views.visual_documentation_upload') }}" enctype="multipart/form-data" class="visual-doc-upload-form" novalidate>
     {% if hub_from_form_param %}<input type="hidden" name="{{ hub_from_form_param }}" value="1">{% endif %}
     <input type="hidden" name="unit_key" value="{{ selected_unit_key }}">
-    <div class="form-group">
-      <label><i class="fa-solid fa-file-arrow-up fa-icon-label" aria-hidden="true"></i> طريقة إضافة الملف</label>
+    <input type="hidden" name="display_name" id="vd_display_name" value="">
+    <div class="visual-doc-upload-top" dir="rtl">
       <div class="visual-capture-options" role="radiogroup" aria-label="طريقة إضافة مادة التوثيق">
         <label>
           <input type="radio" name="visual_input_mode" value="upload" checked>
@@ -115,20 +245,23 @@
           <span>التسجيل الصوتي</span>
         </label>
       </div>
+      <button class="btn visual-doc-upload-btn" type="button" id="vd_upload_btn"><i class="fa-solid fa-upload" aria-hidden="true"></i> رفع</button>
+    </div>
+    <div class="visual-doc-media-panels">
       <div class="visual-media-input" data-mode="upload">
-        <label for="vd_file_upload">ملف من الجهاز</label>
-        <input id="vd_file_upload" name="media_file" type="file" accept=".jpg,.jpeg,.png,.mp4,.mp3,.wav,.m4a,.ogg,.webm,image/jpeg,image/png,video/mp4,audio/mpeg,audio/wav,audio/*" required>
+        <input id="vd_file_upload" type="file" accept=".jpg,.jpeg,.png,.mp4,.mp3,.wav,.m4a,.ogg,.webm,image/jpeg,image/png,video/mp4,audio/mpeg,audio/wav,audio/*" aria-label="اختيار ملف للرفع">
       </div>
       <div class="visual-media-input" data-mode="camera" hidden>
-        <label>التصوير بالكاميرا مباشرة</label>
         <div class="visual-camera-box" dir="rtl">
           <video id="vd_camera_preview" class="visual-camera-preview" autoplay muted playsinline></video>
           <canvas id="vd_camera_canvas" hidden></canvas>
-          <input id="vd_camera_file" name="media_file" type="file" hidden disabled>
+          <input id="vd_camera_file" type="file" hidden disabled>
+          <div id="vd_video_rec_bar" class="visual-rec-bar" hidden aria-live="polite">
+            <span class="visual-rec-bar__dot" aria-hidden="true"></span>
+            <span>جاري تسجيل الفيديو</span>
+            <span class="visual-rec-bar__time" id="vd_video_rec_time">00:00</span>
+          </div>
           <div class="visual-camera-actions">
-            <button class="btn btn-ghost" type="button" id="vd_camera_start">
-              <i class="fa-solid fa-camera" aria-hidden="true"></i> تشغيل الكاميرا
-            </button>
             <button class="btn btn-ghost" type="button" id="vd_camera_photo" disabled>
               <i class="fa-solid fa-image" aria-hidden="true"></i> التقاط صورة
             </button>
@@ -139,86 +272,97 @@
               <i class="fa-solid fa-stop" aria-hidden="true"></i> إيقاف التسجيل
             </button>
           </div>
-          <p class="muted visual-camera-status" id="vd_camera_status">اضغط تشغيل الكاميرا، ثم التقط صورة أو سجّل فيديو قبل الرفع.</p>
+          <p class="muted visual-camera-status" id="vd_camera_status">اختر التصوير بالكاميرا لفتح المعاينة، ثم التقط صورة أو سجّل فيديو.</p>
         </div>
       </div>
       <div class="visual-media-input" data-mode="audio" hidden>
-        <label>التسجيل الصوتي مباشرة</label>
         <div class="visual-audio-box" dir="rtl">
-          <input id="vd_audio_file" name="media_file" type="file" hidden disabled>
+          <input id="vd_audio_file" type="file" hidden disabled>
+          <div id="vd_audio_rec_bar" class="visual-rec-bar" hidden aria-live="polite">
+            <span class="visual-rec-bar__dot" aria-hidden="true"></span>
+            <span>جاري التسجيل الصوتي</span>
+            <span class="visual-rec-bar__time" id="vd_audio_rec_time">00:00</span>
+          </div>
           <div class="visual-audio-meter" aria-hidden="true">
             <div class="visual-audio-meter__bar" id="vd_audio_meter_bar"></div>
           </div>
           <div class="visual-audio-actions">
-            <button class="btn btn-ghost" type="button" id="vd_audio_start">
-              <i class="fa-solid fa-microphone" aria-hidden="true"></i> تشغيل المايكروفون
-            </button>
-            <button class="btn btn-ghost" type="button" id="vd_audio_record" disabled>
+            <button class="btn btn-ghost" type="button" id="vd_audio_record">
               <i class="fa-solid fa-circle" aria-hidden="true"></i> بدء التسجيل
             </button>
             <button class="btn btn-ghost" type="button" id="vd_audio_stop" disabled>
               <i class="fa-solid fa-stop" aria-hidden="true"></i> إيقاف التسجيل
             </button>
           </div>
-          <p class="muted visual-audio-status" id="vd_audio_status">اضغط تشغيل المايكروفون، ثم ابدأ التسجيل قبل الرفع.</p>
+          <p class="muted visual-audio-status" id="vd_audio_status">اضغط بدء التسجيل، ثم أوقف التسجيل وأدخل اسم الملف قبل الرفع.</p>
         </div>
       </div>
-      <p class="muted mt-tight" style="margin:0.35rem 0 0;">الصور: JPG/PNG — الفيديو: MP4 — الصوت: MP3/WAV/M4A/OGG/WEBM</p>
-    </div>
-    <div class="form-group">
-      <label for="vd_desc"><i class="fa-solid fa-align-right fa-icon-label" aria-hidden="true"></i> وصف مختصر</label>
-      <input id="vd_desc" name="description" type="text" maxlength="5000" placeholder="مثال: توثيق موقف دخول الهدف / رد فعل الوحدة">
-    </div>
-    <div class="form-group">
-      <label for="vd_loc"><i class="fa-solid fa-location-dot fa-icon-label" aria-hidden="true"></i> موقع التصوير</label>
-      <input id="vd_loc" name="location_label" type="text" maxlength="400" placeholder="اختياري">
-    </div>
-    <div class="form-group">
-      <label for="vd_dilemma"><i class="fa-solid fa-triangle-exclamation fa-icon-label" aria-hidden="true"></i> ربط بمعضلة (اختياري)</label>
-      <select id="vd_dilemma" name="dilemma_id">
-        <option value="">— بدون —</option>
-        {% for d in dilemmas %}
-        <option value="{{ d.id }}">{{ d.text }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="btn-group" style="margin-top:0.75rem;">
-      <button class="btn" type="submit"><i class="fa-solid fa-upload" aria-hidden="true"></i> رفع</button>
     </div>
   </form>
+
+  <div id="vd_name_modal" class="visual-doc-modal" hidden role="dialog" aria-modal="true" aria-labelledby="vd_name_modal_title">
+    <div class="visual-doc-modal__panel" dir="rtl">
+      <h3 id="vd_name_modal_title">اسم الملف</h3>
+      <label class="sr-only" for="vd_name_input">اسم الملف</label>
+      <input id="vd_name_input" type="text" maxlength="200" placeholder="أدخل اسماً للملف أو التسجيل" autocomplete="off">
+      <div class="visual-doc-modal__actions">
+        <button type="button" class="btn btn-ghost" id="vd_name_cancel">إلغاء</button>
+        <button type="button" class="btn" id="vd_name_ok">موافق</button>
+      </div>
+    </div>
+  </div>
+
   <script>
   (() => {
-    const form = document.currentScript.closest("section").querySelector("form");
+    const section = document.currentScript.closest("section");
+    const form = section.querySelector("form.visual-doc-upload-form");
     if (!form) return;
+
     const radios = Array.from(form.querySelectorAll("input[name='visual_input_mode']"));
     const panels = Array.from(form.querySelectorAll(".visual-media-input"));
+    const displayNameInput = form.querySelector("#vd_display_name");
+    const uploadInput = form.querySelector("#vd_file_upload");
+    const nameModal = section.querySelector("#vd_name_modal");
+    const nameInput = section.querySelector("#vd_name_input");
+    const nameOk = section.querySelector("#vd_name_ok");
+    const nameCancel = section.querySelector("#vd_name_cancel");
+
     const camera = {
       stream: null,
       recorder: null,
       chunks: [],
+      starting: false,
       preview: form.querySelector("#vd_camera_preview"),
       canvas: form.querySelector("#vd_camera_canvas"),
       fileInput: form.querySelector("#vd_camera_file"),
-      startBtn: form.querySelector("#vd_camera_start"),
       photoBtn: form.querySelector("#vd_camera_photo"),
       recordBtn: form.querySelector("#vd_camera_record"),
       stopRecordBtn: form.querySelector("#vd_camera_stop_record"),
       status: form.querySelector("#vd_camera_status"),
+      recBar: form.querySelector("#vd_video_rec_bar"),
+      recTime: form.querySelector("#vd_video_rec_time"),
     };
     const audio = {
       stream: null,
       recorder: null,
       chunks: [],
+      starting: false,
       ctx: null,
       analyser: null,
       meterRaf: 0,
       fileInput: form.querySelector("#vd_audio_file"),
-      startBtn: form.querySelector("#vd_audio_start"),
       recordBtn: form.querySelector("#vd_audio_record"),
       stopBtn: form.querySelector("#vd_audio_stop"),
       status: form.querySelector("#vd_audio_status"),
       meterBar: form.querySelector("#vd_audio_meter_bar"),
+      recBar: form.querySelector("#vd_audio_rec_bar"),
+      recTime: form.querySelector("#vd_audio_rec_time"),
     };
+
+    let nameModalCallback = null;
+    let recTimerId = null;
+    const uploadBtn = section.querySelector("#vd_upload_btn");
+    let recStartedAt = 0;
 
     function setStatus(msg) {
       if (camera.status) camera.status.textContent = msg;
@@ -227,23 +371,147 @@
       if (audio.status) audio.status.textContent = msg;
     }
 
-    function assignCameraFile(file) {
-      if (!camera.fileInput || !window.DataTransfer) return false;
-      const dt = new DataTransfer();
-      dt.items.add(file);
-      camera.fileInput.files = dt.files;
-      camera.fileInput.disabled = false;
-      camera.fileInput.required = true;
-      return true;
+    function formatRecTime(sec) {
+      const m = String(Math.floor(sec / 60)).padStart(2, "0");
+      const s = String(sec % 60).padStart(2, "0");
+      return m + ":" + s;
     }
-    function assignAudioFile(file) {
-      if (!audio.fileInput || !window.DataTransfer) return false;
+
+    function startRecTimer(barEl, timeEl) {
+      stopRecTimer(barEl);
+      if (!barEl || !timeEl) return;
+      barEl.hidden = false;
+      recStartedAt = Date.now();
+      recTimerId = window.setInterval(() => {
+        const sec = Math.floor((Date.now() - recStartedAt) / 1000);
+        timeEl.textContent = formatRecTime(sec);
+      }, 500);
+    }
+
+    function stopRecTimer(barEl) {
+      if (recTimerId) {
+        clearInterval(recTimerId);
+        recTimerId = null;
+      }
+      if (barEl) barEl.hidden = true;
+    }
+
+    function openNameModal(defaultName, onConfirm) {
+      if (!nameModal || !nameInput) {
+        if (onConfirm) onConfirm((defaultName || "").trim());
+        return;
+      }
+      nameModalCallback = onConfirm;
+      nameInput.value = (defaultName || "").trim();
+      nameModal.hidden = false;
+      nameInput.focus();
+      nameInput.select();
+    }
+
+    function closeNameModal() {
+      if (nameModal) nameModal.hidden = true;
+      nameModalCallback = null;
+    }
+
+    function promptDisplayName(defaultName) {
+      return new Promise((resolve) => {
+        openNameModal(defaultName, (name) => {
+          const trimmed = (name || "").trim();
+          if (!trimmed) {
+            resolve(false);
+            return;
+          }
+          if (displayNameInput) displayNameInput.value = trimmed;
+          resolve(true);
+        });
+      });
+    }
+
+    if (nameOk) {
+      nameOk.addEventListener("click", () => {
+        const cb = nameModalCallback;
+        closeNameModal();
+        if (cb) cb((nameInput.value || "").trim());
+      });
+    }
+    if (nameCancel) {
+      nameCancel.addEventListener("click", () => closeNameModal());
+    }
+    if (nameModal) {
+      nameModal.addEventListener("click", (e) => {
+        if (e.target === nameModal) closeNameModal();
+      });
+    }
+    if (nameInput) {
+      nameInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          if (nameOk) nameOk.click();
+        }
+        if (e.key === "Escape") closeNameModal();
+      });
+    }
+
+    function assignFileToInput(inp, file) {
+      if (!inp || !file || !window.DataTransfer) return false;
       const dt = new DataTransfer();
       dt.items.add(file);
-      audio.fileInput.files = dt.files;
-      audio.fileInput.disabled = false;
-      audio.fileInput.required = true;
-      return true;
+      inp.files = dt.files;
+      return inp.files && inp.files.length > 0;
+    }
+
+    function assignCameraFile(file) {
+      return assignFileToInput(camera.fileInput, file);
+    }
+
+    function assignAudioFile(file) {
+      return assignFileToInput(audio.fileInput, file);
+    }
+
+    function activeMediaInput(mode) {
+      if (mode === "upload") return uploadInput;
+      if (mode === "camera") return camera.fileInput;
+      if (mode === "audio") return audio.fileInput;
+      return null;
+    }
+
+    function prepareMediaFieldForUpload(mode) {
+      [uploadInput, camera.fileInput, audio.fileInput].forEach((inp) => {
+        if (!inp) return;
+        const isActive = inp === activeMediaInput(mode);
+        if (isActive) {
+          inp.setAttribute("name", "media_file");
+          inp.disabled = false;
+        } else {
+          inp.removeAttribute("name");
+          inp.disabled = true;
+        }
+      });
+    }
+
+    function currentMode() {
+      return (radios.find((r) => r.checked) || radios[0] || {}).value || "upload";
+    }
+
+    function mediaFileForMode(mode) {
+      const inp = activeMediaInput(mode);
+      if (!inp || !inp.files || !inp.files.length) return null;
+      return inp.files[0];
+    }
+
+    function defaultNameFromFile(file) {
+      if (!file || !file.name) return "توثيق";
+      return file.name.replace(/\.[^.]+$/, "") || file.name;
+    }
+
+    function afterMediaReady(file, fallbackLabel) {
+      const def = defaultNameFromFile(file) || fallbackLabel || "توثيق";
+      promptDisplayName(def).then((ok) => {
+        if (ok) {
+          setStatus("تم تجهيز الملف. اضغط رفع لحفظه في السجل.");
+          setAudioStatus("تم تجهيز الملف. اضغط رفع لحفظه في السجل.");
+        }
+      });
     }
 
     function pickAudioMime() {
@@ -280,22 +548,8 @@
       tick();
     }
 
-    async function startMicrophone() {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setAudioStatus("المتصفح لا يدعم التسجيل الصوتي مباشرة. استخدم خيار رفع ملف.");
-        return;
-      }
-      try {
-        audio.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        startAudioMeter(audio.stream);
-        audio.recordBtn.disabled = !window.MediaRecorder;
-        setAudioStatus("الميكروفون يعمل. يمكنك بدء التسجيل.");
-      } catch (err) {
-        setAudioStatus("تعذر تشغيل المايكروفون. تأكد من السماح للمتصفح باستخدام الميكروفون.");
-      }
-    }
-
     function stopMicrophone() {
+      stopRecTimer(audio.recBar);
       if (audio.recorder && audio.recorder.state === "recording") {
         audio.recorder.stop();
       }
@@ -309,41 +563,71 @@
       audio.ctx = null;
       audio.analyser = null;
       if (audio.meterBar) audio.meterBar.style.width = "0%";
-      audio.recordBtn.disabled = true;
-      audio.stopBtn.disabled = true;
+      if (audio.recordBtn) audio.recordBtn.disabled = false;
+      if (audio.stopBtn) audio.stopBtn.disabled = true;
     }
 
-    function startAudioRecording() {
-      if (!audio.stream || !window.MediaRecorder) return;
-      audio.chunks = [];
-      const mime = pickAudioMime();
-      audio.recorder = mime ? new MediaRecorder(audio.stream, { mimeType: mime }) : new MediaRecorder(audio.stream);
-      audio.recorder.addEventListener("dataavailable", (e) => {
-        if (e.data && e.data.size) audio.chunks.push(e.data);
-      });
-      audio.recorder.addEventListener("stop", () => {
-        const outMime = audio.recorder.mimeType || mime || "audio/webm";
-        const blob = new Blob(audio.chunks, { type: outMime });
-        const file = new File([blob], `visual-audio-${Date.now()}.${audioExt(outMime)}`, { type: outMime });
-        if (assignAudioFile(file)) {
-          setAudioStatus("تم تجهيز التسجيل الصوتي. اضغط رفع لحفظه في السجل.");
-        } else {
-          setAudioStatus("تعذر تجهيز التسجيل للرفع في هذا المتصفح.");
+    async function startAudioRecording() {
+      if (audio.starting || (audio.recorder && audio.recorder.state === "recording")) return;
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setAudioStatus("المتصفح لا يدعم التسجيل الصوتي مباشرة. استخدم خيار رفع ملف.");
+        return;
+      }
+      if (!window.MediaRecorder) {
+        setAudioStatus("المتصفح لا يدعم تسجيل الصوت.");
+        return;
+      }
+      audio.starting = true;
+      if (audio.recordBtn) audio.recordBtn.disabled = true;
+      try {
+        if (!audio.stream) {
+          audio.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          startAudioMeter(audio.stream);
         }
-        audio.recordBtn.disabled = false;
-        audio.stopBtn.disabled = true;
-      });
-      audio.recorder.start();
-      audio.recordBtn.disabled = true;
-      audio.stopBtn.disabled = false;
-      setAudioStatus("جاري التسجيل الصوتي...");
+        audio.chunks = [];
+        const mime = pickAudioMime();
+        audio.recorder = mime
+          ? new MediaRecorder(audio.stream, { mimeType: mime })
+          : new MediaRecorder(audio.stream);
+        audio.recorder.addEventListener("dataavailable", (e) => {
+          if (e.data && e.data.size) audio.chunks.push(e.data);
+        });
+        audio.recorder.addEventListener("stop", () => {
+          const outMime = audio.recorder.mimeType || mime || "audio/webm";
+          const blob = new Blob(audio.chunks, { type: outMime });
+          const file = new File(
+            [blob],
+            `visual-audio-${Date.now()}.${audioExt(outMime)}`,
+            { type: outMime }
+          );
+          stopRecTimer(audio.recBar);
+          stopMicrophone();
+          if (assignAudioFile(file)) {
+            afterMediaReady(file, "تسجيل صوتي");
+          } else {
+            setAudioStatus("تعذر تجهيز التسجيل للرفع في هذا المتصفح.");
+          }
+        });
+        audio.recorder.start();
+        if (audio.recordBtn) audio.recordBtn.disabled = true;
+        if (audio.stopBtn) audio.stopBtn.disabled = false;
+        startRecTimer(audio.recBar, audio.recTime);
+        setAudioStatus("جاري التسجيل الصوتي…");
+      } catch (err) {
+        setAudioStatus("تعذر الوصول للمايكروفون. تأكد من السماح للمتصفح باستخدامه.");
+        if (audio.recordBtn) audio.recordBtn.disabled = false;
+      } finally {
+        audio.starting = false;
+      }
     }
 
     async function startCamera() {
+      if (camera.stream || camera.starting) return;
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         setStatus("المتصفح لا يدعم تشغيل الكاميرا مباشرة. استخدم خيار رفع ملف.");
         return;
       }
+      camera.starting = true;
       try {
         camera.stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: "environment" } },
@@ -352,13 +636,16 @@
         camera.preview.srcObject = camera.stream;
         camera.photoBtn.disabled = false;
         camera.recordBtn.disabled = !window.MediaRecorder;
-        setStatus("الكاميرا تعمل. يمكنك التقاط صورة أو بدء تسجيل فيديو.");
+        setStatus("الكاميرا جاهزة. التقط صورة أو سجّل فيديو.");
       } catch (err) {
         setStatus("تعذر تشغيل الكاميرا. تأكد من السماح للمتصفح باستخدام الكاميرا والميكروفون.");
+      } finally {
+        camera.starting = false;
       }
     }
 
     function stopCamera() {
+      stopRecTimer(camera.recBar);
       if (camera.recorder && camera.recorder.state === "recording") {
         camera.recorder.stop();
       }
@@ -387,14 +674,14 @@
         }
         const file = new File([blob], `visual-photo-${Date.now()}.jpg`, { type: "image/jpeg" });
         if (assignCameraFile(file)) {
-          setStatus("تم التقاط صورة. اضغط رفع لحفظها في السجل.");
+          afterMediaReady(file, "صورة");
         } else {
           setStatus("تعذر تجهيز الصورة للرفع في هذا المتصفح.");
         }
       }, "image/jpeg", 0.92);
     }
 
-    function startRecording() {
+    function startVideoRecording() {
       if (!camera.stream || !window.MediaRecorder) return;
       camera.chunks = [];
       const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
@@ -407,66 +694,122 @@
       camera.recorder.addEventListener("stop", () => {
         const blob = new Blob(camera.chunks, { type: "video/webm" });
         const file = new File([blob], `visual-video-${Date.now()}.webm`, { type: "video/webm" });
+        stopRecTimer(camera.recBar);
+        camera.recordBtn.disabled = false;
+        camera.stopRecordBtn.disabled = true;
         if (assignCameraFile(file)) {
-          setStatus("تم تجهيز الفيديو. اضغط رفع لحفظه في السجل.");
+          afterMediaReady(file, "فيديو");
         } else {
           setStatus("تعذر تجهيز الفيديو للرفع في هذا المتصفح.");
         }
-        camera.recordBtn.disabled = false;
-        camera.stopRecordBtn.disabled = true;
       });
       camera.recorder.start();
       camera.recordBtn.disabled = true;
       camera.stopRecordBtn.disabled = false;
-      setStatus("جاري تسجيل الفيديو...");
+      startRecTimer(camera.recBar, camera.recTime);
+      setStatus("جاري تسجيل الفيديو…");
     }
 
     function setMode(mode) {
+      if (displayNameInput) displayNameInput.value = "";
       panels.forEach((panel) => {
         const active = panel.dataset.mode === mode;
         panel.hidden = !active;
-        panel.querySelectorAll("input[type='file']").forEach((inp) => {
-          inp.disabled = !active;
-          inp.required = active;
-          if (!active) inp.value = "";
-        });
       });
+      prepareMediaFieldForUpload(mode);
       if (mode !== "camera") {
         stopCamera();
+      } else {
+        startCamera();
       }
       if (mode !== "audio") {
         stopMicrophone();
       }
     }
+
     radios.forEach((r) => r.addEventListener("change", () => {
       if (r.checked) setMode(r.value);
     }));
-    if (camera.startBtn) camera.startBtn.addEventListener("click", startCamera);
+
     if (camera.photoBtn) camera.photoBtn.addEventListener("click", capturePhoto);
-    if (camera.recordBtn) camera.recordBtn.addEventListener("click", startRecording);
-    if (camera.stopRecordBtn) camera.stopRecordBtn.addEventListener("click", () => {
-      if (camera.recorder && camera.recorder.state === "recording") camera.recorder.stop();
-    });
-    if (audio.startBtn) audio.startBtn.addEventListener("click", startMicrophone);
+    if (camera.recordBtn) camera.recordBtn.addEventListener("click", startVideoRecording);
+    if (camera.stopRecordBtn) {
+      camera.stopRecordBtn.addEventListener("click", () => {
+        if (camera.recorder && camera.recorder.state === "recording") camera.recorder.stop();
+      });
+    }
     if (audio.recordBtn) audio.recordBtn.addEventListener("click", startAudioRecording);
-    if (audio.stopBtn) audio.stopBtn.addEventListener("click", () => {
-      if (audio.recorder && audio.recorder.state === "recording") audio.recorder.stop();
-    });
+    if (audio.stopBtn) {
+      audio.stopBtn.addEventListener("click", () => {
+        if (audio.recorder && audio.recorder.state === "recording") audio.recorder.stop();
+      });
+    }
+
+    if (uploadInput) {
+      uploadInput.addEventListener("change", () => {
+        if (!uploadInput.files || !uploadInput.files.length) return;
+        const file = uploadInput.files[0];
+        if (displayNameInput) displayNameInput.value = "";
+        promptDisplayName(defaultNameFromFile(file));
+      });
+    }
+
+    async function runUpload() {
+      const mode = currentMode();
+      let file = mediaFileForMode(mode);
+      let fallback = "توثيق";
+
+      if (!file) {
+        if (mode === "upload") {
+          alert("اختر ملفاً للرفع أولاً.");
+        } else if (mode === "camera") {
+          setStatus("التقط صورة أو سجّل فيديو أولاً.");
+        } else {
+          setAudioStatus("سجّل مقطعاً صوتياً وأدخل اسمه أولاً.");
+        }
+        return;
+      }
+
+      if (mode === "camera") {
+        fallback = (file.type || "").startsWith("video/") ? "فيديو" : "صورة";
+      } else if (mode === "audio") {
+        fallback = "تسجيل صوتي";
+      }
+
+      if (!(displayNameInput && displayNameInput.value.trim())) {
+        const ok = await promptDisplayName(defaultNameFromFile(file) || fallback);
+        if (!ok) return;
+      }
+
+      file = mediaFileForMode(mode);
+      if (!file) {
+        alert("تعذر قراءة الملف. أعد التسجيل أو اختيار الملف.");
+        return;
+      }
+
+      prepareMediaFieldForUpload(mode);
+      if (uploadBtn) uploadBtn.disabled = true;
+      form.submit();
+    }
+
+    if (uploadBtn) {
+      uploadBtn.addEventListener("click", () => {
+        runUpload().catch(() => {
+          if (uploadBtn) uploadBtn.disabled = false;
+          alert("تعذر إتمام الرفع. أعد المحاولة.");
+        });
+      });
+    }
+
     form.addEventListener("submit", (e) => {
-      const mode = (radios.find((r) => r.checked) || {}).value;
-      if (mode === "camera" && (!camera.fileInput || !camera.fileInput.files.length)) {
-        e.preventDefault();
-        setStatus("التقط صورة أو سجّل فيديو أولاً قبل الضغط على رفع.");
-      }
-      if (mode === "audio" && (!audio.fileInput || !audio.fileInput.files.length)) {
-        e.preventDefault();
-        setAudioStatus("سجّل مقطعاً صوتياً أولاً قبل الضغط على رفع.");
-      }
+      e.preventDefault();
     });
+
     window.addEventListener("beforeunload", () => {
       stopCamera();
       stopMicrophone();
     });
+
     setMode((radios.find((r) => r.checked) || radios[0]).value);
   })();
   </script>
@@ -474,32 +817,41 @@
 
 <section class="card">
   <h2 class="h2-in-card"><i class="fa-solid fa-clock-rotate-left fa-icon-title" aria-hidden="true"></i> السجل</h2>
-  {% if docs %}
+  {% if doc_rows %}
   <div class="table-wrap">
     <table class="visual-doc-table" dir="rtl" aria-label="سجل التوثيق المرئي">
       <thead>
         <tr>
           <th scope="col">التاريخ والوقت</th>
+          <th scope="col">اسم الملف</th>
           <th scope="col">نوع الملف</th>
           <th scope="col">المحكم</th>
-          <th scope="col">الوصف</th>
-          <th scope="col">الموقع</th>
+          <th scope="col">الحجم (kb)</th>
           <th scope="col">فتح</th>
+          <th scope="col">حذف</th>
         </tr>
       </thead>
       <tbody>
-        {% for r in docs %}
+        {% for entry in doc_rows %}
+        {% set r = entry.row %}
         <tr>
           <td>{% if r.created_at %}{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td class="visual-doc-table__name" title="{{ entry.display_name }}">{{ entry.display_name }}</td>
           <td>
             {% if r.file_type == 'video' %}<span class="badge badge--prio-med">فيديو</span>
             {% elif r.file_type == 'audio' %}<span class="badge badge--prio-low">صوت</span>
             {% else %}<span class="badge badge--prio-high">صورة</span>{% endif %}
           </td>
           <td>{{ (r.uploader.full_name if r.uploader else '') or '—' }}</td>
-          <td class="visual-doc-table__desc muted">{{ r.description or '—' }}</td>
-          <td class="muted">{{ r.location_label or '—' }}</td>
+          <td>{% if entry.size_kb is not none %}{{ entry.size_kb }}{% else %}—{% endif %}</td>
           <td><a href="{{ url_for('views.visual_document_file', doc_id=r.id) }}" target="_blank" rel="noopener">فتح</a></td>
+          <td>
+            <form method="post" action="{{ url_for('views.visual_document_delete', doc_id=r.id) }}" class="visual-doc-delete-form" onsubmit="return confirm('حذف هذا الملف من السجل؟');">
+              {% if hub_from_form_param %}<input type="hidden" name="{{ hub_from_form_param }}" value="1">{% endif %}
+              <input type="hidden" name="unit_key" value="{{ selected_unit_key }}">
+              <button type="submit" class="btn btn-ghost btn--visual-del" title="حذف"><i class="fa-solid fa-trash" aria-hidden="true"></i> حذف</button>
+            </form>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -511,5 +863,5 @@
 </section>
 
 {% endif %}
+</div>
 {% endblock %}
-

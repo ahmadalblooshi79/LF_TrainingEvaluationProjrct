@@ -326,7 +326,7 @@
           <th>المتدرب</th>
           <th>حالة الربط</th>
           {% if not readonly_mode %}<th>إجراء</th>{% endif %}
-          {% if can_oversee_judge_planner_flow %}<th>إطلاع</th>{% endif %}
+          {% if can_oversee_judge_planner_flow %}<th>اعتماد</th>{% endif %}
         </tr>
       </thead>
       <tbody>
@@ -368,9 +368,9 @@
           <td>
             {% if bundle and effective_bid is not none and ja.planner_flow_bundle_id == effective_bid %}
               {% if chief_hub_query_on_judge_links %}
-              <a class="btn btn-ghost btn-sm-compact" href="{{ url_for('views.judge_planner_flow_materials', judge_user_id=ja.judge_user_id, from_chief_judge=1) }}"><i class="fa-solid fa-eye" aria-hidden="true"></i> إطلاع</a>
+              <a class="btn btn-ghost btn-sm-compact" href="{{ url_for('views.judge_planner_flow_materials', judge_user_id=ja.judge_user_id, from_chief_judge=1) }}"><i class="fa-solid fa-stamp" aria-hidden="true"></i> اعتماد</a>
               {% else %}
-              <a class="btn btn-ghost btn-sm-compact" href="{{ url_for('views.judge_planner_flow_materials', judge_user_id=ja.judge_user_id) }}"><i class="fa-solid fa-eye" aria-hidden="true"></i> إطلاع</a>
+              <a class="btn btn-ghost btn-sm-compact" href="{{ url_for('views.judge_planner_flow_materials', judge_user_id=ja.judge_user_id) }}"><i class="fa-solid fa-stamp" aria-hidden="true"></i> اعتماد</a>
               {% endif %}
             {% else %}
             <span class="muted">—</span>

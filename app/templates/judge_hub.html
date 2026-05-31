@@ -1,11 +1,13 @@
 {% extends "base.html" %}
 {% block title %}مساحة المحكمين{% endblock %}
 {% block content %}
-<div class="page-header">
+<div class="page-header{% if judge_hub_hide_close|default(false) %} page-header--no-close{% endif %}">
   <h1><i class="fa-solid fa-scale-balanced fa-icon-title" aria-hidden="true"></i> مساحة المحكمين</h1>
+  {% if not judge_hub_hide_close|default(false) %}
   <div class="page-header__nav">
     {% include 'partials/subpage_close.html' %}
   </div>
+  {% endif %}
 </div>
 
 <aside class="card role-hub-menu" role="navigation" aria-label="أدوات المحكمين">

@@ -8196,13 +8196,52 @@ main:has(.judge-pf-tabbed) > .judge-pf-root {
   justify-self: start;
   width: auto;
 }
-.judge-pf-page-header .judge-pf-unit-line {
-  margin: 0.15rem 0 0;
+.judge-pf-page-header-meta {
+  grid-column: 1 / -1;
+  grid-area: meta;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.22rem;
+  min-width: 0;
+}
+.judge-pf-page-header-meta .judge-pf-unit-line {
+  margin: 0;
   font-size: 0.95rem;
+  line-height: 1.35;
   color: var(--text, #3a332d);
 }
 .judge-pf-page-header .judge-pf-unit-line strong {
   font-weight: 700;
+}
+.pf-judge-eval-table tr.eval-row-tone--pending td {
+  background: #fef9c3;
+}
+.pf-judge-eval-table tr.eval-row-tone--sent td {
+  background: #dcfce7;
+}
+.pf-judge-eval-table tr.eval-row-tone--returned td {
+  background: #fee2e2;
+}
+.judge-pf-eval-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.88rem;
+}
+.eval-chief-hint-row {
+  margin: 0.35rem 0 0;
+  padding: 0.35rem 0.5rem 0.25rem;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  border-top: 1px solid var(--border-light);
+}
+.eval-sticky-footer--bar .eval-save-hint {
+  flex: 1 1 100%;
+  min-width: 8rem;
+  text-align: start;
+}
+.eval-save-hint--ok {
+  color: #166534;
+  font-weight: 600;
 }
 .judge-pf-tabbed {
   flex: 1 1 auto;

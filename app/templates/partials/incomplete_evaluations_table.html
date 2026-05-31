@@ -1,0 +1,40 @@
+{% if incomplete_rows %}
+<div class="table-wrap final-report-table-scroll--detail" style="max-height:min(70vh,42rem);">
+  <table class="judge-eval-lists-table incomplete-eval-table" dir="rtl" aria-label="التقييمات غير المنجزة">
+    <thead>
+      <tr>
+        <th scope="col" class="eval-lists-table__seq">ت</th>
+        <th scope="col">مرحلة التدريب</th>
+        <th scope="col">الوحدة المتدربة</th>
+        <th scope="col">نوع القائمة</th>
+        <th scope="col">مسمى التقييم</th>
+        <th scope="col">النسبة</th>
+        <th scope="col">التقدير</th>
+        <th scope="col">الموقف</th>
+        <th scope="col">سير الاعتماد</th>
+        <th scope="col">فتح</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in incomplete_rows %}
+      <tr class="{% if r.row_tone and r.row_tone != 'none' %}eval-row-tone--{{ r.row_tone }}{% else %}eval-row-tone--pending{% endif %}">
+        <td class="eval-lists-table__seq">{{ loop.index }}</td>
+        <td>{{ r.phase_label or '—' }}</td>
+        <td>{{ r.unit_label or '—' }}</td>
+        <td>
+          <span class="control-eval-list-type control-eval-list-type--{{ r.list_type_kind|default('judge_eval') }}">{{ r.list_type_label|default('قائمة التقييم') }}</span>
+        </td>
+        <td>{{ r.item_title }}</td>
+        <td>{% if r.total_pct is not none %}{{ (r.total_pct | round(2)) }}%{% else %}—{% endif %}</td>
+        <td>{{ r.grade_label or '—' }}</td>
+        <td><span class="badge badge--not-done">غير منجزة</span></td>
+        <td>{{ r.workflow_label or '—' }}</td>
+        <td><a href="{{ r.open_href }}">عرض</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="muted" dir="rtl" style="margin:0;">لا توجد قوائم تقييم غير منجزة حالياً.</p>
+{% endif %}

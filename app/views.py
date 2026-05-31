@@ -89,9 +89,10 @@ from app.evaluation_workflow import (
     apply_judge_save_after_reopen,
     apply_judge_approve,
     build_evaluation_list_row,
+    build_planner_flow_eval_row,
     evaluation_unit_home_rows,
-    build_evaluation_list_row,
     evaluation_unit_home_totals,
+    eval_status_done,
     eval_chief_approved,
     eval_chief_can_approve,
     eval_chief_can_reopen,
@@ -4929,6 +4930,13 @@ def analyst_hub_section(slug: str):
                 final_eval_can_edit=True,
             ),
         )
+    if slug_norm == "incomplete-tasks":
+        return _render_incomplete_evaluations_page(
+            user,
+            section_title=title,
+            section_icon="fa-clipboard-list",
+            role="analyst",
+        )
     return render_template(
         "analyst_section_placeholder.html",
         **_actx( section_title=title, section_slug=slug),
@@ -4989,7 +4997,9 @@ def analyst_final_evaluation_unit_detail(unit_key: str):
             n_saved_pending_eval_lists=report["n_saved_pending_eval_lists"],
             final_eval_can_edit=True,
             ok_msg=ok_msg,
-            **_hub_back_ctx_for_request_path(),
+            **_subpage_close_ctx(
+                url_for("views.analyst_hub_section", slug="final-evaluation")
+            ),
         ),
     )
 
@@ -5137,7 +5147,9 @@ def analyst_evaluation_criteria_phase(unit_id: int, phase_key: str):
                 eval_list_driven=False,
                 eval_list_count=0,
                 criteria_unit_level_key="",
-                **_hub_back_ctx_for_request_path(),
+                **_subpage_close_ctx(
+                    url_for("views.analyst_hub_section", slug="evaluation-criteria")
+                ),
             ),
         )
     ex = db.query(Exercise).filter(Exercise.id == ex0.id).first()
@@ -5176,7 +5188,9 @@ def analyst_evaluation_criteria_phase(unit_id: int, phase_key: str):
             criteria_unit_level_key=unit_level_key,
             total_mark=total_mark if total_mark > 0 else None,
             ok_msg="تم حفظ جدول المرحلة." if request.args.get("ok") else "",
-            **_hub_back_ctx_for_request_path(),
+            **_subpage_close_ctx(
+                url_for("views.analyst_hub_section", slug="evaluation-criteria")
+            ),
         ),
     )
 
@@ -5640,33 +5654,14 @@ def admin_planner_flow_bundle_overview():
 
 @bp.route("/chief-judge/planner-flow-bundle-overview", methods=["GET"])
 def chief_judge_planner_flow_bundle_overview():
+    """اعتماد المجرى وقوائم الإجراءات — نفس واجهة المحكم مع اختيار المحكم."""
     user = get_current_user_optional()
     if not user:
         return redirect("/login?next=/chief-judge/planner-flow-bundle-overview")
     if not can_access_chief_judge_hub(user):
         abort(403)
-    from flask import g
-
-    db = g.db
-    ex = _current_workspace_exercise(db, user)
-    _ensure_judge_roster_synced(db, user, ex)
-    page_ctx = _build_planner_flow_bundle_page_context(
-        db,
-        user,
-        ex,
-        readonly=True,
-        pf_workspace_endpoint="views.chief_judge_planner_flow_bundle_overview",
-        chief_hub_query_on_judge_links=True,
-        err="",
-        ok="",
-    )
-    return render_template(
-        "chief_judge_planner_flow_bundle_overview.html",
-        **_ctx(
-            user,
-            **page_ctx,
-            **_hub_back_ctx_for_request_path(),
-        ),
+    return redirect(
+        url_for("views.judge_planner_flow_materials", from_chief_judge=1)
     )
 
 
@@ -6167,13 +6162,12 @@ def _planner_flow_action_lists_editable(user: User) -> bool:
 
 
 def _planner_flow_eval_list_viewer_ctx(user: User, saved) -> dict:
-    """سياق واجهة تقييم قائمة إجراءات الحزمة — صلاحية كاملة للمحكم/كبير المحكمين."""
+    """سياق واجهة تقييم قائمة إجراءات الحزمة — محكم أو كبير محكمين (اعتماد/إعادة)."""
     wf = dict(_eval_list_viewer_ctx(user, saved))
+    wf["eval_chief_next_step_hint"] = True
     if _planner_flow_is_readonly_oversee(user):
         wf["eval_can_edit"] = False
         wf["show_eval_approve"] = False
-        wf["show_chief_approve"] = False
-        wf["show_chief_reopen"] = False
         return wf
     if not _planner_flow_action_lists_editable(user):
         return wf
@@ -6236,18 +6230,29 @@ def _planner_flow_oversee_assignment_rows(db, ex: Exercise) -> list[dict]:
             or f"محكم #{ja.judge_user_id}"
         )
         uk = (ja.unit_level_key or "").strip()
+        link_kw: dict = {"judge_user_id": int(ja.judge_user_id)}
+        if _request_from_chief_judge_hub():
+            link_kw["from_chief_judge"] = 1
+        bundle_label = "—"
+        if bundle is not None:
+            bundle_label = (
+                (bundle.event_flow_title or "").strip()
+                or label_for_unit_level_key(bundle.unit_level_key)
+                or f"حزمة #{bundle.id}"
+            )
         out.append(
             {
                 "judge_user_id": int(ja.judge_user_id),
                 "judge_label": jlabel,
                 "trainee_name": (ja.trainee_name or "").strip() or "—",
                 "unit_label": label_for_unit_level_key(uk) or uk or "—",
+                "bundle_label": bundle_label,
                 "bundle_linked": bool(
                     bundle and getattr(bundle, "linked_at", None)
                 ),
                 "view_href": url_for(
                     "views.judge_planner_flow_materials",
-                    judge_user_id=int(ja.judge_user_id),
+                    **link_kw,
                 ),
             }
         )
@@ -6392,9 +6397,6 @@ def judge_planner_flow_materials():
         if ex is not None:
             for slot_row in slots:
                 s_canon = _planner_bundle_eval_canonical_saved(db, ex.id, slot_row.id)
-                is_done = bool(
-                    s_canon and getattr(s_canon, "is_approved", False)
-                )
                 has_xlsx = bool((slot_row.file_relpath or "").strip())
                 title_s = _planner_blob_display_filename(
                     stored_title=slot_row.title or "",
@@ -6402,25 +6404,12 @@ def judge_planner_flow_materials():
                     fallback=f"قائمة {slot_row.slot_index}",
                 )
                 planner_eval_rows.append(
-                    {
-                        "slot_index": int(slot_row.slot_index),
-                        "item_title": title_s,
-                        "dt": (getattr(s_canon, "updated_at", None) if s_canon else None)
-                        or getattr(slot_row, "created_at", None),
-                        "exercise_type": (getattr(ex, "exercise_type", "") or "").strip(),
-                        "trained_unit": (getattr(ex, "trained_unit", "") or "").strip(),
-                        "delivery_dt": (
-                            getattr(s_canon, "approved_at", None)
-                            if s_canon is not None
-                            and bool(getattr(s_canon, "is_approved", False))
-                            else None
-                        ),
-                        "status_label": "ينجز" if is_done else "لم ينجز",
-                        "status_done": is_done,
-                        "grade_label": (getattr(s_canon, "grade_label", "") or "").strip()
-                        if s_canon
-                        else "",
-                        "open_href": (
+                    build_planner_flow_eval_row(
+                        slot_index=int(slot_row.slot_index),
+                        item_title=title_s,
+                        saved=s_canon,
+                        exercise=ex,
+                        open_href=(
                             url_for(
                                 "views.judge_planner_flow_materials_action_evaluate",
                                 slot=slot_row.slot_index,
@@ -6429,7 +6418,8 @@ def judge_planner_flow_materials():
                             if has_xlsx
                             else ""
                         ),
-                    }
+                        dt_fallback=getattr(slot_row, "created_at", None),
+                    )
                 )
     if oversee and ex is not None and oversee_jid is not None and bundle is None:
         abort(404)
@@ -6616,6 +6606,16 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
         slot=int(slot),
         **pf_qs,
     )
+    eval_chief_approve_url = url_for(
+        "views.judge_planner_flow_materials_action_chief_approve",
+        slot=int(slot),
+        **pf_qs,
+    )
+    eval_chief_reopen_url = url_for(
+        "views.judge_planner_flow_materials_action_chief_reopen",
+        slot=int(slot),
+        **pf_qs,
+    )
     eval_close_href = url_for(
         "views.judge_planner_flow_materials",
         tab=_JUDGE_PF_TAB_EVAL_LISTS,
@@ -6685,23 +6685,36 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
             has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
             eval_save_url=eval_save_url,
             eval_approve_url=eval_approve_url,
-            eval_chief_approve_url="",
-            eval_chief_reopen_url="",
+            eval_chief_approve_url=eval_chief_approve_url,
+            eval_chief_reopen_url=eval_chief_reopen_url,
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int)
             == 1,
+            eval_readonly_notice=request.args.get("eval_readonly", type=int) == 1,
+            eval_action_failed=request.args.get("eval_action_failed", type=int) == 1,
+            eval_saved_notice=request.args.get("eval_saved", type=int) == 1,
         ),
     )
 
 
 @bp.route(
     "/judge/planner-flow-materials/action/<int:slot>/save-results",
-    methods=["POST"],
+    methods=["GET", "POST"],
 )
 def judge_planner_flow_materials_action_save_results(slot: int):
     user = get_current_user_optional()
+    pf_qs = _planner_flow_materials_query_kwargs(user)
+    eval_url = url_for(
+        "views.judge_planner_flow_materials_action_evaluate",
+        slot=int(slot),
+        **pf_qs,
+    )
+    if request.method == "GET":
+        if not user:
+            return redirect(
+                f"/login?next=/judge/planner-flow-materials/action/{int(slot)}/evaluate"
+            )
+        return redirect(eval_url)
     if not user:
-        abort(403)
-    if _planner_flow_is_readonly_oversee(user):
         abort(403)
     if not can_access_judge_hub(user):
         abort(403)
@@ -6713,14 +6726,55 @@ def judge_planner_flow_materials_action_save_results(slot: int):
     if pair is None or ex is None:
         abort(404)
     bundle, action_row = pair
-    raw = (request.form.get("payload_json") or "").strip()
-    if not raw:
+    if _planner_flow_is_readonly_oversee(user):
+        saved_ro = _planner_bundle_eval_canonical_saved(db, ex.id, action_row.id)
+        if (
+            saved_ro is not None
+            and can_chief_reopen_evaluation_for_judge(user)
+            and eval_chief_can_reopen(saved_ro)
+        ):
+            apply_chief_reopen(saved_ro)
+            from app.notifications_service import (
+                notify_evaluation_reopened_by_chief_judge,
+            )
+
+            unit_key = bundle.unit_level_key
+            unit_label = label_for_unit_level_key(unit_key) or unit_key
+            item_title = _planner_blob_display_filename(
+                stored_title=action_row.title or "",
+                relpath=action_row.file_relpath or "",
+                fallback=f"قائمة {action_row.slot_index}",
+            )
+            notify_evaluation_reopened_by_chief_judge(
+                db,
+                exercise_id=int(ex.id),
+                unit_key=unit_key,
+                unit_label=unit_label,
+                item_title=item_title,
+                item_id=int(action_row.id),
+                saved_by_user_id=getattr(saved_ro, "saved_by_id", None),
+                exclude_user_id=getattr(user, "id", None),
+            )
+            db.commit()
+            return redirect(
+                url_for(
+                    "views.judge_planner_flow_materials",
+                    tab=_JUDGE_PF_TAB_EVAL_LISTS,
+                    pf_reopened=1,
+                    **pf_qs,
+                )
+            )
         return redirect(
             url_for(
                 "views.judge_planner_flow_materials_action_evaluate",
                 slot=int(slot),
+                eval_readonly=1,
+                **pf_qs,
             )
         )
+    raw = (request.form.get("payload_json") or "").strip()
+    if not raw:
+        return redirect(eval_url)
     if len(raw) > 250_000:
         abort(400)
     _planner_bundle_eval_commit_payload_save(
@@ -6732,7 +6786,12 @@ def judge_planner_flow_materials_action_save_results(slot: int):
         raw=raw,
     )
     return redirect(
-        url_for("views.judge_planner_flow_materials_action_evaluate", slot=int(slot))
+        url_for(
+            "views.judge_planner_flow_materials_action_evaluate",
+            slot=int(slot),
+            eval_saved=1,
+            **pf_qs,
+        )
     )
 
 
@@ -6759,6 +6818,7 @@ def judge_planner_flow_materials_action_approve(slot: int):
         abort(404)
     _bundle, action_row = pair
 
+    pf_qs = _planner_flow_materials_query_kwargs(user)
     saved = _planner_bundle_eval_canonical_saved(db, ex.id, action_row.id)
     if saved is None or not (saved.payload_json or "").strip():
         abort(400)
@@ -6767,6 +6827,7 @@ def judge_planner_flow_materials_action_approve(slot: int):
             url_for(
                 "views.judge_planner_flow_materials_action_evaluate",
                 slot=int(slot),
+                **pf_qs,
             )
         )
     rows = _parse_saved_eval_rows(saved.payload_json)
@@ -6776,12 +6837,122 @@ def judge_planner_flow_materials_action_approve(slot: int):
                 "views.judge_planner_flow_materials_action_evaluate",
                 slot=int(slot),
                 eval_approve_incomplete=1,
+                **pf_qs,
             )
         )
     apply_judge_approve(saved, getattr(user, "id", None))
     db.commit()
     return redirect(
-        url_for("views.judge_planner_flow_materials_action_evaluate", slot=int(slot))
+        url_for(
+            "views.judge_planner_flow_materials_action_evaluate",
+            slot=int(slot),
+            **pf_qs,
+        )
+    )
+
+
+@bp.route(
+    "/judge/planner-flow-materials/action/<int:slot>/chief-approve",
+    methods=["POST"],
+)
+def judge_planner_flow_materials_action_chief_approve(slot: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_chief_approve_evaluation_results(user):
+        abort(403)
+    if not can_access_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    pair = _judge_planner_flow_action_bundle_row(db, user, ex, slot)
+    if pair is None or ex is None:
+        abort(404)
+    _bundle, action_row = pair
+    pf_qs = _planner_flow_materials_query_kwargs(user)
+    saved = _planner_bundle_eval_canonical_saved(db, ex.id, action_row.id)
+    if saved is None or not eval_chief_can_approve(saved):
+        return redirect(
+            url_for(
+                "views.judge_planner_flow_materials_action_evaluate",
+                slot=int(slot),
+                eval_action_failed=1,
+                **pf_qs,
+            )
+        )
+    apply_chief_approve(saved, getattr(user, "id", None))
+    db.commit()
+    return redirect(
+        url_for(
+            "views.judge_planner_flow_materials",
+            tab=_JUDGE_PF_TAB_EVAL_LISTS,
+            pf_chief_approved=1,
+            **pf_qs,
+        )
+    )
+
+
+@bp.route(
+    "/judge/planner-flow-materials/action/<int:slot>/chief-reopen",
+    methods=["POST"],
+)
+def judge_planner_flow_materials_action_chief_reopen(slot: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_chief_reopen_evaluation_for_judge(user):
+        abort(403)
+    if not can_access_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    pair = _judge_planner_flow_action_bundle_row(db, user, ex, slot)
+    if pair is None or ex is None:
+        abort(404)
+    bundle, action_row = pair
+    pf_qs = _planner_flow_materials_query_kwargs(user)
+    saved = _planner_bundle_eval_canonical_saved(db, ex.id, action_row.id)
+    if saved is None or not eval_chief_can_reopen(saved):
+        return redirect(
+            url_for(
+                "views.judge_planner_flow_materials_action_evaluate",
+                slot=int(slot),
+                eval_action_failed=1,
+                **pf_qs,
+            )
+        )
+    apply_chief_reopen(saved)
+    from app.notifications_service import notify_evaluation_reopened_by_chief_judge
+
+    unit_key = bundle.unit_level_key
+    unit_label = label_for_unit_level_key(unit_key) or unit_key
+    item_title = _planner_blob_display_filename(
+        stored_title=action_row.title or "",
+        relpath=action_row.file_relpath or "",
+        fallback=f"قائمة {action_row.slot_index}",
+    )
+    notify_evaluation_reopened_by_chief_judge(
+        db,
+        exercise_id=int(ex.id),
+        unit_key=unit_key,
+        unit_label=unit_label,
+        item_title=item_title,
+        item_id=int(action_row.id),
+        saved_by_user_id=getattr(saved, "saved_by_id", None),
+        exclude_user_id=getattr(user, "id", None),
+    )
+    db.commit()
+    return redirect(
+        url_for(
+            "views.judge_planner_flow_materials",
+            tab=_JUDGE_PF_TAB_EVAL_LISTS,
+            pf_reopened=1,
+            **pf_qs,
+        )
     )
 
 
@@ -6833,6 +7004,13 @@ def planner_hub_section(slug: str):
     title = PLANNER_HUB_SLUGS.get(slug_norm)
     if not title:
         abort(404)
+    if slug_norm == "incomplete-tasks":
+        return _render_incomplete_evaluations_page(
+            user,
+            section_title=title,
+            section_icon="fa-hourglass-half",
+            role="planner",
+        )
     return render_template(
         "planner_section_placeholder.html",
         **_ctx(
@@ -6924,6 +7102,7 @@ def planner_evaluation_lists(unit_key: str):
             items=items,
             evaluation_lists_rows=evaluation_lists_rows,
             eval_lists_parent_href=url_for("views.planner_evaluation_lists_home"),
+            subpage_close_fallback=url_for("views.planner_evaluation_lists_home"),
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -7082,7 +7261,14 @@ def planner_evaluation_list_save_results(unit_key: str, item_id: int):
     if len(raw) > 250_000:
         abort(400)
     _evaluation_commit_payload_save(db, user=user, item=item, current_exercise=current_exercise, raw=raw)
-    return redirect(url_for("views.planner_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id))
+    return redirect(
+        url_for(
+            "views.planner_evaluation_list_file_viewer",
+            unit_key=unit_key,
+            item_id=item_id,
+            eval_saved=1,
+        )
+    )
 
 
 @bp.route(
@@ -7137,11 +7323,31 @@ def planner_evaluation_list_approve(unit_key: str, item_id: int):
 JUDGE_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("dilemmas", "قوائم المعاضل", "fa-file-pdf"),
     ("evaluation-lists", "قوائم التقييم", "fa-file-excel"),
+    ("planner-flow-materials", "المجرى وتقييم الإجراءات", "fa-diagram-project"),
     ("visual-documentation", "التوثيق المرئي", "fa-photo-film"),
     ("incomplete-tasks", "مهام غير مكتملة", "fa-clipboard-list"),
     ("battle-overview", "الصورة العامة للمعركة", "fa-map"),
 )
 JUDGE_HUB_SLUGS: dict[str, str] = {s: t for s, t, _ in JUDGE_HUB_ITEMS}
+
+_JUDGE_HUB_ITEMS_NO_PLANNER_FLOW_MATERIALS: tuple[tuple[str, str, str], ...] = tuple(
+    x for x in JUDGE_HUB_ITEMS if x[0] != "planner-flow-materials"
+)
+
+
+def _judge_hub_menu_items(user: User) -> tuple[tuple[str, str, str], ...]:
+    """عناصر أوامر مساحة المحكمين حسب الدور."""
+    _hub_by_slug = {x[0]: x for x in JUDGE_HUB_ITEMS}
+    _judge_individual_slugs = (
+        "evaluation-lists",
+        "planner-flow-materials",
+        "incomplete-tasks",
+    )
+    if is_system_admin(user):
+        return CHIEF_JUDGE_ONLY_HUB_ITEMS + _JUDGE_HUB_ITEMS_NO_PLANNER_FLOW_MATERIALS
+    if can_access_chief_judge_hub(user):
+        return _chief_judge_hub_items()
+    return tuple(_hub_by_slug[s] for s in _judge_individual_slugs if s in _hub_by_slug)
 
 
 @bp.route("/judge")
@@ -7158,17 +7364,7 @@ def judge_hub():
     ex = _current_workspace_exercise(db, user)
     _ensure_judge_roster_synced(db, user, ex)
 
-    _judge_individual_slugs = (
-        "evaluation-lists",
-        "incomplete-tasks",
-    )
-    _hub_by_slug = {x[0]: x for x in JUDGE_HUB_ITEMS}
-    if can_access_chief_judge_hub(user):
-        items_src = _chief_judge_hub_items()
-    elif is_system_admin(user):
-        items_src = JUDGE_HUB_ITEMS
-    else:
-        items_src = tuple(_hub_by_slug[s] for s in _judge_individual_slugs if s in _hub_by_slug)
+    items_src = _judge_hub_menu_items(user)
     hub_items = [{"slug": s, "title_ar": t, "icon": ic} for s, t, ic in items_src]
     return render_template(
         "judge_hub.html",
@@ -7176,6 +7372,11 @@ def judge_hub():
             user,
             hub_items=hub_items,
             judge_hub_show_chief_subtitle=bool(can_access_chief_judge_hub(user)),
+            judge_hub_hide_close=bool(
+                is_judge(user)
+                and not can_access_chief_judge_hub(user)
+                and not is_system_admin(user)
+            ),
         ),
     )
 
@@ -7195,147 +7396,26 @@ def judge_hub_section(slug: str):
     if slug_norm == "planner-flow-bundle-overview":
         if not can_access_chief_judge_hub(user):
             abort(403)
-        return chief_judge_planner_flow_bundle_overview()
+        return redirect(
+            url_for("views.judge_planner_flow_materials", from_chief_judge=1)
+        )
     title = JUDGE_HUB_SLUGS.get(slug_norm)
     if not title:
         abort(404)
     if slug_norm == "evaluation-lists":
         return redirect("/judge/evaluation-lists")
+    if slug_norm == "planner-flow-materials":
+        return redirect(url_for("views.judge_planner_flow_materials", from_judge=1))
     if slug_norm == "dilemmas":
         return redirect("/judge/dilemmas")
     if slug_norm == "visual-documentation":
         return redirect(url_for("views.visual_documentation", from_judge=1))
     if slug_norm == "incomplete-tasks":
-        from flask import g
-
-        db = g.db
-        ex = _admin_current_workspace_exercise(db, user)
-        if ex is None:
-            return render_template(
-                "judge_incomplete_tasks.html",
-                **_ctx(
-                    user,
-                    section_title=title,
-                    has_exercise=False,
-                    tasks=[],
-                    **_hub_back_ctx_for_request_path(),
-                ),
-            )
-
-        from app.models import JudgeIncompleteTaskStatus
-
-        judge_id = int(getattr(user, "id", 0) or 0)
-        # اسم المستخدم الحالي كقيمة احتياطية فقط في حال غياب أي محكم في قائمة المحكمين
-        fallback_judge_name = (
-            (getattr(user, "full_name", "") or "").strip()
-            or (getattr(user, "username", "") or "").strip()
-            or f"محكم #{judge_id}"
-        )
-
-        # خريطة: مفتاح مستوى الوحدة -> اسم المحكم المسجّل في "إدارة النظام/قوائم المحكمين"
-        # (الربط مع المتدرب يتم عبر unit_level_key نفسه؛ نفس المفتاح المستخدم في قائمة المتدربين)
-        judge_roster_rows = (
-            db.query(ExerciseRosterRow)
-            .filter(
-                ExerciseRosterRow.exercise_id == ex.id,
-                ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
-            )
-            .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
-            .all()
-        )
-        judge_name_by_unit: dict[str, str] = {}
-        for jr in judge_roster_rows:
-            uk2 = (jr.unit_level_key or "").strip()
-            if not uk2:
-                continue
-            display = (jr.full_name or "").strip()
-            rank2 = (jr.rank_ar or "").strip()
-            if rank2 and display:
-                display = f"{rank2} {display}"
-            elif not display:
-                display = (jr.military_number or "").strip()
-            if uk2 and display and uk2 not in judge_name_by_unit:
-                judge_name_by_unit[uk2] = display
-
-        # تقليص العرض للمحكم إلى وحدته المخصصة (إن وجدت)
-        a = _judge_assignment_for_current_exercise(db, user, ex)
-        assigned_uk = (getattr(a, "unit_level_key", "") or "").strip() if a else ""
-
-        # overrides المحفوظة
-        overrides = (
-            db.query(JudgeIncompleteTaskStatus)
-            .filter(JudgeIncompleteTaskStatus.exercise_id == ex.id, JudgeIncompleteTaskStatus.judge_id == judge_id)
-            .all()
-        )
-        override_map: dict[tuple[str, str, int], JudgeIncompleteTaskStatus] = {}
-        for o in overrides:
-            override_map[(o.unit_level_key or "", o.exercise_phase or "", int(o.pair_index or 0))] = o
-
-        eval_q = db.query(EvaluationListPdfItem).filter(EvaluationListPdfItem.exercise_id == ex.id)
-        if assigned_uk and not is_system_admin(user):
-            eval_q = eval_q.filter(EvaluationListPdfItem.unit_level_key == assigned_uk)
-        eval_items = (
-            eval_q.order_by(
-                _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
-                _unit_level_order_expr(EvaluationListPdfItem.unit_level_key),
-                EvaluationListPdfItem.sort_order,
-                EvaluationListPdfItem.id,
-            )
-            .all()
-        )
-        eval_item_ids = [int(it.id) for it in eval_items if getattr(it, "id", None) is not None]
-        canonical_by_item = _evaluation_canonical_map_for_items(db, ex.id, eval_item_ids)
-
-        phase_unit_counter: dict[tuple[str, str], int] = {}
-        tasks: list[dict] = []
-        for it in eval_items:
-            eval_item_id = int(it.id)
-            uk = (it.unit_level_key or "").strip()
-            ph = _normalized_exercise_phase(getattr(it, "exercise_phase", None))
-            phase_unit_counter[(uk, ph)] = phase_unit_counter.get((uk, ph), 0) + 1
-            item_index = phase_unit_counter[(uk, ph)]
-            canon = canonical_by_item.get(eval_item_id)
-            is_done = bool(canon and getattr(canon, "is_approved", False))
-            done_dt = None
-            if canon is not None:
-                done_dt = getattr(canon, "approved_at", None) if is_done else getattr(canon, "updated_at", None)
-            auto_status = "done" if is_done else "ontime"
-            ov = override_map.get((uk, ph, item_index))
-            status_key = (ov.status_key if ov else "") or auto_status
-            if status_key == "late":
-                prio = "high"
-            elif status_key == "done":
-                prio = "low"
-            else:
-                prio = "medium"
-            tasks.append(
-                {
-                    "task_name": (it.text or "قائمة تقييم").strip(),
-                    "judge_name": judge_name_by_unit.get(uk, fallback_judge_name),
-                    "done_dt": done_dt,
-                    "priority_key": prio,
-                    "status_key": status_key,
-                    "unit_key": uk,
-                    "unit_label": label_for_unit_level_key(uk) or uk,
-                    "phase": ph,
-                    "phase_ar": _phase_label_ar(ph),
-                    "pair_index": item_index,
-                    "dilemma_id": None,
-                    "evaluation_item_id": eval_item_id,
-                    "open_eval_href": url_for("views.judge_evaluation_list_file_viewer", unit_key=uk, item_id=eval_item_id),
-                }
-            )
-
-        return render_template(
-            "judge_incomplete_tasks.html",
-            **_ctx(
-                user,
-                section_title=title,
-                has_exercise=True,
-                exercise=ex,
-                tasks=tasks,
-                **_hub_back_ctx_for_request_path(),
-            ),
+        return _render_incomplete_evaluations_page(
+            user,
+            section_title=title,
+            section_icon="fa-clipboard-list",
+            role="judge",
         )
     return render_template(
         "judge_section_placeholder.html",
@@ -7679,6 +7759,40 @@ def _visual_doc_disk_path(relpath: str) -> Path | None:
     return None
 
 
+def _visual_doc_file_size_kb(row: VisualDocument) -> int | None:
+    p = _visual_doc_disk_path((row.file_relpath or "").strip())
+    if p is None or not p.is_file():
+        return None
+    return max(1, int(p.stat().st_size / 1024))
+
+
+def _visual_doc_rows_for_template(docs: list) -> list[dict]:
+    out: list[dict] = []
+    for row in docs:
+        name = (row.description or "").strip()
+        out.append(
+            {
+                "row": row,
+                "display_name": name or "—",
+                "size_kb": _visual_doc_file_size_kb(row),
+            }
+        )
+    return out
+
+
+def _visual_doc_can_access_row(db, user, ex, row: VisualDocument) -> bool:
+    if ex is None or int(row.exercise_id) != int(ex.id):
+        return False
+    if is_system_admin(user):
+        return True
+    if is_judge(user):
+        a = _judge_assignment_for_current_exercise(db, user, ex)
+        assigned_uk = (getattr(a, "unit_level_key", "") or "").strip() if a else ""
+        if assigned_uk and (row.unit_level_key or "").strip() != assigned_uk:
+            return False
+    return True
+
+
 _VISUAL_ALLOWED_SUFFIX = {
     ".jpg",
     ".jpeg",
@@ -7691,6 +7805,53 @@ _VISUAL_ALLOWED_SUFFIX = {
     ".webm",
 }
 _VISUAL_MAX_UPLOAD_BYTES = 80 * 1024 * 1024  # 80MB
+
+_VISUAL_UPLOAD_ERROR_MESSAGES: dict[str, str] = {
+    "no_file": "لم يُستلم ملف. أعد التسجيل أو اختر ملفاً ثم اضغط رفع.",
+    "bad_type": "نوع الملف غير مدعوم.",
+    "too_large": "حجم الملف يتجاوز الحد المسموح (80 ميجابايت).",
+    "no_unit": "حدد مستوى الوحدة أولاً.",
+}
+
+
+def _visual_upload_error_redirect(unit_key: str, code: str):
+    return redirect(
+        url_for(
+            "views.visual_documentation",
+            **_visual_doc_redirect_kwargs(unit_key=unit_key, upload_error=code),
+        )
+    )
+
+
+def _visual_infer_upload_suffix(raw_name: str, mime: str) -> str:
+    suf = Path(secure_filename(raw_name or "")).suffix.lower()
+    if suf in _VISUAL_ALLOWED_SUFFIX:
+        return suf
+    if mime.startswith("video/"):
+        return ".webm" if "webm" in mime else ".mp4"
+    if mime.startswith("audio/"):
+        if "ogg" in mime:
+            return ".ogg"
+        return ".webm"
+    if mime.startswith("image/"):
+        if "png" in mime:
+            return ".png"
+        return ".jpg"
+    return ""
+
+
+def _visual_file_type_for_suffix(suf: str, mime: str) -> str:
+    if mime.startswith("video/"):
+        return "video"
+    if mime.startswith("audio/"):
+        return "audio"
+    if suf == ".mp4":
+        return "video"
+    if suf in (".mp3", ".wav", ".m4a", ".ogg"):
+        return "audio"
+    if suf == ".webm":
+        return "audio"
+    return "image"
 
 
 @bp.route("/visual-documentation", methods=["GET"])
@@ -7713,8 +7874,7 @@ def visual_documentation():
                 exercise=None,
                 unit_levels=[],
                 selected_unit_key="",
-                docs=[],
-                dilemmas=[],
+                doc_rows=[],
                 **_hub_back_ctx_for_request_path(),
                 hub_from_form_param=_role_hub_from_form_param(),
             ),
@@ -7736,14 +7896,6 @@ def visual_documentation():
         q = q.filter(VisualDocument.unit_level_key == assigned_uk)
     docs = q.order_by(desc(VisualDocument.created_at), desc(VisualDocument.id)).limit(400).all()
 
-    dilemmas = (
-        db.query(DilemmaItem)
-        .filter(DilemmaItem.exercise_id == int(ex.id), DilemmaItem.unit_level_key == unit_key)
-        .order_by(DilemmaItem.sort_order, DilemmaItem.id)
-        .all()
-        if unit_key
-        else []
-    )
     unit_levels = [u for u in UNIT_LEVELS if not assigned_uk or u.get("key") == assigned_uk]
     return render_template(
         "visual_documentation.html",
@@ -7753,9 +7905,13 @@ def visual_documentation():
             exercise=ex,
             unit_levels=unit_levels,
             selected_unit_key=unit_key,
-            docs=docs,
-            dilemmas=dilemmas,
+            doc_rows=_visual_doc_rows_for_template(docs),
             assigned_unit_key=assigned_uk,
+            upload_error_code=(request.args.get("upload_error") or "").strip(),
+            upload_error_message=_VISUAL_UPLOAD_ERROR_MESSAGES.get(
+                (request.args.get("upload_error") or "").strip(), ""
+            ),
+            upload_ok=request.args.get("upload_ok", type=int) == 1,
             **_hub_back_ctx_for_request_path(),
             hub_from_form_param=_role_hub_from_form_param(),
         ),
@@ -7783,31 +7939,28 @@ def visual_documentation_upload():
         unit_key = assigned_uk
     if not unit_key:
         unit_key = assigned_uk
+    if not unit_key:
+        return _visual_upload_error_redirect("", "no_unit")
 
     f = request.files.get("media_file")
-    if not f or not (getattr(f, "filename", "") or "").strip():
-        return redirect(url_for("views.visual_documentation", **_visual_doc_redirect_kwargs(unit_key=unit_key)))
-    raw_name = secure_filename(f.filename)
-    suf = Path(raw_name).suffix.lower()
-    if suf not in _VISUAL_ALLOWED_SUFFIX:
-        return redirect(url_for("views.visual_documentation", **_visual_doc_redirect_kwargs(unit_key=unit_key)))
-    data = f.read()
-    if not data or len(data) > _VISUAL_MAX_UPLOAD_BYTES:
-        return redirect(url_for("views.visual_documentation", **_visual_doc_redirect_kwargs(unit_key=unit_key)))
+    data = f.read() if f else b""
+    if not data:
+        return _visual_upload_error_redirect(unit_key, "no_file")
 
     uploaded_mime = (getattr(f, "mimetype", "") or "").lower()
-    if suf in (".mp4",) or uploaded_mime.startswith("video/"):
-        ft = "video"
-    elif suf in (".mp3", ".wav", ".m4a", ".ogg", ".webm") or uploaded_mime.startswith("audio/"):
-        ft = "audio"
-    else:
-        ft = "image"
+    raw_name = (getattr(f, "filename", "") or "").strip()
+    suf = _visual_infer_upload_suffix(raw_name, uploaded_mime)
+    if not suf or suf not in _VISUAL_ALLOWED_SUFFIX:
+        return _visual_upload_error_redirect(unit_key, "bad_type")
+    if len(data) > _VISUAL_MAX_UPLOAD_BYTES:
+        return _visual_upload_error_redirect(unit_key, "too_large")
 
-    desc_txt = (request.form.get("description") or "").strip()[:5000]
-    loc = (request.form.get("location_label") or "").strip()[:400]
-    dilemma_id_raw = (request.form.get("dilemma_id") or "").strip()
+    ft = _visual_file_type_for_suffix(suf, uploaded_mime)
+
+    desc_txt = (request.form.get("display_name") or "").strip()[:200]
+    loc = ""
+    dilemma_id = None
     event_id_raw = (request.form.get("event_id") or "").strip()
-    dilemma_id = int(dilemma_id_raw) if dilemma_id_raw.isdigit() else None
     event_id = int(event_id_raw) if event_id_raw.isdigit() else None
 
     VISUAL_DOC_DIR.mkdir(parents=True, exist_ok=True)
@@ -7849,6 +8002,40 @@ def visual_documentation_upload():
     except Exception:
         db.rollback()
 
+    return redirect(
+        url_for(
+            "views.visual_documentation",
+            **_visual_doc_redirect_kwargs(unit_key=unit_key, upload_ok=1),
+        )
+    )
+
+
+@bp.route("/visual-documents/<int:doc_id>/delete", methods=["POST"])
+def visual_document_delete(doc_id: int):
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/visual-documentation")
+    if not can_use_visual_documentation(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    row = db.get(VisualDocument, doc_id)
+    if row is None:
+        abort(404)
+    ex = _visual_scope_exercise(db, user)
+    if not _visual_doc_can_access_row(db, user, ex, row):
+        abort(403)
+
+    unit_key = normalize_unit_level_key(request.form.get("unit_key") or row.unit_level_key or "")
+    p = _visual_doc_disk_path((row.file_relpath or "").strip())
+    if p is not None and p.is_file():
+        try:
+            p.unlink()
+        except OSError:
+            pass
+    db.delete(row)
+    db.commit()
     return redirect(url_for("views.visual_documentation", **_visual_doc_redirect_kwargs(unit_key=unit_key)))
 
 
@@ -8010,7 +8197,13 @@ def _resolve_role_hub_back_ctx() -> dict:
 
 def _hub_back_ctx_for_request_path() -> dict:
     """سياق العودة حسب مسار الطلب الحالي أو معامل from_*."""
-    p = (request.path or "").lower()
+    p = (request.path or "").rstrip("/").lower() or "/"
+    hub_dashboard = {
+        "hub_back_href": "/dashboard",
+        "hub_back_label": "العودة إلى لوحة المستخدم",
+    }
+    if p in ("/control", "/judge", "/analyst", "/planner"):
+        return hub_dashboard
     if p.startswith("/control"):
         return _control_hub_back_ctx_always()
     if p.startswith("/chief-judge"):
@@ -8022,6 +8215,15 @@ def _hub_back_ctx_for_request_path() -> dict:
     if p.startswith("/planner"):
         return _planner_hub_back_ctx_always()
     return _resolve_role_hub_back_ctx()
+
+
+def _subpage_close_ctx(parent_href: str | None = None, **extra) -> dict:
+    """زر الإغلاق: parent_href إن وُجد، وإلا hub_back حسب الدور/المسار."""
+    ctx = dict(_hub_back_ctx_for_request_path())
+    if parent_href:
+        ctx["subpage_close_fallback"] = parent_href
+    ctx.update(extra)
+    return ctx
 
 
 def _role_hub_preserve_link_kwargs() -> dict:
@@ -8310,6 +8512,241 @@ def _build_control_evaluation_lists_status(db, user: User) -> dict:
         "has_exercise": True,
         "phase_tabs": phase_tabs,
     }
+
+
+def _incomplete_eval_started_at_sort_key(row: dict) -> tuple:
+    started = row.get("started_at")
+    if started is None:
+        return (1, datetime.max, int(row.get("sort_tiebreaker") or 0))
+    return (0, started, int(row.get("sort_tiebreaker") or 0))
+
+
+def _collect_all_eval_status_rows_flat(
+    db,
+    *,
+    exercise: Exercise,
+    unit_filter: str | None = None,
+    eval_open_endpoint: str = "views.control_evaluation_list_file_viewer",
+    planner_open_endpoint: str = "views.control_planner_flow_action_view",
+    planner_open_uses_slot: bool = False,
+) -> list[dict]:
+    """كل قوائم التقييم + إجراءات المجرى كصفوف مسطحة (للتصفية والفرز)."""
+    ex_id = int(exercise.id)
+    items_q = db.query(EvaluationListPdfItem).filter(EvaluationListPdfItem.exercise_id == ex_id)
+    if unit_filter:
+        items_q = items_q.filter(EvaluationListPdfItem.unit_level_key == unit_filter)
+    items = (
+        items_q.order_by(
+            _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
+            _unit_level_order_expr(EvaluationListPdfItem.unit_level_key),
+            EvaluationListPdfItem.sort_order,
+            EvaluationListPdfItem.id,
+        )
+        .all()
+    )
+    item_ids = [int(it.id) for it in items if getattr(it, "id", None) is not None]
+    canonical_by_item = (
+        _evaluation_canonical_map_for_items(db, ex_id, item_ids) if item_ids else {}
+    )
+
+    rows: list[dict] = []
+    for it in items:
+        uk = (it.unit_level_key or "").strip()
+        phase_key = _normalized_exercise_phase(getattr(it, "exercise_phase", None))
+        saved = canonical_by_item.get(int(it.id))
+        total_pct = _evaluation_saved_total_pct(saved)
+        started_at = getattr(it, "created_at", None)
+        rows.append(
+            {
+                **build_evaluation_list_row(
+                    item=it,
+                    saved=saved,
+                    exercise=exercise,
+                    open_href=url_for(eval_open_endpoint, unit_key=uk, item_id=int(it.id)),
+                ),
+                "list_type_kind": _CONTROL_EVAL_LIST_TYPE_JUDGE,
+                "list_type_label": _control_eval_list_type_label(_CONTROL_EVAL_LIST_TYPE_JUDGE),
+                "phase_key": phase_key,
+                "phase_label": _phase_label_ar(phase_key),
+                "workflow_label": eval_workflow_label_ar(saved),
+                "unit_key": uk,
+                "unit_label": label_for_unit_level_key(uk) or uk or "—",
+                "total_pct": total_pct,
+                "sort_tiebreaker": int(it.id),
+                "started_at": started_at,
+            }
+        )
+
+    bundles_q = db.query(ExercisePlannerFlowBundle).filter(
+        ExercisePlannerFlowBundle.exercise_id == ex_id
+    )
+    if unit_filter:
+        bundles_q = bundles_q.filter(ExercisePlannerFlowBundle.unit_level_key == unit_filter)
+    bundles = (
+        bundles_q.order_by(
+            ExercisePlannerFlowBundle.unit_level_key,
+            ExercisePlannerFlowBundle.exercise_phase,
+            ExercisePlannerFlowBundle.id,
+        )
+        .all()
+    )
+    for bundle in bundles:
+        uk = (bundle.unit_level_key or "").strip()
+        phase_key = _normalized_exercise_phase(getattr(bundle, "exercise_phase", None))
+        if not uk:
+            continue
+        action_rows = (
+            db.query(ExercisePlannerFlowBundleActionEval)
+            .filter(ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id)
+            .order_by(
+                ExercisePlannerFlowBundleActionEval.slot_index,
+                ExercisePlannerFlowBundleActionEval.id,
+            )
+            .all()
+        )
+        for action_row in action_rows:
+            if not (action_row.file_relpath or "").strip():
+                continue
+            title = _planner_blob_display_filename(
+                stored_title=action_row.title or "",
+                relpath=action_row.file_relpath or "",
+                fallback=f"قائمة تقييم إجراءات {int(action_row.slot_index)}",
+            )
+            canon = _planner_bundle_eval_canonical_saved(db, ex_id, int(action_row.id))
+            total_pct = _evaluation_saved_total_pct(canon)
+            if planner_open_uses_slot:
+                open_href = url_for(
+                    planner_open_endpoint,
+                    slot=int(action_row.slot_index),
+                )
+            else:
+                open_href = url_for(
+                    planner_open_endpoint,
+                    unit_key=uk,
+                    action_eval_id=int(action_row.id),
+                )
+            shim = type(
+                "_PfActionShim",
+                (),
+                {
+                    "id": int(action_row.id),
+                    "text": title,
+                    "created_at": getattr(action_row, "created_at", None),
+                },
+            )()
+            rows.append(
+                {
+                    **build_evaluation_list_row(
+                        item=shim,
+                        saved=canon,
+                        exercise=exercise,
+                        open_href=open_href,
+                    ),
+                    "list_type_kind": _CONTROL_EVAL_LIST_TYPE_PLANNER_ACTION,
+                    "list_type_label": _control_eval_list_type_label(
+                        _CONTROL_EVAL_LIST_TYPE_PLANNER_ACTION
+                    ),
+                    "phase_key": phase_key,
+                    "phase_label": _phase_label_ar(phase_key),
+                    "workflow_label": eval_workflow_label_ar(canon),
+                    "unit_key": uk,
+                    "unit_label": label_for_unit_level_key(uk) or uk or "—",
+                    "total_pct": total_pct,
+                    "sort_tiebreaker": int(action_row.id),
+                    "started_at": getattr(action_row, "created_at", None),
+                }
+            )
+    return rows
+
+
+def _build_incomplete_evaluations_report(db, user: User, *, role: str) -> dict:
+    """قوائم التقييم غير المنجزة فقط — مرتبة حسب وقت بدء المهمة."""
+    if role == "judge":
+        ex0 = _current_workspace_exercise(db, user)
+        unit_filter = None
+        if (
+            ex0 is not None
+            and not is_system_admin(user)
+            and not can_access_chief_judge_hub(user)
+        ):
+            a = _judge_assignment_for_current_exercise(db, user, ex0)
+            unit_filter = (getattr(a, "unit_level_key", "") or "").strip() if a else None
+        eval_ep = "views.judge_evaluation_list_file_viewer"
+        pf_ep = "views.judge_planner_flow_materials_action_evaluate"
+        pf_slot = True
+    elif role == "planner":
+        ex0 = _admin_current_workspace_exercise(db, user)
+        unit_filter = None
+        eval_ep = "views.planner_evaluation_list_file_viewer"
+        pf_ep = "views.control_planner_flow_action_view"
+        pf_slot = False
+    elif role == "analyst":
+        ex0 = _admin_current_workspace_exercise(db, user)
+        unit_filter = None
+        eval_ep = "views.analyst_evaluation_list_file_viewer"
+        pf_ep = "views.control_planner_flow_action_view"
+        pf_slot = False
+    else:
+        ex0 = _current_workspace_exercise(db, user)
+        unit_filter = None
+        eval_ep = "views.control_evaluation_list_file_viewer"
+        pf_ep = "views.control_planner_flow_action_view"
+        pf_slot = False
+
+    if ex0 is None:
+        return {"has_exercise": False}
+    ex = db.query(Exercise).filter(Exercise.id == ex0.id).first()
+    if ex is None:
+        return {"has_exercise": False}
+
+    all_rows = _collect_all_eval_status_rows_flat(
+        db,
+        exercise=ex,
+        unit_filter=unit_filter or None,
+        eval_open_endpoint=eval_ep,
+        planner_open_endpoint=pf_ep,
+        planner_open_uses_slot=pf_slot,
+    )
+    incomplete_rows = [
+        r for r in all_rows if not r.get("status_done")
+    ]
+    incomplete_rows.sort(key=_incomplete_eval_started_at_sort_key)
+    return {
+        "has_exercise": True,
+        "incomplete_rows": incomplete_rows,
+        "incomplete_count": len(incomplete_rows),
+    }
+
+
+def _render_incomplete_evaluations_page(
+    user: User,
+    *,
+    section_title: str,
+    section_icon: str = "fa-hourglass-half",
+    role: str,
+    extra_ctx: dict | None = None,
+):
+    from flask import g
+
+    report = _build_incomplete_evaluations_report(g.db, user, role=role)
+    ctx = {
+        "section_title": section_title,
+        "section_icon": section_icon,
+        "role": role,
+    }
+    if extra_ctx:
+        ctx.update(extra_ctx)
+    if not report.get("has_exercise"):
+        ctx["has_exercise"] = False
+        ctx["incomplete_rows"] = []
+        ctx["incomplete_count"] = 0
+    else:
+        ctx.update(report)
+    if role == "control":
+        ctx.update(_control_hub_back_ctx_always())
+    else:
+        ctx.update(_hub_back_ctx_for_request_path())
+    return render_template("incomplete_evaluations.html", **_ctx(user, **ctx))
 
 
 def _build_control_positives_negatives(
@@ -9169,6 +9606,13 @@ def control_hub_section(slug: str):
                 **_control_hub_back_ctx_always(),
                 **status,
             ),
+        )
+    if slug_norm == "incomplete-tasks-status":
+        return _render_incomplete_evaluations_page(
+            user,
+            section_title=title,
+            section_icon=_control_section_icon(slug_norm),
+            role="control",
         )
     if slug_norm == "top-positives-negatives":
         from flask import g
@@ -10507,6 +10951,12 @@ def judge_dilemmas(unit_key: str):
         )
         .all()
     )
+    a = _judge_assignment_for_current_exercise(db, user, ex)
+    assigned_uk = (getattr(a, "unit_level_key", "") or "").strip() if a else ""
+    if assigned_uk and not is_system_admin(user):
+        dilemmas_parent_href = url_for("views.judge_hub")
+    else:
+        dilemmas_parent_href = url_for("views.judge_dilemmas_home")
     return render_template(
         "judge_dilemmas.html",
         **_ctx(
@@ -10515,6 +10965,8 @@ def judge_dilemmas(unit_key: str):
             unit=unit,
             unit_key=unit_key,
             items=items,
+            subpage_close_fallback=dilemmas_parent_href,
+            **_hub_back_ctx_for_request_path(),
         ),
     )
 
@@ -10546,6 +10998,8 @@ def judge_dilemma_viewer(unit_key: str, item_id: int):
             item_id=item_id,
             item_title=row.text or "معضلة",
             pdf_url=pdf_url,
+            subpage_close_fallback=url_for("views.judge_dilemmas", unit_key=unit_key),
+            **_hub_back_ctx_for_request_path(),
         ),
     )
 
@@ -10633,6 +11087,7 @@ def judge_evaluation_lists(unit_key: str):
             items=items,
             evaluation_lists_rows=evaluation_lists_rows,
             eval_lists_parent_href=eval_lists_parent_href,
+            subpage_close_fallback=eval_lists_parent_href,
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -10752,6 +11207,7 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
             eval_chief_approve_url="",
             eval_chief_reopen_url="",
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
+            eval_saved_notice=request.args.get("eval_saved", type=int) == 1,
             subpage_close_fallback=list_url,
             **_hub_back_ctx_for_request_path(),
         ),
@@ -10789,7 +11245,14 @@ def judge_evaluation_list_save_results(unit_key: str, item_id: int):
     if len(raw) > 250_000:
         abort(400)
     _evaluation_commit_payload_save(db, user=user, item=item, current_exercise=current_exercise, raw=raw)
-    return redirect(url_for("views.judge_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id))
+    return redirect(
+        url_for(
+            "views.judge_evaluation_list_file_viewer",
+            unit_key=unit_key,
+            item_id=item_id,
+            eval_saved=1,
+        )
+    )
 
 
 @bp.route(
@@ -11013,7 +11476,7 @@ CHIEF_JUDGE_ONLY_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("evaluation-lists-chief", "اعتماد قوائم التقييم (كبير المحكمين)", "fa-stamp"),
     (
         "planner-flow-bundle-overview",
-        "المجرى وتقييم الإجراءات (إطلاع على الربط)",
+        "المجرى وتقييم الإجراءات (اعتماد)",
         "fa-diagram-project",
     ),
 )
@@ -11133,6 +11596,7 @@ def chief_judge_evaluation_lists(unit_key: str):
             unit_key=unit_key,
             evaluation_lists_rows=evaluation_lists_rows,
             eval_lists_parent_href=url_for("views.chief_judge_evaluation_lists_home"),
+            subpage_close_fallback=url_for("views.chief_judge_evaluation_lists_home"),
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -12222,6 +12686,8 @@ def admin_dilemma_viewer(unit_key: str, item_id: int):
             item_id=item_id,
             item_title=row.text or "معضلة",
             pdf_url=pdf_url,
+            subpage_close_fallback=list_url,
+            **_hub_back_ctx_for_request_path(),
         ),
     )
 
@@ -13403,37 +13869,233 @@ def exercise_detail(eid):
             ex=ex,
             can_plan=can_plan_exercises(user),
             can_ref=can_edit_references(user),
+            **_subpage_close_ctx("/dashboard"),
         ),
     )
 
 
-@bp.route("/library", methods=["GET", "POST"])
+def _library_redirect(*, tab: str, ok: str = "", err: str = ""):
+    kw: dict = {"tab": tab}
+    if ok:
+        kw["ok"] = ok
+    if err:
+        kw["err"] = err
+    return redirect(url_for("views.library", **kw))
+
+
+@bp.route("/library", methods=["GET"])
 def library():
     user = get_current_user_optional()
     if not user:
         return redirect("/login?next=/library")
-    if request.method == "POST":
-        if not can_edit_references(user):
-            abort(403)
-        from flask import g
-        db = g.db
-        r = Reference(
-            title=(request.form.get("title") or "").strip() or "مرجع",
-            ref_type=request.form.get("ref_type") or "standard",
-            standard_code=(request.form.get("standard_code") or "").strip(),
-            body=(request.form.get("body") or "").strip(),
-            url=(request.form.get("url") or "").strip(),
-            created_by_id=user.id,
-        )
-        db.add(r)
-        db.commit()
-        return redirect("/library")
     from flask import g
-    refs = g.db.query(Reference).order_by(Reference.id.desc()).all()
+
+    from app.library_tree import (
+        LIBRARY_TAB_SPECS,
+        LIBRARY_TREE_KINDS,
+        build_tree_payload,
+        library_active_tab_from_request,
+        library_kind_title,
+    )
+
+    db = g.db
+    active_tab = library_active_tab_from_request(request.args.get("tab"))
+    library_trees = {
+        kind: build_tree_payload(db, kind) for kind in LIBRARY_TREE_KINDS
+    }
+    ok_raw = (request.args.get("ok") or "").strip()
+    err_raw = (request.args.get("err") or "").strip()
     return render_template(
         "library.html",
-        **_ctx(user, references=refs, can_edit=can_edit_references(user), RefType=RefType),
+        **_ctx(
+            user,
+            library_tabs=LIBRARY_TAB_SPECS,
+            library_trees=library_trees,
+            active_tab=active_tab,
+            library_can_manage=can_edit_references(user),
+            ok_msg=ok_raw,
+            error=err_raw,
+            library_kind_title=library_kind_title,
+            **_subpage_close_ctx("/dashboard"),
+        ),
     )
+
+
+@bp.route("/library/tree/folder", methods=["POST"])
+def library_tree_folder_add():
+    user = get_current_user_optional()
+    if not user or not can_edit_references(user):
+        abort(403)
+    from flask import g
+
+    from app.library_tree import (
+        LIBRARY_TREE_KINDS,
+        add_custom_folder,
+        ensure_library_tree,
+        library_kind_tab,
+    )
+
+    db = g.db
+    kind = (request.form.get("kind") or "").strip()
+    if kind not in LIBRARY_TREE_KINDS:
+        abort(400)
+    tab = library_kind_tab(kind)
+    parent_raw = (request.form.get("parent_id") or "").strip()
+    parent_id = int(parent_raw) if parent_raw.isdigit() else None
+    name = (request.form.get("folder_name") or "").strip()
+    if not name:
+        return _library_redirect(tab=tab, err="أدخل اسم المجلد.")
+    ensure_library_tree(db, kind)
+    try:
+        add_custom_folder(db, kind=kind, parent_id=parent_id, name=name)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        return _library_redirect(tab=tab, err=str(exc) or "تعذر إنشاء المجلد.")
+    return _library_redirect(tab=tab, ok="تم إنشاء المجلد.")
+
+
+@bp.route("/library/tree/upload", methods=["POST"])
+def library_tree_upload():
+    user = get_current_user_optional()
+    if not user or not can_edit_references(user):
+        abort(403)
+    from flask import g
+
+    from app.library_tree import (
+        LIBRARY_TREE_KINDS,
+        ensure_library_tree,
+        get_node,
+        library_kind_tab,
+        upload_files_to_tree,
+    )
+
+    db = g.db
+    kind = (request.form.get("kind") or "").strip()
+    tab = library_kind_tab(kind)
+    if kind not in LIBRARY_TREE_KINDS:
+        abort(400)
+    from app.config import LIBRARY_DIR
+
+    LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
+    parent_raw = (request.form.get("parent_id") or "").strip()
+    parent_id = int(parent_raw) if parent_raw.isdigit() else None
+    ensure_library_tree(db, kind)
+    if parent_id is not None:
+        parent = get_node(db, parent_id, kind)
+        if parent is None or not parent.is_folder:
+            return _library_redirect(tab=tab, err="المجلد المستهدف غير صالح.")
+    files = [x for x in request.files.getlist("files") if x and getattr(x, "filename", "").strip()]
+    if not files:
+        return _library_redirect(tab=tab, err="اختر ملفاً أو مجلداً للإدراج.")
+    added, errors = upload_files_to_tree(
+        db, kind=kind, parent_id=parent_id, file_storages=files
+    )
+    if added:
+        db.commit()
+    else:
+        db.rollback()
+    err_q = " ".join(errors)[:2000] if errors else ""
+    if not added:
+        return _library_redirect(tab=tab, err=err_q or "لم تُضف أي ملف.")
+    ok_msg = f"تم إدراج {added} ملف(ات) مع الحفاظ على أسماء المسارات."
+    if err_q:
+        return _library_redirect(tab=tab, ok=ok_msg, err=f"تجاهل بعض الملفات: {err_q}")
+    return _library_redirect(tab=tab, ok=ok_msg)
+
+
+@bp.route("/library/tree/<int:node_id>/delete", methods=["POST"])
+def library_tree_delete(node_id: int):
+    user = get_current_user_optional()
+    if not user or not can_edit_references(user):
+        abort(403)
+    from flask import g
+
+    from app.library_tree import (
+        delete_library_node,
+        is_library_tree_kind,
+        library_kind_tab,
+    )
+
+    db = g.db
+    row = db.get(InformationBankTreeNode, node_id)
+    if row is None or not is_library_tree_kind(row.kind):
+        abort(404)
+    tab = library_kind_tab(row.kind)
+    delete_library_node(db, row)
+    db.commit()
+    if (
+        request.accept_mimetypes.best_match(["application/json", "text/html"])
+        == "application/json"
+        or (request.headers.get("X-Requested-With") or "").strip() == "XMLHttpRequest"
+    ):
+        return jsonify(ok=True, node_id=int(node_id), tab=tab)
+    return _library_redirect(tab=tab, ok="تم الحذف.")
+
+
+@bp.route("/library/tree/move", methods=["POST"])
+def library_tree_move():
+    user = get_current_user_optional()
+    if not user or not can_edit_references(user):
+        return jsonify(ok=False, error="غير مسموح."), 403
+    from flask import g
+
+    from app.library_tree import LIBRARY_TREE_KINDS, is_library_tree_kind, move_tree_node
+
+    data = request.get_json(force=True, silent=True) or {}
+    kind = (data.get("kind") or "").strip()
+    if kind not in LIBRARY_TREE_KINDS:
+        return jsonify(ok=False, error="نوع غير صالح."), 400
+    try:
+        nid = int(data.get("node_id"))
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="بيانات غير صالحة."), 400
+    parent_raw = data.get("parent_id")
+    try:
+        pid = int(parent_raw) if parent_raw is not None and parent_raw != "" else 0
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="بيانات غير صالحة."), 400
+    parent_id = None if pid < 1 else pid
+    db = g.db
+    row = db.get(InformationBankTreeNode, nid)
+    if row is None or not is_library_tree_kind(row.kind):
+        return jsonify(ok=False, error="العنصر غير موجود."), 404
+    try:
+        move_tree_node(db, kind=kind, node_id=nid, parent_id=parent_id)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        return jsonify(ok=False, error=str(exc) or "تعذّر النقل."), 400
+    return jsonify(ok=True)
+
+
+@bp.route("/library/tree/<int:node_id>/file", methods=["GET"])
+def library_tree_file(node_id: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    from flask import g
+
+    from app.library_tree import is_library_tree_kind, node_file_abspath
+
+    row = g.db.get(InformationBankTreeNode, node_id)
+    if row is None or row.is_folder or not is_library_tree_kind(row.kind):
+        abort(404)
+    if not (row.file_relpath or "").strip():
+        abort(404)
+    path = node_file_abspath(row.kind, row.file_relpath)
+    if path is None:
+        abort(404)
+    low = path.name.lower()
+    if low.endswith(".xlsx"):
+        mt = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif low.endswith(".docx"):
+        mt = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    elif low.endswith(".doc"):
+        mt = "application/msword"
+    else:
+        mt = _mimetype_info_bank_event_flow(path)
+    return send_file(path, mimetype=mt, as_attachment=False, download_name=path.name)
 
 
 @bp.route("/admin/users", methods=["GET", "POST"])

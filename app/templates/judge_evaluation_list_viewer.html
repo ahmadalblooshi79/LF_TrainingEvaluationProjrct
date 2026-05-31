@@ -14,6 +14,15 @@
       </div>
     </div>
 
+    {% if eval_saved_notice|default(false) %}
+    <p class="form-ok-banner eval-banner--small" role="status" dir="rtl"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> تم حفظ نتائج التقييم بنجاح.</p>
+    {% endif %}
+    {% if eval_readonly_notice|default(false) %}
+    <p class="form-error-banner eval-banner--small" role="alert" dir="rtl"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يمكن الحفظ من وضع الاعتماد — استخدم «إعادة للمحكم» لإرجاع التقييم.</p>
+    {% endif %}
+    {% if eval_action_failed|default(false) %}
+    <p class="form-error-banner eval-banner--small" role="alert" dir="rtl"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> تعذّر تنفيذ العملية — تحقق من مسار الاعتماد الحالي ثم أعد المحاولة.</p>
+    {% endif %}
     <div class="eval-top-messages eval-banner-row--compact" dir="ltr">
       {% if eval_workflow_label|default('') and eval_workflow_label != '—' %}
       <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-route" aria-hidden="true"></i> {{ eval_workflow_label }}</p>

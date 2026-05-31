@@ -189,6 +189,41 @@ def evaluation_unit_home_totals(unit_rows: list[dict]) -> dict[str, int]:
     }
 
 
+def build_planner_flow_eval_row(
+    *,
+    slot_index: int,
+    item_title: str,
+    saved: SavedRow | None,
+    exercise,
+    open_href: str,
+    dt_fallback=None,
+    **extra,
+) -> dict:
+    """صف جدول قوائم تقييم إجراءات حزمة المجرى."""
+    is_done = eval_status_done(saved)
+    dispatch_label, row_tone = eval_dispatch_status_ar(saved)
+    return {
+        "slot_index": int(slot_index),
+        "item_title": (item_title or "قائمة التقييم").strip(),
+        "dt": (getattr(saved, "updated_at", None) if saved else None) or dt_fallback,
+        "exercise_type": (getattr(exercise, "exercise_type", "") or "").strip(),
+        "trained_unit": (getattr(exercise, "trained_unit", "") or "").strip(),
+        "delivery_dt": (
+            getattr(saved, "approved_at", None)
+            if saved is not None and eval_judge_approved(saved)
+            else None
+        ),
+        "status_label": "ينجز" if is_done else "لم ينجز",
+        "status_done": is_done,
+        "grade_label": (getattr(saved, "grade_label", "") or "").strip() if saved else "",
+        "dispatch_label": dispatch_label,
+        "row_tone": row_tone,
+        "workflow_label": eval_workflow_label_ar(saved),
+        "open_href": open_href,
+        **extra,
+    }
+
+
 def build_evaluation_list_row(
     *,
     item,

@@ -41,6 +41,10 @@ EVAL_CRITERION_MEDIA_DIR = Path(
 INFO_BANK_DIR = Path(
     os.getenv("INFO_BANK_DIR", str(BASE_DIR / "instance" / "information_bank"))
 ).resolve()
+# مكتبة المراجع والمعايير — شجرة ملفات (PDF / Word / Excel)
+LIBRARY_DIR = Path(
+    os.getenv("LIBRARY_DIR", str(BASE_DIR / "instance" / "library"))
+).resolve()
 # حزم التخطيط: ربط مجرى الأحداث (PDF/Word) بعدة قوائم تقييم إجراءات (Excel) لكل تمرين
 PLANNER_FLOW_BUNDLE_DIR = Path(
     os.getenv(

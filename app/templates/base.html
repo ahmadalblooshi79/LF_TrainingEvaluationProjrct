@@ -40,6 +40,7 @@
         </div>
       </div>
       {% if user %}
+      {% if not hide_header_center_nav|default(false) %}
       <nav class="header-bar__segment header-bar__segment--center header-nav" aria-label="مسارات الصفحة الرئيسية والأدوار">
         <a href="/dashboard" title="الصفحة الرئيسية"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
         {% if user.role_key == 'system_admin' %}
@@ -63,6 +64,7 @@
         <a href="{{ hub.href }}" class="nav-hub-link" title="{{ hub.title }}"><i class="fa-solid {{ hub.icon }}" aria-hidden="true"></i> {{ hub.label }}</a>
         {% endfor %}
       </nav>
+      {% endif %}
       <nav class="header-bar__segment header-bar__segment--trail header-nav header-nav--top-tools" aria-label="الإشعارات والوصول السريع">
         {% if header_chat_rooms_url %}
         <a href="{{ header_chat_rooms_url }}" title="غرفة المحادثة"><i class="fa-solid fa-comments" aria-hidden="true"></i> غرفة المحادثة</a>
@@ -429,7 +431,8 @@
 </script>
 <script>
 (function () {
-  var STORAGE_PREFIX = "subpage-return:";
+  var STORAGE_PREFIX = "subpage-parent:";
+  var DEFAULT_PARENT = "/dashboard";
 
   function pathKey() {
     return (location.pathname || "/").replace(/\/+$/, "") || "/";
@@ -439,75 +442,76 @@
     return STORAGE_PREFIX + pathKey();
   }
 
-  function urlPath(url) {
+  function normalizeTarget(url) {
+    if (!url) return "";
     try {
-      return new URL(url, location.origin).pathname.replace(/\/+$/, "") || "/";
-    } catch (e) {
+      var u = new URL(url, location.origin);
+      if (u.origin !== location.origin) return "";
+      return u.pathname + u.search + u.hash;
+    } catch (err) {
       return "";
     }
   }
 
-  function sameOrigin(url) {
+  function urlPath(url) {
     try {
-      return new URL(url, location.origin).origin === location.origin;
-    } catch (e) {
-      return false;
+      var u = new URL(url, location.origin);
+      return (u.pathname || "/").replace(/\/+$/, "") || "/";
+    } catch (err) {
+      return "";
     }
   }
 
-  function isInternalActionUrl(url) {
+  function isNoiseReferrer(url) {
     var p = urlPath(url);
-    return /\/(save-results|approve|chief-approve|reopen|save|submit)(\/|$)/i.test(p);
+    if (!p || p === pathKey()) return true;
+    return /\/(save-results|approve|chief-approve|reopen|save|submit|upload)(\/|$)/i.test(p);
   }
 
-  function registerReturnUrl() {
-    var btn = document.querySelector("[data-subpage-close]");
-    if (!btn) return;
-    var key = storageKey();
-    var fallback = btn.getAttribute("data-fallback-href") || "";
-    var ref = document.referrer || "";
+  function explicitParent(btn) {
+    return normalizeTarget((btn.getAttribute("data-fallback-href") || "").trim());
+  }
 
-    if (isInternalActionUrl(ref) || urlPath(ref) === pathKey()) {
-      if (!sessionStorage.getItem(key) && fallback) {
-        sessionStorage.setItem(key, fallback);
-      }
+  function resolveParent(btn) {
+    var target = explicitParent(btn);
+    if (target && urlPath(target) !== pathKey()) {
+      return target;
+    }
+    var stored = sessionStorage.getItem(storageKey());
+    if (stored) {
+      var norm = normalizeTarget(stored);
+      if (norm && urlPath(norm) !== pathKey()) return norm;
+    }
+    if (target) return DEFAULT_PARENT;
+    return DEFAULT_PARENT;
+  }
+
+  function rememberParent(btn) {
+    if (explicitParent(btn)) return;
+    var key = storageKey();
+    if (sessionStorage.getItem(key)) return;
+    var ref = document.referrer || "";
+    if (!ref || isNoiseReferrer(ref)) return;
+    try {
+      if (new URL(ref).origin !== location.origin) return;
+    } catch (err) {
       return;
     }
-
-    var returnUrl = "";
-    if (ref && sameOrigin(ref) && urlPath(ref) !== pathKey()) {
-      returnUrl = ref;
-    } else if (fallback) {
-      returnUrl = fallback;
-    }
-
-    if (returnUrl && returnUrl !== location.href) {
-      sessionStorage.setItem(key, returnUrl);
-    }
+    sessionStorage.setItem(key, ref);
   }
 
-  document.addEventListener("DOMContentLoaded", registerReturnUrl);
+  document.addEventListener("DOMContentLoaded", function () {
+    document.querySelectorAll("[data-subpage-close]").forEach(rememberParent);
+  });
 
   document.addEventListener("click", function (e) {
     var btn = e.target.closest("[data-subpage-close]");
     if (!btn) return;
     e.preventDefault();
-    var fallback = btn.getAttribute("data-fallback-href") || "/dashboard";
-    var stored = sessionStorage.getItem(storageKey());
-    if (stored) {
-      sessionStorage.removeItem(storageKey());
-      window.location.href = stored;
-      return;
-    }
-    if (fallback && fallback !== "/dashboard") {
-      window.location.href = fallback;
-      return;
-    }
-    if (window.history.length > 1) {
-      history.back();
-      return;
-    }
-    window.location.href = fallback;
+    var key = storageKey();
+    var target = resolveParent(btn);
+    sessionStorage.removeItem(key);
+    location.replace(target);
   });
 })();
 </script>

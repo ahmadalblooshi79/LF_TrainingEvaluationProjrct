@@ -36,6 +36,11 @@ def _nav_show_judge_hub_link(user) -> bool:
     return bool(can_access_judge_hub(user))
 
 
+def _is_individual_judge_user(user) -> bool:
+    """محكم فردي — دون كبير المحكمين أو إدارة النظام."""
+    return bool(is_judge(user) and not is_chief_judge(user) and not is_system_admin(user))
+
+
 def inject_header_exercise():
     base = {
         "header_exercise": None,
@@ -49,6 +54,7 @@ def inject_header_exercise():
         "header_chat_rooms_url": None,
         "header_exercise_info_url": None,
         "hub_landing_preserve_buttons": False,
+        "hide_header_center_nav": False,
     }
 
     if not has_request_context():
@@ -75,6 +81,7 @@ def inject_header_exercise():
         _push_hub("/judge", "المحكمين", "fa-scale-balanced", _nav_show_judge_hub_link)
         _push_hub("/analyst", "المحللين", "fa-magnifying-glass-chart", can_access_analyst_hub)
         base["nav_role_hub_links"] = nav_hubs
+        base["hide_header_center_nav"] = _is_individual_judge_user(u)
         base["user_can_view_information_bank"] = bool(can_view_information_bank(u))
         base["user_can_manage_information_bank"] = bool(can_manage_information_bank(u))
         if bool(can_use_chat_rooms(u)):

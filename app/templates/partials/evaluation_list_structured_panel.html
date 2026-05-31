@@ -113,6 +113,9 @@
   </div>
   <p class="form-error-banner eval-approve-block-msg" id="eval-approve-block-msg" role="alert" dir="rtl"{% if not eval_approve_incomplete|default(false) %} hidden{% endif %}>{% if eval_approve_incomplete|default(false) %}لا يمكن الاعتماد: يوجد بند أو أكثر لم تُدخل له المكتسبة (الخانات المحددة باللون الأحمر). اختر علامة أو «لا ينطبق»، ثم احفظ إن لزم، ثم أعد الاعتماد.{% endif %}</p>
   <p class="eval-acquired-warn" id="eval-acquired-warn" role="alert" hidden></p>
+  {% if eval_chief_next_step_hint|default(false) and (show_chief_approve|default(false) or show_chief_reopen|default(false)) %}
+  <p class="eval-chief-hint-row muted" dir="rtl"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> بعد <strong>اعتماد كبير المحكمين</strong> يُرسل التقييم إلى <strong>اعتماد السيطرة</strong>.</p>
+  {% endif %}
   <div class="eval-sticky-footer eval-sticky-footer--bar" dir="rtl" id="eval-structured-footer">
     <div class="eval-sticky-footer__left">
       <div class="eval-footer-stats">
@@ -204,14 +207,92 @@
     }
   }
 
-  function submitEvalActionForm(formEl, busyHint, busyText) {
+  function navigateEvalResponse(resp, busyHint) {
+    if (resp.status >= 300 && resp.status < 400) {
+      var loc = resp.headers.get('Location');
+      if (loc) {
+        try {
+          location.replace(new URL(loc, location.origin).href);
+        } catch (err) {
+          location.replace(loc);
+        }
+        return true;
+      }
+      location.reload();
+      return true;
+    }
+    if (resp.ok) {
+      if (resp.url) {
+        try {
+          location.replace(resp.url);
+        } catch (err2) {
+          location.reload();
+        }
+      } else {
+        location.reload();
+      }
+      return true;
+    }
+    var errLoc = resp.headers.get('Location');
+    if (errLoc) {
+      try {
+        location.replace(new URL(errLoc, location.origin).href);
+      } catch (err3) {
+        location.replace(errLoc);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function submitEvalSaveForm(formEl, busyHint) {
     if (!formEl) return;
-    if (busyHint) busyHint.textContent = busyText || 'جاري التنفيذ…';
+    if (busyHint) {
+      busyHint.textContent = 'جاري الحفظ…';
+      busyHint.classList.remove('eval-save-hint--ok');
+    }
     var fd = new FormData(formEl);
     fetch(formEl.action, { method: 'POST', body: fd, credentials: 'same-origin', redirect: 'follow' })
       .then(function (resp) {
-        var target = resp.url || (location.pathname + location.search);
-        location.replace(target);
+        if (resp.ok) {
+          if (busyHint) {
+            busyHint.textContent = 'تم حفظ نتائج التقييم بنجاح';
+            busyHint.classList.add('eval-save-hint--ok');
+          }
+          var target = resp.url || location.href;
+          try {
+            var u = new URL(target, location.origin);
+            if (!u.searchParams.has('eval_saved')) {
+              u.searchParams.set('eval_saved', '1');
+            }
+            target = u.pathname + u.search + u.hash;
+          } catch (err) {
+            target = location.pathname + location.search;
+          }
+          setTimeout(function () {
+            location.replace(target);
+          }, 450);
+          return;
+        }
+        if (navigateEvalResponse(resp, busyHint)) return;
+        if (busyHint) busyHint.textContent = 'تعذّر تنفيذ العملية — أعد المحاولة';
+      })
+      .catch(function () {
+        if (busyHint) busyHint.textContent = 'تعذّر تنفيذ العملية — أعد المحاولة';
+      });
+  }
+
+  function submitEvalActionForm(formEl, busyHint, busyText) {
+    if (!formEl) return;
+    if (busyHint) {
+      busyHint.textContent = busyText || 'جاري التنفيذ…';
+      busyHint.classList.remove('eval-save-hint--ok');
+    }
+    var fd = new FormData(formEl);
+    fetch(formEl.action, { method: 'POST', body: fd, credentials: 'same-origin', redirect: 'manual' })
+      .then(function (resp) {
+        if (navigateEvalResponse(resp, busyHint)) return;
+        if (busyHint) busyHint.textContent = 'تعذّر تنفيذ العملية — أعد المحاولة';
       })
       .catch(function () {
         if (busyHint) busyHint.textContent = 'تعذّر تنفيذ العملية — أعد المحاولة';
@@ -362,8 +443,7 @@
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       payloadEl.value = JSON.stringify(buildPayload());
-      if (hintEl) hintEl.textContent = 'جاري الحفظ…';
-      submitEvalActionForm(form, hintEl, 'جاري الحفظ…');
+      submitEvalSaveForm(form, hintEl);
     });
   }
 
