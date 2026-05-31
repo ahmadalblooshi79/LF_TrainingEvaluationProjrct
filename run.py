@@ -1,9 +1,9 @@
-"""تشغيل الخادم من مجلد المشروع:
+"""تشغيل الخادم من مجلد المشروع (تطوير):
 
   run.bat
   أو: .venv\\Scripts\\python.exe run.py
 
-لا تشغّل ملفات داخل app/ مباشرة (مثل info_bank_tree.py).
+تنصيب السيرفر للإنتاج + LAN/Wi‑Fi: packaging\\install.bat ثم packaging\\start_server.bat
 """
 import os
 import shutil
@@ -14,9 +14,11 @@ import time
 import webbrowser
 
 from app import create_app
+from app.network_util import print_server_access_info
 
 # منفذ ثابت للتطبيق حتى لا تتكرر مشكلة اختلاف الرابط بين 8003/8004/8005.
 PORT = int(os.environ.get("PORT", "8005"))
+HOST = os.environ.get("HOST", "0.0.0.0")
 APP_URL = f"http://127.0.0.1:{PORT}/"
 
 
@@ -55,9 +57,19 @@ def _schedule_browser_open(*, use_reloader: bool) -> None:
     threading.Thread(target=_open_browser, daemon=True).start()
 
 
+def _env_flag(name: str, default: bool = True) -> bool:
+    v = (os.environ.get(name) or "").strip().lower()
+    if not v:
+        return default
+    return v not in ("0", "false", "no", "off")
+
+
 if __name__ == "__main__":
     app = create_app()
-    # إعادة تحميل الكود عند التعديل (معطّل تلقائياً عند التشغيل عبر debugpy)
-    use_reloader = "debugpy" not in sys.modules
-    _schedule_browser_open(use_reloader=use_reloader)
-    app.run(host="0.0.0.0", port=PORT, debug=True, use_reloader=use_reloader)
+    debug = _env_flag("FLASK_DEBUG", default=True)
+    open_browser = _env_flag("LF_OPEN_BROWSER", default=True)
+    use_reloader = debug and "debugpy" not in sys.modules
+    if open_browser:
+        _schedule_browser_open(use_reloader=use_reloader)
+    print_server_access_info(host=HOST, port=PORT)
+    app.run(host=HOST, port=PORT, debug=debug, use_reloader=use_reloader)
