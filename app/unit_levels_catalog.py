@@ -4,17 +4,28 @@
 ``UNIT_LEVELS`` هنا يُملأ تلقائياً من صفوف «مدرج في التمرين» عبر ``planning_catalog_sync``.
 """
 
-from app.information_bank_catalog import PLANNING_CATALOG_ALL_KEY
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from app.information_bank_catalog import PLANNING_CATALOG_ALL_KEY, info_bank_unit_label
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 UNIT_LEVELS: list[dict[str, str]] = []
 
 
+def planning_included_unit_keys() -> set[str]:
+    """مفاتيح مستويات الوحدة المفعّلة في التمرين (مدرجة في بنك المعلومات)."""
+    return {(row.get("key") or "").strip() for row in UNIT_LEVELS if (row.get("key") or "").strip()}
+
+
 def default_unit_level_key() -> str:
-    """أول مستوى وحدة فعلي (بعد خيار «الكل» إن وُجد)."""
-    for row in UNIT_LEVELS:
-        if row["key"] != PLANNING_CATALOG_ALL_KEY:
-            return row["key"]
-    return PLANNING_CATALOG_ALL_KEY if UNIT_LEVELS else ""
+    """أول مستوى وحدة في كتالوج التخطيط."""
+    if UNIT_LEVELS:
+        return UNIT_LEVELS[0]["key"]
+    return ""
 
 
 def unit_level_row(unit_key: str | None) -> dict[str, str] | None:
@@ -29,7 +40,7 @@ def normalize_unit_level_key(raw: str | None) -> str:
     """يحوّل مفتاحاً معروفاً أو تسمية عربية لمستوى الوحدة إلى ``key``؛ وإلا سلسلة فارغة."""
     v = (raw or "").strip()
     if v == PLANNING_CATALOG_ALL_KEY:
-        return PLANNING_CATALOG_ALL_KEY
+        return default_unit_level_key()
     if not v:
         return ""
     for row in UNIT_LEVELS:
@@ -41,12 +52,25 @@ def normalize_unit_level_key(raw: str | None) -> str:
     return ""
 
 
-def label_for_unit_level_key(key: str | None) -> str:
-    """تسمية العرض لمفتاح مستوى الوحدة."""
+def label_for_unit_level_key(key: str | None, db: Session | None = None) -> str:
+    """تسمية العرض لمفتاح مستوى الوحدة (كتالوج التخطيط ثم بنك المعلومات ثم قاعدة البيانات)."""
     k = (key or "").strip()
+    if not k:
+        return ""
     for row in UNIT_LEVELS:
         if row["key"] == k:
             return row["label"]
+    label = info_bank_unit_label(k)
+    if label:
+        return label
+    if db is not None:
+        from app.models import InformationBankUnitLevel
+
+        row = db.get(InformationBankUnitLevel, k)
+        if row is not None:
+            lbl = (row.label or "").strip()
+            if lbl:
+                return lbl
     return ""
 
 

@@ -15,7 +15,7 @@
       <label class="muted" for="pf-phase">مرحلة التمرين</label>
       <select id="pf-phase" name="phase" class="unit-level-select planner-flow-select-compact" autocomplete="off">
         {% for pk, pl in phase_options %}
-        <option value="{{ pk }}" {% if pk == phase_key or (not phase_key and pk == '__all__') %}selected{% endif %}>{{ pl }}</option>
+        <option value="{{ pk }}" {% if pk == phase_key or (not phase_key and loop.first) %}selected{% endif %}>{{ pl }}</option>
         {% endfor %}
       </select>
     </div>
@@ -23,7 +23,7 @@
       <label class="muted" for="pf-unit">مستوى الوحدة</label>
       <select id="pf-unit" name="unit_level_key" class="unit-level-select planner-flow-select-compact" autocomplete="off">
         {% for u in unit_levels %}
-        <option value="{{ u.key }}" {% if u.key == unit_key or (not unit_key and u.key == '__all__') %}selected{% endif %}>{{ u.label }}</option>
+        <option value="{{ u.key }}" {% if u.key == unit_key or (not unit_key and loop.first) %}selected{% endif %}>{{ u.label }}</option>
         {% endfor %}
       </select>
     </div>

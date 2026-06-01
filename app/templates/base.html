@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/static/style.css?v=ibank-brigade-tabs">
+  <link rel="stylesheet" href="/static/style.css?v=cr-phase-colors-4">
 </head>
 <body class="{% block body_class %}{% endblock %}{% if hub_landing_preserve_buttons %} hub-landing-preserve-buttons{% endif %}">
 <header>
@@ -102,12 +102,35 @@
   var pollUrl = "/api/notifications/summary";
   var logUrl = {{ notifications_log_url | tojson }};
   var badge = document.getElementById("header-notif-badge");
+  var host = document.getElementById("notif-toast-host");
   var pollMs = 4000;
   var lastToastId = 0;
+  var activeToast = null;
+  var toastQueue = [];
+  var dismissedIds = {};
+
   try {
     var raw = sessionStorage.getItem("notif_last_toast_id");
     if (raw) lastToastId = parseInt(raw, 10) || 0;
+    var dismissedRaw = sessionStorage.getItem("notif_dismissed_ids");
+    if (dismissedRaw) {
+      var arr = JSON.parse(dismissedRaw);
+      if (Array.isArray(arr)) {
+        for (var d = 0; d < arr.length; d++) dismissedIds[arr[d]] = true;
+      }
+    }
   } catch (e) {}
+
+  function persistDismissed() {
+    try {
+      var ids = Object.keys(dismissedIds).map(function (k) { return parseInt(k, 10); }).filter(function (n) { return n > 0; });
+      sessionStorage.setItem("notif_dismissed_ids", JSON.stringify(ids.slice(-80)));
+    } catch (e) {}
+  }
+
+  function persistLastToastId() {
+    try { sessionStorage.setItem("notif_last_toast_id", String(lastToastId)); } catch (e) {}
+  }
 
   function setBadge(n) {
     if (!badge) return;
@@ -122,28 +145,161 @@
     }
   }
 
-  function showToast(title, actionUrl) {
-    var host = document.getElementById("notif-toast-host");
-    if (!host) return;
+  function typeLabel(t) {
+    if (t === "message") return "رسالة";
+    if (t === "meeting") return "اجتماع";
+    if (t === "document") return "وثيقة / ملف";
+    if (t === "task") return "مهمة";
+    return "إشعار نظام";
+  }
+
+  function removeToastEl(el, done) {
+    if (!el || !el.parentNode) {
+      if (done) done();
+      return;
+    }
+    el.classList.add("notif-toast--out");
+    setTimeout(function () {
+      if (el.parentNode) el.parentNode.removeChild(el);
+      if (done) done();
+    }, 280);
+  }
+
+  function dequeueToast() {
+    activeToast = null;
+    if (!toastQueue.length) return;
+    showToastPanel(toastQueue.shift());
+  }
+
+  function dismissToast(el, notifId, rememberDismiss) {
+    if (rememberDismiss && notifId) {
+      dismissedIds[notifId] = true;
+      persistDismissed();
+    }
+    if (activeToast === el) activeToast = null;
+    removeToastEl(el, dequeueToast);
+  }
+
+  function markRead(notifId) {
+    return fetch("/api/notifications/" + encodeURIComponent(String(notifId)) + "/read", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok && j && j.ok, data: j || {} }; }); })
+      .catch(function () { return { ok: false, data: {} }; });
+  }
+
+  function showToastPanel(it) {
+    if (!host || !it || !it.id) return;
+    if (dismissedIds[it.id]) {
+      dequeueToast();
+      return;
+    }
+    var openUrl = (it.action_url || "").trim() || logUrl;
     var el = document.createElement("div");
     el.className = "notif-toast";
-    el.setAttribute("role", "status");
-    var t = document.createElement("div");
-    t.className = "notif-toast__title";
-    t.textContent = title || "إشعار جديد";
-    el.appendChild(t);
-    if (actionUrl) {
-      var a = document.createElement("a");
-      a.className = "notif-toast__link";
-      a.href = actionUrl;
-      a.textContent = "فتح السجل";
-      el.appendChild(a);
+    el.setAttribute("role", "alertdialog");
+    el.setAttribute("aria-labelledby", "notif-toast-title-" + it.id);
+    el.setAttribute("aria-describedby", "notif-toast-body-" + it.id);
+    el.setAttribute("data-notif-id", String(it.id));
+
+    var header = document.createElement("div");
+    header.className = "notif-toast__header";
+
+    var bell = document.createElement("span");
+    bell.className = "notif-toast__bell";
+    bell.innerHTML = '<i class="fa-solid fa-bell" aria-hidden="true"></i>';
+
+    var headText = document.createElement("div");
+    headText.className = "notif-toast__head-text";
+    var kicker = document.createElement("p");
+    kicker.className = "notif-toast__kicker";
+    kicker.textContent = typeLabel(it.type);
+    var title = document.createElement("h2");
+    title.className = "notif-toast__title";
+    title.id = "notif-toast-title-" + it.id;
+    title.textContent = it.title || "إشعار جديد";
+    headText.appendChild(kicker);
+    headText.appendChild(title);
+
+    var closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "notif-toast__close";
+    closeBtn.setAttribute("aria-label", "إغلاق دون تعليم كمقروء");
+    closeBtn.innerHTML = "&times;";
+    closeBtn.addEventListener("click", function () {
+      dismissToast(el, it.id, true);
+    });
+
+    header.appendChild(bell);
+    header.appendChild(headText);
+    header.appendChild(closeBtn);
+    el.appendChild(header);
+
+    var bodyText = (it.body || "").trim();
+    if (bodyText) {
+      var body = document.createElement("div");
+      body.className = "notif-toast__body";
+      body.id = "notif-toast-body-" + it.id;
+      body.textContent = bodyText;
+      el.appendChild(body);
     }
+
+    var actions = document.createElement("div");
+    actions.className = "notif-toast__actions";
+
+    var btnRead = document.createElement("button");
+    btnRead.type = "button";
+    btnRead.className = "btn btn-ghost js-notif-mark-read";
+    btnRead.innerHTML = '<i class="fa-solid fa-check" aria-hidden="true"></i> مقروء';
+    btnRead.addEventListener("click", function () {
+      btnRead.disabled = true;
+      markRead(it.id).then(function (res) {
+        if (res.ok && res.data.unread_count !== undefined) setBadge(res.data.unread_count);
+        dismissToast(el, it.id, false);
+      });
+    });
+
+    var btnOpen = document.createElement("a");
+    btnOpen.className = "btn btn-primary";
+    btnOpen.href = openUrl;
+    btnOpen.innerHTML = '<i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> فتح';
+    btnOpen.addEventListener("click", function () {
+      markRead(it.id).then(function (res) {
+        if (res.ok && res.data.unread_count !== undefined) setBadge(res.data.unread_count);
+      });
+      dismissToast(el, it.id, false);
+    });
+
+    var btnLog = document.createElement("a");
+    btnLog.className = "btn btn-ghost";
+    btnLog.href = logUrl;
+    btnLog.innerHTML = '<i class="fa-solid fa-list" aria-hidden="true"></i> السجل';
+    btnLog.addEventListener("click", function () {
+      dismissToast(el, it.id, true);
+    });
+
+    actions.appendChild(btnRead);
+    actions.appendChild(btnOpen);
+    actions.appendChild(btnLog);
+    el.appendChild(actions);
+
     host.appendChild(el);
-    setTimeout(function () {
-      el.classList.add("notif-toast--out");
-      setTimeout(function () { el.remove(); }, 320);
-    }, 7000);
+    activeToast = el;
+  }
+
+  function enqueueToast(it) {
+    if (!it || !it.id || it.is_read || dismissedIds[it.id]) return;
+    if (activeToast && activeToast.getAttribute("data-notif-id") === String(it.id)) return;
+    for (var q = 0; q < toastQueue.length; q++) {
+      if (toastQueue[q] && toastQueue[q].id === it.id) return;
+    }
+    if (activeToast) {
+      toastQueue.push(it);
+      return;
+    }
+    showToastPanel(it);
   }
 
   function poll() {
@@ -161,20 +317,21 @@
               if (latest[j] && latest[j].id > maxId) maxId = latest[j].id;
             }
             lastToastId = maxId;
-            sessionStorage.setItem("notif_last_toast_id", String(lastToastId));
+            persistLastToastId();
             return;
           }
         } catch (e) {}
+        var incoming = [];
         for (var i = 0; i < latest.length; i++) {
           var it = latest[i];
           if (!it || !it.id || it.is_read) continue;
-          if (it.id > lastToastId) {
-            lastToastId = it.id;
-            try { sessionStorage.setItem("notif_last_toast_id", String(lastToastId)); } catch (e) {}
-            showToast(it.title, it.action_url || logUrl);
-            break;
-          }
+          if (it.id > lastToastId && !dismissedIds[it.id]) incoming.push(it);
         }
+        if (!incoming.length) return;
+        incoming.sort(function (a, b) { return a.id - b.id; });
+        lastToastId = incoming[incoming.length - 1].id;
+        persistLastToastId();
+        for (var k = 0; k < incoming.length; k++) enqueueToast(incoming[k]);
       })
       .catch(function () {});
   }

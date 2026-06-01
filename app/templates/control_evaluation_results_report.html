@@ -146,61 +146,50 @@
       <div class="control-report-tab2-split" dir="rtl">
         <article class="control-panel control-panel--groups control-report-tab2-groups">
           <h2>أداء المجموعات (متوسط النسبة العامة)</h2>
-          <div class="control-group-chart control-group-chart--wide" dir="rtl" style="--group-count: {{ [report.group_scores | length, 1] | max }};">
-            <div class="control-group-chart__scroll">
-              <div class="control-group-chart__plot">
-                {% for item in report.group_scores %}
-                <div class="control-group-chart__col">
-                  <div class="control-group-chart__bar-track" style="--bar-pct: {{ item.value }};">
-                    <i class="control-group-chart__bar" style="background: linear-gradient(180deg, {{ item.color }} 0%, color-mix(in srgb, {{ item.color }} 72%, #fff) 100%);" aria-hidden="true"></i>
-                    <span class="control-group-chart__bar-value">{{ item.value }}%</span>
-                  </div>
-                </div>
-                {% endfor %}
-              </div>
-              <div class="control-group-chart__rule control-report-tab2-chart__baseline" role="presentation" aria-hidden="true"></div>
-              <div class="control-group-chart__captions control-report-tab2-chart__names-row">
-                {% for item in report.group_scores %}
-                <div class="control-group-chart__caption control-report-tab2-chart__name-cell">
-                  <span class="control-report-tab2-chart__unit-name" title="{{ item.label }}">{{ item.label }}</span>
-                </div>
-                {% endfor %}
-              </div>
-            </div>
+          {% if report.group_scores %}
+          <div class="cr-group-hbars-chart" dir="rtl" style="--group-count: {{ report.group_scores | length }};" role="img" aria-label="أداء المجموعات — متوسط النسبة العامة حسب تسلسل الوحدات">
+            <ol class="cr-group-hbars">
+              {% for item in report.group_scores %}
+              <li class="cr-group-hbars__row">
+                <span class="cr-group-hbars__num">{{ item.seq }}</span>
+                <span class="cr-group-hbars__name" title="{{ item.label }}">{{ item.label }}</span>
+                <span class="cr-group-hbars__track" style="--bar-pct: {{ item.value }};">
+                  <span class="cr-group-hbars__fill cr-grade-fill cr-grade-fill--{{ item.grade_band }}" style="width: {{ item.value }}%;" title="{{ item.value }}%"></span>
+                  <span class="cr-group-hbars__pct">{{ item.value }}%</span>
+                </span>
+              </li>
+              {% endfor %}
+            </ol>
           </div>
+          {% else %}
+          <p class="muted control-report-tab2-groups__empty">لا توجد نتائج محفوظة لعرض أداء المجموعات.</p>
+          {% endif %}
         </article>
 
         <article class="control-panel control-panel--phase-bars control-report-tab2-phases">
           <h2>أداء الوحدات حسب مراحل التمرين</h2>
-          <div class="control-group-chart control-group-chart--phase-side control-group-chart--wide-tab2" dir="rtl" style="--group-count: {{ [report.distribution | length, 1] | max }};" role="img" aria-label="أداء الوحدات حسب مراحل التمرين">
-            <div class="control-group-chart__scroll control-report-tab2-phases-chart-scroll">
-              <div class="control-phase-bar-total-head">
-                <span class="control-phase-bar-total-head__label">المجموع العام</span>
-                <strong>{% if report.phase_summary and report.phase_summary.exercise_pct is not none %}{{ report.phase_summary.exercise_pct|round(2) }}%{% else %}—{% endif %}</strong>
+          <div class="cr-phase-donut-chart" dir="rtl">
+            {% if report.distribution %}
+            <div class="cr-phase-donut-layout" role="img" aria-label="أداء الوحدات حسب مراحل التمرين — مخطط دائري">
+              <div class="cr-phase-donut" style="background: {{ report.phase_donut_css | safe }};">
+                <span class="cr-phase-donut__hole">
+                  <span class="cr-phase-donut__label">المجموع العام</span>
+                  <strong class="cr-phase-donut__total">{% if report.phase_summary and report.phase_summary.exercise_pct is not none %}{{ report.phase_summary.exercise_pct|round(2) }}%{% else %}—{% endif %}</strong>
+                </span>
               </div>
-              {% if report.distribution %}
-              <div class="control-group-chart__plot">
+              <ul class="cr-phase-donut-legend">
                 {% for item in report.distribution %}
-                <div class="control-group-chart__col">
-                  <div class="control-group-chart__bar-track" style="--bar-pct: {{ item.pct_display }};">
-                    <i class="control-group-chart__bar" style="background: linear-gradient(180deg, {{ item.color }} 0%, color-mix(in srgb, {{ item.color }} 72%, #fff) 100%);" aria-hidden="true"></i>
-                    <span class="control-group-chart__bar-value">{{ item.pct_display }}%</span>
-                  </div>
-                </div>
+                <li class="cr-phase-donut-legend__row">
+                  <i class="cr-phase-donut-legend__swatch cr-phase-swatch cr-phase-swatch--{{ item.phase_key }}" style="background-color: {{ item.color }};" aria-hidden="true"></i>
+                  <span class="cr-phase-donut-legend__name" title="{{ item.label }}">{{ item.label }}</span>
+                  <span class="cr-phase-donut-legend__vals"><strong>{{ item.pct_display }}%</strong></span>
+                </li>
                 {% endfor %}
-              </div>
-              <div class="control-group-chart__rule control-report-tab2-chart__baseline" role="presentation" aria-hidden="true"></div>
-              <div class="control-group-chart__captions control-report-tab2-chart__names-row">
-                {% for item in report.distribution %}
-                <div class="control-group-chart__caption control-report-tab2-chart__name-cell">
-                  <span class="control-report-tab2-chart__unit-name" title="{{ item.label }}">{{ item.label }}</span>
-                </div>
-                {% endfor %}
-              </div>
-              {% else %}
-              <p class="muted control-report-tab2-phases__empty">لا توجد نتائج محفوظة لعرض مراحل التمرين.</p>
-              {% endif %}
+              </ul>
             </div>
+            {% else %}
+            <p class="muted control-report-tab2-phases__empty">لا توجد نتائج محفوظة لعرض مراحل التمرين.</p>
+            {% endif %}
           </div>
         </article>
       </div>

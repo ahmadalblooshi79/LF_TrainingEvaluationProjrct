@@ -146,6 +146,7 @@ from app.unit_levels_catalog import (
     default_unit_level_key,
     label_for_unit_level_key,
     normalize_unit_level_key,
+    planning_included_unit_keys,
     unit_level_row,
 )
 from app.information_bank_catalog import (
@@ -828,23 +829,39 @@ _CONTROL_REPORT_GRADE_LEGEND: tuple[tuple[str, str, str], ...] = (
     ("جيد جدا", "80% – 89%", "#38bdf8"),
     ("ممتاز", "90% – 100%", "#22c55e"),
 )
+_CONTROL_REPORT_GRADE_COLORS: dict[str, str] = {
+    "fail": "#ef4444",
+    "medium": "#f97316",
+    "good": "#eab308",
+    "very_good": "#38bdf8",
+    "excellent": "#22c55e",
+}
 
 
 def _control_report_grade_legend() -> list[dict]:
     return [{"label": lbl, "range": rng, "color": col} for lbl, rng, col in _CONTROL_REPORT_GRADE_LEGEND]
 
 
-def _control_report_dot_color(pct: float) -> str:
+def _control_report_grade_band(pct: float) -> str:
+    """مفتاح CSS/البيانات لمستوى النتيجة (يطابق grade_label_from_percent)."""
     p = float(pct)
     if p >= 90:
-        return "#22c55e"
+        return "excellent"
     if p >= 80:
-        return "#38bdf8"
+        return "very_good"
     if p >= 70:
-        return "#eab308"
+        return "good"
     if p >= 60:
-        return "#f97316"
-    return "#ef4444"
+        return "medium"
+    return "fail"
+
+
+def _control_report_grade_color(pct: float) -> str:
+    return _CONTROL_REPORT_GRADE_COLORS[_control_report_grade_band(pct)]
+
+
+def _control_report_dot_color(pct: float) -> str:
+    return _control_report_grade_color(pct)
 
 
 def _control_report_approval_location_ar(saved: EvaluationListSavedResult | None) -> str:
@@ -1981,7 +1998,7 @@ def _build_final_report_exercise_summary(final_rows: list[dict]) -> dict:
     }
 
 
-# ألوان أعمدة مخطط مراحل التمرين (hex لاستخدامها في الخلفيات المتدرجة Inline).
+# ألوان مخطط مراحل التمرين — لون ثابت لكل مرحلة (4 ألوان مميزة).
 _CONTROL_PHASE_BAR_HEX: dict[str, str] = {
     "preparation": "#3b82f6",
     "opening": "#10b981",
@@ -1989,6 +2006,7 @@ _CONTROL_PHASE_BAR_HEX: dict[str, str] = {
     "battle_exposure": "#f59e0b",
     "reorg": "#14b8a6",
     "reorganization": "#14b8a6",
+    "evaluation_tracks": "#8b5cf6",
 }
 
 
@@ -2115,7 +2133,6 @@ def _distribution_from_phase_summary(summary: dict) -> list[dict]:
         if pct is None:
             continue
         pct_f = float(pct)
-        hex_col = _control_phase_bar_hex(phase_key)
         items.append(
             {
                 "phase_key": phase_key,
@@ -2123,7 +2140,7 @@ def _distribution_from_phase_summary(summary: dict) -> list[dict]:
                 "pct": pct_f,
                 "pct_display": _round_pct_display(pct_f),
                 "count": int(ps.get("unit_count") or 0),
-                "color": hex_col,
+                "color": _control_phase_bar_hex(phase_key),
                 "_order": phase_order.get(phase_key, 999),
             }
         )
@@ -2131,6 +2148,33 @@ def _distribution_from_phase_summary(summary: dict) -> list[dict]:
     for row in items:
         row.pop("_order", None)
     return items
+
+
+def _distribution_phase_donut_css(items: list[dict]) -> str:
+    """تدرج دائري لمخطط مراحل التمرين — حجم الشريحة يتناسب مع نسبة المرحلة."""
+    if not items:
+        return "conic-gradient(var(--tint-200, #e8e0d8) 0deg 360deg)"
+    weights = [max(0.0, float(x.get("pct") or 0)) for x in items]
+    total = sum(weights)
+    stops: list[str] = []
+    acc = 0.0
+    if total <= 0:
+        share_each = 100.0 / len(items)
+        for item in items:
+            col = (item.get("color") or "#e8e0d8").strip()
+            nxt = acc + share_each
+            stops.append(f"{col} {acc:.2f}% {nxt:.2f}%")
+            item["share_pct"] = round(share_each, 1)
+            acc = nxt
+    else:
+        for item, w in zip(items, weights):
+            share = (w / total) * 100.0
+            col = (item.get("color") or "#e8e0d8").strip()
+            nxt = acc + share
+            stops.append(f"{col} {acc:.2f}% {nxt:.2f}%")
+            item["share_pct"] = round(share, 1)
+            acc = nxt
+    return f"conic-gradient(from 0.25turn, {', '.join(stops)})"
 
 
 FINAL_EVALUATION_TRACK_UNIT_KEYS: set[str] = {
@@ -3183,6 +3227,7 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
     # (مساحة المحللين / معايير التقييم) — تظهر في التقرير النهائي عند عدم
     # إدخال قيمة يدوية في AnalystFinalEvaluationPhaseAllocatedMax.
     criteria_phase_max_map = _analyst_criteria_phase_max_map(db, int(ex.id))
+    included_unit_keys = planning_included_unit_keys()
 
     phase_acquired_totals: dict[tuple[str, str], dict] = {}
     unit_phase_slots: dict[tuple[str, str], dict] = {}
@@ -3190,13 +3235,15 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
     template_rows_cache: dict[str, list[dict]] = {}
     for item in eval_items:
         unit_key = (item.unit_level_key or "").strip()
+        if unit_key and unit_key not in included_unit_keys:
+            continue
         phase_key = _normalized_exercise_phase(getattr(item, "exercise_phase", None))
         if unit_key and phase_key:
             unit_phase_slots.setdefault(
                 (unit_key, phase_key),
                 {
                     "unit_key": unit_key,
-                    "unit_label": label_for_unit_level_key(unit_key) or unit_key or "—",
+                    "unit_label": label_for_unit_level_key(unit_key, db) or unit_key or "—",
                     "phase_key": phase_key,
                     "phase_label": _phase_label_ar(phase_key),
                     "acquired_mark": 0.0,
@@ -3268,7 +3315,7 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
                 (unit_key, phase_key),
                 {
                     "unit_key": unit_key,
-                    "unit_label": label_for_unit_level_key(unit_key) or unit_key or "—",
+                    "unit_label": label_for_unit_level_key(unit_key, db) or unit_key or "—",
                     "phase_key": phase_key,
                     "phase_label": _phase_label_ar(phase_key),
                     "acquired_mark": 0.0,
@@ -3280,7 +3327,7 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
         list_rows_by_unit_phase.setdefault((unit_key, phase_key), []).append(
             {
                 "unit_key": unit_key,
-                "unit_label": label_for_unit_level_key(unit_key) or unit_key or "—",
+                "unit_label": label_for_unit_level_key(unit_key, db) or unit_key or "—",
                 "phase_key": phase_key,
                 "phase_label": _phase_label_ar(phase_key),
                 "list_label": list_label,
@@ -3302,10 +3349,10 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
     units_in_exercise: set[str] = set()
     for item in eval_items:
         uk = (item.unit_level_key or "").strip()
-        if uk:
+        if uk and uk in included_unit_keys:
             units_in_exercise.add(uk)
     for unit_key in units_in_exercise:
-        unit_label = label_for_unit_level_key(unit_key) or unit_key or "—"
+        unit_label = label_for_unit_level_key(unit_key, db) or unit_key or "—"
         for phase_key in exercise_phase_keys():
             unit_phase_slots.setdefault(
                 (unit_key, phase_key),
@@ -3324,7 +3371,7 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
 
     final_rows: list[dict] = []
     for slot_key in sorted(
-        unit_phase_slots.keys(),
+        (k for k in unit_phase_slots.keys() if k[0] in included_unit_keys),
         key=lambda k: (
             unit_order.get(k[0], len(unit_order)),
             phase_order.get(k[1], len(phase_order)),
@@ -3396,10 +3443,6 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
         key = (row.get("key") or "").strip()
         if key and key not in unit_keys:
             unit_keys.append(key)
-    for item in eval_items:
-        key = (item.unit_level_key or "").strip()
-        if key and key not in unit_keys:
-            unit_keys.append(key)
 
     rows_by_unit: dict[str, list[dict]] = {}
     for row in final_rows:
@@ -3410,7 +3453,7 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
     final_rows_all: list[dict] = []
     for idx, unit_key in enumerate(unit_keys):
         anchor = f"final-unit-{idx + 1}"
-        unit_label = label_for_unit_level_key(unit_key) or unit_key or "—"
+        unit_label = label_for_unit_level_key(unit_key, db) or unit_key or "—"
         unit_phase_rows = _ensure_unit_phase_rows_for_all_phases(
             unit_key, unit_label, rows_by_unit.get(unit_key) or []
         )
@@ -7812,7 +7855,9 @@ def api_notifications_summary():
         {
             "id": r.id,
             "title": r.title,
+            "body": (r.body or "")[:500],
             "type": r.type,
+            "priority": r.priority or "normal",
             "is_read": bool(r.is_read),
             "action_url": r.action_url or "",
             "created_at": r.created_at.isoformat() if r.created_at else "",
@@ -7820,6 +7865,44 @@ def api_notifications_summary():
         for r in latest_rows
     ]
     return jsonify({"ok": True, "unread_count": int(unread), "latest": latest})
+
+
+@bp.route("/api/notifications/<int:nid>/read", methods=["POST"])
+def api_notification_mark_read(nid: int):
+    """تعليم إشعار كمقروء (للوحة التنبيه المنبثقة دون إعادة تحميل الصفحة)."""
+    user = get_current_user_optional()
+    if not user:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    if not can_view_notifications_log(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    from flask import g
+
+    db = g.db
+    ex = _notifications_scope_exercise(db, user)
+    if ex is None:
+        return jsonify({"ok": False, "error": "no_exercise"}), 400
+    row = db.get(ExerciseNotification, nid)
+    if (
+        not row
+        or int(row.user_id) != int(user.id)
+        or int(row.exercise_id) != int(ex.id)
+    ):
+        return jsonify({"ok": False, "error": "not_found"}), 404
+    if not row.is_read:
+        row.is_read = True
+        db.add(row)
+        db.commit()
+    unread = (
+        db.query(func.count(ExerciseNotification.id))
+        .filter(
+            ExerciseNotification.user_id == int(user.id),
+            ExerciseNotification.exercise_id == int(ex.id),
+            ExerciseNotification.is_read == False,
+        )
+        .scalar()
+        or 0
+    )
+    return jsonify({"ok": True, "id": int(nid), "unread_count": int(unread)})
 
 
 def _visual_scope_exercise(db, user: User) -> Exercise | None:
@@ -9002,6 +9085,7 @@ def _control_exercise_performance_report(db, user: User) -> dict:
             "group_scores": [],
             "timeline": [],
             "distribution": [],
+            "phase_donut_css": "conic-gradient(var(--tint-200, #e8e0d8) 0deg 360deg)",
             "phase_summary": {"phase_summaries": [], "exercise_pct": None, "exercise_grade": "—", "phase_count": 0},
             "unit_detail_rows": [],
             "unit_detail_phase_headers": [],
@@ -9071,6 +9155,7 @@ def _control_exercise_performance_report(db, user: User) -> dict:
         db, ex0.id, eval_items, saved_by_item
     )
     distribution = _distribution_from_phase_summary(phase_summary)
+    phase_donut_css = _distribution_phase_donut_css(distribution)
 
     # حالة الإنجاز: نسبة المعتمد مقابل الإجمالي (وأي عنصر غير معتمد يعتبر "قيد التقييم")
     pending_pct = int(round(((n_eval_lists - n_approved) / n_eval_lists) * 100.0)) if n_eval_lists else 0
@@ -9165,16 +9250,23 @@ def _control_exercise_performance_report(db, user: User) -> dict:
                 "color": palette[i % len(palette)],
             }
         )
-    unit_avg_rows.sort(key=lambda r: float(r.get("raw", 0.0)), reverse=True)
-    top_unit = unit_avg_rows[0] if unit_avg_rows else None
-    bottom_unit = unit_avg_rows[-1] if unit_avg_rows else None
+    sorted_by_perf = sorted(
+        unit_avg_rows, key=lambda r: float(r.get("raw", 0.0)), reverse=True
+    )
+    top_unit = sorted_by_perf[0] if sorted_by_perf else None
+    bottom_unit = sorted_by_perf[-1] if sorted_by_perf else None
+    # ترتيب الرسم = تسلسل قوائم الوحدات (كتالوج UNIT_LEVELS) من الأعلى إلى الأسفل
     group_scores = []
-    for r in unit_avg_rows:
+    for seq, r in enumerate(unit_avg_rows, start=1):
+        val = int(r["value"])
+        band = _control_report_grade_band(float(val))
         group_scores.append(
             {
+                "seq": seq,
                 "label": r["label"],
-                "value": r["value"],
-                "color": r["color"],
+                "value": val,
+                "grade_band": band,
+                "color": _CONTROL_REPORT_GRADE_COLORS[band],
             }
         )
 
@@ -9356,6 +9448,7 @@ def _control_exercise_performance_report(db, user: User) -> dict:
         "group_scores": group_scores,
         "timeline": timeline,
         "distribution": distribution,
+        "phase_donut_css": phase_donut_css,
         "phase_summary": phase_summary,
         "table_rows": table_rows,
         "table_headers": table_headers,

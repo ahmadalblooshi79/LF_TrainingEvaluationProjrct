@@ -61,16 +61,15 @@ def exercise_phase_keys() -> list[str]:
 
 
 def default_exercise_phase_key() -> str:
-    for key, _ in EXERCISE_PHASE_OPTIONS:
-        if key != PLANNING_CATALOG_ALL_KEY:
-            return key
-    return PLANNING_CATALOG_ALL_KEY if EXERCISE_PHASE_OPTIONS else ""
+    if EXERCISE_PHASE_OPTIONS:
+        return EXERCISE_PHASE_OPTIONS[0][0]
+    return DEFAULT_EXERCISE_PHASE or ""
 
 
 def normalize_exercise_phase(raw: str | None) -> str:
     v = (raw or "").strip()
     if v == PLANNING_CATALOG_ALL_KEY:
-        return PLANNING_CATALOG_ALL_KEY
+        return default_exercise_phase_key()
     if not v:
         return ""
     if v in _PHASE_LABELS:

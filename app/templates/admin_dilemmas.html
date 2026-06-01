@@ -81,9 +81,7 @@
           <label for="upload-phase-dilemmas"><i class="fa-solid fa-timeline fa-icon-label" aria-hidden="true"></i> مرحلة التمرين (للملفات الجديدة)</label>
           <select id="upload-phase-dilemmas" name="exercise_phase" class="unit-level-select" aria-label="مرحلة التمرين للملفات المضافة" {% if phases_catalog_empty %}disabled{% endif %}>
             {% for pk, pl in exercise_phase_options %}
-            {% if pk != '__all__' %}
               <option value="{{ pk }}" {% if pk == upload_phase_default %}selected{% endif %}>{{ pl }}</option>
-            {% endif %}
             {% endfor %}
           </select>
         </div>

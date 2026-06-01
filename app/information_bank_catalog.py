@@ -113,7 +113,7 @@ def training_phase_label(key: str | None) -> str:
 def info_bank_unit_label(key: str | None) -> str:
     k = (key or "").strip()
     if k == PLANNING_CATALOG_ALL_KEY:
-        return PLANNING_CATALOG_ALL_LABEL
+        return ""
     for row in INFO_BANK_UNIT_LEVEL_TEMPLATES:
         if row["key"] == k:
             return row["label"]

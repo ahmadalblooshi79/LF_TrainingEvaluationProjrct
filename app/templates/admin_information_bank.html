@@ -217,8 +217,8 @@
             tr.style.display = '';
             return;
           }
-          var matchP = pk === '__all__' || tr.getAttribute('data-phase') === pk;
-          var matchU = uk === '__all__' || tr.getAttribute('data-unit') === uk;
+          var matchP = tr.getAttribute('data-phase') === pk;
+          var matchU = tr.getAttribute('data-unit') === uk;
           var show = matchP && matchU;
           tr.style.display = show ? '' : 'none';
           if (show) {
