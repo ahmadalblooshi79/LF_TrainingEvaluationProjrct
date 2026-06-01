@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/static/style.css?v=cr-phase-colors-4">
+  <link rel="stylesheet" href="/static/style.css?v=cr-detail-dots-120">
 </head>
 <body class="{% block body_class %}{% endblock %}{% if hub_landing_preserve_buttons %} hub-landing-preserve-buttons{% endif %}">
 <header>
@@ -101,6 +101,7 @@
 (function () {
   var pollUrl = "/api/notifications/summary";
   var logUrl = {{ notifications_log_url | tojson }};
+  var toastSeed = {{ notification_toast_seed | tojson }};
   var badge = document.getElementById("header-notif-badge");
   var host = document.getElementById("notif-toast-host");
   var pollMs = 4000;
@@ -226,8 +227,8 @@
     var closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.className = "notif-toast__close";
-    closeBtn.setAttribute("aria-label", "إغلاق دون تعليم كمقروء");
-    closeBtn.innerHTML = "&times;";
+    closeBtn.setAttribute("aria-label", "إغلاق");
+    closeBtn.innerHTML = '<span aria-hidden="true">&times;</span><span class="notif-toast__close-label">إغلاق</span>';
     closeBtn.addEventListener("click", function () {
       dismissToast(el, it.id, true);
     });
@@ -309,18 +310,6 @@
         if (!data || !data.ok) return;
         setBadge(data.unread_count || 0);
         var latest = data.latest || [];
-        try {
-          if (!sessionStorage.getItem("notif_boot_done")) {
-            sessionStorage.setItem("notif_boot_done", "1");
-            var maxId = 0;
-            for (var j = 0; j < latest.length; j++) {
-              if (latest[j] && latest[j].id > maxId) maxId = latest[j].id;
-            }
-            lastToastId = maxId;
-            persistLastToastId();
-            return;
-          }
-        } catch (e) {}
         var incoming = [];
         for (var i = 0; i < latest.length; i++) {
           var it = latest[i];
@@ -336,7 +325,19 @@
       .catch(function () {});
   }
 
-  setTimeout(poll, 4000);
+  window.notifToastIsVisible = function () {
+    return !!(host && host.querySelector(".notif-toast"));
+  };
+
+  if (toastSeed && toastSeed.id && !toastSeed.is_read) {
+    if (!dismissedIds[toastSeed.id]) {
+      if (toastSeed.id > lastToastId) lastToastId = toastSeed.id;
+      persistLastToastId();
+      setTimeout(function () { enqueueToast(toastSeed); }, 350);
+    }
+  }
+
+  setTimeout(poll, 600);
   setInterval(poll, pollMs);
 })();
 </script>
@@ -448,6 +449,10 @@
       saveChatComposer();
       saveScroll();
       window.location.reload();
+      return;
+    }
+    if (typeof window.notifToastIsVisible === "function" && window.notifToastIsVisible()) {
+      deferredReload = true;
       return;
     }
     if (isUserBusy()) {

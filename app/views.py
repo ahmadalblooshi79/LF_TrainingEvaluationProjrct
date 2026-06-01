@@ -2001,12 +2001,12 @@ def _build_final_report_exercise_summary(final_rows: list[dict]) -> dict:
 # ألوان مخطط مراحل التمرين — لون ثابت لكل مرحلة (4 ألوان مميزة).
 _CONTROL_PHASE_BAR_HEX: dict[str, str] = {
     "preparation": "#3b82f6",
-    "opening": "#10b981",
+    "opening": "#9333ea",
     "main": "#f59e0b",
     "battle_exposure": "#f59e0b",
     "reorg": "#14b8a6",
     "reorganization": "#14b8a6",
-    "evaluation_tracks": "#8b5cf6",
+    "evaluation_tracks": "#10b981",
 }
 
 

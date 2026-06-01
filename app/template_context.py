@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from flask import g, has_request_context, request, url_for
 
-from sqlalchemy import func
+from sqlalchemy import desc, func
 
 from app.auth import get_current_user_optional
 from app.config import HEARTBEAT_FAST_POLL_MS, HEARTBEAT_POLL_MS
@@ -49,6 +49,7 @@ def inject_header_exercise():
         "nav_role_hub_links": [],
         "judge_welcome_name": None,
         "notification_unread_count": 0,
+        "notification_toast_seed": None,
         "notifications_log_url": None,
         "user_can_view_information_bank": False,
         "user_can_manage_information_bank": False,
@@ -118,6 +119,35 @@ def inject_header_exercise():
                     or 0
                 )
                 base["notification_unread_count"] = int(unread)
+                if int(unread) > 0:
+                    seed_row = (
+                        db.query(ExerciseNotification)
+                        .filter(
+                            ExerciseNotification.user_id == u.id,
+                            ExerciseNotification.exercise_id == n_ex.id,
+                            ExerciseNotification.is_read == False,
+                        )
+                        .order_by(
+                            desc(ExerciseNotification.created_at),
+                            desc(ExerciseNotification.id),
+                        )
+                        .first()
+                    )
+                    if seed_row is not None:
+                        base["notification_toast_seed"] = {
+                            "id": int(seed_row.id),
+                            "title": seed_row.title or "",
+                            "body": (seed_row.body or "")[:500],
+                            "type": seed_row.type or "system",
+                            "priority": seed_row.priority or "normal",
+                            "is_read": False,
+                            "action_url": seed_row.action_url or "",
+                            "created_at": (
+                                seed_row.created_at.isoformat()
+                                if seed_row.created_at
+                                else ""
+                            ),
+                        }
             base["notifications_log_url"] = url_for("views.notifications_log")
 
     row = None
