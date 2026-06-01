@@ -7594,9 +7594,9 @@ def api_system_heartbeat():
     """نقطة نهاية «نبضة الحياة» للتحديث التلقائي بين الخادم والعملاء.
 
     تُرجع توقيع نسخة مركّب يتغيّر عند أي تغيير في الجداول الرئيسية
-    (الإشعارات، قوائم التقييم، نتائج التقييم، رسائل المحادثة، توثيق
-    مرئي، تقييمات المسارات/التقريرات النهائية). يستدعيها العميل
-    بشكل دوري لاكتشاف الحاجة لإعادة تحميل الصفحة تلقائياً.
+    (الإشعارات، قوائم التقييم، نتائج التقييم، تقييمات المجرى/الإجراءات،
+    رسائل المحادثة، توثيق مرئي، معاضل). يستدعيها العميل بشكل دوري
+    لاكتشاف الحاجة لإعادة تحميل الصفحة تلقائياً.
     """
     user = get_current_user_optional()
     if not user:
@@ -7664,6 +7664,74 @@ def api_system_heartbeat():
                 EvaluationListSavedResult.exercise_id == ex_id
             )
         )
+        _add_max(
+            db.query(func.max(EvaluationListSavedResult.chief_approved_at)).filter(
+                EvaluationListSavedResult.exercise_id == ex_id
+            )
+        )
+        _add_max(
+            db.query(func.max(EvaluationListSavedResult.control_approved_at)).filter(
+                EvaluationListSavedResult.exercise_id == ex_id
+            )
+        )
+        # نتائج تقييم إجراءات حزمة المجرى (تقييم المجرى/الإجراءات).
+        _add_max(
+            db.query(func.max(PlannerFlowBundleEvalSavedResult.updated_at)).filter(
+                PlannerFlowBundleEvalSavedResult.exercise_id == ex_id
+            )
+        )
+        _add_max(
+            db.query(func.max(PlannerFlowBundleEvalSavedResult.approved_at)).filter(
+                PlannerFlowBundleEvalSavedResult.exercise_id == ex_id
+            )
+        )
+        _add_max(
+            db.query(func.max(PlannerFlowBundleEvalSavedResult.chief_approved_at)).filter(
+                PlannerFlowBundleEvalSavedResult.exercise_id == ex_id
+            )
+        )
+        _add_max(
+            db.query(func.max(PlannerFlowBundleEvalSavedResult.control_approved_at)).filter(
+                PlannerFlowBundleEvalSavedResult.exercise_id == ex_id
+            )
+        )
+        pf_saved_n = (
+            db.query(func.count(PlannerFlowBundleEvalSavedResult.id))
+            .filter(PlannerFlowBundleEvalSavedResult.exercise_id == ex_id)
+            .scalar()
+            or 0
+        )
+        parts.append(f"pf_saved={int(pf_saved_n)}")
+        # حزم المجرى وقوائم الإجراءات (ربط/إنشاء جديد).
+        _add_max(
+            db.query(func.max(ExercisePlannerFlowBundle.updated_at)).filter(
+                ExercisePlannerFlowBundle.exercise_id == ex_id
+            )
+        )
+        _add_max(
+            db.query(func.max(ExercisePlannerFlowBundleActionEval.created_at))
+            .join(
+                ExercisePlannerFlowBundle,
+                ExercisePlannerFlowBundleActionEval.bundle_id
+                == ExercisePlannerFlowBundle.id,
+            )
+            .filter(ExercisePlannerFlowBundle.exercise_id == ex_id)
+        )
+        _add_max(
+            db.query(func.max(ExercisePlannerFlowBundleEventFlow.created_at))
+            .join(
+                ExercisePlannerFlowBundle,
+                ExercisePlannerFlowBundleEventFlow.bundle_id
+                == ExercisePlannerFlowBundle.id,
+            )
+            .filter(ExercisePlannerFlowBundle.exercise_id == ex_id)
+        )
+        # توثيق بنود التقييم (صور/فيديو).
+        _add_max(
+            db.query(func.max(EvaluationCriterionMedia.created_at)).filter(
+                EvaluationCriterionMedia.exercise_id == ex_id
+            )
+        )
         # رسائل المحادثة لكل غرف هذا التمرين.
         _add_max(
             db.query(func.max(ChatMessage.created_at))
@@ -7684,7 +7752,7 @@ def api_system_heartbeat():
         )
 
     version = "|".join(parts)
-    return jsonify(
+    resp = jsonify(
         {
             "ok": True,
             "version": version,
@@ -7693,6 +7761,9 @@ def api_system_heartbeat():
             "server_time": datetime.utcnow().isoformat(),
         }
     )
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 
 @bp.route("/api/notifications/summary", methods=["GET"])

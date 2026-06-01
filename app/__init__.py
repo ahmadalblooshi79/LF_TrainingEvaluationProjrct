@@ -66,6 +66,9 @@ def create_app() -> Flask:
         if request.path.startswith("/static/"):
             return
         g.db = SessionLocal()
+        # طلبات النبضات خفيفة ومتكررة على LAN/Wi‑Fi — لا حاجة لمزامنة الكتالوج في كل استعلام
+        if request.path in ("/api/system/heartbeat", "/api/notifications/summary"):
+            return
         from app.planning_catalog_sync import sync_planning_catalogs_from_db
 
         sync_planning_catalogs_from_db(g.db)

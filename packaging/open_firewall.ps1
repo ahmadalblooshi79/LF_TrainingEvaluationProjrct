@@ -7,5 +7,6 @@ if (Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue) {
     exit 0
 }
 New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow `
-    -Protocol TCP -LocalPort $Port -Profile Domain,Private
-Write-Host "Allowed inbound TCP port $Port (Domain, Private profiles)."
+    -Protocol TCP -LocalPort $Port -Profile Domain,Private,Public
+Write-Host "Allowed inbound TCP port $Port (Domain, Private, Public profiles)."
+Write-Host "Covers LAN cable and internal Wi-Fi connections."

@@ -54,8 +54,9 @@
             <a role="menuitem" href="/admin/exercises/objectives"><i class="fa-solid fa-bullseye" aria-hidden="true"></i> الأهداف التدريبية</a>
             <a role="menuitem" href="/admin/exercises/judge-unit-roster"><i class="fa-solid fa-gavel" aria-hidden="true"></i> قائمة المحكمين</a>
             <a role="menuitem" href="/admin/exercises/trainee-unit-roster"><i class="fa-solid fa-users" aria-hidden="true"></i> قائمة الوحدة المتدربة</a>
-            <a role="menuitem" href="/admin/dilemmas-evaluation-unit-report"><i class="fa-solid fa-link" aria-hidden="true"></i> ربط المعاضل والتقييم</a>
+            <a role="menuitem" href="/admin/evaluation-lists/saved-results"><i class="fa-solid fa-square-poll-vertical" aria-hidden="true"></i> إدارة تقييمات الوحدات</a>
             <a role="menuitem" href="/admin/battle-organization"><i class="fa-solid fa-sitemap" aria-hidden="true"></i> تنظيم المعركة</a>
+            <a role="menuitem" href="/admin/information-bank/gate?next=/admin/information-bank"><i class="fa-solid fa-database" aria-hidden="true"></i> بنك المعلومات</a>
             <a role="menuitem" href="/admin/users"><i class="fa-solid fa-users-gear" aria-hidden="true"></i> إدارة المستخدمين</a>
           </div>
         </div>
@@ -189,8 +190,8 @@
   // التحديث التلقائي بين الخادم والعملاء — Auto-Refresh.
   // يستعلم خادم النبضات الموحّد ويعيد تحميل الصفحة عند تغيّر أي
   // مصدر متابعة (إشعارات، قوائم تقييم، حفظ/اعتماد، محادثات، ...).
-  var POLL_MS = 3000;
-  var FAST_POLL_MS = 1500;
+  var POLL_MS = {{ heartbeat_poll_ms | default(3000) }};
+  var FAST_POLL_MS = {{ heartbeat_fast_poll_ms | default(1500) }};
   var initialVersion = null;
   var lastVersion = null;
   var reloading = false;
@@ -198,6 +199,19 @@
 
   function isChatRoomPage() {
     return /\/chat-rooms\//.test(window.location.pathname);
+  }
+
+  function isLiveMonitorPage() {
+    var p = window.location.pathname;
+    if (/\/control\//.test(p)) return true;
+    if (/\/incomplete-tasks/.test(p)) return true;
+    if (/\/evaluation-results/.test(p)) return true;
+    if (/\/evaluation-lists-status/.test(p)) return true;
+    if (/\/evaluation-lists\//.test(p)) return true;
+    if (/\/planner-flow/.test(p)) return true;
+    if (/\/judge\/planner-flow-materials/.test(p)) return true;
+    if (/\/chief-judge\//.test(p)) return true;
+    return false;
   }
 
   function isUserBusy() {
@@ -307,7 +321,7 @@
   function poll() {
     if (reloading) return;
     if (document.hidden) return;
-    fetch("/api/system/heartbeat", { credentials: "same-origin", cache: "no-store" })
+    fetch("/api/system/heartbeat?_=" + Date.now(), { credentials: "same-origin", cache: "no-store" })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (!data || !data.ok) return;
@@ -325,8 +339,9 @@
       .catch(function () {});
   }
 
-  var intervalMs = isChatRoomPage() ? FAST_POLL_MS : POLL_MS;
-  window.setTimeout(poll, 800);
+  var intervalMs = (isChatRoomPage() || isLiveMonitorPage()) ? FAST_POLL_MS : POLL_MS;
+  var firstPollDelay = (isChatRoomPage() || isLiveMonitorPage()) ? 400 : 800;
+  window.setTimeout(poll, firstPollDelay);
   window.setInterval(poll, intervalMs);
 
   document.addEventListener("visibilitychange", function () {

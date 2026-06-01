@@ -60,18 +60,20 @@ def print_server_access_info(*, host: str, port: int) -> None:
     print("  نظام تقييم التدريب — الخادم يعمل")
     print("=" * 60)
     print(f"  المنفذ: {port}")
+    print(f"  الاستماع: {host or '0.0.0.0'} (LAN + Wi-Fi)")
     print()
     print("  على هذا الجهاز (السيرفر):")
     print(f"    {urls[-1] if urls else f'http://127.0.0.1:{port}/'}")
     print()
     if lan:
-        print("  للأجهزة الأخرى (LAN / Wi‑Fi) — افتح المتصفح فقط:")
+        print("  للأجهزة الأخرى (كابل LAN أو Wi-Fi داخلي) — متصفح فقط:")
         for u in lan:
             print(f"    {u}")
     else:
         print("  للأجهزة الأخرى: استخدم عنوان IP هذا الجهاز على الشبكة")
         print(f"    http://<عنوان-IP-السيرفر>:{port}/")
     print()
-    print("  لا حاجة لتنصيب على أجهزة العملاء — متصفح فقط.")
+    print("  لا حاجة لتنصيب على أجهزة العملاء — متصفح Chrome/Edge فقط.")
+    print("  التحديث التلقائي بين الأجهزة: كل ~1–2 ثانية على صفحات المتابعة.")
     print("=" * 60)
     print()

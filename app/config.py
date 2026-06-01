@@ -3,13 +3,23 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from app.paths import APP_DIR, data_dir, ensure_data_directories
+from app.paths import APP_DIR, data_dir, ensure_data_directories, is_installed_mode
 
 load_dotenv()
 
 BASE_DIR = APP_DIR
 _DATA = data_dir()
 ensure_data_directories(_DATA)
+
+
+def _int_env(name: str, default: int) -> int:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return default
 
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{_DATA / 'exercises.db'}")
 # مجلد خارجي لملفات JSON الكاملة للتمارين (يمكن ضبطه في .env)
@@ -61,3 +71,9 @@ SECRET_KEY = os.getenv("SECRET_KEY", "dev-insecure-secret-change-in-production")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+# فترات استطلاع التحديث التلقائي (ms) — أسرع في وضع التنصيب على السيرفر
+_HEARTBEAT_DEFAULT = 2000 if is_installed_mode() else 3000
+_HEARTBEAT_FAST_DEFAULT = 1000 if is_installed_mode() else 1500
+HEARTBEAT_POLL_MS = _int_env("LF_HEARTBEAT_POLL_MS", _HEARTBEAT_DEFAULT)
+HEARTBEAT_FAST_POLL_MS = _int_env("LF_HEARTBEAT_FAST_POLL_MS", _HEARTBEAT_FAST_DEFAULT)

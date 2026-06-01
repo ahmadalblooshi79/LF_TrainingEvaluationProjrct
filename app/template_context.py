@@ -6,6 +6,7 @@ from flask import g, has_request_context, request, url_for
 from sqlalchemy import func
 
 from app.auth import get_current_user_optional
+from app.config import HEARTBEAT_FAST_POLL_MS, HEARTBEAT_POLL_MS
 from app.models import Exercise, ExerciseNotification
 from app.permissions import (
     can_access_analyst_hub,
@@ -55,6 +56,8 @@ def inject_header_exercise():
         "header_exercise_info_url": None,
         "hub_landing_preserve_buttons": False,
         "hide_header_center_nav": False,
+        "heartbeat_poll_ms": HEARTBEAT_POLL_MS,
+        "heartbeat_fast_poll_ms": HEARTBEAT_FAST_POLL_MS,
     }
 
     if not has_request_context():

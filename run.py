@@ -3,7 +3,7 @@
   run.bat
   أو: .venv\\Scripts\\python.exe run.py
 
-تنصيب السيرفر للإنتاج + LAN/Wi‑Fi: packaging\\install.bat ثم packaging\\start_server.bat
+تنصيب السيرفر للإنتاج + LAN/Wi‑Fi: INSTALL.bat ثم START_SERVER.bat
 """
 import os
 import shutil
