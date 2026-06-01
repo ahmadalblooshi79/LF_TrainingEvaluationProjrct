@@ -21,6 +21,7 @@ from app.database import (
     ensure_information_bank_tree_suppressions_table,
     ensure_information_bank_phase_included_column,
     ensure_information_bank_unit_included_column,
+    ensure_information_bank_unit_brigade_group_column,
     ensure_analyst_final_eval_manual_tables,
 )
 
@@ -53,6 +54,7 @@ def create_app() -> Flask:
         ensure_information_bank_tree_suppressions_table()
         ensure_information_bank_phase_included_column()
         ensure_information_bank_unit_included_column()
+        ensure_information_bank_unit_brigade_group_column()
         ensure_analyst_final_eval_manual_tables()
         from app.seed import seed_all
         db = SessionLocal()

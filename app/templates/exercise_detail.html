@@ -3,13 +3,22 @@
 {% block content %}
 <div class="page-header">
   <h1><i class="fa-solid fa-clipboard-list fa-icon-title" aria-hidden="true"></i> {{ ex.title }} <span class="badge">{{ ex.code }}</span></h1>
-  {% if ex.exercise_type or ex.exercise_level or ex.mission_label or ex.trained_unit or ex.location_label %}
+  {% if ex.exercise_type or ex.exercise_level or ex.mission_label or ex.trained_unit or ex.location_label or ex.planned_start or ex.planned_end %}
   <dl class="exercise-meta-dl">
     {% if ex.exercise_type %}<dt>نوع التمرين</dt><dd>{{ ex.exercise_type }}</dd>{% endif %}
     {% if ex.exercise_level %}<dt>مستوى التمرين</dt><dd>{{ ex.exercise_level }}</dd>{% endif %}
     {% if ex.mission_label %}<dt>المهمة</dt><dd>{{ ex.mission_label }}</dd>{% endif %}
     {% if ex.trained_unit %}<dt>الوحدة المتدربة</dt><dd>{{ ex.trained_unit }}</dd>{% endif %}
     {% if ex.location_label %}<dt>مكان التمرين</dt><dd>{{ ex.location_label }}</dd>{% endif %}
+    {% if ex.planned_start or ex.planned_end %}
+    <dt>تاريخ التمرين</dt>
+    <dd>
+      <span class="exercise-meta-dates">
+        <span>من {% if ex.planned_start %}{{ ex.planned_start.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</span>
+        <span>إلى {% if ex.planned_end %}{{ ex.planned_end.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</span>
+      </span>
+    </dd>
+    {% endif %}
   </dl>
   {% endif %}
   <div class="page-header__nav">

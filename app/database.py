@@ -339,6 +339,28 @@ def ensure_information_bank_phase_included_column() -> None:
         )
 
 
+def ensure_information_bank_unit_brigade_group_column() -> None:
+    """مجموعة اللواء (1 / 3 / 4 / 5) لصفوف مستويات الوحدات."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    try:
+        insp = inspect(engine)
+        if "information_bank_unit_levels" not in insp.get_table_names():
+            return
+    except Exception:
+        return
+    cols = {c["name"] for c in insp.get_columns("information_bank_unit_levels")}
+    if "brigade_group" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE information_bank_unit_levels "
+                "ADD COLUMN brigade_group VARCHAR(16) DEFAULT '1' NOT NULL"
+            )
+        )
+
+
 def ensure_information_bank_unit_included_column() -> None:
     """عمود «مدرج في التمرين» لمستويات الوحدات في بنك المعلومات."""
     if not DATABASE_URL.startswith("sqlite"):

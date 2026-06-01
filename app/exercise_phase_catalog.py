@@ -3,6 +3,8 @@
 بنك المعلومات يستخدم ``TRAINING_PHASES`` في ``information_bank_catalog.py`` ولا يتأثر بهذا الكتالوج.
 """
 
+from app.information_bank_catalog import PLANNING_CATALOG_ALL_KEY
+
 EXERCISE_PHASE_OPTIONS: list[tuple[str, str]] = []
 
 DEFAULT_EXERCISE_PHASE = ""
@@ -59,11 +61,16 @@ def exercise_phase_keys() -> list[str]:
 
 
 def default_exercise_phase_key() -> str:
-    return EXERCISE_PHASE_OPTIONS[0][0] if EXERCISE_PHASE_OPTIONS else ""
+    for key, _ in EXERCISE_PHASE_OPTIONS:
+        if key != PLANNING_CATALOG_ALL_KEY:
+            return key
+    return PLANNING_CATALOG_ALL_KEY if EXERCISE_PHASE_OPTIONS else ""
 
 
 def normalize_exercise_phase(raw: str | None) -> str:
     v = (raw or "").strip()
+    if v == PLANNING_CATALOG_ALL_KEY:
+        return PLANNING_CATALOG_ALL_KEY
     if not v:
         return ""
     if v in _PHASE_LABELS:

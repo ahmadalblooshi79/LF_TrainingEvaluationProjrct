@@ -11,7 +11,15 @@ TRAINING_PHASES: list[dict[str, str]] = [
     {"key": "reorganization", "label": "مرحلة مسارات التقييم"},
 ]
 
-INFO_BANK_UNIT_LEVELS: list[dict[str, str]] = [
+# مجموعات الألوية في بنك المعلومات (تبويبات مستويات الوحدات)
+INFO_BANK_BRIGADE_GROUPS: list[dict[str, str]] = [
+    {"key": "1", "tab": "units-bg-1", "label": "مجموعة لواء الإمارات / 1"},
+    {"key": "3", "tab": "units-bg-3", "label": "مجموعة لواء زايد / 3"},
+    {"key": "4", "tab": "units-bg-4", "label": "مجموعة لواء الظفرة / 4"},
+    {"key": "5", "tab": "units-bg-5", "label": "مجموعة لواء راشد / 5"},
+]
+
+INFO_BANK_UNIT_LEVEL_TEMPLATES: list[dict[str, str]] = [
     {"key": "ul_brigade_grp_cmd", "label": "قيادة مجموعة اللواء"},
     {"key": "ul_brigade_grp_staff", "label": "هيئة ركن مجموعة اللواء"},
     {"key": "ul_mech2_bn_cmd", "label": "قيادة كتيبة المشاة الآلية/2"},
@@ -47,6 +55,39 @@ INFO_BANK_UNIT_LEVELS: list[dict[str, str]] = [
     {"key": "ul_nco", "label": "ضباط الصف"},
 ]
 
+# توافق خلفي مع الاستيرادات القديمة
+INFO_BANK_UNIT_LEVELS: list[dict[str, str]] = INFO_BANK_UNIT_LEVEL_TEMPLATES
+
+PLANNING_CATALOG_ALL_KEY = "__all__"
+PLANNING_CATALOG_ALL_LABEL = "الكل"
+
+
+def unit_catalog_key_for_brigade(brigade_key: str, template_key: str) -> str:
+    """مفتاح التخزين: المجموعة /1 تحتفظ بالمفاتيح القديمة ``ul_*``."""
+    bg = (brigade_key or "").strip()
+    tk = (template_key or "").strip()
+    if not tk:
+        return ""
+    if bg in ("", "1"):
+        return tk
+    return f"bg{bg}_{tk}"
+
+
+def brigade_group_for_tab(tab: str | None) -> str:
+    t = (tab or "").strip()
+    for bg in INFO_BANK_BRIGADE_GROUPS:
+        if bg["tab"] == t:
+            return bg["key"]
+    return "1"
+
+
+def brigade_tab_for_group(brigade_key: str | None) -> str:
+    k = (brigade_key or "").strip()
+    for bg in INFO_BANK_BRIGADE_GROUPS:
+        if bg["key"] == k:
+            return bg["tab"]
+    return INFO_BANK_BRIGADE_GROUPS[0]["tab"]
+
 
 _TRAINING_PHASE_LEGACY_KEYS: dict[str, str] = {
     "main": "battle_exposure",
@@ -71,9 +112,14 @@ def training_phase_label(key: str | None) -> str:
 
 def info_bank_unit_label(key: str | None) -> str:
     k = (key or "").strip()
-    for row in INFO_BANK_UNIT_LEVELS:
+    if k == PLANNING_CATALOG_ALL_KEY:
+        return PLANNING_CATALOG_ALL_LABEL
+    for row in INFO_BANK_UNIT_LEVEL_TEMPLATES:
         if row["key"] == k:
             return row["label"]
+        for bg in INFO_BANK_BRIGADE_GROUPS:
+            if unit_catalog_key_for_brigade(bg["key"], row["key"]) == k:
+                return row["label"]
     return ""
 
 

@@ -996,6 +996,7 @@ class InformationBankUnitLevel(Base):
 
     key: Mapped[str] = mapped_column(String(128), primary_key=True)
     label: Mapped[str] = mapped_column(String(300), default="")
+    brigade_group: Mapped[str] = mapped_column(String(16), default="1", index=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     included_in_exercise: Mapped[bool] = mapped_column(Boolean, default=False)
     is_system: Mapped[bool] = mapped_column(Boolean, default=False)

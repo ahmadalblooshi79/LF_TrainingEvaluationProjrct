@@ -17,7 +17,7 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.config import INFO_BANK_DIR
-from app.information_bank_catalog import INFO_BANK_UNIT_LEVELS, TRAINING_PHASES
+from app.information_bank_catalog import INFO_BANK_UNIT_LEVEL_TEMPLATES, TRAINING_PHASES
 from app.models.domain import (
     InformationBankTrainingPhase,
     InformationBankTreeNode,
@@ -186,7 +186,7 @@ def _unit_rows(db: Session) -> list[InformationBankUnitLevel]:
     if rows:
         return rows
     out: list[InformationBankUnitLevel] = []
-    for idx, u in enumerate(INFO_BANK_UNIT_LEVELS):
+    for idx, u in enumerate(INFO_BANK_UNIT_LEVEL_TEMPLATES):
         out.append(
             InformationBankUnitLevel(
                 key=u["key"],

@@ -149,7 +149,12 @@ from app.unit_levels_catalog import (
     unit_level_row,
 )
 from app.information_bank_catalog import (
+    INFO_BANK_BRIGADE_GROUPS,
+    INFO_BANK_UNIT_LEVEL_TEMPLATES,
     INFO_BANK_UNIT_LEVELS,
+    brigade_group_for_tab,
+    brigade_tab_for_group,
+    unit_catalog_key_for_brigade,
     TRAINING_PHASES,
     info_bank_unit_label,
     training_phase_label,
@@ -552,21 +557,25 @@ def _clip_create_text(val: str | None, max_len: int) -> str:
 
 
 def _prefill_create_form_from_exercise(ex: Exercise) -> dict[str, str]:
+    """تعبئة النموذج من التمرين الحالي — القيم المخزّنة كما هي (حتى لو خارج القوائم)."""
     out = _empty_create_form_prefill()
-
-    def pick(val: str, allowed: list[str]) -> str:
-        v = (val or "").strip()
-        return v if v in allowed else ""
-
     out["trained_unit"] = _clip_create_text(ex.trained_unit, 400)
     out["location_label"] = _clip_create_text(ex.location_label, 400)
     out["exercise_name"] = _clip_create_text(ex.title, 500)
-    out["exercise_type"] = pick(ex.exercise_type, ex_opts.EXERCISE_TYPES)
-    out["exercise_level"] = pick(ex.exercise_level, ex_opts.EXERCISE_LEVELS)
-    out["mission"] = pick(ex.mission_label, ex_opts.MISSIONS)
+    out["exercise_type"] = _clip_create_text(ex.exercise_type, 200)
+    out["exercise_level"] = _clip_create_text(ex.exercise_level, 200)
+    out["mission"] = _clip_create_text(ex.mission_label, 400)
     out["planned_start"] = _dt_for_datetime_local(ex.planned_start)
     out["planned_end"] = _dt_for_datetime_local(ex.planned_end)
     return out
+
+
+def _workspace_exercise_for_admin_form(db, user: User) -> Exercise | None:
+    """التمرين المعروض في النموذج — نفس التمرين الظاهر في الشريط العلوي."""
+    ex = _current_workspace_exercise(db, user)
+    if ex is not None:
+        return ex
+    return db.query(Exercise).order_by(Exercise.id.desc()).first()
 
 
 def _prefill_create_form_from_request() -> dict[str, str]:
@@ -9745,20 +9754,13 @@ def admin_exercise_create():
     db = g.db
 
     def _render_create_page(*, error: str = "", success: str = ""):
-        ex_cur = _admin_current_workspace_exercise(db, user)
+        ex_cur = _workspace_exercise_for_admin_form(db, user)
         if request.method == "GET":
-            form_prefill = _empty_create_form_prefill()
-            if ex_cur:
-                from_ex = _prefill_create_form_from_exercise(ex_cur)
-                for key in (
-                    "exercise_type",
-                    "exercise_level",
-                    "mission",
-                    "planned_start",
-                    "planned_end",
-                ):
-                    if from_ex.get(key):
-                        form_prefill[key] = from_ex[key]
+            form_prefill = (
+                _prefill_create_form_from_exercise(ex_cur)
+                if ex_cur is not None
+                else _empty_create_form_prefill()
+            )
         else:
             form_prefill = _prefill_create_form_from_request()
         from flask import make_response
@@ -9773,7 +9775,8 @@ def admin_exercise_create():
                     export_dir=str(export_directory()),
                     form_prefill=form_prefill,
                     has_current_exercise=ex_cur is not None,
-                    form_build_tag="20260516-create-v2",
+                    workspace_exercise=ex_cur,
+                    form_build_tag="20260602-create-v4",
                     **_admin_exercise_form_ctx(),
                 ),
             )
@@ -9836,6 +9839,23 @@ def admin_exercise_create():
             400,
         )
 
+    ex_cur = _workspace_exercise_for_admin_form(db, user)
+    if ex_cur is not None:
+        ex_cur.title = title
+        ex_cur.exercise_type = et
+        ex_cur.exercise_level = el
+        ex_cur.mission_label = mission
+        ex_cur.trained_unit = unit
+        ex_cur.location_label = loc
+        ex_cur.planned_start = planned_start
+        ex_cur.planned_end = planned_end
+        db.commit()
+        write_exercise_json_file(db, ex_cur.id)
+        return redirect(
+            "/admin/exercises/create?ok="
+            + quote("تم حفظ بيانات التمرين الحالي (المعاضل والتقييمات والرسائل لم تُمس).", safe="")
+        )
+
     purge_all_exercises_and_dilemmas(db)
     ex = Exercise(
         code=f"EX-{uuid.uuid4().hex[:8].upper()}",
@@ -9856,7 +9876,10 @@ def admin_exercise_create():
     db.refresh(ex)
     write_exercise_json_file(db, ex.id)
 
-    return redirect("/admin/exercises/objectives")
+    return redirect(
+        "/admin/exercises/create?ok="
+        + quote("تم إنشاء التمرين وحفظ بياناته.", safe="")
+    )
 
 
 @bp.route("/admin/exercises/import-full-json", methods=["POST"])
@@ -10035,27 +10058,20 @@ def admin_exercise_import_json_prefill():
 
 
 def _admin_current_workspace_exercise(db, user: User) -> Exercise | None:
-    """التمرين الحالي لمسؤول النظام: آخر تمرين مملوك له (بعد مسح السجل يبقى واحد فقط)."""
+    """التمرين الحالي لمسؤول النظام — آخر تمرين في النظام (عادة واحد فقط)."""
     return (
         db.query(Exercise)
         .options(
             joinedload(Exercise.objectives),
             joinedload(Exercise.roster_rows),
         )
-        .filter(Exercise.owner_id == user.id)
         .order_by(Exercise.id.desc())
         .first()
     )
 
 
 def _current_workspace_exercise(db, user: User) -> Exercise | None:
-    """التمرين الحالي.
-
-    - لإدارة النظام: آخر تمرين مملوك له (سلوك سابق)
-    - لباقي الأدوار: آخر تمرين في قاعدة البيانات (عادة يوجد تمرين واحد فقط)
-    """
-    if user and is_system_admin(user):
-        return _admin_current_workspace_exercise(db, user)
+    """التمرين الحالي — آخر تمرين في قاعدة البيانات (عادة واحد فقط)."""
     return db.query(Exercise).order_by(Exercise.id.desc()).first()
 
 
@@ -12870,9 +12886,10 @@ def _info_bank_next_sort_order(db, model, phase: str, unit: str) -> int:
 
 
 def _ensure_information_bank_catalog_rows(db) -> None:
-    """يجب أن تكون صفوف الكتالوج الافتراضي مطابقة لـ ``TRAINING_PHASES`` و ``INFO_BANK_UNIT_LEVELS``.
+    """يجب أن تكون صفوف الكتالوج الافتراضي مطابقة لـ ``TRAINING_PHASES`` وقوالب مستويات الوحدات.
 
-    تنشئ أي مفاتيح ناقصة عند أول تشغيل، وتُحدّث التسمية وترتيب العرض عند كل طلب لتظهر تحديثات الكتالوج البرمجي في الواجهة دون تهيئة قاعدة يدوياً.
+    تنشئ أي مفاتيح ناقصة عند أول تشغيل. مراحل التمرين: تُحدَّث التسمية من الكتالوج البرمجي.
+    مستويات الوحدات: تُحدَّث الترتيب ومجموعة اللواء فقط — تسمية المستخدم من زر «تعديل» لا تُستبدل.
     """
     changed = False
     for idx, row in enumerate(TRAINING_PHASES):
@@ -12892,23 +12909,46 @@ def _ensure_information_bank_catalog_rows(db) -> None:
             r.sort_order = idx
             r.is_system = True
             changed = True
-    for idx, row in enumerate(INFO_BANK_UNIT_LEVELS):
-        r = db.get(InformationBankUnitLevel, row["key"])
-        if r is None:
-            db.add(
-                InformationBankUnitLevel(
-                    key=row["key"],
-                    label=row["label"],
-                    sort_order=idx,
-                    is_system=True,
+    for bg in INFO_BANK_BRIGADE_GROUPS:
+        bg_key = bg["key"]
+        for idx, row in enumerate(INFO_BANK_UNIT_LEVEL_TEMPLATES):
+            catalog_key = unit_catalog_key_for_brigade(bg_key, row["key"])
+            if not catalog_key:
+                continue
+            r = db.get(InformationBankUnitLevel, catalog_key)
+            if r is None:
+                db.add(
+                    InformationBankUnitLevel(
+                        key=catalog_key,
+                        label=row["label"],
+                        brigade_group=bg_key,
+                        sort_order=idx,
+                        is_system=True,
+                    )
                 )
-            )
-            changed = True
-        elif r.label != row["label"] or r.sort_order != idx:
-            r.label = row["label"]
-            r.sort_order = idx
-            r.is_system = True
-            changed = True
+                changed = True
+            else:
+                if getattr(r, "brigade_group", None) != bg_key:
+                    r.brigade_group = bg_key
+                    changed = True
+                # لا نُعيد فرض التسمية من القالب — يُحفظ تعديل المستخدم عبر زر «تعديل»
+                if r.sort_order != idx:
+                    r.sort_order = idx
+                    changed = True
+                if not r.is_system:
+                    r.is_system = True
+                    changed = True
+    legacy_rows = (
+        db.query(InformationBankUnitLevel)
+        .filter(
+            (InformationBankUnitLevel.brigade_group == "")
+            | (InformationBankUnitLevel.brigade_group.is_(None))
+        )
+        .all()
+    )
+    for r in legacy_rows:
+        r.brigade_group = "1"
+        changed = True
     if changed:
         db.commit()
 
@@ -12935,22 +12975,33 @@ def _information_bank_training_phases(db) -> list[dict[str, str | bool]]:
     ]
 
 
-def _information_bank_unit_levels(db) -> list[dict[str, str | bool]]:
+def _information_bank_unit_levels(db, brigade_group: str | None = None) -> list[dict[str, str | bool]]:
     _ensure_information_bank_catalog_rows(db)
-    rows = (
-        db.query(InformationBankUnitLevel)
-        .order_by(InformationBankUnitLevel.sort_order, InformationBankUnitLevel.created_at, InformationBankUnitLevel.key)
-        .all()
-    )
+    q = db.query(InformationBankUnitLevel)
+    if brigade_group is not None:
+        q = q.filter(InformationBankUnitLevel.brigade_group == (brigade_group or "").strip())
+    rows = q.order_by(
+        InformationBankUnitLevel.sort_order,
+        InformationBankUnitLevel.created_at,
+        InformationBankUnitLevel.key,
+    ).all()
     return [
         {
             "key": r.key,
             "label": r.label,
+            "brigade_group": getattr(r, "brigade_group", "") or "1",
             "included_in_exercise": bool(getattr(r, "included_in_exercise", False)),
         }
         for r in rows
         if (r.key or "").strip()
     ]
+
+
+def _information_bank_brigade_units_map(db) -> dict[str, list[dict[str, str | bool]]]:
+    return {
+        bg["key"]: _information_bank_unit_levels(db, bg["key"])
+        for bg in INFO_BANK_BRIGADE_GROUPS
+    }
 
 
 def _information_bank_gate_ok() -> bool:
@@ -13136,7 +13187,10 @@ def admin_information_bank_phases_included_save():
 
 @bp.route("/admin/information-bank/units/included", methods=["POST"])
 def admin_information_bank_units_included_save():
-    auth_resp = _ibank_included_save_auth_or_response("units")
+    return_tab = (request.form.get("return_tab") or "units-bg-1").strip()
+    if return_tab not in {bg["tab"] for bg in INFO_BANK_BRIGADE_GROUPS}:
+        return_tab = "units-bg-1"
+    auth_resp = _ibank_included_save_auth_or_response(return_tab)
     if auth_resp is not None:
         return auth_resp
     from flask import g
@@ -13154,7 +13208,7 @@ def admin_information_bank_units_included_save():
             uncheck_pwd = (request.form.get("uncheck_password") or "").strip()
             if not _verify_system_admin_password(db, uncheck_pwd):
                 return _ibank_included_save_http_response(
-                    tab="units",
+                    tab=return_tab,
                     err_msg="إلغاء الإدراج في التمرين يتطلب كلمة مرور إدارة النظام الصحيحة.",
                 )
         for row in rows:
@@ -13164,14 +13218,14 @@ def admin_information_bank_units_included_save():
 
         sync_planning_catalogs_from_db(db)
         return _ibank_included_save_http_response(
-            tab="units",
+            tab=return_tab,
             ok_msg="تم حفظ تحديدات وإلغاءات مستويات الوحدات — تُطبَّق على قوائم التخطيط والمحكمين.",
         )
     except Exception:
         db.rollback()
         logging.getLogger(__name__).exception("units included save failed")
         return _ibank_included_save_http_response(
-            tab="units",
+            tab=return_tab,
             err_msg="حدث خطأ أثناء الحفظ. أعد المحاولة.",
         )
 
@@ -13187,7 +13241,7 @@ def admin_information_bank():
 
     db = g.db
     training_phases = _information_bank_training_phases(db)
-    info_bank_units = _information_bank_unit_levels(db)
+    info_bank_brigade_units = _information_bank_brigade_units_map(db)
     phase_notes = {r.phase_key: r.notes for r in db.query(InformationBankPhaseNote).all()}
     unit_notes = {r.unit_level_key: r.notes for r in db.query(InformationBankUnitNote).all()}
     from app.info_bank_tree import build_tree_payload, ensure_all_information_bank_trees
@@ -13198,15 +13252,18 @@ def admin_information_bank():
     tree_dilemma_eval = build_tree_payload(db, "dilemma_eval")
     err = (request.args.get("err") or "").strip()[:2000]
     ok = (request.args.get("ok") or "").strip()[:500]
+    brigade_tabs = {bg["tab"] for bg in INFO_BANK_BRIGADE_GROUPS}
     active_tab = (request.args.get("tab") or "phases").strip()
-    if active_tab not in {"phases", "units", "event-flow", "action-eval", "dilemma-eval"}:
+    allowed_tabs = {"phases", "event-flow", "action-eval", "dilemma-eval"} | brigade_tabs
+    if active_tab not in allowed_tabs:
         active_tab = "phases"
     return render_template(
         "admin_information_bank.html",
         **_ctx(
             user,
             training_phases=training_phases,
-            info_bank_units=info_bank_units,
+            info_bank_brigade_groups=INFO_BANK_BRIGADE_GROUPS,
+            info_bank_brigade_units=info_bank_brigade_units,
             phase_notes=phase_notes,
             unit_notes=unit_notes,
             tree_event_flow=tree_event_flow,
@@ -13338,17 +13395,26 @@ def admin_information_bank_unit_add():
     from flask import g
 
     label = (request.form.get("unit_label") or "").strip()[:300]
+    tab = (request.form.get("brigade_tab") or "units-bg-1").strip()
+    if tab not in {bg["tab"] for bg in INFO_BANK_BRIGADE_GROUPS}:
+        tab = "units-bg-1"
+    bg_key = brigade_group_for_tab(tab)
     if not label:
-        return redirect(url_for("views.admin_information_bank", tab="units", err="أدخل اسم مستوى الوحدة."))
+        return redirect(url_for("views.admin_information_bank", tab=tab, err="أدخل اسم مستوى الوحدة."))
     db = g.db
     _ensure_information_bank_catalog_rows(db)
-    mx = db.query(func.max(InformationBankUnitLevel.sort_order)).scalar()
+    mx = (
+        db.query(func.max(InformationBankUnitLevel.sort_order))
+        .filter(InformationBankUnitLevel.brigade_group == bg_key)
+        .scalar()
+    )
     next_order = (int(mx) if mx is not None else -1) + 1
-    unit_key = _custom_catalog_key("unit")
+    unit_key = _custom_catalog_key(f"unit_bg{bg_key}")
     db.add(
         InformationBankUnitLevel(
             key=unit_key,
             label=label,
+            brigade_group=bg_key,
             sort_order=next_order,
             is_system=False,
         )
@@ -13377,7 +13443,52 @@ def admin_information_bank_unit_add():
                 catalog_unit_key=unit_key,
             )
     db.commit()
-    return redirect(url_for("views.admin_information_bank", tab="units", ok="تمت إضافة مستوى الوحدة."))
+    return redirect(url_for("views.admin_information_bank", tab=tab, ok="تمت إضافة مستوى الوحدة."))
+
+
+@bp.route("/admin/information-bank/units/edit", methods=["POST"])
+def admin_information_bank_unit_edit():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    key = (request.form.get("unit_key") or "").strip()
+    label = (request.form.get("unit_label") or "").strip()[:300]
+    tab = (request.form.get("brigade_tab") or "units-bg-1").strip()
+    if tab not in {bg["tab"] for bg in INFO_BANK_BRIGADE_GROUPS}:
+        tab = "units-bg-1"
+    ajax = (request.headers.get("X-Requested-With") or "").strip() == "XMLHttpRequest"
+
+    def _edit_response(*, ok: bool, err_msg: str = "", **extra):
+        if ajax:
+            if ok:
+                return jsonify(ok=True, **extra)
+            return jsonify(ok=False, error=err_msg), 400
+        if ok:
+            return redirect(
+                url_for("views.admin_information_bank", tab=tab, ok="تم تعديل مستوى الوحدة.")
+            )
+        return redirect(url_for("views.admin_information_bank", tab=tab, err=err_msg))
+
+    if not key or not label:
+        return _edit_response(ok=False, err_msg="أدخل اسماً صالحاً للوحدة.")
+    db = g.db
+    row = db.get(InformationBankUnitLevel, key)
+    if row is None:
+        return _edit_response(ok=False, err_msg="مستوى الوحدة غير موجود.")
+    row.label = label
+    for node in (
+        db.query(InformationBankTreeNode)
+        .filter(
+            InformationBankTreeNode.catalog_unit_key == key,
+            InformationBankTreeNode.is_folder.is_(True),
+        )
+        .all()
+    ):
+        node.name = label[:500]
+    db.commit()
+    return _edit_response(ok=True, label=label, unit_key=key, tab=tab)
 
 
 @bp.route("/admin/information-bank/units/delete", methods=["POST"])
@@ -13388,13 +13499,16 @@ def admin_information_bank_unit_delete():
     from flask import g
 
     key = (request.form.get("unit_key") or "").strip()
+    tab = (request.form.get("brigade_tab") or "units-bg-1").strip()
+    if tab not in {bg["tab"] for bg in INFO_BANK_BRIGADE_GROUPS}:
+        tab = "units-bg-1"
     db = g.db
     row = db.get(InformationBankUnitLevel, key)
     if row is None:
-        return redirect(url_for("views.admin_information_bank", tab="units", err="اختر مستوى وحدة صالحاً للحذف."))
+        return redirect(url_for("views.admin_information_bank", tab=tab, err="اختر مستوى وحدة صالحاً للحذف."))
     db.delete(row)
     db.commit()
-    return redirect(url_for("views.admin_information_bank", tab="units", ok="تم حذف مستوى الوحدة."))
+    return redirect(url_for("views.admin_information_bank", tab=tab, ok="تم حذف مستوى الوحدة."))
 
 
 @bp.route("/admin/information-bank/tree/folder", methods=["POST"])

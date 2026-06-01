@@ -1,0 +1,61 @@
+{# bg: dict with key, tab, label — units: list of unit rows #}
+<div class="ibank-tabpane{% if active_tab == bg.tab %} is-active{% endif %}" data-tab-pane="{{ bg.tab }}" role="tabpanel">
+  <h2 class="h2-in-card"><i class="fa-solid fa-sitemap fa-icon-title" aria-hidden="true"></i> {{ bg.label }}</h2>
+  {% if information_bank_can_manage %}
+  <form method="post" action="{{ url_for('views.admin_information_bank_unit_add') }}" class="ibank-inline-add-form">
+    <input type="hidden" name="brigade_tab" value="{{ bg.tab }}">
+    <label class="ibank-inline-add-form__label" for="ib-new-unit-{{ bg.key }}">اسم مستوى الوحدة</label>
+    <input id="ib-new-unit-{{ bg.key }}" class="ibank-inline-add-form__input" name="unit_label" type="text" required autocomplete="off">
+    <button type="submit" class="btn ibank-inline-add-form__submit"><i class="fa-solid fa-plus" aria-hidden="true"></i> إضافة مستوى</button>
+  </form>
+  {% endif %}
+  <div class="table-wrap ibank-table-scroll ibank-table-scroll--short">
+    <table dir="rtl" class="ibank-table ibank-table--compact-notes" aria-label="{{ bg.label }}">
+      <thead>
+        <tr>
+          <th scope="col" class="ibank-col-num">رقم</th>
+          <th scope="col">مستوى الوحدة</th>
+          <th scope="col" class="ibank-col-included">
+            {% if information_bank_can_manage %}
+            <label class="ibank-included-label ibank-included-label--header" title="تحديد الكل / إلغاء الكل">
+              <input type="checkbox" class="ibank-included-check-all" data-form-id="ibank-units-included-form" data-brigade-tab="{{ bg.tab }}" aria-label="تحديد كل مستويات الوحدات في {{ bg.label }}">
+              <span>مدرج في التمرين</span>
+            </label>
+            {% else %}
+            مدرج في التمرين
+            {% endif %}
+          </th>
+          {% if information_bank_can_manage %}<th scope="col">إجراءات</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in units %}
+        <tr data-was-included="{{ '1' if u.included_in_exercise else '0' }}">
+          <td class="ibank-col-num">{{ loop.index }}</td>
+          <th scope="row">{{ u.label }}</th>
+          <td class="ibank-col-included">
+            {% if information_bank_can_manage %}
+            <label class="ibank-included-label">
+              <input type="checkbox" class="ibank-included-cb" name="included_unit_keys" value="{{ u.key }}" form="ibank-units-included-form" {% if u.included_in_exercise %}checked{% endif %} aria-label="مدرج في التمرين — {{ u.label }}">
+              <span class="sr-only">مدرج في التمرين</span>
+            </label>
+            {% else %}
+            <input type="checkbox" disabled {% if u.included_in_exercise %}checked{% endif %} aria-label="مدرج في التمرين — {{ u.label }}">
+            {% endif %}
+          </td>
+          {% if information_bank_can_manage %}
+          <td class="ibank-unit-actions-cell">
+            <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-unit-edit" data-unit-key="{{ u.key }}" data-unit-label="{{ u.label|e }}" data-brigade-tab="{{ bg.tab }}" title="تعديل"><i class="fa-solid fa-pen" aria-hidden="true"></i> تعديل</button>
+            <form method="post" action="{{ url_for('views.admin_information_bank_unit_delete') }}" class="ibank-unit-delete-inline" onsubmit="return confirm('حذف هذا المستوى من بنك المعلومات؟');">
+              <input type="hidden" name="unit_key" value="{{ u.key }}">
+              <input type="hidden" name="brigade_tab" value="{{ bg.tab }}">
+              <button type="submit" class="btn btn-ghost btn-sm-compact" title="حذف"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
+            </form>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

@@ -14,18 +14,16 @@
     <div class="planner-flow-field planner-flow-field--inline">
       <label class="muted" for="pf-phase">مرحلة التمرين</label>
       <select id="pf-phase" name="phase" class="unit-level-select planner-flow-select-compact" autocomplete="off">
-        <option value="" {% if not phase_key %}selected{% endif %}>— اختر مرحلة التمرين —</option>
         {% for pk, pl in phase_options %}
-        <option value="{{ pk }}" {% if pk == phase_key %}selected{% endif %}>{{ pl }}</option>
+        <option value="{{ pk }}" {% if pk == phase_key or (not phase_key and pk == '__all__') %}selected{% endif %}>{{ pl }}</option>
         {% endfor %}
       </select>
     </div>
     <div class="planner-flow-field planner-flow-field--inline">
       <label class="muted" for="pf-unit">مستوى الوحدة</label>
       <select id="pf-unit" name="unit_level_key" class="unit-level-select planner-flow-select-compact" autocomplete="off">
-        <option value="" {% if not unit_key %}selected{% endif %}>— اختر مستوى الوحدة —</option>
         {% for u in unit_levels %}
-        <option value="{{ u.key }}" {% if u.key == unit_key %}selected{% endif %}>{{ u.label }}</option>
+        <option value="{{ u.key }}" {% if u.key == unit_key or (not unit_key and u.key == '__all__') %}selected{% endif %}>{{ u.label }}</option>
         {% endfor %}
       </select>
     </div>

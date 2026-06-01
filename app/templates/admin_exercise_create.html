@@ -24,14 +24,14 @@
           <input id="location_label" name="location_label" type="text" required maxlength="400" placeholder="مثال: مركز تدريب المنطقة الشرقية" value="{{ form_prefill.location_label }}">
         </div>
         <div class="form-group">
-          <label><i class="fa-solid fa-clock fa-icon-label" aria-hidden="true"></i> الفترة الزمنية للتمرين</label>
+          <label><i class="fa-solid fa-calendar-days fa-icon-label" aria-hidden="true"></i> تاريخ التمرين</label>
           <div class="form-row-inline">
             <div style="flex: 1 1 220px;">
-              <label class="muted" for="planned_start">بداية</label>
+              <label class="muted" for="planned_start">من</label>
               <input id="planned_start" name="planned_start" type="datetime-local" value="{{ form_prefill.planned_start }}">
             </div>
             <div style="flex: 1 1 220px;">
-              <label class="muted" for="planned_end">نهاية</label>
+              <label class="muted" for="planned_end">إلى</label>
               <input id="planned_end" name="planned_end" type="datetime-local" value="{{ form_prefill.planned_end }}">
             </div>
           </div>
@@ -46,6 +46,9 @@
           <label for="exercise_type"><i class="fa-solid fa-tags fa-icon-label" aria-hidden="true"></i> نوع التمرين</label>
           <select id="exercise_type" name="exercise_type" required>
             <option value="" disabled {% if not form_prefill.exercise_type %}selected{% endif %}>— اختر —</option>
+            {% if form_prefill.exercise_type and form_prefill.exercise_type not in exercise_types %}
+            <option value="{{ form_prefill.exercise_type }}" selected>{{ form_prefill.exercise_type }}</option>
+            {% endif %}
             {% for x in exercise_types %}<option value="{{ x }}" {% if form_prefill.exercise_type == x %}selected{% endif %}>{{ x }}</option>{% endfor %}
           </select>
         </div>
@@ -53,6 +56,9 @@
           <label for="exercise_level"><i class="fa-solid fa-layer-group fa-icon-label" aria-hidden="true"></i> مستوى التمرين</label>
           <select id="exercise_level" name="exercise_level" required>
             <option value="" disabled {% if not form_prefill.exercise_level %}selected{% endif %}>— اختر —</option>
+            {% if form_prefill.exercise_level and form_prefill.exercise_level not in exercise_levels %}
+            <option value="{{ form_prefill.exercise_level }}" selected>{{ form_prefill.exercise_level }}</option>
+            {% endif %}
             {% for x in exercise_levels %}<option value="{{ x }}" {% if form_prefill.exercise_level == x %}selected{% endif %}>{{ x }}</option>{% endfor %}
           </select>
         </div>
@@ -60,6 +66,9 @@
           <label for="mission"><i class="fa-solid fa-bullseye fa-icon-label" aria-hidden="true"></i> المهمة</label>
           <select id="mission" name="mission" required>
             <option value="" disabled {% if not form_prefill.mission %}selected{% endif %}>— اختر —</option>
+            {% if form_prefill.mission and form_prefill.mission not in missions %}
+            <option value="{{ form_prefill.mission }}" selected>{{ form_prefill.mission }}</option>
+            {% endif %}
             {% for x in missions %}<option value="{{ x }}" {% if form_prefill.mission == x %}selected{% endif %}>{{ x }}</option>{% endfor %}
           </select>
         </div>

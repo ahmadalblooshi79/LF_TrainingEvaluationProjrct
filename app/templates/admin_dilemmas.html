@@ -80,16 +80,16 @@
         <div class="form-group">
           <label for="upload-phase-dilemmas"><i class="fa-solid fa-timeline fa-icon-label" aria-hidden="true"></i> مرحلة التمرين (للملفات الجديدة)</label>
           <select id="upload-phase-dilemmas" name="exercise_phase" class="unit-level-select" aria-label="مرحلة التمرين للملفات المضافة" {% if phases_catalog_empty %}disabled{% endif %}>
-            <option value="">— اختر مرحلة التمرين —</option>
             {% for pk, pl in exercise_phase_options %}
+            {% if pk != '__all__' %}
               <option value="{{ pk }}" {% if pk == upload_phase_default %}selected{% endif %}>{{ pl }}</option>
+            {% endif %}
             {% endfor %}
           </select>
         </div>
         <div class="form-group">
           <label for="unit-level-select-dilemmas"><i class="fa-solid fa-layer-group fa-icon-label" aria-hidden="true"></i> مستوى الوحدة</label>
           <select id="unit-level-select-dilemmas" class="unit-level-select" {% if catalog_empty %}disabled{% endif %}>
-            <option value="">— اختر مستوى الوحدة —</option>
             {% for u in unit_levels %}
               <option value="{{ u.key }}" {% if u.key == selected_unit_key %}selected{% endif %}>{{ u.label }}</option>
             {% endfor %}

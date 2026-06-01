@@ -4,12 +4,17 @@
 ``UNIT_LEVELS`` هنا يُملأ تلقائياً من صفوف «مدرج في التمرين» عبر ``planning_catalog_sync``.
 """
 
+from app.information_bank_catalog import PLANNING_CATALOG_ALL_KEY
+
 UNIT_LEVELS: list[dict[str, str]] = []
 
 
 def default_unit_level_key() -> str:
-    """أول مفتاح في كتالوج التخطيط، أو سلسلة فارغة إن كان الكتالوج فارغاً."""
-    return UNIT_LEVELS[0]["key"] if UNIT_LEVELS else ""
+    """أول مستوى وحدة فعلي (بعد خيار «الكل» إن وُجد)."""
+    for row in UNIT_LEVELS:
+        if row["key"] != PLANNING_CATALOG_ALL_KEY:
+            return row["key"]
+    return PLANNING_CATALOG_ALL_KEY if UNIT_LEVELS else ""
 
 
 def unit_level_row(unit_key: str | None) -> dict[str, str] | None:
@@ -23,6 +28,8 @@ def unit_level_row(unit_key: str | None) -> dict[str, str] | None:
 def normalize_unit_level_key(raw: str | None) -> str:
     """يحوّل مفتاحاً معروفاً أو تسمية عربية لمستوى الوحدة إلى ``key``؛ وإلا سلسلة فارغة."""
     v = (raw or "").strip()
+    if v == PLANNING_CATALOG_ALL_KEY:
+        return PLANNING_CATALOG_ALL_KEY
     if not v:
         return ""
     for row in UNIT_LEVELS:

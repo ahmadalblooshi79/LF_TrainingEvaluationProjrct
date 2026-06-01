@@ -94,16 +94,8 @@ def inject_header_exercise():
             nm = (getattr(u, "full_name", "") or "").strip() or (getattr(u, "username", "") or "").strip()
             base["judge_welcome_name"] = nm or ("كبير المحكمين" if is_chief_judge(u) else "محكم")
 
-        # التمرين الحالي في الشريط العلوي: نفس منطق _current_workspace_exercise — للجميع
-        if is_system_admin(u):
-            ws = (
-                db.query(Exercise)
-                .filter(Exercise.owner_id == u.id)
-                .order_by(Exercise.id.desc())
-                .first()
-            )
-        else:
-            ws = db.query(Exercise).order_by(Exercise.id.desc()).first()
+        # التمرين الحالي في الشريط العلوي — آخر تمرين في النظام (عادة تمرين واحد)
+        ws = db.query(Exercise).order_by(Exercise.id.desc()).first()
         if ws is not None:
             base["workspace_exercise"] = {
                 "id": ws.id,
@@ -113,15 +105,7 @@ def inject_header_exercise():
             base["header_exercise_info_url"] = url_for("views.exercise_detail", eid=int(ws.id))
 
         if can_view_notifications_log(u):
-            if is_system_admin(u):
-                n_ex = (
-                    db.query(Exercise)
-                    .filter(Exercise.owner_id == u.id)
-                    .order_by(Exercise.id.desc())
-                    .first()
-                )
-            else:
-                n_ex = db.query(Exercise).order_by(Exercise.id.desc()).first()
+            n_ex = db.query(Exercise).order_by(Exercise.id.desc()).first()
             if n_ex is not None:
                 unread = (
                     db.query(func.count(ExerciseNotification.id))

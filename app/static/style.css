@@ -1808,6 +1808,11 @@ h2.h2-icon .fa-icon-title {
   margin: 0;
   color: var(--brown-800);
 }
+.exercise-meta-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.25rem;
+}
 
 .objectives-list {
   margin: 0.5rem 0 0;
@@ -7070,6 +7075,43 @@ body.control-report-page #cr-panel-charts.control-report-tab-panel {
   font-size: 0.86rem;
   line-height: 1.25;
 }
+/* جداول تبويبات بنك المعلومات: حدود نحيفة موحّدة + تظليل الصف بالكامل */
+.ibank-tab-body .ibank-table-scroll .ibank-table,
+.ibank-tab-body .table-wrap:not(.ibank-table-scroll) > .ibank-table {
+  width: 100%;
+  border: 1px solid var(--border-light);
+  border-collapse: collapse;
+}
+.ibank-tab-body .ibank-table thead th,
+.ibank-tab-body .ibank-table tbody th,
+.ibank-tab-body .ibank-table tbody td {
+  border: none;
+  border-bottom: 1px solid var(--border-light);
+  background-color: var(--surface-card, #fff);
+}
+.ibank-tab-body .ibank-table thead th:not(:first-child),
+.ibank-tab-body .ibank-table tbody th:not(:first-child),
+.ibank-tab-body .ibank-table tbody td:not(:first-child) {
+  border-inline-start: 1px solid var(--border-light);
+}
+.ibank-tab-body .ibank-table thead th {
+  border-bottom: 1px solid var(--border, #d8cdc2);
+  background-color: var(--tint-100);
+  font-weight: 600;
+}
+.ibank-tab-body .ibank-table tbody th[scope="row"] {
+  background-color: var(--surface-card, #fff);
+  font-weight: 600;
+  color: var(--text);
+}
+.ibank-tab-body .ibank-table tbody tr:nth-child(even) > th,
+.ibank-tab-body .ibank-table tbody tr:nth-child(even) > td {
+  background-color: var(--tint-50);
+}
+.ibank-tab-body .ibank-table tbody tr:hover > th,
+.ibank-tab-body .ibank-table tbody tr:hover > td {
+  background-color: var(--tint-200);
+}
 .ibank-tab-body .ibank-files-page table.ibank-files-compact tbody td {
   padding-top: 0.14rem;
   padding-bottom: 0.14rem;
@@ -7276,9 +7318,25 @@ body.control-report-page #cr-panel-charts.control-report-tab-panel {
   align-items: center;
   gap: 0.75rem 1rem;
 }
-.ibank-units-included-hint {
-  font-size: 0.88rem;
-  max-width: 36rem;
+.ibank-unit-actions-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem 0.5rem;
+}
+.ibank-unit-delete-inline {
+  display: inline;
+  margin: 0;
+}
+.ibank-units-included-form--global {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-light);
+}
+.ibank-tabs-row--brigades .ibank-tab {
+  font-size: 0.82rem;
+  padding-inline: 0.65rem;
 }
 .ibank-included-save-btn {
   flex-shrink: 0;
