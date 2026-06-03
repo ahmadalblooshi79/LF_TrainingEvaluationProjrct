@@ -76,7 +76,7 @@
           <td class="eval-preview-td eval-col--pct eval-td-readonly"><span class="eval-pct-out" data-pct-out aria-live="polite">—</span></td>
           <td class="eval-preview-td eval-col--grade eval-td-readonly"><span class="eval-grade-out" data-grade-out aria-live="polite">—</span></td>
           <td class="eval-preview-td eval-col--notes">
-            <textarea class="eval-notes-textarea eval-notes-textarea--compact" name="notes_{{ loop.index0 }}" rows="1" placeholder="ملاحظات" spellcheck="true" dir="rtl" {% if not eval_can_edit %}disabled{% endif %}>{{ (saved_row.get('notes') or '') if saved_row else '' }}</textarea>
+            <textarea class="eval-notes-textarea eval-notes-textarea--compact" name="notes_{{ loop.index0 }}" rows="1" placeholder="ملاحظات" spellcheck="true" dir="rtl" {% if not eval_can_edit %}disabled{% endif %}>{% if saved_row and (saved_row.get('notes') or '') %}{{ saved_row.get('notes') }}{% elif row.notes_initial is defined and row.notes_initial %}{{ row.notes_initial }}{% endif %}</textarea>
           </td>
           <td class="eval-preview-td eval-col--crit" data-eval-crit-slot="{{ loop.index0 }}">
             <div class="eval-crit-buttons" role="group" aria-label="توثيق البند {{ loop.index }}">
@@ -131,6 +131,8 @@
         <input type="hidden" name="saved_id" value="{{ saved_row_id or '' }}">
         <button type="submit" class="btn eval-btn-footer" id="eval-save-btn"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ نتائج التقييم</button>
       </form>
+      {% elif saved_is_approved|default(false) %}
+      <span class="muted">معتمد — للتعديل يُعاد من كبير المحكمين</span>
       {% else %}
       <span class="muted">عرض فقط</span>
       {% endif %}

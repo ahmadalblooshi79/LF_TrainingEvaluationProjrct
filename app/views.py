@@ -186,7 +186,6 @@ from app.seed import DEMO_PASSWORD
 from app.battle_organization import BATTLE_ORG_DEMO_ROOT
 from app.ai_service import suggest_instructions_or_notes
 from app.info_bank_access import (
-    EVAL_SAVED_RESULTS_GATE_SESSION_KEY,
     INFO_BANK_GATE_SESSION_KEY,
     clear_information_bank_gate,
     information_bank_gate_ok,
@@ -257,6 +256,19 @@ def _evaluation_sheet_view_context(fspath: Path) -> dict:
         "eval_layout": sheet.get("eval_layout") or "legacy",
         "acquired_options": acquired_select_options() if es else [],
     }
+
+
+def _saved_payload_aligned_with_eval_rows(
+    saved_payload: dict | None, eval_rows: list | None
+) -> dict:
+    """يتجاهل حفظاً قديماً بعدد صفوف لا يطابق القالب الحالي (يمنع انحراف المكتسبة والمجاميع)."""
+    if not saved_payload or not isinstance(saved_payload, dict):
+        return {}
+    rows = saved_payload.get("rows") or []
+    template = eval_rows or []
+    if not template or len(rows) != len(template):
+        return {}
+    return saved_payload
 
 
 def _unlink_evaluation_list_stored_file(relpath: str) -> None:
@@ -1158,60 +1170,6 @@ def _sync_evaluation_list_item_phase(
             {JudgeIncompleteTaskStatus.exercise_phase: phase_key},
             synchronize_session=False,
         )
-
-
-def _admin_purge_judge_evaluation_data(
-    db, exercise_id: int, evaluation_item_id: int
-) -> None:
-    """إزالة نتائج التقييم وتوثيق المعايير وحالات المهام لعنصر قائمة واحد."""
-    from app.models import JudgeIncompleteTaskStatus
-
-    media_rows = (
-        db.query(EvaluationCriterionMedia)
-        .filter(
-            EvaluationCriterionMedia.exercise_id == exercise_id,
-            EvaluationCriterionMedia.evaluation_list_item_id == evaluation_item_id,
-        )
-        .all()
-    )
-    _purge_eval_criterion_media_rows(db, media_rows)
-    db.query(EvaluationListSavedResult).filter(
-        EvaluationListSavedResult.exercise_id == exercise_id,
-        EvaluationListSavedResult.evaluation_item_id == evaluation_item_id,
-    ).delete(synchronize_session=False)
-    db.query(AnalystFinalEvaluationAllocatedMax).filter(
-        AnalystFinalEvaluationAllocatedMax.exercise_id == exercise_id,
-        AnalystFinalEvaluationAllocatedMax.evaluation_item_id == evaluation_item_id,
-    ).delete(synchronize_session=False)
-    db.query(JudgeIncompleteTaskStatus).filter(
-        JudgeIncompleteTaskStatus.exercise_id == exercise_id,
-        JudgeIncompleteTaskStatus.evaluation_item_id == evaluation_item_id,
-    ).delete(synchronize_session=False)
-
-
-def _admin_purge_planner_flow_evaluation_data(
-    db, exercise_id: int, bundle_action_eval_id: int
-) -> None:
-    """إزالة نتائج تقييم إجراءات المجرى وتوثيقها وحالات المهام المرتبطة."""
-    from app.models import JudgeIncompleteTaskStatus
-
-    media_rows = (
-        db.query(EvaluationCriterionMedia)
-        .filter(
-            EvaluationCriterionMedia.exercise_id == exercise_id,
-            EvaluationCriterionMedia.bundle_action_eval_id == bundle_action_eval_id,
-        )
-        .all()
-    )
-    _purge_eval_criterion_media_rows(db, media_rows)
-    db.query(PlannerFlowBundleEvalSavedResult).filter(
-        PlannerFlowBundleEvalSavedResult.exercise_id == exercise_id,
-        PlannerFlowBundleEvalSavedResult.bundle_action_eval_id == bundle_action_eval_id,
-    ).delete(synchronize_session=False)
-    db.query(JudgeIncompleteTaskStatus).filter(
-        JudgeIncompleteTaskStatus.exercise_id == exercise_id,
-        JudgeIncompleteTaskStatus.evaluation_item_id == bundle_action_eval_id,
-    ).delete(synchronize_session=False)
 
 
 def _evaluation_grade_from_payload_rows(rows: list) -> tuple[float | None, str]:
@@ -6663,6 +6621,7 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
         saved_payload = _load_payload(canon)
         saved_updated_at = canon.updated_at
         saved_row_id = canon.id
+    saved_payload = _saved_payload_aligned_with_eval_rows(saved_payload, ev.get("eval_rows"))
     wf = _planner_flow_eval_list_viewer_ctx(user, canon)
 
     item_title = _planner_blob_display_filename(
@@ -7236,6 +7195,7 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
         saved_is_approved = bool(getattr(canon, "is_approved", False))
         saved_approved_at = getattr(canon, "approved_at", None)
         saved_row_id = canon.id
+    saved_payload = _saved_payload_aligned_with_eval_rows(saved_payload, ev.get("eval_rows"))
 
     unit_label = (unit.get("label") or "").strip() if isinstance(unit, dict) else ""
     shown_date = getattr(current_exercise, "planned_start", None) or getattr(current_exercise, "created_at", None)
@@ -7271,10 +7231,10 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
     eval_save_url = url_for("views.planner_evaluation_list_save_results", unit_key=unit_key, item_id=item_id)
     eval_approve_url = url_for("views.planner_evaluation_list_approve", unit_key=unit_key, item_id=item_id)
     wf = _eval_list_viewer_ctx(user, canon)
-
     crit_edit = bool(
         not saved_is_approved and can_save_evaluation_results(user)
     )
+    wf["eval_can_edit"] = crit_edit
 
     return render_template(
         "judge_evaluation_list_viewer.html",
@@ -7287,8 +7247,6 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
             saved_row_id=saved_row_id,
             saved_payload=saved_payload,
             saved_updated_at=saved_updated_at,
-            saved_is_approved=saved_is_approved,
-            saved_approved_at=saved_approved_at,
             **wf,
             **ev,
             **_eval_crit_media_sheet_ctx(
@@ -7306,7 +7264,6 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
             has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
             eval_save_url=eval_save_url,
             eval_approve_url=eval_approve_url,
-            eval_can_edit=crit_edit,
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
             subpage_close_fallback=url_for("views.planner_evaluation_lists", unit_key=unit_key),
             **_hub_back_ctx_for_request_path(),
@@ -10671,6 +10628,7 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
     saved_is_approved = False
     saved_approved_at = None
     saved_by_id = None
+    saved_row = None
 
     # معلومات إضافية أعلى مربع قائمة التقييم (تعريف افتراضي لتجنب NameError)
     unit_label = (unit.get("label") or "").strip() if isinstance(unit, dict) else ""
@@ -10744,9 +10702,11 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
             saved_is_approved = bool(getattr(saved_row, "is_approved", False))
             saved_approved_at = getattr(saved_row, "approved_at", None)
             saved_by_id = getattr(saved_row, "saved_by_id", None)
+    saved_payload = _saved_payload_aligned_with_eval_rows(saved_payload, ev.get("eval_rows"))
     admin_crit = bool(not saved_is_approved and can_save_evaluation_results(user))
     canon_admin = saved_row if current_exercise is not None else None
     wf_admin = _eval_list_viewer_ctx(user, canon_admin)
+    wf_admin["eval_can_edit"] = admin_crit
     return render_template(
         "admin_evaluation_list_viewer.html",
         **_ctx(
@@ -10762,8 +10722,6 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
             saved_row_id=saved_row_id,
             saved_payload=saved_payload,
             saved_updated_at=saved_updated_at,
-            saved_is_approved=saved_is_approved,
-            saved_approved_at=saved_approved_at,
             saved_by_id=saved_by_id,
             eval_save_url=url_for("views.admin_evaluation_list_save_results", unit_key=unit_key, item_id=item_id),
             eval_approve_url=url_for("views.admin_evaluation_list_approve", unit_key=unit_key, item_id=item_id),
@@ -10782,7 +10740,6 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
             commander_name=commander_name or "—",
             judge_name=judge_name or "—",
             has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
-            eval_can_edit=admin_crit,
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
         ),
     )
@@ -11366,6 +11323,7 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
         saved_payload = _load_payload(canon)
         saved_updated_at = canon.updated_at
         saved_row_id = canon.id
+    saved_payload = _saved_payload_aligned_with_eval_rows(saved_payload, ev.get("eval_rows"))
 
     eval_save_url = url_for("views.judge_evaluation_list_save_results", unit_key=unit_key, item_id=item_id)
     eval_approve_url = url_for("views.judge_evaluation_list_approve", unit_key=unit_key, item_id=item_id)
@@ -12042,326 +12000,6 @@ def chief_judge_evaluation_list_chief_reopen(unit_key: str, item_id: int):
     return redirect(
         url_for("views.chief_judge_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id)
     )
-
-
-_ADMIN_SAVED_SOURCE_JUDGE = "judge_eval"
-_ADMIN_SAVED_SOURCE_PLANNER = "planner_flow"
-
-
-def _admin_saved_result_source_label(source_kind: str) -> str:
-    if source_kind == _ADMIN_SAVED_SOURCE_PLANNER:
-        return "المجرى وتقييم الإجراءات — قائمة التقييم"
-    return "قوائم التقييم (المحكم)"
-
-
-def _admin_build_saved_results_display(db, ex: Exercise) -> list[dict]:
-    """صفوف موحّدة: نتائج قوائم المحكم + نتائج قوائم تقييم الإجراءات (المجرى)."""
-    display: list[dict] = []
-    eval_rows = (
-        db.query(EvaluationListSavedResult)
-        .filter(EvaluationListSavedResult.exercise_id == ex.id)
-        .order_by(EvaluationListSavedResult.updated_at.desc(), EvaluationListSavedResult.id.desc())
-        .all()
-    )
-    item_ids = [
-        int(r.evaluation_item_id)
-        for r in eval_rows
-        if getattr(r, "evaluation_item_id", None) is not None
-    ]
-    items_by_id: dict[int, EvaluationListPdfItem] = {}
-    if item_ids:
-        for it in (
-            db.query(EvaluationListPdfItem)
-            .filter(EvaluationListPdfItem.id.in_(item_ids))
-            .all()
-        ):
-            items_by_id[int(it.id)] = it
-    for r in eval_rows:
-        uk = (r.unit_level_key or "").strip()
-        iid = int(r.evaluation_item_id) if r.evaluation_item_id is not None else 0
-        it = items_by_id.get(iid)
-        list_title = (getattr(it, "text", None) or "").strip() if it else ""
-        display.append(
-            {
-                "source_kind": _ADMIN_SAVED_SOURCE_JUDGE,
-                "source_label": _admin_saved_result_source_label(_ADMIN_SAVED_SOURCE_JUDGE),
-                "saved_id": int(r.id),
-                "checkbox_value": f"eval:{int(r.id)}",
-                "unit_label": label_for_unit_level_key(uk) if uk else "",
-                "unit_level_key": uk,
-                "exercise_phase": r.exercise_phase,
-                "list_title": list_title or "—",
-                "total_pct": r.total_pct,
-                "grade_label": display_grade_label(r.grade_label) or r.grade_label,
-                "saved_by_id": r.saved_by_id,
-                "is_approved": bool(r.is_approved),
-                "updated_at": r.updated_at,
-                "open_href": (
-                    url_for(
-                        "views.admin_evaluation_list_file_viewer",
-                        unit_key=uk,
-                        item_id=iid,
-                        saved_id=int(r.id),
-                    )
-                    if uk and iid
-                    else ""
-                ),
-            }
-        )
-    pf_rows = (
-        db.query(PlannerFlowBundleEvalSavedResult)
-        .filter(PlannerFlowBundleEvalSavedResult.exercise_id == ex.id)
-        .order_by(
-            PlannerFlowBundleEvalSavedResult.updated_at.desc(),
-            PlannerFlowBundleEvalSavedResult.id.desc(),
-        )
-        .all()
-    )
-    for r in pf_rows:
-        action_row = db.get(
-            ExercisePlannerFlowBundleActionEval, int(r.bundle_action_eval_id)
-        )
-        if action_row is None:
-            continue
-        bundle = db.get(ExercisePlannerFlowBundle, int(action_row.bundle_id))
-        if bundle is None or bundle.exercise_id != ex.id:
-            continue
-        uk = (r.unit_level_key or bundle.unit_level_key or "").strip()
-        list_title = _planner_blob_display_filename(
-            stored_title=action_row.title or "",
-            relpath=action_row.file_relpath or "",
-            fallback=f"قائمة تقييم إجراءات {int(action_row.slot_index)}",
-        )
-        pf_open_href = ""
-        if uk:
-            pf_kw: dict[str, int] = {}
-            ja = (
-                db.query(JudgeTraineeAssignment)
-                .filter(
-                    JudgeTraineeAssignment.exercise_id == ex.id,
-                    JudgeTraineeAssignment.planner_flow_bundle_id == bundle.id,
-                )
-                .first()
-            )
-            if ja is not None:
-                pf_kw["judge_user_id"] = int(ja.judge_user_id)
-            pf_open_href = url_for(
-                "views.judge_planner_flow_materials_action_evaluate",
-                slot=int(action_row.slot_index),
-                **pf_kw,
-            )
-        display.append(
-            {
-                "source_kind": _ADMIN_SAVED_SOURCE_PLANNER,
-                "source_label": _admin_saved_result_source_label(
-                    _ADMIN_SAVED_SOURCE_PLANNER
-                ),
-                "saved_id": int(r.id),
-                "checkbox_value": f"pf:{int(r.id)}",
-                "unit_label": label_for_unit_level_key(uk) if uk else "",
-                "unit_level_key": uk,
-                "exercise_phase": r.exercise_phase or bundle.exercise_phase,
-                "list_title": list_title or "—",
-                "total_pct": r.total_pct,
-                "grade_label": display_grade_label(r.grade_label) or r.grade_label,
-                "saved_by_id": r.saved_by_id,
-                "is_approved": bool(r.is_approved),
-                "updated_at": r.updated_at,
-                "open_href": pf_open_href,
-            }
-        )
-    display.sort(
-        key=lambda d: (
-            d.get("updated_at") is not None,
-            d.get("updated_at") or datetime.min,
-            int(d.get("saved_id") or 0),
-        ),
-        reverse=True,
-    )
-    return display
-
-
-def _admin_parse_saved_results_bulk_ids(raw_ids: list[str]) -> tuple[list[int], list[int]]:
-    eval_ids: list[int] = []
-    pf_ids: list[int] = []
-    for v in raw_ids:
-        s = (v or "").strip()
-        if s.startswith("eval:") and s[5:].isdigit():
-            eval_ids.append(int(s[5:]))
-        elif s.startswith("pf:") and s[3:].isdigit():
-            pf_ids.append(int(s[3:]))
-        elif s.isdigit():
-            eval_ids.append(int(s))
-    return eval_ids, pf_ids
-
-
-@bp.route("/admin/evaluation-lists/saved-results/gate", methods=["GET", "POST"])
-def admin_evaluation_saved_results_gate():
-    user = get_current_user_optional()
-    if not user:
-        return redirect("/login?next=/admin/evaluation-lists/saved-results/gate")
-    if not is_system_admin(user):
-        abort(403)
-    from flask import g
-
-    db = g.db
-    nxt = (
-        request.args.get("next")
-        or request.form.get("next")
-        or "/admin/evaluation-lists/saved-results"
-    ).strip()
-    if not nxt.startswith("/"):
-        nxt = "/admin/evaluation-lists/saved-results"
-    err = ""
-    if request.method == "POST":
-        pwd = (request.form.get("password") or "").strip()
-        if _verify_system_admin_password(db, pwd):
-            session[EVAL_SAVED_RESULTS_GATE_SESSION_KEY] = True
-            session.permanent = True
-            return redirect(nxt)
-        err = "كلمة المرور غير صحيحة. أدخل كلمة مرور حساب إدارة النظام."
-    if session.get(EVAL_SAVED_RESULTS_GATE_SESSION_KEY):
-        return redirect(nxt)
-    return render_template(
-        "admin_evaluation_saved_results_gate.html",
-        **_ctx(user, next_url=nxt, gate_error=err),
-    )
-
-
-@bp.route("/admin/evaluation-lists/saved-results", methods=["GET"])
-def admin_evaluation_saved_results():
-    user = get_current_user_optional()
-    if not user:
-        return redirect("/login?next=/admin/evaluation-lists/saved-results")
-    if not is_system_admin(user):
-        abort(403)
-    from flask import g
-
-    db = g.db
-    ex = _admin_current_workspace_exercise(db, user)
-    if ex is None:
-        return render_template(
-            "admin_evaluation_saved_results.html",
-            **_ctx(user, has_exercise=False),
-        )
-    saved_display = _admin_build_saved_results_display(db, ex)
-    return render_template(
-        "admin_evaluation_saved_results.html",
-        **_ctx(
-            user,
-            has_exercise=True,
-            exercise=ex,
-            saved_display=saved_display,
-        ),
-    )
-
-
-@bp.route("/admin/evaluation-lists/saved-results/<int:saved_id>/delete", methods=["POST"])
-def admin_evaluation_saved_results_delete(saved_id: int):
-    user = get_current_user_optional()
-    if not user or not is_system_admin(user):
-        abort(403)
-    from flask import g
-
-    db = g.db
-    ex = _admin_current_workspace_exercise(db, user)
-    if ex is None:
-        abort(404)
-    kind = (
-        request.form.get("source_kind")
-        or request.args.get("source_kind")
-        or _ADMIN_SAVED_SOURCE_JUDGE
-    ).strip()
-    if kind == _ADMIN_SAVED_SOURCE_PLANNER:
-        row = db.get(PlannerFlowBundleEvalSavedResult, saved_id)
-        if row is None or row.exercise_id != ex.id:
-            abort(404)
-        _admin_purge_planner_flow_evaluation_data(
-            db, ex.id, int(row.bundle_action_eval_id)
-        )
-    else:
-        row = db.get(EvaluationListSavedResult, saved_id)
-        if row is None or row.exercise_id != ex.id:
-            abort(404)
-        _admin_purge_judge_evaluation_data(
-            db, ex.id, int(row.evaluation_item_id)
-        )
-    db.commit()
-    return redirect("/admin/evaluation-lists/saved-results")
-
-
-@bp.route("/admin/evaluation-lists/saved-results/bulk-delete", methods=["POST"])
-def admin_evaluation_saved_results_bulk_delete():
-    """حذف عدّة نتائج محفوظة دفعة واحدة.
-
-    يقبل:
-      • saved_ids=eval:<id> أو pf:<id> لحذف المحدد بـ checkbox.
-      • delete_all=1 لحذف جميع النتائج المحفوظة في التمرين الحالي (المحكم + المجرى).
-    """
-    user = get_current_user_optional()
-    if not user or not is_system_admin(user):
-        abort(403)
-    from flask import g
-
-    db = g.db
-    ex = _admin_current_workspace_exercise(db, user)
-    if ex is None:
-        return redirect("/admin/evaluation-lists/saved-results")
-
-    delete_all = (request.form.get("delete_all") or "").strip() in ("1", "true", "True", "yes")
-    if delete_all:
-        eval_item_ids = [
-            int(r[0])
-            for r in db.query(EvaluationListSavedResult.evaluation_item_id)
-            .filter(EvaluationListSavedResult.exercise_id == ex.id)
-            .distinct()
-            .all()
-            if r[0] is not None
-        ]
-        for iid in eval_item_ids:
-            _admin_purge_judge_evaluation_data(db, ex.id, iid)
-        pf_action_ids = [
-            int(r[0])
-            for r in db.query(PlannerFlowBundleEvalSavedResult.bundle_action_eval_id)
-            .filter(PlannerFlowBundleEvalSavedResult.exercise_id == ex.id)
-            .distinct()
-            .all()
-            if r[0] is not None
-        ]
-        for aid in pf_action_ids:
-            _admin_purge_planner_flow_evaluation_data(db, ex.id, aid)
-        db.commit()
-        return redirect("/admin/evaluation-lists/saved-results")
-
-    eval_ids, pf_ids = _admin_parse_saved_results_bulk_ids(request.form.getlist("saved_ids"))
-    if not eval_ids and not pf_ids:
-        return redirect("/admin/evaluation-lists/saved-results")
-    if eval_ids:
-        eval_rows = (
-            db.query(EvaluationListSavedResult)
-            .filter(
-                EvaluationListSavedResult.exercise_id == ex.id,
-                EvaluationListSavedResult.id.in_(eval_ids),
-            )
-            .all()
-        )
-        for r in eval_rows:
-            _admin_purge_judge_evaluation_data(db, ex.id, int(r.evaluation_item_id))
-    if pf_ids:
-        pf_rows = (
-            db.query(PlannerFlowBundleEvalSavedResult)
-            .filter(
-                PlannerFlowBundleEvalSavedResult.exercise_id == ex.id,
-                PlannerFlowBundleEvalSavedResult.id.in_(pf_ids),
-            )
-            .all()
-        )
-        for r in pf_rows:
-            _admin_purge_planner_flow_evaluation_data(
-                db, ex.id, int(r.bundle_action_eval_id)
-            )
-    db.commit()
-    return redirect("/admin/evaluation-lists/saved-results")
 
 
 @bp.route("/admin/evaluation-lists/<unit_key>/clear", methods=["POST"])

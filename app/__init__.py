@@ -82,7 +82,6 @@ def create_app() -> Flask:
 
         from app.auth import get_current_user_optional
         from app.info_bank_access import (
-            EVAL_SAVED_RESULTS_GATE_SESSION_KEY,
             clear_information_bank_gate,
             information_bank_gate_ok,
             is_ibank_included_save_request,
@@ -95,9 +94,6 @@ def create_app() -> Flask:
 
         if not is_information_bank_path(path):
             clear_information_bank_gate(session)
-
-        if not path.startswith("/admin/evaluation-lists/saved-results"):
-            session.pop(EVAL_SAVED_RESULTS_GATE_SESSION_KEY, None)
 
         if is_information_bank_path(path):
             if is_information_bank_gate_exempt_path(path):
@@ -125,25 +121,6 @@ def create_app() -> Flask:
                 )
             return redirect(
                 url_for("views.admin_information_bank_gate", next=request.full_path)
-            )
-
-        if path.startswith("/admin/evaluation-lists/saved-results"):
-            if path.startswith("/admin/evaluation-lists/saved-results/gate"):
-                return
-            if session.get(EVAL_SAVED_RESULTS_GATE_SESSION_KEY):
-                return
-            user = get_current_user_optional()
-            if user is None:
-                return
-            from app.permissions import is_system_admin
-
-            if not is_system_admin(user):
-                return
-            return redirect(
-                url_for(
-                    "views.admin_evaluation_saved_results_gate",
-                    next=request.full_path,
-                )
             )
 
     @app.teardown_request

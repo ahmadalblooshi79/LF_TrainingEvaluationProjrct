@@ -3,7 +3,6 @@
 import re
 
 INFO_BANK_GATE_SESSION_KEY = "info_bank_gate_ok"
-EVAL_SAVED_RESULTS_GATE_SESSION_KEY = "eval_saved_results_gate_ok"
 
 INFO_BANK_PATH_PREFIX = "/admin/information-bank"
 IBANK_INCLUDED_SAVE_HEADER = "X-IBank-Included-Save"
