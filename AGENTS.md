@@ -10,6 +10,6 @@
 ## قواعد عامة للمشروع
 
 - المصطلح **"إعادة التنظيم"** غير مستخدم في النظام. كل ما يخص هذه المرحلة يُسمّى **"مرحلة مسارات التقييم"**.
-- بيئة Python للتطوير في `.venv` (Python 3.14). بيئة الإنتاج تستخدم Waitress عبر `packaging/app_main.py`.
-- ملف بيانات SQLite الافتراضي: `exercises.db` في جذر المشروع (وضع التطوير) أو في `%LOCALAPPDATA%\LF_TrainingEvaluation\` (وضع التنصيب).
+- بيئة Python في `.venv` (Python 3.14). التشغيل عبر `run.bat` أو `run.py`.
+- ملف بيانات SQLite الافتراضي: `exercises.db` في جذر المشروع.
 - عند تعديل `style.css` رفع `?v=…` في `app/templates/base.html` لكسر كاش المتصفح.

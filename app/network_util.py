@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import socket
+
+
+def _console_banner_enabled() -> bool:
+    """LF_SERVER_BANNER=0 يخفّي كتلة عناوين التشغيل في الطرفية."""
+    v = (os.environ.get("LF_SERVER_BANNER") or "").strip().lower()
+    return v not in ("0", "false", "no", "off")
 
 
 def lan_ipv4_addresses() -> list[str]:
@@ -52,28 +59,27 @@ def server_access_urls(*, host: str, port: int) -> list[str]:
 
 
 def print_server_access_info(*, host: str, port: int) -> None:
-    """طباعة تعليمات الربط في نافذة السيرفر."""
+    """طباعة عناوين الوصول في الطرفية (ASCII فقط — العربية تُكسَر في cmd/VS Code)."""
+    if not _console_banner_enabled():
+        return
     urls = server_access_urls(host=host, port=port)
     lan = [u for u in urls if "127.0.0.1" not in u]
+    local_url = urls[-1] if urls else f"http://127.0.0.1:{port}/"
     print()
     print("=" * 60)
-    print("  نظام تقييم التدريب — الخادم يعمل")
+    print("  LF Training Evaluation - server running")
     print("=" * 60)
-    print(f"  المنفذ: {port}")
-    print(f"  الاستماع: {host or '0.0.0.0'} (LAN + Wi-Fi)")
+    print(f"  Port: {port}")
+    print(f"  Listen: {host or '0.0.0.0'} (LAN + Wi-Fi)")
     print()
-    print("  على هذا الجهاز (السيرفر):")
-    print(f"    {urls[-1] if urls else f'http://127.0.0.1:{port}/'}")
+    print("  This PC:")
+    print(f"    {local_url}")
     print()
     if lan:
-        print("  للأجهزة الأخرى (كابل LAN أو Wi-Fi داخلي) — متصفح فقط:")
+        print("  Other devices (browser only, same network):")
         for u in lan:
             print(f"    {u}")
     else:
-        print("  للأجهزة الأخرى: استخدم عنوان IP هذا الجهاز على الشبكة")
-        print(f"    http://<عنوان-IP-السيرفر>:{port}/")
-    print()
-    print("  لا حاجة لتنصيب على أجهزة العملاء — متصفح Chrome/Edge فقط.")
-    print("  التحديث التلقائي بين الأجهزة: كل ~1–2 ثانية على صفحات المتابعة.")
+        print(f"  Other devices: http://<server-ip>:{port}/")
     print("=" * 60)
     print()

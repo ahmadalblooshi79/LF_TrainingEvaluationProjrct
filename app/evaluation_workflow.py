@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from app.evaluation_list_columns import display_grade_label
 from app.models import (
     EvaluationListPdfItem,
     EvaluationListSavedResult,
@@ -215,7 +216,7 @@ def build_planner_flow_eval_row(
         ),
         "status_label": "ينجز" if is_done else "لم ينجز",
         "status_done": is_done,
-        "grade_label": (getattr(saved, "grade_label", "") or "").strip() if saved else "",
+        "grade_label": display_grade_label(getattr(saved, "grade_label", "") if saved else "") if saved else "",
         "dispatch_label": dispatch_label,
         "row_tone": row_tone,
         "workflow_label": eval_workflow_label_ar(saved),
@@ -249,7 +250,7 @@ def build_evaluation_list_row(
         ),
         "status_label": "ينجز" if is_done else "لم ينجز",
         "status_done": is_done,
-        "grade_label": (getattr(saved, "grade_label", "") or "").strip() if saved else "",
+        "grade_label": display_grade_label(getattr(saved, "grade_label", "") if saved else "") if saved else "",
         "dispatch_label": dispatch_label,
         "row_tone": row_tone,
         "open_href": open_href,

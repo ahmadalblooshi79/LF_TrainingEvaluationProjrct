@@ -3053,6 +3053,36 @@ body.hub-landing-preserve-buttons .btn-finish-exercise:hover {
 }
 
 /* قوائم الوحدة المتدربة / المحكمين — صفوف متعددة الحقول */
+.roster-editor-head {
+  display: grid;
+  grid-template-columns: 2rem minmax(4.5rem, 0.75fr) minmax(4.5rem, 0.75fr) minmax(5rem, 1fr) minmax(9rem, 1.15fr) auto;
+  gap: 0.3rem;
+  align-items: end;
+  direction: rtl;
+  padding: 0 0.32rem 0.28rem;
+  margin-bottom: 0.12rem;
+  border-bottom: 1px solid var(--border-light);
+}
+.roster-editor-head__cell {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--brown-700);
+  text-align: center;
+  line-height: 1.25;
+  padding: 0.1rem 0.15rem;
+}
+.roster-editor-head__cell--num {
+  font-size: 0.74rem;
+}
+.roster-editor-head__cell--grow {
+  text-align: center;
+}
+.roster-editor-head__cell--unit {
+  text-align: center;
+}
+.roster-editor-head__cell--actions {
+  min-width: 2.2rem;
+}
 .roster-editor-list {
   list-style: none;
   margin: 0;
@@ -3108,6 +3138,9 @@ body.hub-landing-preserve-buttons .btn-finish-exercise:hover {
   line-height: 1;
 }
 @media (max-width: 720px) {
+  .roster-editor-head {
+    display: none;
+  }
   .roster-editor-row {
     display: flex;
     flex-direction: column;

@@ -1,5 +1,5 @@
 {# جدول تعبئة قائمة التقييم — تمرير وسفلي ثابتان، مكتسبة كقائمة حسب القصوى #}
-<div class="eval-structured-layout{% if not eval_can_edit|default(false) %} eval-structured-layout--readonly{% endif %}" dir="rtl" id="eval-structured-root" data-crit-upload-url="{{ eval_crit_upload_url|default('', true)|e }}" data-crit-li="{{ eval_crit_list_item_id if eval_crit_list_item_id is not none else '' }}" data-crit-ba="{{ eval_crit_bundle_action_id if eval_crit_bundle_action_id is not none else '' }}" data-approve-incomplete="{% if eval_approve_incomplete|default(false) %}1{% else %}0{% endif %}" data-readonly="{% if eval_can_edit|default(false) %}0{% else %}1{% endif %}">
+<div class="eval-structured-layout{% if not eval_can_edit|default(false) %} eval-structured-layout--readonly{% endif %}" dir="rtl" id="eval-structured-root" data-crit-upload-url="{{ eval_crit_upload_url|default('', true)|e }}" data-crit-li="{{ eval_crit_list_item_id if eval_crit_list_item_id is not none else '' }}" data-crit-ba="{{ eval_crit_bundle_action_id if eval_crit_bundle_action_id is not none else '' }}" data-approve-incomplete="{% if eval_approve_incomplete|default(false) %}1{% else %}0{% endif %}" data-approve-grade-blocked="{% if eval_approve_grade_blocked|default(false) %}1{% else %}0{% endif %}" data-readonly="{% if eval_can_edit|default(false) %}0{% else %}1{% endif %}">
   <div class="eval-structured-layout__scroll" id="eval-structured-scroll">
     <table class="eval-preview-table eval-structured eval-structured--tight" role="table" aria-label="جدول التقييم" id="eval-structured-table">
       <thead>
@@ -111,7 +111,7 @@
       </tbody>
     </table>
   </div>
-  <p class="form-error-banner eval-approve-block-msg" id="eval-approve-block-msg" role="alert" dir="rtl"{% if not eval_approve_incomplete|default(false) %} hidden{% endif %}>{% if eval_approve_incomplete|default(false) %}لا يمكن الاعتماد: يوجد بند أو أكثر لم تُدخل له المكتسبة (الخانات المحددة باللون الأحمر). اختر علامة أو «لا ينطبق»، ثم احفظ إن لزم، ثم أعد الاعتماد.{% endif %}</p>
+  <p class="form-error-banner eval-approve-block-msg" id="eval-approve-block-msg" role="alert" dir="rtl"{% if not eval_approve_incomplete|default(false) and not eval_approve_grade_blocked|default(false) %} hidden{% endif %}>{% if eval_approve_grade_blocked|default(false) %}لا يمكن الاعتماد: التقدير «راسب» أو «مقبول» — يُسمح بالحفظ فقط.{% elif eval_approve_incomplete|default(false) %}لا يمكن الاعتماد: يوجد بند أو أكثر لم تُدخل له المكتسبة (الخانات المحددة باللون الأحمر). اختر علامة أو «لا ينطبق»، ثم احفظ إن لزم، ثم أعد الاعتماد.{% endif %}</p>
   <p class="eval-acquired-warn" id="eval-acquired-warn" role="alert" hidden></p>
   {% if eval_chief_next_step_hint|default(false) and (show_chief_approve|default(false) or show_chief_reopen|default(false)) %}
   <p class="eval-chief-hint-row muted" dir="rtl"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> بعد <strong>اعتماد كبير المحكمين</strong> يُرسل التقييم إلى <strong>اعتماد السيطرة</strong>.</p>
@@ -301,6 +301,13 @@
 
   if (approveForm) {
     approveForm.addEventListener('submit', function (e) {
+      var gradeEl = document.getElementById('eval-total-grade');
+      var totalGrade = gradeEl ? String(gradeEl.textContent || '').trim() : '';
+      if (!gradeAllowsApprove(totalGrade)) {
+        e.preventDefault();
+        showGradeApproveBlockMsg();
+        return false;
+      }
       var emptyRows = collectEmptyAcquiredRows();
       if (emptyRows.length) {
         e.preventDefault();
@@ -450,10 +457,33 @@
   function gradeFromPct(p) {
     if (p === null || typeof p !== 'number' || isNaN(p)) return 'غير محسوب';
     if (p < 60) return 'راسب';
-    if (p < 70) return 'متوسط';
+    if (p < 70) return 'مقبول';
     if (p < 80) return 'جيد';
     if (p < 90) return 'جيد جدا';
     return 'ممتاز';
+  }
+  var NON_APPROVABLE_GRADES = { 'راسب': true, 'مقبول': true, 'متوسط': true };
+  function gradeAllowsApprove(grade) {
+    var g = String(grade || '').trim();
+    if (!g || g === 'غير محسوب') return false;
+    return !NON_APPROVABLE_GRADES[g];
+  }
+  function showGradeApproveBlockMsg() {
+    if (approveMsgEl) {
+      approveMsgEl.textContent = 'لا يمكن الاعتماد: التقدير «راسب» أو «مقبول» — يُسمح بالحفظ فقط.';
+      approveMsgEl.hidden = false;
+    }
+  }
+  function syncApproveButtonVisibility(grade) {
+    if (!approveForm) return;
+    var allow = gradeAllowsApprove(grade);
+    approveForm.hidden = !allow;
+    approveForm.style.display = allow ? '' : 'none';
+    if (!allow) {
+      showGradeApproveBlockMsg();
+    } else if (!collectEmptyAcquiredRows().length) {
+      maybeClearApproveBlockVisual();
+    }
   }
   var GRADE_CELL_BG = { na: '#ffffff', fail: '#fecaca', mid: '#fed7aa', good: '#fef08a', vgood: '#bae6fd', excellent: '#bbf7d0' };
   function setResultCellBackground(gradeTd, pct) {
@@ -592,9 +622,15 @@
     }
     var actualPct = (sumAcq / sumMaxDen) * 100;
     totalEl.textContent = Math.round(actualPct * 100) / 100 + '%';
-    if (gradeEl) gradeEl.textContent = gradeFromPct(actualPct);
+    var totalGrade = gradeFromPct(actualPct);
+    if (gradeEl) gradeEl.textContent = totalGrade;
+    syncApproveButtonVisibility(totalGrade);
   }
   updateTotal();
+  if (root && root.getAttribute('data-approve-grade-blocked') === '1') {
+    var ge = document.getElementById('eval-total-grade');
+    syncApproveButtonVisibility(ge ? ge.textContent : '');
+  }
 })();
 </script>
 <div id="eval-crit-media-modal" class="eval-crit-media-modal" hidden aria-hidden="true">

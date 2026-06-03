@@ -162,6 +162,8 @@ from app.information_bank_catalog import (
 )
 from app.evaluation_list_columns import (
     acquired_select_options,
+    display_grade_label,
+    grade_allows_judge_approve,
     grade_label_from_percent,
     parse_max_cell,
 )
@@ -824,7 +826,7 @@ def _control_active_phase_columns(
 # مفتاح ألوان نتائج القوائم — متوافق مع grade_label_from_percent
 _CONTROL_REPORT_GRADE_LEGEND: tuple[tuple[str, str, str], ...] = (
     ("راسب", "أقل من 60%", "#ef4444"),
-    ("متوسط", "60% – 69%", "#f97316"),
+    ("مقبول", "60% – 69%", "#f97316"),
     ("جيد", "70% – 79%", "#eab308"),
     ("جيد جدا", "80% – 89%", "#38bdf8"),
     ("ممتاز", "90% – 100%", "#22c55e"),
@@ -2413,8 +2415,23 @@ def _evaluation_payload_has_empty_acquired_for_approve(rows: list) -> bool:
     return False
 
 
+def _evaluation_saved_allows_judge_approve(saved) -> bool:
+    if saved is None:
+        return False
+    return grade_allows_judge_approve(
+        getattr(saved, "grade_label", None),
+        total_pct=getattr(saved, "total_pct", None),
+    )
+
+
 def _eval_list_viewer_ctx(user: User, saved) -> dict:
     """سياق مشترك لعرض/تعديل قائمة تقييم (محكم أو كبير محكمين)."""
+    grade_blocks_approve = bool(
+        saved is not None
+        and can_approve_evaluation_results(user)
+        and eval_judge_can_approve(saved)
+        and not _evaluation_saved_allows_judge_approve(saved)
+    )
     return {
         "saved_is_approved": eval_judge_approved(saved),
         "saved_approved_at": getattr(saved, "approved_at", None) if saved else None,
@@ -2424,8 +2441,11 @@ def _eval_list_viewer_ctx(user: User, saved) -> dict:
         "eval_workflow_label": eval_workflow_label_ar(saved),
         "eval_can_edit": bool(can_save_evaluation_results(user) and eval_judge_can_edit(saved)),
         "show_eval_approve": bool(
-            can_approve_evaluation_results(user) and eval_judge_can_approve(saved)
+            can_approve_evaluation_results(user)
+            and eval_judge_can_approve(saved)
+            and _evaluation_saved_allows_judge_approve(saved)
         ),
+        "eval_approve_grade_blocked": grade_blocks_approve,
         "show_chief_approve": bool(
             can_chief_approve_evaluation_results(user) and eval_chief_can_approve(saved)
         ),
@@ -6227,7 +6247,9 @@ def _planner_flow_eval_list_viewer_ctx(user: User, saved) -> dict:
         **wf,
         "eval_can_edit": True,
         "show_eval_approve": bool(
-            can_approve_evaluation_results(user) and eval_judge_can_approve(saved)
+            can_approve_evaluation_results(user)
+            and eval_judge_can_approve(saved)
+            and _evaluation_saved_allows_judge_approve(saved)
         ),
         "show_chief_approve": bool(
             can_chief_approve_evaluation_results(user) and eval_chief_can_approve(saved)
@@ -6892,6 +6914,15 @@ def judge_planner_flow_materials_action_approve(slot: int):
                 **pf_qs,
             )
         )
+    if not _evaluation_saved_allows_judge_approve(saved):
+        return redirect(
+            url_for(
+                "views.judge_planner_flow_materials_action_evaluate",
+                slot=int(slot),
+                eval_approve_grade_blocked=1,
+                **pf_qs,
+            )
+        )
     apply_judge_approve(saved, getattr(user, "id", None))
     db.commit()
     return redirect(
@@ -7239,7 +7270,7 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
 
     eval_save_url = url_for("views.planner_evaluation_list_save_results", unit_key=unit_key, item_id=item_id)
     eval_approve_url = url_for("views.planner_evaluation_list_approve", unit_key=unit_key, item_id=item_id)
-    show_eval_approve = can_approve_evaluation_results(user)
+    wf = _eval_list_viewer_ctx(user, canon)
 
     crit_edit = bool(
         not saved_is_approved and can_save_evaluation_results(user)
@@ -7258,6 +7289,7 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
             saved_updated_at=saved_updated_at,
             saved_is_approved=saved_is_approved,
             saved_approved_at=saved_approved_at,
+            **wf,
             **ev,
             **_eval_crit_media_sheet_ctx(
                 db,
@@ -7274,7 +7306,6 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
             has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
             eval_save_url=eval_save_url,
             eval_approve_url=eval_approve_url,
-            show_eval_approve=show_eval_approve,
             eval_can_edit=crit_edit,
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
             subpage_close_fallback=url_for("views.planner_evaluation_lists", unit_key=unit_key),
@@ -7362,6 +7393,15 @@ def planner_evaluation_list_approve(unit_key: str, item_id: int):
                 unit_key=unit_key,
                 item_id=item_id,
                 eval_approve_incomplete=1,
+            )
+        )
+    if not _evaluation_saved_allows_judge_approve(saved):
+        return redirect(
+            url_for(
+                "views.planner_evaluation_list_file_viewer",
+                unit_key=unit_key,
+                item_id=item_id,
+                eval_approve_grade_blocked=1,
             )
         )
     saved.is_approved = True
@@ -10705,6 +10745,8 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
             saved_approved_at = getattr(saved_row, "approved_at", None)
             saved_by_id = getattr(saved_row, "saved_by_id", None)
     admin_crit = bool(not saved_is_approved and can_save_evaluation_results(user))
+    canon_admin = saved_row if current_exercise is not None else None
+    wf_admin = _eval_list_viewer_ctx(user, canon_admin)
     return render_template(
         "admin_evaluation_list_viewer.html",
         **_ctx(
@@ -10725,7 +10767,7 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
             saved_by_id=saved_by_id,
             eval_save_url=url_for("views.admin_evaluation_list_save_results", unit_key=unit_key, item_id=item_id),
             eval_approve_url=url_for("views.admin_evaluation_list_approve", unit_key=unit_key, item_id=item_id),
-            show_eval_approve=can_approve_evaluation_results(user),
+            **wf_admin,
             **ev,
             **_eval_crit_media_sheet_ctx(
                 db,
@@ -11035,6 +11077,15 @@ def admin_evaluation_list_approve(unit_key: str, item_id: int):
                 unit_key=unit_key,
                 item_id=item_id,
                 eval_approve_incomplete=1,
+            )
+        )
+    if not _evaluation_saved_allows_judge_approve(saved):
+        return redirect(
+            url_for(
+                "views.admin_evaluation_list_file_viewer",
+                unit_key=unit_key,
+                item_id=item_id,
+                eval_approve_grade_blocked=1,
             )
         )
     saved.is_approved = True
@@ -11475,6 +11526,15 @@ def judge_evaluation_list_approve(unit_key: str, item_id: int):
                 unit_key=unit_key,
                 item_id=item_id,
                 eval_approve_incomplete=1,
+            )
+        )
+    if not _evaluation_saved_allows_judge_approve(saved):
+        return redirect(
+            url_for(
+                "views.judge_evaluation_list_file_viewer",
+                unit_key=unit_key,
+                item_id=item_id,
+                eval_approve_grade_blocked=1,
             )
         )
     apply_judge_approve(saved, getattr(user, "id", None))
@@ -12032,7 +12092,7 @@ def _admin_build_saved_results_display(db, ex: Exercise) -> list[dict]:
                 "exercise_phase": r.exercise_phase,
                 "list_title": list_title or "—",
                 "total_pct": r.total_pct,
-                "grade_label": r.grade_label,
+                "grade_label": display_grade_label(r.grade_label) or r.grade_label,
                 "saved_by_id": r.saved_by_id,
                 "is_approved": bool(r.is_approved),
                 "updated_at": r.updated_at,
@@ -12103,7 +12163,7 @@ def _admin_build_saved_results_display(db, ex: Exercise) -> list[dict]:
                 "exercise_phase": r.exercise_phase or bundle.exercise_phase,
                 "list_title": list_title or "—",
                 "total_pct": r.total_pct,
-                "grade_label": r.grade_label,
+                "grade_label": display_grade_label(r.grade_label) or r.grade_label,
                 "saved_by_id": r.saved_by_id,
                 "is_approved": bool(r.is_approved),
                 "updated_at": r.updated_at,

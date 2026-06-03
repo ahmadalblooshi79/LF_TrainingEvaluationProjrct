@@ -225,9 +225,34 @@ def grade_label_from_percent(pct: float | None) -> str:
     if pct < 60:
         return "راسب"
     if pct < 70:
-        return "متوسط"
+        return "مقبول"
     if pct < 80:
         return "جيد"
     if pct < 90:
         return "جيد جدا"
     return "ممتاز"
+
+
+_NON_APPROVABLE_GRADES = frozenset({"راسب", "مقبول", "متوسط"})
+
+
+def display_grade_label(label: str | None) -> str:
+    """عرض التقدير — يوحّد «متوسط» القديم إلى «مقبول»."""
+    g = (label or "").strip()
+    if g == "متوسط":
+        return "مقبول"
+    return g
+
+
+def grade_allows_judge_approve(
+    grade_label: str | None = None,
+    *,
+    total_pct: float | None = None,
+) -> bool:
+    """الاعتماد مسموح فقط لتقديرات جيد فما فوق (لا راسب ولا مقبول)."""
+    if total_pct is not None:
+        return grade_label_from_percent(float(total_pct)) not in _NON_APPROVABLE_GRADES
+    g = display_grade_label(grade_label)
+    if not g or g == "غير محسوب":
+        return False
+    return g not in _NON_APPROVABLE_GRADES

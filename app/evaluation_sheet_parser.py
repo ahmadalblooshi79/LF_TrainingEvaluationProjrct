@@ -186,7 +186,7 @@ def ratio_to_performance_band(ratio: float) -> str:
     if pct < 60:
         return "راسب"
     if pct < 70:
-        return "متوسط"
+        return "مقبول"
     if pct < 80:
         return "جيد"
     if pct < 90:

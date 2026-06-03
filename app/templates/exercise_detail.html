@@ -14,8 +14,8 @@
     <dt>تاريخ التمرين</dt>
     <dd>
       <span class="exercise-meta-dates">
-        <span>من {% if ex.planned_start %}{{ ex.planned_start.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</span>
-        <span>إلى {% if ex.planned_end %}{{ ex.planned_end.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</span>
+        <span>من {% if ex.planned_start %}{{ ex.planned_start.strftime('%d-%m-%Y') }}{% else %}—{% endif %}</span>
+        <span>إلى {% if ex.planned_end %}{{ ex.planned_end.strftime('%d-%m-%Y') }}{% else %}—{% endif %}</span>
       </span>
     </dd>
     {% endif %}

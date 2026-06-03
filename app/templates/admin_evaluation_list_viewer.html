@@ -23,6 +23,9 @@
       {% endif %}
     </div>
 
+    {% if eval_approve_grade_blocked|default(false) %}
+    <p class="form-error-banner eval-banner--small" role="alert" dir="rtl"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يمكن الاعتماد: التقدير «راسب» أو «مقبول» — يُسمح بالحفظ فقط.</p>
+    {% endif %}
     {% if preview_error %}
     <p class="form-error-banner eval-banner--small" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ preview_error }}</p>
     {% endif %}

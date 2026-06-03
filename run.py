@@ -1,9 +1,7 @@
-"""تشغيل الخادم من مجلد المشروع (تطوير):
+"""تشغيل الخادم من مجلد المشروع:
 
   run.bat
   أو: .venv\\Scripts\\python.exe run.py
-
-تنصيب السيرفر للإنتاج + LAN/Wi‑Fi: INSTALL.bat ثم START_SERVER.bat
 """
 import os
 import shutil
