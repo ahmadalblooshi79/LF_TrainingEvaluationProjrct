@@ -141,7 +141,7 @@
       </div>
 
       <div class="ibank-tabpane{% if active_tab == 'action-eval' %} is-active{% endif %}" data-tab-pane="action-eval" role="tabpanel">
-        {% with kind='action_eval', tree_nodes=tree_action_eval, ibank_tree_unit_levels=ibank_tree_unit_levels %}
+        {% with kind='action_eval', tree_nodes=tree_action_eval, ibank_tree_unit_levels=ibank_tree_unit_levels, ibank_judge_names_by_unit=ibank_judge_names_by_unit %}
         {% include 'admin_information_bank_tree_panel.html' %}
         {% endwith %}
       </div>
@@ -410,6 +410,22 @@
       if (kind === 'action_eval') {
         page.querySelectorAll('.ibank-tree-root > .ibank-tree-node--folder.ibank-tree-has-children').forEach(function (li) {
           setFolderExpanded(li, true);
+        });
+        var judgeRaw = page.querySelector('.js-ibank-judge-by-unit-data');
+        var judgeByUnit = {};
+        try {
+          judgeByUnit = judgeRaw && judgeRaw.textContent ? JSON.parse(judgeRaw.textContent) : {};
+        } catch (errJudge) {
+          judgeByUnit = {};
+        }
+        page.querySelectorAll('.js-ibank-tree-unit-select').forEach(function (sel) {
+          sel.addEventListener('change', function () {
+            var inpId = sel.getAttribute('data-judge-input') || '';
+            var inp = inpId ? document.getElementById(inpId) : null;
+            if (!inp) return;
+            var uk = (sel.value || '').trim();
+            inp.value = uk ? (judgeByUnit[uk] || '—') : '—';
+          });
         });
       }
 

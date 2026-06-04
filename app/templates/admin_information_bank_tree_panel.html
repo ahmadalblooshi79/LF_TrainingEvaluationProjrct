@@ -2,7 +2,7 @@
 
 {% set tree_title = {'event_flow': 'مجرى الأحداث والمعاضل', 'action_eval': 'قوائم تقييم الإجراءات', 'dilemma_eval': 'قوائم تقييم المعاضل'}[kind] %}
 
-<div class="ibank-tree-page" dir="rtl" data-ibank-tree-kind="{{ kind }}" data-ibank-ui-build="action-eval-unit-v7">
+<div class="ibank-tree-page" dir="rtl" data-ibank-tree-kind="{{ kind }}" data-ibank-ui-build="action-eval-unit-v9">
 
   <section class="card ibank-tree-card">
 
@@ -68,6 +68,33 @@
 
       <ul class="ibank-tree-root js-ibank-tree" role="tree" aria-label="{{ tree_title }}">
 
+        {% macro ibank_action_eval_unit_cluster(n) %}
+          <div class="ibank-tree-unit-cluster" dir="rtl">
+            <div class="ibank-tree-unit-pair" dir="rtl">
+              <span class="ibank-tree-unit-cluster__label">مستوى الوحدة</span>
+              {% if information_bank_can_manage and n.show_unit_select %}
+              <form method="post" action="{{ url_for('views.admin_information_bank_tree_unit_level', node_id=n.id) }}" class="ibank-tree-unit-form">
+                <input type="hidden" name="kind" value="{{ kind }}">
+                <select id="ibank-unit-{{ n.id }}" name="unit_key" class="ibank-tree-unit-select js-ibank-tree-unit-select" aria-label="مستوى الوحدة — {{ n.name }}" data-judge-input="ibank-judge-{{ n.id }}" onchange="if(this.value){this.form.submit();}">
+                  <option value="">— اختر مستوى الوحدة —</option>
+                  {% for u in ibank_tree_unit_levels|default([]) %}
+                  <option value="{{ u['key'] }}"{% if n.catalog_unit_key == u['key'] or (not n.catalog_unit_key and n.effective_unit_key == u['key']) %} selected{% endif %}>{{ u['label'] }}</option>
+                  {% endfor %}
+                </select>
+              </form>
+              {% elif n.unit_level_label %}
+              <span class="ibank-tree-unit-badge" title="مستوى الوحدة">{{ n.unit_level_label }}</span>
+              {% else %}
+              <span class="ibank-tree-unit-badge ibank-tree-unit-badge--empty">—</span>
+              {% endif %}
+            </div>
+            <div class="ibank-tree-judge-pair" dir="rtl">
+              <label class="ibank-tree-unit-cluster__label" for="ibank-judge-{{ n.id }}">اسم المحكم</label>
+              <input type="text" id="ibank-judge-{{ n.id }}" class="ibank-tree-judge-readonly" value="{{ n.judge_name or '—' }}" readonly tabindex="-1" aria-label="اسم المحكم — {{ n.name }}" title="من قائمة المحكمين للتمرين الحالي">
+            </div>
+          </div>
+        {% endmacro %}
+
         {% macro render_nodes(nodes, depth=0) %}
 
           {% for n in nodes %}
@@ -92,32 +119,12 @@
 
               <span class="ibank-tree-label">{{ n.name }}</span>
 
-              {% if kind == 'action_eval' and n.show_unit_select and information_bank_can_manage %}
-
-              <form method="post" action="{{ url_for('views.admin_information_bank_tree_unit_level', node_id=n.id) }}" class="ibank-tree-unit-form">
-
-                <input type="hidden" name="kind" value="{{ kind }}">
-
-                <label class="sr-only" for="ibank-unit-{{ n.id }}">مستوى الوحدة</label>
-
-                <select id="ibank-unit-{{ n.id }}" name="unit_key" class="ibank-tree-unit-select" aria-label="مستوى الوحدة — {{ n.name }}" onchange="if(this.value){this.form.submit();}">
-
-                  <option value="">— مستوى الوحدة —</option>
-
-                  {% for u in ibank_tree_unit_levels|default([]) %}
-
-                  <option value="{{ u['key'] }}"{% if n.catalog_unit_key == u['key'] or (not n.catalog_unit_key and n.effective_unit_key == u['key']) %} selected{% endif %}>{{ u['label'] }}</option>
-
-                  {% endfor %}
-
-                </select>
-
-              </form>
-
-              {% elif kind == 'action_eval' and n.unit_level_label %}
-
-              <span class="ibank-tree-unit-badge" title="مستوى الوحدة">{{ n.unit_level_label }}</span>
-
+              {% if kind == 'action_eval' %}
+              {% if n.is_folder and not n.is_phase_root %}
+              {{ ibank_action_eval_unit_cluster(n) }}
+              {% elif not n.is_folder and (n.show_unit_select or n.effective_unit_key) %}
+              {{ ibank_action_eval_unit_cluster(n) }}
+              {% endif %}
               {% endif %}
 
               {% if not n.is_folder %}
@@ -173,6 +180,10 @@
     </div>
 
   </section>
+
+  {% if kind == 'action_eval' %}
+  <script type="application/json" class="js-ibank-judge-by-unit-data">{{ ibank_judge_names_by_unit|default({})|tojson }}</script>
+  {% endif %}
 
 </div>
 

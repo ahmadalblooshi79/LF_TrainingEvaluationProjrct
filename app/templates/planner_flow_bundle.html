@@ -1,14 +1,12 @@
 {% extends "base.html" %}
 {% block title %}تخصيص وربط المجرى وتقييم الإجراءات{% endblock %}
 {% block content %}
-<div class="page-header ibank-page-header planner-flow-page-header">
-  <div class="ibank-page-header__title-row" dir="rtl">
-    <h1><i class="fa-solid fa-diagram-project fa-icon-title" aria-hidden="true"></i> تخصيص وربط قوائم تقييم الإجراءات بمجرى الأحداث والمعاضل</h1>
-  </div>
-  <div class="page-header__nav planner-flow-back-row">{% include 'partials/control_hub_back.html' %}</div>
-</div>
-
 {% if not has_exercise %}
+<div class="planner-flow-col-head planner-flow-col-head--page planner-flow-col-head--close-only" dir="rtl">
+  <div class="planner-flow-col-head__actions pf-flow-head-actions">
+    {% include 'partials/control_hub_back.html' %}
+  </div>
+</div>
 <p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يوجد تمرين حالي في مساحة العمل. افتح أو أنشئ تمريناً من الصفحة الرئيسية أو إدارة النظام.</p>
 {% else %}
 {% include 'partials/planner_flow_bundle_workspace_body.html' %}

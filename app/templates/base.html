@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/static/style.css?v=ibank-action-eval-unit-select-8">
+  <link rel="stylesheet" href="/static/style.css?v=pf-flow-tabs-add-inline-15">
 </head>
 <body class="{% block body_class %}{% endblock %}{% if hub_landing_preserve_buttons %} hub-landing-preserve-buttons{% endif %}">
 <header>
@@ -371,6 +371,11 @@
     return false;
   }
 
+  /** جدول مجرى الأحداث — التحرير المحلي؛ لا إعادة تحميل تلقائية (تُفقد التبويبات/الصفوف غير المحفوظة). */
+  function isPlannerFlowTableEditorPage() {
+    return /\/planner\/create-flow\/?$/.test(window.location.pathname);
+  }
+
   function isUserBusy() {
     var el = document.activeElement;
     if (!el || el === document.body) return false;
@@ -441,6 +446,7 @@
 
   function doReload() {
     if (reloading) return;
+    if (isPlannerFlowTableEditorPage()) return;
     // في صفحات المحادثة نحفظ المسودة ثم نُعيد التحميل دون تأخير
     // لضمان وصول الرسائل الجديدة فوراً للمستلمين.
     if (isChatRoomPage()) {

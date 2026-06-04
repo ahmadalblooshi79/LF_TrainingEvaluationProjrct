@@ -9,49 +9,25 @@
 <p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ err_msg }}</p>
 {% endif %}
 
-<div class="planner-flow-toolbar card planner-flow-toolbar--compact" dir="rtl">
-  <div class="planner-flow-toolbar__row planner-flow-toolbar__row--phase-unit">
-    <div class="planner-flow-field planner-flow-field--inline">
-      <label class="muted" for="pf-phase">مرحلة التمرين</label>
-      <select id="pf-phase" name="phase" class="unit-level-select planner-flow-select-compact" autocomplete="off">
-        {% for pk, pl in phase_options %}
-        <option value="{{ pk }}" {% if pk == phase_key or (not phase_key and loop.first) %}selected{% endif %}>{{ pl }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="planner-flow-field planner-flow-field--inline">
-      <label class="muted" for="pf-unit">مستوى الوحدة</label>
-      <select id="pf-unit" name="unit_level_key" class="unit-level-select planner-flow-select-compact" autocomplete="off">
-        {% for u in unit_levels %}
-        <option value="{{ u.key }}" {% if u.key == unit_key or (not unit_key and loop.first) %}selected{% endif %}>{{ u.label }}</option>
-        {% endfor %}
-      </select>
-    </div>
+{% if has_exercise %}
+<div class="planner-flow-col-head planner-flow-col-head--page" dir="rtl">
+  <div class="planner-flow-col-head__title-row">
+    <h2 class="h2-in-card planner-flow-page-title"><i class="fa-solid fa-table-list fa-icon-title" aria-hidden="true"></i> جدول مجرى الأحداث والمعاضل</h2>
+  </div>
+  <div class="planner-flow-col-head__actions pf-flow-head-actions">
+    {% include 'partials/control_hub_back.html' %}
+    {% if bundle and not readonly_mode %}
+    <button type="button" class="btn btn-sm-compact pf-flow-save-btn" data-pf-save><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> الحفظ</button>
+    {% endif %}
   </div>
 </div>
-
-<script>
-(function () {
-  var base = {{ url_for(pf_workspace_endpoint) | tojson }};
-  var ps = document.getElementById('pf-phase');
-  var us = document.getElementById('pf-unit');
-  function go() {
-    if (!ps || !us) return;
-    var q = '?phase=' + encodeURIComponent(ps.value) + '&unit=' + encodeURIComponent(us.value);
-    window.location.href = base + q;
-  }
-  if (ps) ps.addEventListener('change', go);
-  if (us) us.addEventListener('change', go);
-})();
-</script>
+{% endif %}
 
 {% if phases_catalog_empty %}
 <p class="form-error-banner" dir="rtl" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا توجد مراحل تمرين في كتالوج التخطيط. بنك المعلومات له كتالوج مراحل مستقل ولم يُمس.</p>
 {% endif %}
 {% if catalog_empty %}
 <p class="form-error-banner" dir="rtl" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا توجد مستويات وحدة في كتالوج التخطيط. أضفها إلى <code>UNIT_LEVELS</code> في النظام (بنك المعلومات له كتالوج مستقل ولا يتأثر).</p>
-{% elif not unit_key %}
-<p class="muted card" dir="rtl" role="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> اختر مستوى وحدة من القائمة أعلاه لعرض حزمة المجرى وتقييم الإجراءات.</p>
 {% elif bundle is none %}
 <p class="muted card" dir="rtl" role="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> لا توجد حزمة مهيّأة بعد لهذا المزيج (المرحلة ومستوى الوحدة) ضمن مساحة العمل الحالية — يمكن لمسؤول التخطيط إنشاؤها وتجهيزها من مساحة التخطيط.</p>
 {% else %}

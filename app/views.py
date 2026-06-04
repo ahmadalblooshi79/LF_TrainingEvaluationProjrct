@@ -5450,38 +5450,6 @@ def _planner_bundle_judge_assignments(db, exercise_id: int, unit_level_key: str)
     )
 
 
-def _parse_planner_flow_table_rows(payload_json: str | None) -> list[dict]:
-    if not (payload_json or "").strip():
-        return []
-    try:
-        data = json.loads(payload_json)
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(data, list):
-        return []
-    out: list[dict] = []
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-        kind = str(item.get("kind") or "row").strip().lower()
-        if kind not in ("event", "dilemma", "row"):
-            kind = "row"
-        if kind in ("event", "dilemma"):
-            out.append({"kind": kind, "text": str(item.get("text") or "")[:4000]})
-        else:
-            out.append(
-                {
-                    "kind": "row",
-                    "time": str(item.get("time") or "")[:500],
-                    "description": str(item.get("description") or "")[:4000],
-                    "assignee": str(item.get("assignee") or "")[:500],
-                    "method": str(item.get("method") or "")[:500],
-                    "reaction": str(item.get("reaction") or "")[:500],
-                }
-            )
-    return out
-
-
 def _normalize_planner_flow_table_rows(raw_rows) -> list[dict]:
     if not isinstance(raw_rows, list):
         return []
@@ -5508,6 +5476,136 @@ def _normalize_planner_flow_table_rows(raw_rows) -> list[dict]:
     return out
 
 
+def _parse_planner_flow_table_rows(payload_json: str | None) -> list[dict]:
+    days, _active = _parse_planner_flow_table_days(payload_json)
+    if not days:
+        return []
+    return list(days[0].get("rows") or [])
+
+
+PLANNER_FLOW_DAY_ONE_ID = "day-1"
+PLANNER_FLOW_DAY_ONE_LABEL = "اليوم/1"
+
+
+def _default_planner_flow_table_days() -> tuple[list[dict], str]:
+    return [
+        {
+            "id": PLANNER_FLOW_DAY_ONE_ID,
+            "label": PLANNER_FLOW_DAY_ONE_LABEL,
+            "note": "",
+            "rows": [],
+        }
+    ], PLANNER_FLOW_DAY_ONE_ID
+
+
+def _ensure_day_one_tab(days: list[dict]) -> list[dict]:
+    """يضمن وجود تبويب اليوم/1 — يُعاد تلقائياً إن حُذف بالغلط."""
+    out = [dict(d) for d in days if isinstance(d, dict)]
+    idx = next(
+        (i for i, d in enumerate(out) if d.get("id") == PLANNER_FLOW_DAY_ONE_ID),
+        -1,
+    )
+    if idx < 0:
+        idx = next(
+            (
+                i
+                for i, d in enumerate(out)
+                if (d.get("label") or "").strip() == PLANNER_FLOW_DAY_ONE_LABEL
+            ),
+            -1,
+        )
+    if idx < 0:
+        return [
+            {
+                "id": PLANNER_FLOW_DAY_ONE_ID,
+                "label": PLANNER_FLOW_DAY_ONE_LABEL,
+                "note": "",
+                "rows": [],
+            },
+            *out,
+        ]
+    day_one = out.pop(idx)
+    if day_one.get("id") != PLANNER_FLOW_DAY_ONE_ID:
+        day_one["id"] = PLANNER_FLOW_DAY_ONE_ID
+    if not (day_one.get("label") or "").strip():
+        day_one["label"] = PLANNER_FLOW_DAY_ONE_LABEL
+    return [day_one, *out]
+
+
+def _parse_planner_flow_table_days(
+    payload_json: str | None,
+) -> tuple[list[dict], str]:
+    default_days, default_active = _default_planner_flow_table_days()
+    if not (payload_json or "").strip():
+        return default_days, default_active
+    try:
+        data = json.loads(payload_json)
+    except json.JSONDecodeError:
+        return default_days, default_active
+    if isinstance(data, list):
+        rows = _normalize_planner_flow_table_rows(data)
+        return [{"id": "day-1", "label": "اليوم/1", "note": "", "rows": rows}], "day-1"
+    if not isinstance(data, dict):
+        return default_days, default_active
+    raw_days = data.get("days")
+    if not isinstance(raw_days, list) or not raw_days:
+        return default_days, default_active
+    out_days: list[dict] = []
+    for idx, item in enumerate(raw_days):
+        if not isinstance(item, dict):
+            continue
+        day_id = str(item.get("id") or "").strip() or f"day-{idx + 1}"
+        label = str(item.get("label") or "").strip() or f"اليوم/{idx + 1}"
+        rows = _normalize_planner_flow_table_rows(item.get("rows"))
+        note = str(item.get("note") or "")[:4000]
+        out_days.append(
+            {"id": day_id[:64], "label": label[:200], "note": note, "rows": rows}
+        )
+    if not out_days:
+        return default_days, default_active
+    out_days = _ensure_day_one_tab(out_days)
+    active = str(data.get("active_day_id") or "").strip()
+    if not any(d["id"] == active for d in out_days):
+        active = out_days[0]["id"]
+    return out_days, active
+
+
+def _normalize_planner_flow_table_document(payload) -> dict:
+    default_days, default_active = _default_planner_flow_table_days()
+    if isinstance(payload, dict) and isinstance(payload.get("days"), list):
+        out_days: list[dict] = []
+        for idx, item in enumerate(payload["days"]):
+            if not isinstance(item, dict):
+                continue
+            day_id = str(item.get("id") or "").strip() or f"day-{idx + 1}"
+            label = str(item.get("label") or "").strip() or f"اليوم/{idx + 1}"
+            rows = _normalize_planner_flow_table_rows(item.get("rows"))
+            note = str(item.get("note") or "")[:4000]
+            out_days.append(
+                {"id": day_id[:64], "label": label[:200], "note": note, "rows": rows}
+            )
+        if not out_days:
+            out_days = list(default_days)
+        active = str(payload.get("active_day_id") or "").strip()
+        if not any(d["id"] == active for d in out_days):
+            active = out_days[0]["id"]
+        out_days = _ensure_day_one_tab(out_days)
+        if not any(d["id"] == active for d in out_days):
+            active = out_days[0]["id"]
+        return {"version": 2, "active_day_id": active, "days": out_days}
+    raw_rows = None
+    if isinstance(payload, dict):
+        raw_rows = payload.get("rows")
+    elif isinstance(payload, list):
+        raw_rows = payload
+    rows = _normalize_planner_flow_table_rows(raw_rows)
+    return {
+        "version": 2,
+        "active_day_id": default_active,
+        "days": [{"id": "day-1", "label": "اليوم/1", "note": "", "rows": rows}],
+    }
+
+
 _UI_MSG_PLANNER_BUNDLE = {
     "bad_event_file": "يُقبل ملف PDF أو Word (.doc/.docx) فقط.",
     "bad_xlsx": "يُقبل ملف Excel (.xlsx) فقط.",
@@ -5528,6 +5626,10 @@ _UI_MSG_PLANNER_BUNDLE = {
     "assign_ok": "تم ربط الحزمة بالمحكم.",
     "assign_clear_ok": "تمت إزالة ربط الحزمة عن المحكم.",
     "save_err": "تعذر حفظ الملف.",
+    "import_flow_ok": "تم استيراد مجرى الأحداث والمعاضل من ملف Word.",
+    "import_flow_bad_file": "يُقبل ملف Word (.docx) فقط.",
+    "import_flow_empty": "لم يُعثر على جدول قابل للاستيراد في الملف.",
+    "import_flow_fail": "تعذر استيراد ملف Word.",
 }
 
 
@@ -5562,6 +5664,9 @@ def _build_planner_flow_bundle_page_context(
         action_slot_rows=[],
         selected_event_flow_id=None,
         flow_table_rows=[],
+        flow_table_days=[],
+        flow_table_active_day_id="",
+        flow_table_active_day_note="",
         readonly_mode=readonly,
         pf_workspace_endpoint=pf_workspace_endpoint,
         chief_hub_query_on_judge_links=chief_hub_query_on_judge_links,
@@ -5602,6 +5707,8 @@ def _build_planner_flow_bundle_page_context(
             "action_slot_rows": [],
             "selected_event_flow_id": None,
             "flow_table_rows": [],
+            "flow_table_days": [],
+            "flow_table_active_day_id": "",
             "planner_event_flow_file_ok": False,
         }
     bundle = (
@@ -5665,8 +5772,24 @@ def _build_planner_flow_bundle_page_context(
         selected_event_flow_id = None
     if selected_event_flow_id is None and event_flow_rows:
         selected_event_flow_id = event_flow_rows[0]["id"]
-    flow_table_rows = _parse_planner_flow_table_rows(
+    flow_table_days, flow_table_active_day_id = _parse_planner_flow_table_days(
         getattr(bundle, "flow_table_json", None)
+    )
+    flow_table_rows = next(
+        (
+            d["rows"]
+            for d in flow_table_days
+            if d["id"] == flow_table_active_day_id
+        ),
+        flow_table_days[0]["rows"] if flow_table_days else [],
+    )
+    flow_table_active_day_note = next(
+        (
+            d.get("note") or ""
+            for d in flow_table_days
+            if d["id"] == flow_table_active_day_id
+        ),
+        (flow_table_days[0].get("note") or "") if flow_table_days else "",
     )
     return {
         **empty_base,
@@ -5688,6 +5811,9 @@ def _build_planner_flow_bundle_page_context(
         "action_slot_rows": action_slot_rows,
         "selected_event_flow_id": selected_event_flow_id,
         "flow_table_rows": flow_table_rows,
+        "flow_table_days": flow_table_days,
+        "flow_table_active_day_id": flow_table_active_day_id,
+        "flow_table_active_day_note": flow_table_active_day_note,
     }
 
 
@@ -6207,12 +6333,96 @@ def planner_flow_bundle_save_flow_table(bundle_id: int):
     if ex is None or bundle is None or bundle.exercise_id != ex.id:
         return jsonify({"ok": False, "error": "not_found"}), 404
     payload = request.get_json(silent=True)
-    raw_rows = payload.get("rows") if isinstance(payload, dict) else None
-    normalized = _normalize_planner_flow_table_rows(raw_rows)
-    bundle.flow_table_json = json.dumps(normalized, ensure_ascii=False)
+    doc = _normalize_planner_flow_table_document(payload)
+    bundle.flow_table_json = json.dumps(doc, ensure_ascii=False)
     bundle.updated_at = datetime.utcnow()
     db.commit()
-    return jsonify({"ok": True, "row_count": len(normalized)})
+    active_rows = next(
+        (d["rows"] for d in doc["days"] if d["id"] == doc["active_day_id"]),
+        [],
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "day_count": len(doc["days"]),
+            "row_count": len(active_rows),
+        }
+    )
+
+
+@bp.route("/planner/create-flow/<int:bundle_id>/import-flow-docx", methods=["POST"])
+def planner_flow_bundle_import_flow_docx(bundle_id: int):
+    user = get_current_user_optional()
+    if not user:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    if not can_access_planner_hub(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    from flask import g
+
+    from app.planner_flow_docx_import import parse_planner_flow_docx_bytes
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    bundle = db.get(ExercisePlannerFlowBundle, bundle_id)
+    if ex is None or bundle is None or bundle.exercise_id != ex.id:
+        return jsonify({"ok": False, "error": "not_found"}), 404
+
+    up = request.files.get("file")
+    if up is None or not (up.filename or "").strip():
+        return jsonify({"ok": False, "error": "no_file"}), 400
+    raw = up.read()
+    if not raw:
+        return jsonify({"ok": False, "error": "no_file"}), 400
+    if not _is_docx_bytes(raw):
+        return jsonify({"ok": False, "error": "bad_docx"}), 400
+
+    parsed = parse_planner_flow_docx_bytes(raw)
+    if not parsed.get("ok"):
+        err = parsed.get("error") or "import_fail"
+        return jsonify({"ok": False, "error": err, "warnings": parsed.get("warnings") or []}), 400
+
+    day_id = (request.form.get("day_id") or "").strip()
+    days, active_id = _parse_planner_flow_table_days(
+        getattr(bundle, "flow_table_json", None)
+    )
+    if day_id and any(d["id"] == day_id for d in days):
+        target_id = day_id
+    else:
+        target_id = active_id or (days[0]["id"] if days else "day-1")
+
+    updated = False
+    for d in days:
+        if d["id"] == target_id:
+            d["note"] = parsed.get("note") or ""
+            d["rows"] = parsed.get("rows") or []
+            updated = True
+            break
+    if not updated:
+        days.append(
+            {
+                "id": target_id,
+                "label": f"اليوم/{len(days) + 1}",
+                "note": parsed.get("note") or "",
+                "rows": parsed.get("rows") or [],
+            }
+        )
+
+    days = _ensure_day_one_tab(days)
+    doc = {"version": 2, "active_day_id": target_id, "days": days}
+    bundle.flow_table_json = json.dumps(doc, ensure_ascii=False)
+    bundle.updated_at = datetime.utcnow()
+    db.commit()
+
+    return jsonify(
+        {
+            "ok": True,
+            "active_day_id": target_id,
+            "days": days,
+            "note": parsed.get("note") or "",
+            "row_count": len(parsed.get("rows") or []),
+            "warnings": parsed.get("warnings") or [],
+        }
+    )
 
 
 @bp.route("/planner/create-flow/<int:bundle_id>/assign-judge", methods=["POST"])
@@ -13174,7 +13384,11 @@ def admin_information_bank():
     info_bank_brigade_units = _information_bank_brigade_units_map(db)
     phase_notes = {r.phase_key: r.notes for r in db.query(InformationBankPhaseNote).all()}
     unit_notes = {r.unit_level_key: r.notes for r in db.query(InformationBankUnitNote).all()}
-    from app.info_bank_tree import build_tree_payload, ensure_all_information_bank_trees
+    from app.info_bank_tree import (
+        build_tree_payload,
+        ensure_all_information_bank_trees,
+        exercise_judge_names_by_unit,
+    )
 
     tree_event_flow: list = []
     tree_action_eval: list = []
@@ -13184,11 +13398,18 @@ def admin_information_bank():
         for u in UNIT_LEVELS
         if (u.get("key") or "").strip()
     }
+    current_exercise = _admin_current_workspace_exercise(db, user)
+    ibank_judge_names_by_unit = exercise_judge_names_by_unit(
+        db, int(current_exercise.id) if current_exercise else None
+    )
     try:
         ensure_all_information_bank_trees(db)
         tree_event_flow = build_tree_payload(db, "event_flow", unit_label_by_key=ibank_unit_labels)
         tree_action_eval = build_tree_payload(
-            db, "action_eval", unit_label_by_key=ibank_unit_labels
+            db,
+            "action_eval",
+            unit_label_by_key=ibank_unit_labels,
+            judge_name_by_unit=ibank_judge_names_by_unit,
         )
         tree_dilemma_eval = build_tree_payload(
             db, "dilemma_eval", unit_label_by_key=ibank_unit_labels
@@ -13232,12 +13453,13 @@ def admin_information_bank():
                 active_tab=active_tab,
                 information_bank_can_manage=can_manage_information_bank(user),
                 ibank_tree_unit_levels=list(UNIT_LEVELS),
+                ibank_judge_names_by_unit=ibank_judge_names_by_unit,
             ),
         )
     )
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
-    resp.headers["X-Ibank-Ui-Build"] = "action-eval-unit-v7"
+    resp.headers["X-Ibank-Ui-Build"] = "action-eval-unit-v9"
     return resp
 
 

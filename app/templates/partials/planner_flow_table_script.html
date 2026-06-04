@@ -1,9 +1,11 @@
 <script>
-/* planner-flow-table v19 */
+/* planner-flow-table v28 */
 (function () {
   'use strict';
 
   var ASSIGNEE_COL = 2;
+  var DAY_ONE_ID = 'day-1';
+  var DAY_ONE_LABEL = 'اليوم/1';
 
   function initPlannerFlowTable(section) {
     if (!section || section.dataset.pfFlowInit === '1') return;
@@ -18,11 +20,82 @@
     section.dataset.pfFlowInit = '1';
 
     var saveUrl = section.getAttribute('data-save-url') || '';
+    var importDocxUrl = section.getAttribute('data-import-docx-url') || '';
+    var importDocxBtn = section.querySelector('#pf-flow-import-docx-btn');
+    var importDocxInput = section.querySelector('#pf-flow-import-docx-input');
+    var readOnly = section.getAttribute('data-readonly') === '1';
+    var tabsEl = section.querySelector('#pf-flow-days-tabs');
+    var dayAddBtn = section.querySelector('#pf-flow-day-add');
+    var clearDayBtn = section.querySelector('#pf-flow-clear-day-btn');
+    var daysMenu = section.querySelector('#pf-flow-days-menu');
+    var dayNoteEl = section.querySelector('#pf-flow-day-note');
+    var daysState = [];
+    var activeDayId = '';
+    var contextDayId = null;
     var insertAfter = null;
     var selectedRow = null;
     var contextAssigneeTd = null;
     var saveTimer = null;
     var saving = false;
+    var saveQueued = false;
+
+    function parseDaysPayload() {
+      var raw = section.getAttribute('data-flow-days') || '[]';
+      try {
+        var parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length) {
+          return parsed.map(function (d, idx) {
+            return {
+              id: String((d && d.id) || 'day-' + (idx + 1)),
+              label: String((d && d.label) || 'اليوم/' + (idx + 1)),
+              note: String((d && d.note) || ''),
+              rows: Array.isArray(d && d.rows) ? d.rows : []
+            };
+          });
+        }
+      } catch (e) {
+        /* ignore */
+      }
+      return [{ id: 'day-1', label: 'اليوم/1', note: '', rows: [] }];
+    }
+
+    function ensureDayOneTab() {
+      var idx = -1;
+      var i;
+      for (i = 0; i < daysState.length; i += 1) {
+        if (daysState[i].id === DAY_ONE_ID) {
+          idx = i;
+          break;
+        }
+      }
+      if (idx < 0) {
+        for (i = 0; i < daysState.length; i += 1) {
+          if ((daysState[i].label || '').trim() === DAY_ONE_LABEL) {
+            idx = i;
+            break;
+          }
+        }
+      }
+      if (idx < 0) {
+        daysState.unshift({ id: DAY_ONE_ID, label: DAY_ONE_LABEL, note: '', rows: [] });
+        return;
+      }
+      var dayOne = daysState.splice(idx, 1)[0];
+      if (dayOne.id !== DAY_ONE_ID) dayOne.id = DAY_ONE_ID;
+      if (!(dayOne.label || '').trim()) dayOne.label = DAY_ONE_LABEL;
+      daysState.unshift(dayOne);
+    }
+
+    function isProtectedDayTab(dayId) {
+      return dayId === DAY_ONE_ID;
+    }
+
+    daysState = parseDaysPayload();
+    ensureDayOneTab();
+    activeDayId = (section.getAttribute('data-active-day-id') || '').trim();
+    if (!activeDayId || !daysState.some(function (d) { return d.id === activeDayId; })) {
+      activeDayId = daysState[0].id;
+    }
 
     function lineText(el) {
       if (!el) return '';
@@ -35,7 +108,10 @@
     }
 
     function readAssigneeCell(td) {
-      var texts = td.querySelectorAll('.pf-assignee-inner-table .pf-assignee-cell-text');
+      var texts = td.querySelectorAll('.pf-assignee-stack .pf-assignee-cell-text');
+      if (!texts.length) {
+        texts = td.querySelectorAll('.pf-assignee-inner-table .pf-assignee-cell-text');
+      }
       if (!texts.length) {
         texts = td.querySelectorAll('.pf-assignee-row-cell[contenteditable]');
       }
@@ -43,9 +119,27 @@
       return Array.prototype.map.call(texts, lineText).join('\n');
     }
 
+    function getAssigneeContainer(outerTd) {
+      if (!outerTd) return null;
+      return (
+        outerTd.querySelector('.pf-assignee-stack') ||
+        (function () {
+          var table = outerTd.querySelector('.pf-assignee-inner-table');
+          return table ? table.querySelector('tbody') : null;
+        })()
+      );
+    }
+
     function getAssigneeBody(outerTd) {
-      var table = outerTd && outerTd.querySelector('.pf-assignee-inner-table');
-      return table ? table.querySelector('tbody') : null;
+      return getAssigneeContainer(outerTd);
+    }
+
+    function assigneeEntryCount(container) {
+      if (!container) return 0;
+      if (container.classList.contains('pf-assignee-stack')) {
+        return container.querySelectorAll('.pf-assignee-line').length;
+      }
+      return container.querySelectorAll('tr').length;
     }
 
     function upgradeAllAssigneeColumns() {
@@ -53,12 +147,18 @@
         var cells = tr.querySelectorAll('.pf-flow-cell');
         var assigneeTd = cells[ASSIGNEE_COL];
         if (!assigneeTd) return;
-        if (!assigneeTd.querySelector('.pf-assignee-cell-text')) {
+        if (
+          assigneeTd.querySelector('.pf-assignee-inner-table') &&
+          !assigneeTd.querySelector('.pf-assignee-stack')
+        ) {
+          var legacyRaw = readAssigneeCell(assigneeTd);
+          fillAssigneeCell(assigneeTd, legacyRaw ? legacyRaw.split('\n') : ['']);
+        } else if (!assigneeTd.querySelector('.pf-assignee-cell-text')) {
           var raw = readAssigneeCell(assigneeTd);
           var parts = raw ? raw.split('\n') : [''];
           fillAssigneeCell(assigneeTd, parts);
         } else {
-          stripAssigneeToolsRows(getAssigneeBody(assigneeTd));
+          stripAssigneeToolsRows(getAssigneeContainer(assigneeTd));
         }
       });
     }
@@ -73,46 +173,50 @@
 
     function readCell(td) {
       if (!td) return '';
-      if (td.classList.contains('pf-flow-cell--assignee') || td.querySelector('.pf-assignee-inner-table')) {
+      if (
+        td.classList.contains('pf-flow-cell--assignee') ||
+        td.querySelector('.pf-assignee-stack') ||
+        td.querySelector('.pf-assignee-inner-table')
+      ) {
         return readAssigneeCell(td);
       }
       return lineText(td);
     }
 
-    function makeAssigneeTr(text) {
-      var tr = document.createElement('tr');
-      var td = document.createElement('td');
-      td.className = 'pf-assignee-row-cell';
+    function makeAssigneeLine(text) {
+      var line = document.createElement('div');
+      line.className = 'pf-assignee-line';
       var span = document.createElement('span');
       span.className = 'pf-assignee-cell-text';
-      span.contentEditable = 'true';
-      span.spellcheck = true;
+      if (!readOnly) {
+        span.contentEditable = 'true';
+        span.spellcheck = true;
+      }
       span.textContent = text || '';
-      td.appendChild(span);
-      tr.appendChild(td);
-      return tr;
+      line.appendChild(span);
+      return line;
     }
 
     function fillAssigneeCell(outerTd, lineTexts) {
       outerTd.innerHTML = '';
       outerTd.className = 'pf-flow-cell pf-flow-cell--assignee';
-      var innerTable = document.createElement('table');
-      innerTable.className = 'pf-assignee-inner-table';
-      innerTable.setAttribute('dir', 'rtl');
-      var innerBody = document.createElement('tbody');
+      var stack = document.createElement('div');
+      stack.className = 'pf-assignee-stack';
+      stack.setAttribute('dir', 'rtl');
       var texts = lineTexts && lineTexts.length ? lineTexts : [''];
       texts.forEach(function (t) {
-        innerBody.appendChild(makeAssigneeTr(t));
+        stack.appendChild(makeAssigneeLine(t));
       });
-      innerTable.appendChild(innerBody);
-      outerTd.appendChild(innerTable);
+      outerTd.appendChild(stack);
     }
 
     function fillSimpleCell(td, text) {
       td.innerHTML = '';
       td.className = 'pf-flow-cell pf-flow-cell--simple';
-      td.contentEditable = 'true';
-      td.spellcheck = true;
+      if (!readOnly) {
+        td.contentEditable = 'true';
+        td.spellcheck = true;
+      }
       td.textContent = (text || '').split('\n')[0] || '';
     }
 
@@ -130,7 +234,11 @@
     }
 
     function assigneeStructureOk(td) {
-      return !!(td && td.querySelector('.pf-assignee-inner-table .pf-assignee-cell-text'));
+      return !!(
+        td &&
+        (td.querySelector('.pf-assignee-stack .pf-assignee-cell-text') ||
+          td.querySelector('.pf-assignee-inner-table .pf-assignee-cell-text'))
+      );
     }
 
     function renumberRows() {
@@ -140,6 +248,182 @@
         var seq = tr.querySelector('.pf-flow-seq');
         if (seq) seq.textContent = String(n);
       });
+    }
+
+    function findDayIndex(dayId) {
+      for (var i = 0; i < daysState.length; i += 1) {
+        if (daysState[i].id === dayId) return i;
+      }
+      return -1;
+    }
+
+    function applyDayNote() {
+      if (!dayNoteEl) return;
+      var idx = findDayIndex(activeDayId);
+      dayNoteEl.value = idx >= 0 ? daysState[idx].note || '' : '';
+    }
+
+    function persistCurrentDayRows() {
+      var idx = findDayIndex(activeDayId);
+      if (idx < 0) return;
+      daysState[idx].rows = collectRows();
+      if (dayNoteEl) {
+        daysState[idx].note = String(dayNoteEl.value || '').slice(0, 4000);
+      }
+    }
+
+    function nextDayNumber() {
+      var max = 0;
+      daysState.forEach(function (d) {
+        var m = String(d.label || '').match(/اليوم\s*\/\s*(\d+)/);
+        if (m) max = Math.max(max, parseInt(m[1], 10) || 0);
+      });
+      return max + 1;
+    }
+
+    function renderRows(rows) {
+      tbody.innerHTML = '';
+      selectedRow = null;
+      (rows || []).forEach(function (r) {
+        var kind = (r && r.kind) || 'row';
+        if (kind === 'event' || kind === 'dilemma') {
+          var mergedTr = makeMergedRow(kind);
+          var mergedTd = mergedTr.querySelector('.pf-flow-merged-cell');
+          if (mergedTd) mergedTd.textContent = (r && r.text) || '';
+          tbody.appendChild(mergedTr);
+        } else {
+          var dataTr = makeDataRow();
+          fillDataCells(dataTr, [
+            (r && r.time) || '',
+            (r && r.description) || '',
+            (r && r.assignee) || '',
+            (r && r.method) || '',
+            (r && r.reaction) || ''
+          ]);
+          tbody.appendChild(dataTr);
+        }
+      });
+      if (!readOnly) {
+        migrateLegacyRows();
+        upgradeAllAssigneeColumns();
+        purgeAssigneeLegacyUi();
+      }
+      renumberRows();
+    }
+
+    function renderDayTabs() {
+      if (!tabsEl) return;
+      tabsEl.innerHTML = '';
+      daysState.forEach(function (d) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'pf-flow-day-tab';
+        btn.setAttribute('role', 'tab');
+        btn.setAttribute('data-day-id', d.id);
+        btn.setAttribute('aria-selected', d.id === activeDayId ? 'true' : 'false');
+        btn.tabIndex = d.id === activeDayId ? 0 : -1;
+        if (d.id === activeDayId) btn.classList.add('is-active');
+        if (d.id === DAY_ONE_ID) btn.classList.add('is-locked');
+        btn.textContent = d.label || d.id;
+        tabsEl.appendChild(btn);
+      });
+      if (dayAddBtn && !readOnly) {
+        tabsEl.appendChild(dayAddBtn);
+      }
+    }
+
+    function switchToDay(dayId) {
+      if (!dayId || dayId === activeDayId) return;
+      persistCurrentDayRows();
+      activeDayId = dayId;
+      var idx = findDayIndex(dayId);
+      renderRows(idx >= 0 ? daysState[idx].rows : []);
+      renderDayTabs();
+      applyDayNote();
+      if (saveUrl) saveNow();
+    }
+
+    function addDayTab() {
+      persistCurrentDayRows();
+      var n = nextDayNumber();
+      var id = 'day-' + String(Date.now());
+      daysState.push({ id: id, label: 'اليوم/' + n, note: '', rows: [] });
+      activeDayId = id;
+      renderDayTabs();
+      renderRows([]);
+      applyDayNote();
+      syncFlowDaysDataset();
+      if (saveUrl) saveNow();
+    }
+
+    function clearActiveDayTable() {
+      if (readOnly) return;
+      var idx = findDayIndex(activeDayId);
+      if (idx < 0) return;
+      if (
+        !window.confirm(
+          'تفريغ محتوى الجدول والنص في التبويب الحالي؟ يبقى التبويب فارغاً ويمكنك إعادة ملئه أو الاستيراد من Word.'
+        )
+      ) {
+        return;
+      }
+      daysState[idx].rows = [];
+      daysState[idx].note = '';
+      renderRows([]);
+      applyDayNote();
+      syncFlowDaysDataset();
+      setStatus('تم تفريغ محتوى التبويب.', false);
+      if (saveUrl) saveNow();
+    }
+
+    function deleteDayTab(dayId) {
+      if (isProtectedDayTab(dayId)) {
+        setStatus('لا يمكن حذف تبويب «اليوم/1» — يُعاد تلقائياً عند فتح الصفحة إن كان مفقوداً.', true);
+        hideDaysMenu();
+        return;
+      }
+      if (daysState.length <= 1) {
+        setStatus('لا يمكن حذف آخر تبويب يوم.', true);
+        return;
+      }
+      persistCurrentDayRows();
+      daysState = daysState.filter(function (d) {
+        return d.id !== dayId;
+      });
+      ensureDayOneTab();
+      if (activeDayId === dayId) {
+        activeDayId = daysState[0].id;
+        renderRows(daysState[0].rows || []);
+        applyDayNote();
+      }
+      renderDayTabs();
+      hideDaysMenu();
+      syncFlowDaysDataset();
+      if (saveUrl) saveNow();
+    }
+
+    function hideDaysMenu() {
+      if (!daysMenu) return;
+      daysMenu.classList.remove('is-open');
+      daysMenu.setAttribute('aria-hidden', 'true');
+      contextDayId = null;
+    }
+
+    function showDaysMenu(x, y) {
+      if (!daysMenu || readOnly) return;
+      var delDayBtn = daysMenu.querySelector('[data-action="delete-day"]');
+      if (delDayBtn) {
+        delDayBtn.hidden = !!(contextDayId && isProtectedDayTab(contextDayId));
+      }
+      if (daysMenu.parentNode !== document.body) document.body.appendChild(daysMenu);
+      daysMenu.classList.add('is-open');
+      daysMenu.setAttribute('aria-hidden', 'false');
+      daysMenu.style.left = '0px';
+      daysMenu.style.top = '0px';
+      var mw = daysMenu.offsetWidth || 120;
+      var mh = daysMenu.offsetHeight || 48;
+      daysMenu.style.left = Math.max(8, Math.min(x, window.innerWidth - mw - 8)) + 'px';
+      daysMenu.style.top = Math.max(8, Math.min(y, window.innerHeight - mh - 8)) + 'px';
     }
 
     function collectRows() {
@@ -169,25 +453,50 @@
       statusEl.classList.toggle('planner-flow-table-save-status--err', !!isErr);
     }
 
+    function syncFlowDaysDataset() {
+      try {
+        section.setAttribute('data-flow-days', JSON.stringify(daysState));
+        section.setAttribute('data-active-day-id', activeDayId);
+      } catch (e) {
+        /* ignore */
+      }
+    }
+
     function scheduleSave() {
       if (!saveUrl) return;
       if (saveTimer) clearTimeout(saveTimer);
       saveTimer = setTimeout(doSave, 800);
     }
 
+    function saveNow() {
+      if (!saveUrl) return;
+      if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+      }
+      doSave();
+    }
+
     function doSave() {
-      if (!saveUrl || saving) return;
+      if (!saveUrl) return;
+      if (saving) {
+        saveQueued = true;
+        return;
+      }
       if (saveTimer) {
         clearTimeout(saveTimer);
         saveTimer = null;
       }
       saving = true;
+      saveQueued = false;
       setStatus('جاري الحفظ…', false);
+      persistCurrentDayRows();
+      ensureDayOneTab();
       fetch(saveUrl, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ rows: collectRows() })
+        body: JSON.stringify({ active_day_id: activeDayId, days: daysState })
       })
         .then(function (r) {
           return r.json().then(function (j) {
@@ -196,6 +505,7 @@
         })
         .then(function (res) {
           if (res.ok && res.j && res.j.ok) {
+            syncFlowDaysDataset();
             setStatus('تم الحفظ', false);
             setTimeout(function () {
               if (statusEl && statusEl.textContent === 'تم الحفظ') setStatus('', false);
@@ -209,6 +519,10 @@
         })
         .finally(function () {
           saving = false;
+          if (saveQueued) {
+            saveQueued = false;
+            doSave();
+          }
         });
     }
 
@@ -227,7 +541,7 @@
       selectedRow = null;
       renumberRows();
       hideMenu();
-      doSave();
+      saveNow();
     }
 
     function hideMenu() {
@@ -261,8 +575,10 @@
       var td = document.createElement('td');
       td.colSpan = 6;
       td.className = 'pf-flow-merged-cell';
-      td.contentEditable = 'true';
-      td.spellcheck = true;
+      if (!readOnly) {
+        td.contentEditable = 'true';
+        td.spellcheck = true;
+      }
       tr.appendChild(td);
       return tr;
     }
@@ -309,43 +625,43 @@
     }
 
     function appendAssigneeSubCell(outerTd) {
-      var body = getAssigneeBody(outerTd);
-      if (!body) return null;
-      stripAssigneeToolsRows(body);
-      var neu = makeAssigneeTr('');
-      body.appendChild(neu);
+      var container = getAssigneeContainer(outerTd);
+      if (!container) return null;
+      stripAssigneeToolsRows(container);
+      var neu = makeAssigneeLine('');
+      container.appendChild(neu);
       var text = neu.querySelector('.pf-assignee-cell-text');
       if (text) text.focus();
       return neu;
     }
 
     function insertAssigneeRowAfter(textEl) {
-      var hostTr = textEl.closest('tr');
+      var hostLine = textEl.closest('.pf-assignee-line') || textEl.closest('tr');
       var outerTd = textEl.closest('.pf-flow-cell--assignee');
-      if (!hostTr || !outerTd) return null;
-      stripAssigneeToolsRows(getAssigneeBody(outerTd));
-      var neu = makeAssigneeTr('');
-      hostTr.insertAdjacentElement('afterend', neu);
+      if (!hostLine || !outerTd) return null;
+      stripAssigneeToolsRows(getAssigneeContainer(outerTd));
+      var neu = makeAssigneeLine('');
+      hostLine.insertAdjacentElement('afterend', neu);
       var text = neu.querySelector('.pf-assignee-cell-text');
       if (text) text.focus();
       return neu;
     }
 
-    function deleteAssigneeSubRow(hostTr) {
-      var outerTd = hostTr && hostTr.closest('.pf-flow-cell--assignee');
-      var body = getAssigneeBody(outerTd);
-      if (!hostTr || !body) return;
-      if (body.querySelectorAll('tr').length <= 1) {
+    function deleteAssigneeSubRow(hostLine) {
+      var outerTd = hostLine && hostLine.closest('.pf-flow-cell--assignee');
+      var container = getAssigneeContainer(outerTd);
+      if (!hostLine || !container) return;
+      if (assigneeEntryCount(container) <= 1) {
         setStatus('يجب أن يبقى اسم واحد على الأقل في عمود المكلف.', true);
         return;
       }
-      var nextFocus = hostTr.nextElementSibling;
-      hostTr.remove();
+      var nextFocus = hostLine.nextElementSibling;
+      hostLine.remove();
       var focusText =
         (nextFocus && nextFocus.querySelector('.pf-assignee-cell-text')) ||
-        body.querySelector('.pf-assignee-cell-text');
+        container.querySelector('.pf-assignee-cell-text');
       if (focusText) focusText.focus();
-      scheduleSave();
+      saveNow();
     }
 
     function focusDataRow(tr, colIndex) {
@@ -374,7 +690,7 @@
         var merged = tr.querySelector('.pf-flow-merged-cell');
         if (merged) merged.focus();
       }
-      scheduleSave();
+      saveNow();
     }
 
     function migrateLegacyRows() {
@@ -438,44 +754,184 @@
 
     function deleteAssigneeFromContext() {
       if (!contextAssigneeTd) return;
-      var body = getAssigneeBody(contextAssigneeTd);
-      if (!body) return;
+      var container = getAssigneeContainer(contextAssigneeTd);
+      if (!container) return;
       var active = document.activeElement;
       var textEl =
         active && contextAssigneeTd.contains(active) && active.closest('.pf-assignee-cell-text');
-      var hostTr = textEl && textEl.closest('tr');
-      if (!hostTr) {
-        var rows = body.querySelectorAll('tr');
-        hostTr = rows.length ? rows[rows.length - 1] : null;
+      var hostLine = textEl && (textEl.closest('.pf-assignee-line') || textEl.closest('tr'));
+      if (!hostLine) {
+        var lines = container.querySelectorAll('.pf-assignee-line');
+        hostLine = lines.length
+          ? lines[lines.length - 1]
+          : (function () {
+              var rows = container.querySelectorAll('tr');
+              return rows.length ? rows[rows.length - 1] : null;
+            })();
       }
-      if (hostTr) deleteAssigneeSubRow(hostTr);
+      if (hostLine) deleteAssigneeSubRow(hostLine);
     }
 
-    migrateLegacyRows();
-    upgradeAllAssigneeColumns();
-    purgeAssigneeLegacyUi();
-    renumberRows();
+    var activeIdx = findDayIndex(activeDayId);
+    renderRows(activeIdx >= 0 ? daysState[activeIdx].rows : []);
+    renderDayTabs();
+    applyDayNote();
 
-    section.addEventListener(
-      'keydown',
-      function (e) {
-        if (e.key !== 'Enter' || e.shiftKey) return;
-        var textEl = e.target.closest('.pf-assignee-cell-text[contenteditable="true"]');
-        if (!textEl || !section.contains(textEl)) return;
+    if (dayNoteEl && !readOnly) {
+      dayNoteEl.addEventListener('input', function () {
+        scheduleSave();
+      });
+    }
+
+    function applyImportedDays(payload) {
+      if (!payload || !Array.isArray(payload.days) || !payload.days.length) return;
+      daysState = payload.days.map(function (d, idx) {
+        return {
+          id: String((d && d.id) || 'day-' + (idx + 1)),
+          label: String((d && d.label) || 'اليوم/' + (idx + 1)),
+          note: String((d && d.note) || ''),
+          rows: Array.isArray(d && d.rows) ? d.rows : []
+        };
+      });
+      ensureDayOneTab();
+      activeDayId = String(payload.active_day_id || daysState[0].id);
+      if (!daysState.some(function (d) { return d.id === activeDayId; })) {
+        activeDayId = daysState[0].id;
+      }
+      var idx = findDayIndex(activeDayId);
+      renderRows(idx >= 0 ? daysState[idx].rows : []);
+      renderDayTabs();
+      applyDayNote();
+      syncFlowDaysDataset();
+    }
+
+    function importDocxFile(file) {
+      if (!importDocxUrl || !file || readOnly) return;
+      persistCurrentDayRows();
+      var fd = new FormData();
+      fd.append('file', file);
+      fd.append('day_id', activeDayId);
+      setStatus('جاري استيراد Word…', false);
+      fetch(importDocxUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+        body: fd
+      })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            return { ok: r.ok, j: j };
+          });
+        })
+        .then(function (res) {
+          if (res.ok && res.j && res.j.ok) {
+            applyImportedDays(res.j);
+            var msg = 'تم الاستيراد (' + (res.j.row_count || 0) + ' صف)';
+            if (res.j.warnings && res.j.warnings.length) {
+              msg += ' — ' + res.j.warnings.join(' ');
+            }
+            setStatus(msg, false);
+            setTimeout(function () {
+              if (statusEl && statusEl.textContent.indexOf('تم الاستيراد') === 0) {
+                setStatus('', false);
+              }
+            }, 4000);
+          } else {
+            var errMap = {
+              bad_docx: 'يُقبل ملف Word (.docx) فقط.',
+              no_file: 'لم يُحدد ملف.',
+              empty_content: 'لم يُعثر على محتوى قابل للاستيراد.',
+              no_table: 'لا يوجد جدول في الملف.',
+              invalid_docx: 'ملف Word غير صالح.'
+            };
+            var code = (res.j && res.j.error) || '';
+            setStatus(errMap[code] || 'تعذّر الاستيراد', true);
+          }
+        })
+        .catch(function () {
+          setStatus('تعذّر الاستيراد', true);
+        });
+    }
+
+    if (importDocxBtn && importDocxInput && importDocxUrl && !readOnly) {
+      importDocxBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        importDocxInput.click();
+      });
+      importDocxInput.addEventListener('change', function () {
+        var file = importDocxInput.files && importDocxInput.files[0];
+        importDocxInput.value = '';
+        if (file) importDocxFile(file);
+      });
+    }
+
+    if (tabsEl) {
+      tabsEl.addEventListener('click', function (e) {
+        if (e.target.closest('.pf-flow-day-add-btn')) return;
+        var tab = e.target.closest('.pf-flow-day-tab');
+        if (!tab) return;
+        var dayId = tab.getAttribute('data-day-id');
+        if (dayId) switchToDay(dayId);
+      });
+      tabsEl.addEventListener('contextmenu', function (e) {
+        if (readOnly) return;
+        var tab = e.target.closest('.pf-flow-day-tab');
+        if (!tab) return;
         e.preventDefault();
         e.stopPropagation();
-        insertAssigneeRowAfter(textEl);
-        scheduleSave();
-      },
-      true
-    );
+        contextDayId = tab.getAttribute('data-day-id');
+        showDaysMenu(e.clientX, e.clientY);
+      });
+    }
+
+    if (clearDayBtn && !readOnly) {
+      clearDayBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        clearActiveDayTable();
+      });
+    }
+
+    if (dayAddBtn && !readOnly) {
+      dayAddBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        addDayTab();
+      });
+    }
+
+    if (daysMenu && !readOnly) {
+      daysMenu.querySelectorAll('[data-action]').forEach(function (btn) {
+        btn.addEventListener('mousedown', function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+        });
+        btn.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          var action = btn.getAttribute('data-action') || '';
+          if (action === 'delete-day' && contextDayId) deleteDayTab(contextDayId);
+        });
+      });
+      document.addEventListener(
+        'click',
+        function (e) {
+          if (!daysMenu.classList.contains('is-open')) return;
+          if (e.target.closest('.pf-flow-days-menu')) return;
+          hideDaysMenu();
+        },
+        true
+      );
+    }
 
     section.addEventListener(
       'keydown',
       function (e) {
         if (e.key !== 'Enter' || e.shiftKey) return;
-        var simple = e.target.closest('.pf-flow-cell--simple[contenteditable="true"]');
-        if (simple && section.contains(simple)) e.preventDefault();
+        var editable = e.target.closest(
+          '.pf-flow-cell[contenteditable="true"], .pf-flow-merged-cell[contenteditable="true"], .pf-assignee-cell-text[contenteditable="true"]'
+        );
+        if (!editable || !section.contains(editable)) return;
+        e.preventDefault();
+        e.stopPropagation();
       },
       true
     );
@@ -492,10 +948,15 @@
 
     section.addEventListener('contextmenu', onContextMenu, true);
 
+    document.addEventListener('click', function (e) {
+      if (!e.target.closest('[data-pf-save]')) return;
+      if (section.dataset.pfFlowInit !== '1') return;
+      e.preventDefault();
+      saveNow();
+    });
+
     section.addEventListener('click', function (e) {
       if (e.target.closest('[data-pf-save]')) {
-        e.preventDefault();
-        doSave();
         return;
       }
       if (e.target.closest('[data-pf-delete-row]')) {
@@ -546,14 +1007,23 @@
     }
 
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') hideMenu();
+      if (e.key === 'Escape') {
+        hideMenu();
+        hideDaysMenu();
+      }
     });
-    window.addEventListener('scroll', hideMenu, true);
-    window.addEventListener('resize', hideMenu);
+    window.addEventListener('scroll', function () {
+      hideMenu();
+      hideDaysMenu();
+    }, true);
+    window.addEventListener('resize', function () {
+      hideMenu();
+      hideDaysMenu();
+    });
   }
 
   function boot() {
-    document.querySelectorAll('#pf-flow-table-section[data-save-url]').forEach(initPlannerFlowTable);
+    document.querySelectorAll('#pf-flow-table-section[data-flow-days]').forEach(initPlannerFlowTable);
   }
 
   if (document.readyState === 'loading') {

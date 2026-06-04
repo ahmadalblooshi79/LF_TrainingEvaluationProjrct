@@ -1,4 +1,4 @@
-{# جدول مجرى الأحداث والمعاضل — v14 assignee inner table #}
+{# جدول مجرى الأحداث والمعاضل — v15 assignee stack lines #}
 
 {% macro pf_simple_cell(value, editable) %}
 
@@ -8,62 +8,74 @@
 
 {% macro pf_assignee_cell(value, editable) %}
 <td class="pf-flow-cell pf-flow-cell--assignee">
-  <table class="pf-assignee-inner-table" dir="rtl">
-    <tbody>
-      {% set parts = value.split('\n') if value else [''] %}
-      {% for line in parts %}
-      <tr>
-        <td class="pf-assignee-row-cell">
-          <span class="pf-assignee-cell-text"{% if editable %} contenteditable="true" spellcheck="true"{% endif %}>{{ line }}</span>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="pf-assignee-stack" dir="rtl">
+    {% set parts = value.split('\n') if value else [''] %}
+    {% for line in parts %}
+    <div class="pf-assignee-line">
+      <span class="pf-assignee-cell-text"{% if editable %} contenteditable="true" spellcheck="true"{% endif %}>{{ line }}</span>
+    </div>
+    {% endfor %}
+  </div>
 </td>
 {% endmacro %}
 
-<section class="card planner-flow-action-table-section" id="pf-flow-table-section" dir="rtl" data-pf-script-ver="19"{% if not readonly_mode %} data-save-url="{{ url_for('views.planner_flow_bundle_save_flow_table', bundle_id=bundle.id) }}"{% endif %}>
+<section class="card planner-flow-action-table-section" id="pf-flow-table-section" dir="rtl" data-pf-script-ver="27"
+  data-flow-days="{{ flow_table_days | tojson }}"
+  data-active-day-id="{{ flow_table_active_day_id }}"
+  {% if readonly_mode %}data-readonly="1"{% endif %}
+  {% if not readonly_mode %}
+  data-save-url="{{ url_for('views.planner_flow_bundle_save_flow_table', bundle_id=bundle.id) }}"
+  data-import-docx-url="{{ url_for('views.planner_flow_bundle_import_flow_docx', bundle_id=bundle.id) }}"
+  {% endif %}>
 
-  <div class="planner-flow-col-head">
-
-    <h2 class="h2-in-card"><i class="fa-solid fa-table-list fa-icon-title" aria-hidden="true"></i> جدول مجرى الأحداث والمعاضل</h2>
-
-    {% if not readonly_mode %}
-
-    <div class="planner-flow-col-head__actions pf-flow-head-actions">
-
-      <button type="button" class="btn btn-ghost btn-sm-compact pf-flow-delete-btn" data-pf-delete-row><i class="fa-solid fa-trash-can" aria-hidden="true"></i> حذف الصف</button>
-
-      <button type="button" class="btn btn-sm-compact pf-flow-save-btn" data-pf-save><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> الحفظ</button>
-
+  <div class="pf-flow-days-bar" id="pf-flow-days-bar" dir="rtl">
+    <div class="pf-flow-days-tabs-row">
+      <div class="pf-flow-days-tabs" id="pf-flow-days-tabs" role="tablist" aria-label="أيام التمرين">
+        {% if not readonly_mode %}
+        <button type="button" class="pf-flow-day-add-btn" id="pf-flow-day-add" aria-label="إضافة يوم" title="إضافة يوم">+</button>
+        {% endif %}
+      </div>
     </div>
-
+    {% if not readonly_mode %}
+    <div class="pf-flow-days-tools">
+      <button type="button" class="pf-flow-clear-day-btn btn btn-sm-compact btn-ghost" id="pf-flow-clear-day-btn" title="تفريغ محتوى الجدول في التبويب الحالي"><i class="fa-solid fa-eraser" aria-hidden="true"></i> تفريغ الجدول</button>
+      <button type="button" class="pf-flow-import-docx-btn btn btn-sm-compact btn-ghost" id="pf-flow-import-docx-btn" title="استيراد من Word (.docx)"><i class="fa-solid fa-file-import" aria-hidden="true"></i> استيراد Word</button>
+      <input type="file" id="pf-flow-import-docx-input" class="pf-flow-import-docx-input" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+    </div>
     {% endif %}
-
   </div>
 
   {% if not readonly_mode %}
 
   <p id="pf-flow-table-save-status" class="muted planner-flow-table-save-status" aria-live="polite"></p>
 
-  <div class="pf-flow-insert-toolbar" dir="rtl">
-
-    <span class="muted pf-flow-insert-toolbar__hint"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> عمود <strong>المكلف</strong>: زر الماوس الأيمن «إضافة/حذف خلية» أو <strong>Enter</strong> للإضافة.</span>
-
-    <button type="button" class="btn btn-ghost btn-sm-compact pf-flow-insert-btn pf-flow-insert-btn--event" data-pf-insert="event">إدراج حدث</button>
-
-    <button type="button" class="btn btn-ghost btn-sm-compact pf-flow-insert-btn pf-flow-insert-btn--dilemma" data-pf-insert="dilemma">إدراج معضلة</button>
-
-    <button type="button" class="btn btn-ghost btn-sm-compact pf-flow-insert-btn" data-pf-insert="row">إدراج صف</button>
-
-  </div>
-
   {% endif %}
+
+  <div class="pf-flow-table-stack" id="pf-flow-table-stack">
+    <label class="pf-flow-day-note-wrap" id="pf-flow-day-note-wrap" for="pf-flow-day-note">
+      <textarea
+        class="pf-flow-day-note"
+        id="pf-flow-day-note"
+        name="pf_flow_day_note"
+        rows="3"
+        dir="rtl"
+        spellcheck="true"
+        {% if readonly_mode %}readonly{% endif %}
+        aria-label="نص اليوم">{{ flow_table_active_day_note }}</textarea>
+    </label>
 
   <div class="table-wrap planner-flow-action-table-wrap" id="pf-flow-table-wrap">
 
     <table class="ibank-table planner-flow-action-table" id="pf-flow-table">
+
+      <colgroup>
+        <col class="planner-flow-action-col-num">
+        <col class="planner-flow-col-time">
+        <col class="planner-flow-col-equal">
+        <col class="planner-flow-col-assignee">
+        <col class="planner-flow-col-equal">
+        <col class="planner-flow-col-equal">
+      </colgroup>
 
       <thead>
 
@@ -71,15 +83,15 @@
 
           <th scope="col" class="planner-flow-action-col-num">ت</th>
 
-          <th scope="col">الوقت</th>
+          <th scope="col" class="planner-flow-col-time">الوقت</th>
 
-          <th scope="col">وصف الحدث/ المعضلة</th>
+          <th scope="col" class="planner-flow-col-equal">وصف الحدث/ المعضلة</th>
 
-          <th scope="col">المكلف بالإجراء والمتابعة</th>
+          <th scope="col" class="planner-flow-col-assignee">المكلف بالإجراء والمتابعة</th>
 
-          <th scope="col">أسلوب فرض المعضلة</th>
+          <th scope="col" class="planner-flow-col-equal">أسلوب فرض المعضلة</th>
 
-          <th scope="col">رد الفعل المتوقع</th>
+          <th scope="col" class="planner-flow-col-equal">رد الفعل المتوقع</th>
 
         </tr>
 
@@ -132,16 +144,9 @@
     </table>
 
   </div>
+  </div>
 
   {% if not readonly_mode %}
-
-  <div class="pf-flow-action-bar" dir="rtl">
-
-    <button type="button" class="btn btn-ghost pf-flow-delete-btn pf-flow-action-bar__btn" data-pf-delete-row><i class="fa-solid fa-trash-can" aria-hidden="true"></i> حذف الصف</button>
-
-    <button type="button" class="btn pf-flow-save-btn pf-flow-action-bar__btn" data-pf-save><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> الحفظ</button>
-
-  </div>
 
   <div id="pf-flow-table-menu" class="pf-flow-context-menu" role="menu" aria-hidden="true" dir="rtl">
 
@@ -156,35 +161,15 @@
 
   </div>
 
-  {% include 'partials/planner_flow_table_script.html' %}
-
-  {% else %}
-
-  <script>
-
-  (function () {
-
-    var tbody = document.getElementById('pf-flow-table-body');
-
-    if (!tbody) return;
-
-    var n = 0;
-
-    tbody.querySelectorAll('.pf-flow-row--data').forEach(function (tr) {
-
-      n += 1;
-
-      var seq = tr.querySelector('.pf-flow-seq');
-
-      if (seq) seq.textContent = String(n);
-
-    });
-
-  })();
-
-  </script>
-
   {% endif %}
+
+  {% if not readonly_mode %}
+  <div id="pf-flow-days-menu" class="pf-flow-context-menu pf-flow-days-menu" role="menu" aria-hidden="true" dir="rtl">
+    <button type="button" class="pf-flow-context-menu__item pf-flow-context-menu__item--danger" role="menuitem" data-action="delete-day">حذف</button>
+  </div>
+  {% endif %}
+
+  {% include 'partials/planner_flow_table_script.html' %}
 
 </section>
 

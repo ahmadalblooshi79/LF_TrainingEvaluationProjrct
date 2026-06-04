@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sys
+import unicodedata
 import uuid
 from collections import defaultdict
 from pathlib import Path, PurePosixPath
@@ -19,6 +20,8 @@ from sqlalchemy.orm import Session
 from app.config import INFO_BANK_DIR
 from app.information_bank_catalog import INFO_BANK_UNIT_LEVEL_TEMPLATES, TRAINING_PHASES
 from app.models.domain import (
+    ExerciseRosterKind,
+    ExerciseRosterRow,
     InformationBankTrainingPhase,
     InformationBankTreeNode,
     InformationBankUnitLevel,
@@ -198,16 +201,58 @@ def _unit_rows(db: Session) -> list[InformationBankUnitLevel]:
     return out
 
 
+def _normalize_tree_label(text: str) -> str:
+    """تطبيع أسماء المجلدات للمقارنة (همزات، تاء مربوطة، مسافات)."""
+    s = (text or "").strip()
+    if not s:
+        return ""
+    s = unicodedata.normalize("NFKC", s)
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
+    s = s.translate(
+        str.maketrans(
+            {
+                "أ": "ا",
+                "إ": "ا",
+                "آ": "ا",
+                "ٱ": "ا",
+                "ى": "ي",
+                "ئ": "ي",
+                "ؤ": "و",
+                "ة": "ه",
+                "ـ": "",
+            }
+        )
+    )
+    return re.sub(r"\s+", " ", s).strip().casefold()
+
+
+# تسميات شائعة في المجلدات المرفقة (قد تختلف عن كتالوج المراحل)
+_PHASE_FOLDER_NAME_HINTS: tuple[tuple[str, str], ...] = (
+    ("preparation", "التحضير"),
+    ("opening", "الانفتاح"),
+    ("battle_exposure", "التعرضية"),
+    ("battle_exposure", "العمليات التعرضية"),
+    ("battle_exposure", "المعركة التعرضية"),
+)
+
+
 def _match_phase_key_by_folder_name(db: Session, folder_name: str) -> str:
     """ربط مجلد جذر بلا مفتاح كتالوج بمرحلة تمرين عبر اسم المجلد."""
     nm = (folder_name or "").strip()
     if not nm:
         return ""
+    norm_nm = _normalize_tree_label(nm)
     for ph in _phase_rows(db):
         label = (ph.label or "").strip()
         key = (ph.key or "").strip()
         if nm == label or nm == key:
             return key
+        norm_label = _normalize_tree_label(label)
+        if norm_nm and norm_label and norm_nm == norm_label:
+            return key
+    for phase_key, hint in _PHASE_FOLDER_NAME_HINTS:
+        if hint in nm or _normalize_tree_label(hint) in norm_nm:
+            return phase_key
     return ""
 
 
@@ -480,6 +525,131 @@ def _find_unit_folder(
     )
 
 
+def _canonical_phase_root_by_key(
+    db: Session, kind: str
+) -> dict[str, InformationBankTreeNode]:
+    """أفضل مجلد جذر لكل مرحلة (يفضّل العقدة ذات catalog_phase_key أو is_system)."""
+    roots = (
+        db.query(InformationBankTreeNode)
+        .filter(
+            InformationBankTreeNode.kind == kind,
+            InformationBankTreeNode.parent_id.is_(None),
+            InformationBankTreeNode.is_folder.is_(True),
+        )
+        .all()
+    )
+    out: dict[str, InformationBankTreeNode] = {}
+
+    def _prefer(a: InformationBankTreeNode, b: InformationBankTreeNode) -> InformationBankTreeNode:
+        a_pk = bool((a.catalog_phase_key or "").strip())
+        b_pk = bool((b.catalog_phase_key or "").strip())
+        if a_pk and not b_pk:
+            return a
+        if b_pk and not a_pk:
+            return b
+        if a.is_system and not b.is_system:
+            return a
+        if b.is_system and not a.is_system:
+            return b
+        return a if int(a.id) <= int(b.id) else b
+
+    for root in roots:
+        pk = (root.catalog_phase_key or "").strip() or _match_phase_key_by_folder_name(
+            db, root.name
+        )
+        if not pk:
+            continue
+        prev = out.get(pk)
+        out[pk] = root if prev is None else _prefer(prev, root)
+    return out
+
+
+def _merge_duplicate_phase_root_folders(db: Session, kind: str) -> bool:
+    """دمج مجلدات مرحلة مكررة (بدون مفتاح كتالوج) في المجلد الرسمي للمرحلة."""
+    changed = False
+    canonical = _canonical_phase_root_by_key(db, kind)
+    if not canonical:
+        return False
+    roots = (
+        db.query(InformationBankTreeNode)
+        .filter(
+            InformationBankTreeNode.kind == kind,
+            InformationBankTreeNode.parent_id.is_(None),
+            InformationBankTreeNode.is_folder.is_(True),
+        )
+        .all()
+    )
+    for root in roots:
+        if int(root.id) in {int(c.id) for c in canonical.values()}:
+            continue
+        pk = _match_phase_key_by_folder_name(db, root.name)
+        if not pk or pk not in canonical:
+            continue
+        canon = canonical[pk]
+        if int(root.id) == int(canon.id):
+            continue
+        children = (
+            db.query(InformationBankTreeNode)
+            .filter(InformationBankTreeNode.parent_id == int(root.id))
+            .all()
+        )
+        for ch in children:
+            ch.parent_id = int(canon.id)
+            if kind == "action_eval":
+                _apply_catalog_keys_from_parent(db, ch, canon)
+        db.delete(root)
+        changed = True
+    return changed
+
+
+def _backfill_action_eval_folder_catalog(db: Session) -> bool:
+    """تعزيز سياق المرحلة/الوحدة على المجلدات الفرعية القديمة."""
+    changed = False
+    phase_roots = (
+        db.query(InformationBankTreeNode)
+        .filter(
+            InformationBankTreeNode.kind == "action_eval",
+            InformationBankTreeNode.parent_id.is_(None),
+            InformationBankTreeNode.is_folder.is_(True),
+        )
+        .all()
+    )
+    queue: list[tuple[InformationBankTreeNode, InformationBankTreeNode | None]] = []
+    for pr in phase_roots:
+        pk = (pr.catalog_phase_key or "").strip() or _match_phase_key_by_folder_name(
+            db, pr.name
+        )
+        if pk and not (pr.catalog_phase_key or "").strip():
+            pr.catalog_phase_key = pk[:64]
+            pr.is_system = True
+            changed = True
+        queue.append((pr, None))
+    seen: set[int] = set()
+    while queue:
+        node, parent = queue.pop(0)
+        nid = int(node.id)
+        if nid in seen:
+            continue
+        seen.add(nid)
+        if parent is not None and not _is_phase_root_folder(node):
+            before_pk = (node.catalog_phase_key or "").strip()
+            before_uk = (node.catalog_unit_key or "").strip()
+            _apply_catalog_keys_from_parent(db, node, parent)
+            if (node.catalog_phase_key or "").strip() != before_pk or (
+                node.catalog_unit_key or ""
+            ).strip() != before_uk:
+                changed = True
+        children = (
+            db.query(InformationBankTreeNode)
+            .filter(InformationBankTreeNode.parent_id == nid)
+            .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
+            .all()
+        )
+        for ch in children:
+            queue.append((ch, node))
+    return changed
+
+
 def _link_orphan_phase_root_folders(db: Session, kind: str) -> bool:
     """ربط مجلدات مرحلة قديمة (parent_id=NULL وبدون catalog_phase_key) بالكتالوج."""
     changed = False
@@ -540,6 +710,10 @@ def repair_action_eval_tree(db: Session) -> None:
     """إصلاح شجرة تقييم الإجراءات: ربط مجلدات المراحل القديمة وتسطيح مجلدات الوحدات."""
     kind = "action_eval"
     changed = _link_orphan_phase_root_folders(db, kind)
+    if _merge_duplicate_phase_root_folders(db, kind):
+        changed = True
+    if _backfill_action_eval_folder_catalog(db):
+        changed = True
     phase_roots = (
         db.query(InformationBankTreeNode)
         .filter(
@@ -696,6 +870,10 @@ def get_or_create_folder(
         q = q.filter(InformationBankTreeNode.catalog_unit_key == catalog_unit_key)
     existing = q.first()
     if existing:
+        if kind == "action_eval" and parent_id is not None:
+            parent = get_node(db, parent_id, kind)
+            if parent is not None:
+                _apply_catalog_keys_from_parent(db, existing, parent)
         return existing
     row = InformationBankTreeNode(
         kind=kind,
@@ -954,8 +1132,34 @@ def upload_files_to_parent(
     return added, errors
 
 
+def exercise_judge_names_by_unit(db: Session, exercise_id: int | None) -> dict[str, str]:
+    """أسماء المحكمين من قائمة المحكمين حسب مفتاح مستوى الوحدة (التمرين الحالي)."""
+    if not exercise_id:
+        return {}
+    out: dict[str, str] = {}
+    rows = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == int(exercise_id),
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .all()
+    )
+    for jr in rows:
+        uk = (jr.unit_level_key or "").strip()
+        if not uk or uk in out:
+            continue
+        out[uk] = (jr.full_name or "").strip()
+    return out
+
+
 def build_tree_payload(
-    db: Session, kind: str, *, unit_label_by_key: dict[str, str] | None = None
+    db: Session,
+    kind: str,
+    *,
+    unit_label_by_key: dict[str, str] | None = None,
+    judge_name_by_unit: dict[str, str] | None = None,
 ) -> list[dict]:
     ensure_information_bank_tree(db, kind)
     labels = dict(unit_label_by_key or {})
@@ -976,19 +1180,23 @@ def build_tree_payload(
     by_parent: dict[int | None, list[InformationBankTreeNode]] = defaultdict(list)
     for r in rows:
         by_parent[r.parent_id].append(r)
+    judge_map = dict(judge_name_by_unit or {})
 
     def node_dict(n: InformationBankTreeNode) -> dict:
         children = [node_dict(c) for c in by_parent.get(int(n.id), [])]
         eff_uk = _unit_key_for_node(db, n)
+        is_phase_root = _is_phase_root_folder(n)
         d: dict = {
             "id": int(n.id),
             "name": n.name,
             "is_folder": bool(n.is_folder),
             "is_system": bool(n.is_system),
+            "is_phase_root": is_phase_root,
             "children": children,
             "catalog_unit_key": (n.catalog_unit_key or "").strip(),
             "effective_unit_key": eff_uk,
             "unit_level_label": labels.get(eff_uk, "") if eff_uk else "",
+            "judge_name": judge_map.get(eff_uk, "") if eff_uk else "",
             "show_unit_select": _action_eval_show_unit_select(db, n)
             if kind == "action_eval"
             else False,
