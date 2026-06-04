@@ -17,6 +17,7 @@ from app.database import (
     ensure_file_items_exercise_id_columns,
     ensure_judge_trainee_assignment_planner_bundle_column,
     ensure_planner_bundle_action_eval_event_flow_column,
+    ensure_planner_bundle_flow_table_json_column,
     ensure_information_bank_tree_nodes_table,
     ensure_information_bank_tree_suppressions_table,
     ensure_information_bank_phase_included_column,
@@ -37,6 +38,7 @@ def create_app() -> Flask:
         template_folder=os.path.join(os.path.dirname(__file__), "templates"),
     )
     app.config["SECRET_KEY"] = SECRET_KEY
+    app.config["TEMPLATES_AUTO_RELOAD"] = True
 
     with app.app_context():
         Base.metadata.create_all(bind=engine)
@@ -50,6 +52,7 @@ def create_app() -> Flask:
         ensure_evaluation_workflow_columns()
         ensure_judge_trainee_assignment_planner_bundle_column()
         ensure_planner_bundle_action_eval_event_flow_column()
+        ensure_planner_bundle_flow_table_json_column()
         ensure_information_bank_tree_nodes_table()
         ensure_information_bank_tree_suppressions_table()
         ensure_information_bank_phase_included_column()
@@ -135,6 +138,18 @@ def create_app() -> Flask:
     @app.template_global()
     def report_phase_max_input_name(unit_key, phase_key):
         return views._report_phase_max_field_name(unit_key or "", phase_key or "")
+
+    @app.template_global()
+    def ibank_visible_brigade_groups(groups=None):
+        """تبويبات مجموعات الألوية الظاهرة فقط (بدون زايد/الظفرة/راشد) — يعمل حتى مع views.py قديم في الذاكرة."""
+        from app.information_bank_catalog import (
+            INFO_BANK_BRIGADE_GROUPS_REMOVED_KEYS,
+            info_bank_brigade_groups_for_ui,
+        )
+
+        source = groups if groups is not None else info_bank_brigade_groups_for_ui()
+        removed = INFO_BANK_BRIGADE_GROUPS_REMOVED_KEYS
+        return [g for g in source if str(g.get("key", "")).strip() not in removed]
 
     from app.template_context import inject_header_exercise
 

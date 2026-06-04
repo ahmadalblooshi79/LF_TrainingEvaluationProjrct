@@ -36,11 +36,9 @@
   <div class="ibank-tabbed">
     <div class="ibank-tabs-row ibank-tabs-row--brigades" dir="rtl" role="tablist" aria-label="تبويبات بنك المعلومات">
       <button type="button" class="ibank-tab{% if active_tab == 'phases' %} is-active{% endif %}" data-tab-btn="phases" role="tab" aria-selected="{{ 'true' if active_tab == 'phases' else 'false' }}">مراحل التمرين</button>
-      {% for bg in info_bank_brigade_groups %}
-      <button type="button" class="ibank-tab{% if active_tab == bg.tab %} is-active{% endif %}" data-tab-btn="{{ bg.tab }}" role="tab" aria-selected="{{ 'true' if active_tab == bg.tab else 'false' }}">{{ bg.label }}</button>
-      {% endfor %}
+      <button type="button" class="ibank-tab{% if active_tab == 'units-bg-1' %} is-active{% endif %}" data-tab-btn="units-bg-1" role="tab" aria-selected="{{ 'true' if active_tab == 'units-bg-1' else 'false' }}">مجموعة لواء الإمارات / 1</button>
       <button type="button" class="ibank-tab{% if active_tab == 'event-flow' %} is-active{% endif %}" data-tab-btn="event-flow" role="tab" aria-selected="{{ 'true' if active_tab == 'event-flow' else 'false' }}">مجرى الأحداث والمعاضل</button>
-      <button type="button" class="ibank-tab{% if active_tab == 'action-eval' %} is-active{% endif %}" data-tab-btn="action-eval" role="tab" aria-selected="{{ 'true' if active_tab == 'action-eval' else 'false' }}">تقييم الإجراءات</button>
+      <button type="button" class="ibank-tab{% if active_tab == 'action-eval' %} is-active{% endif %}" data-tab-btn="action-eval" role="tab" aria-selected="{{ 'true' if active_tab == 'action-eval' else 'false' }}">قوائم تقييم الإجراءات</button>
       <button type="button" class="ibank-tab{% if active_tab == 'dilemma-eval' %} is-active{% endif %}" data-tab-btn="dilemma-eval" role="tab" aria-selected="{{ 'true' if active_tab == 'dilemma-eval' else 'false' }}">قوائم تقييم المعاضل</button>
     </div>
     <div class="ibank-tab-body">
@@ -114,17 +112,16 @@
         {% endif %}
       </div>
 
-      {% for bg in info_bank_brigade_groups %}
-      {% with units=info_bank_brigade_units[bg.key] %}
+      {% set ibank_bg1 = {'key': '1', 'tab': 'units-bg-1', 'label': 'مجموعة لواء الإمارات / 1'} %}
+      {% with units=info_bank_brigade_units.get('1', []), bg=ibank_bg1 %}
       {% include 'partials/information_bank_brigade_units_panel.html' %}
       {% endwith %}
-      {% endfor %}
       {% if information_bank_can_manage %}
       <form method="post" action="{{ url_for('views.admin_information_bank_units_included_save') }}" id="ibank-units-included-form" class="ibank-units-included-form ibank-units-included-form--global">
         <input type="hidden" name="uncheck_password" id="ibank-uncheck-password" value="" autocomplete="off">
-        <input type="hidden" name="return_tab" id="ibank-units-return-tab" value="{{ active_tab if 'units-bg-' in active_tab else 'units-bg-1' }}">
+        <input type="hidden" name="return_tab" id="ibank-units-return-tab" value="{{ active_tab if active_tab in ['units-bg-1'] else 'units-bg-1' }}">
         <p class="ibank-units-included-actions mt-tight ibank-units-included-actions--global">
-          <button type="button" class="btn btn-ghost btn-sm ibank-included-select-all" data-form-id="ibank-units-included-form"><i class="fa-solid fa-square-check" aria-hidden="true"></i> تحديد الكل (كل التبويبات)</button>
+          <button type="button" class="btn btn-ghost btn-sm ibank-included-select-all" data-form-id="ibank-units-included-form"><i class="fa-solid fa-square-check" aria-hidden="true"></i> تحديد الكل</button>
           <button type="button" class="btn btn-ghost btn-sm ibank-included-deselect-all" data-form-id="ibank-units-included-form"><i class="fa-solid fa-square" aria-hidden="true"></i> إلغاء التحديد</button>
           <button type="submit" class="btn btn-primary ibank-included-save-btn" aria-label="حفظ التحديدات"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ التحديدات والإلغاءات</button>
         </p>
@@ -144,7 +141,7 @@
       </div>
 
       <div class="ibank-tabpane{% if active_tab == 'action-eval' %} is-active{% endif %}" data-tab-pane="action-eval" role="tabpanel">
-        {% with kind='action_eval', tree_nodes=tree_action_eval %}
+        {% with kind='action_eval', tree_nodes=tree_action_eval, ibank_tree_unit_levels=ibank_tree_unit_levels %}
         {% include 'admin_information_bank_tree_panel.html' %}
         {% endwith %}
       </div>
@@ -161,6 +158,29 @@
   (function () {
     var card = document.currentScript && document.currentScript.parentElement;
     if (!card) return;
+    var removedTabIds = ['units-bg-3', 'units-bg-4', 'units-bg-5'];
+    var removedLabelRe = /لواء\s*زايد|لواء\s*الظفرة|لواء\s*راشد/i;
+    removedTabIds.forEach(function (tabId) {
+      var rmBtn = card.querySelector('[data-tab-btn="' + tabId + '"]');
+      if (rmBtn) rmBtn.remove();
+      var rmPane = card.querySelector('[data-tab-pane="' + tabId + '"]');
+      if (rmPane) rmPane.remove();
+    });
+    card.querySelectorAll('.ibank-tabs-row--brigades .ibank-tab').forEach(function (btn) {
+      var tabId = btn.getAttribute('data-tab-btn') || '';
+      var label = (btn.textContent || '').trim();
+      if (removedTabIds.indexOf(tabId) >= 0 || removedLabelRe.test(label)) {
+        btn.remove();
+      }
+    });
+    card.querySelectorAll('[data-tab-pane^="units-bg-"]').forEach(function (pane) {
+      var paneId = pane.getAttribute('data-tab-pane') || '';
+      var heading = pane.querySelector('.h2-in-card');
+      var hText = heading ? (heading.textContent || '') : '';
+      if (removedTabIds.indexOf(paneId) >= 0 || removedLabelRe.test(hText)) {
+        pane.remove();
+      }
+    });
     var btns = card.querySelectorAll('[data-tab-btn]');
     var panes = card.querySelectorAll('[data-tab-pane]');
     var returnTabInp = document.getElementById('ibank-units-return-tab');
@@ -338,14 +358,45 @@
       }
 
       function defaultRootLabel() {
+        if (kind === 'action_eval') {
+          return 'الجذر — حدّد مرحلة التمرين ثم «إرفاق مجلد» أو «إضافة مجلد» (اختياري)، واختر مستوى الوحدة من القائمة على المجلد';
+        }
         return 'الجذر';
+      }
+
+      function uploadHasSubdirs(fileList) {
+        if (!fileList || !fileList.length) return false;
+        for (var i = 0; i < fileList.length; i++) {
+          var n = (fileList[i].webkitRelativePath || fileList[i].name || '').replace(/\\/g, '/');
+          if (n.indexOf('/') >= 0) return true;
+        }
+        return false;
+      }
+
+      function isPhaseRootLi(li) {
+        if (!li) return false;
+        var parentUl = li.parentElement;
+        return !!(parentUl && parentUl.classList.contains('ibank-tree-root'));
+      }
+
+      function folderHasUnitLevel(li) {
+        if (kind !== 'action_eval' || !li) return true;
+        return Boolean((li.getAttribute('data-effective-unit-key') || '').trim());
       }
 
       function setTarget(id, name) {
         targetId = id || '';
         parentInputs.forEach(function (inp) { inp.value = targetId; });
         if (labelEl) {
-          labelEl.textContent = targetId ? ('المستهدف: ' + (name || '')) : ('المستهدف: ' + defaultRootLabel());
+          if (!targetId) {
+            labelEl.textContent = 'المستهدف: ' + defaultRootLabel();
+          } else {
+            var tgtLi = page.querySelector('[data-node-id="' + targetId + '"]');
+            var hint = (kind === 'action_eval' && tgtLi && !folderHasUnitLevel(tgtLi) && !isPhaseRootLi(tgtLi))
+              ? ' — اختر مستوى الوحدة من القائمة على المجلد المرفق'
+              : '';
+            labelEl.textContent = 'المستهدف: ' + (name || '') + hint;
+          }
         }
         page.querySelectorAll('.ibank-tree-node--folder').forEach(function (li) {
           var lid = String(li.getAttribute('data-node-id') || '');
@@ -355,6 +406,39 @@
           btn.classList.toggle('is-active', String(btn.getAttribute('data-node-id')) === targetId);
         });
       }
+
+      if (kind === 'action_eval') {
+        page.querySelectorAll('.ibank-tree-root > .ibank-tree-node--folder.ibank-tree-has-children').forEach(function (li) {
+          setFolderExpanded(li, true);
+        });
+      }
+
+      page.querySelectorAll('.js-ibank-tree-upload-files-form, .js-ibank-tree-upload-dir-form').forEach(function (uf) {
+        if (kind !== 'action_eval') return;
+        var isDirForm = uf.classList.contains('js-ibank-tree-upload-dir-form');
+        uf.addEventListener('submit', function (e) {
+          if (!targetId) {
+            e.preventDefault();
+            window.alert('حدّد مجلداً مستهدفاً في الشجرة (زر «تحديد»).');
+            return;
+          }
+          var tgtLi = page.querySelector('[data-node-id="' + targetId + '"]');
+          var inp = uf.querySelector('input[type=file]');
+          var files = inp && inp.files ? inp.files : null;
+          if (isPhaseRootLi(tgtLi)) {
+            if (!isDirForm || !uploadHasSubdirs(files)) {
+              e.preventDefault();
+              window.alert('حدّد مرحلة التمرين ثم «إرفاق مجلد» (مجلد كامل وليس ملفات متفرقة).');
+            }
+            return;
+          }
+          if (!folderHasUnitLevel(tgtLi)) {
+            if (isDirForm && uploadHasSubdirs(files)) return;
+            e.preventDefault();
+            window.alert('اختر مستوى الوحدة من القائمة على المجلد المرفق، أو ارفق مجلداً فرعياً.');
+          }
+        });
+      });
 
       page.querySelectorAll('.js-ibank-tree-select-target').forEach(function (btn) {
         btn.addEventListener('click', function () {
@@ -479,7 +563,7 @@
       bindPick('.js-ibank-tree-pick-files', '.js-ibank-tree-files', '.js-ibank-tree-upload-files-form');
       bindPick('.js-ibank-tree-pick-dir', '.js-ibank-tree-dir', '.js-ibank-tree-upload-dir-form');
 
-      setTarget('', defaultRootLabel());
+      setTarget('', '');
 
       var dragHoverLi = null;
       function folderDropTarget(li) {
@@ -870,8 +954,11 @@
     });
 
     var initialTab = card.querySelector('.ibank-tab.is-active');
-    if (initialTab) {
-      activate(initialTab.getAttribute('data-tab-btn'));
+    var initialId = initialTab ? initialTab.getAttribute('data-tab-btn') : '';
+    if (!initialId || ['units-bg-3', 'units-bg-4', 'units-bg-5'].indexOf(initialId) >= 0) {
+      activate('units-bg-1');
+    } else if (initialTab) {
+      activate(initialId);
     }
   })();
   </script>

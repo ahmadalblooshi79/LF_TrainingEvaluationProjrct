@@ -24,7 +24,7 @@
     <p class="form-error-banner eval-banner--small" role="alert" dir="rtl"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> تعذّر تنفيذ العملية — تحقق من مسار الاعتماد الحالي ثم أعد المحاولة.</p>
     {% endif %}
     {% if eval_approve_grade_blocked|default(false) %}
-    <p class="form-error-banner eval-banner--small" role="alert" dir="rtl"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يمكن الاعتماد: التقدير «راسب» أو «مقبول» — يُسمح بالحفظ فقط.</p>
+    <p class="form-error-banner eval-banner--small" role="alert" dir="rtl"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يمكن الاعتماد: التقدير «راسب» أو «مقبول» — عدّل العلامات إلى «جيد» فما فوق، أو اكتب ملاحظات في خانة الملاحظات ثم احفظ.</p>
     {% endif %}
     <div class="eval-top-messages eval-banner-row--compact" dir="ltr">
       {% if eval_workflow_label|default('') and eval_workflow_label != '—' %}

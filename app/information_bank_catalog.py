@@ -11,13 +11,20 @@ TRAINING_PHASES: list[dict[str, str]] = [
     {"key": "reorganization", "label": "مرحلة مسارات التقييم"},
 ]
 
-# مجموعات الألوية في بنك المعلومات (تبويبات مستويات الوحدات)
+# مجموعات الألوية في بنك المعلومات (تبويب مستويات الوحدات — الإمارات /1 فقط)
 INFO_BANK_BRIGADE_GROUPS: list[dict[str, str]] = [
     {"key": "1", "tab": "units-bg-1", "label": "مجموعة لواء الإمارات / 1"},
-    {"key": "3", "tab": "units-bg-3", "label": "مجموعة لواء زايد / 3"},
-    {"key": "4", "tab": "units-bg-4", "label": "مجموعة لواء الظفرة / 4"},
-    {"key": "5", "tab": "units-bg-5", "label": "مجموعة لواء راشد / 5"},
 ]
+
+INFO_BANK_BRIGADE_GROUPS_REMOVED_KEYS: frozenset[str] = frozenset({"3", "4", "5"})
+INFO_BANK_BRIGADE_REMOVED_TABS: frozenset[str] = frozenset(
+    {"units-bg-3", "units-bg-4", "units-bg-5"}
+)
+
+
+def info_bank_brigade_groups_for_ui() -> list[dict[str, str]]:
+    """مجموعات الألوية الظاهرة في تبويبات بنك المعلومات."""
+    return list(INFO_BANK_BRIGADE_GROUPS)
 
 INFO_BANK_UNIT_LEVEL_TEMPLATES: list[dict[str, str]] = [
     {"key": "ul_brigade_grp_cmd", "label": "قيادة مجموعة اللواء"},
@@ -75,7 +82,9 @@ def unit_catalog_key_for_brigade(brigade_key: str, template_key: str) -> str:
 
 def brigade_group_for_tab(tab: str | None) -> str:
     t = (tab or "").strip()
-    for bg in INFO_BANK_BRIGADE_GROUPS:
+    if t in INFO_BANK_BRIGADE_REMOVED_TABS:
+        return "1"
+    for bg in info_bank_brigade_groups_for_ui():
         if bg["tab"] == t:
             return bg["key"]
     return "1"

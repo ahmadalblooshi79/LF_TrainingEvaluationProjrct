@@ -295,6 +295,28 @@ def ensure_planner_bundle_action_eval_event_flow_column() -> None:
         )
 
 
+def ensure_planner_bundle_flow_table_json_column() -> None:
+    """جدول مجرى الأحداث والمعاضل التحريري ضمن حزمة التخطيط."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    try:
+        insp = inspect(engine)
+        if "exercise_planner_flow_bundles" not in insp.get_table_names():
+            return
+    except Exception:
+        return
+    cols = {c["name"] for c in insp.get_columns("exercise_planner_flow_bundles")}
+    if "flow_table_json" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE exercise_planner_flow_bundles "
+                "ADD COLUMN flow_table_json TEXT NOT NULL DEFAULT ''"
+            )
+        )
+
+
 def ensure_judge_trainee_assignment_planner_bundle_column() -> None:
     """ربط المحكم بحزمة مجرى الأحداث وتقييم الإجراءات (مساحة التخطيط)."""
     if not DATABASE_URL.startswith("sqlite"):

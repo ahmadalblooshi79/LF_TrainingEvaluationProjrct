@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from app.ibank_ui import unit_level_row_is_removed_brigade
 from app.information_bank_catalog import PLANNING_CATALOG_ALL_KEY, info_bank_unit_label
 
 if TYPE_CHECKING:
@@ -49,6 +50,8 @@ def normalize_unit_level_key(raw: str | None) -> str:
     for row in UNIT_LEVELS:
         if v == row["label"]:
             return row["key"]
+    if unit_level_row_is_removed_brigade(key=v):
+        return ""
     return ""
 
 
@@ -60,6 +63,8 @@ def label_for_unit_level_key(key: str | None, db: Session | None = None) -> str:
     for row in UNIT_LEVELS:
         if row["key"] == k:
             return row["label"]
+    if unit_level_row_is_removed_brigade(key=k):
+        return ""
     label = info_bank_unit_label(k)
     if label:
         return label

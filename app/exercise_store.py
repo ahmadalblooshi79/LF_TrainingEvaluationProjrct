@@ -452,6 +452,7 @@ def exercise_to_export_dict(ex: Exercise, db: Session) -> dict[str, Any]:
                 "event_flow_file_relpath": b.event_flow_file_relpath or "",
                 "dilemma_count": b.dilemma_count,
                 "linked_at": _iso(b.linked_at),
+                "flow_table_json": b.flow_table_json or "",
                 "created_at": _iso(b.created_at),
                 "updated_at": _iso(b.updated_at),
                 "event_flow_items": [
@@ -1361,6 +1362,7 @@ def _import_v3_exercise_bundle(
                 event_flow_file_relpath=str(row.get("event_flow_file_relpath") or "")[:500],
                 dilemma_count=int(row.get("dilemma_count") or 0),
                 linked_at=_parse_dt(row.get("linked_at")),
+                flow_table_json=str(row.get("flow_table_json") or ""),
                 created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
                 updated_at=_parse_dt(row.get("updated_at")) or datetime.utcnow(),
             )

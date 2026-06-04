@@ -284,6 +284,7 @@ class ExercisePlannerFlowBundle(Base):
     event_flow_file_relpath: Mapped[str] = mapped_column(String(500), default="")
     dilemma_count: Mapped[int] = mapped_column(Integer, default=0)
     linked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    flow_table_json: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow

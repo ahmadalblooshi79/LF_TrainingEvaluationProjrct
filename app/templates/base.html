@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/static/style.css?v=roster-head-2">
+  <link rel="stylesheet" href="/static/style.css?v=ibank-action-eval-unit-select-8">
 </head>
 <body class="{% block body_class %}{% endblock %}{% if hub_landing_preserve_buttons %} hub-landing-preserve-buttons{% endif %}">
 <header>
@@ -42,39 +42,39 @@
       {% if user %}
       {% if not hide_header_center_nav|default(false) %}
       <nav class="header-bar__segment header-bar__segment--center header-nav" aria-label="مسارات الصفحة الرئيسية والأدوار">
-        <a href="/dashboard" title="الصفحة الرئيسية"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
+        <a href="/dashboard" class="{% if header_nav_dashboard_active %}is-active{% endif %}" title="الصفحة الرئيسية"{% if header_nav_dashboard_active %} aria-current="page"{% endif %}><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> الصفحة الرئيسية</a>
         {% if user.role_key == 'system_admin' %}
-        <div class="nav-dd" tabindex="0">
-          <button type="button" class="nav-dd__toggle" aria-haspopup="true" aria-label="إدارة النظام">
+        <div class="nav-dd{% if header_nav_admin_active %} is-active-section{% endif %}" tabindex="0">
+          <button type="button" class="nav-dd__toggle{% if header_nav_admin_active %} is-active{% endif %}" aria-haspopup="true" aria-label="إدارة النظام"{% if header_nav_admin_active %} aria-current="page"{% endif %}>
             <i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i> إدارة النظام
             <i class="fa-solid fa-chevron-down nav-dd__chev" aria-hidden="true"></i>
           </button>
           <div class="nav-dd__menu" role="menu">
-            <a role="menuitem" href="/admin/exercises/create"><i class="fa-solid fa-file-circle-plus" aria-hidden="true"></i> إنشاء تمرين جديد</a>
-            <a role="menuitem" href="/admin/exercises/objectives"><i class="fa-solid fa-bullseye" aria-hidden="true"></i> الأهداف التدريبية</a>
-            <a role="menuitem" href="/admin/information-bank/gate?next=/admin/information-bank"><i class="fa-solid fa-database" aria-hidden="true"></i> بنك المعلومات</a>
-            <a role="menuitem" href="/admin/exercises/trainee-unit-roster"><i class="fa-solid fa-users" aria-hidden="true"></i> قائمة الوحدة المتدربة</a>
-            <a role="menuitem" href="/admin/exercises/judge-unit-roster"><i class="fa-solid fa-gavel" aria-hidden="true"></i> قائمة المحكمين</a>
-            <a role="menuitem" href="/admin/battle-organization"><i class="fa-solid fa-sitemap" aria-hidden="true"></i> تنظيم المعركة</a>
-            <a role="menuitem" href="/admin/users"><i class="fa-solid fa-users-gear" aria-hidden="true"></i> إدارة المستخدمين</a>
+            <a role="menuitem" href="/admin/exercises/create" class="{% if header_admin_menu_active.create %}is-active{% endif %}"><i class="fa-solid fa-file-circle-plus" aria-hidden="true"></i> إنشاء تمرين جديد</a>
+            <a role="menuitem" href="/admin/exercises/objectives" class="{% if header_admin_menu_active.objectives %}is-active{% endif %}"><i class="fa-solid fa-bullseye" aria-hidden="true"></i> الأهداف التدريبية</a>
+            <a role="menuitem" href="/admin/information-bank/gate?next=/admin/information-bank" class="{% if header_admin_menu_active.information_bank %}is-active{% endif %}"><i class="fa-solid fa-database" aria-hidden="true"></i> بنك المعلومات</a>
+            <a role="menuitem" href="/admin/exercises/trainee-unit-roster" class="{% if header_admin_menu_active.trainee_roster %}is-active{% endif %}"><i class="fa-solid fa-users" aria-hidden="true"></i> قائمة الوحدة المتدربة</a>
+            <a role="menuitem" href="/admin/exercises/judge-unit-roster" class="{% if header_admin_menu_active.judge_roster %}is-active{% endif %}"><i class="fa-solid fa-gavel" aria-hidden="true"></i> قائمة المحكمين</a>
+            <a role="menuitem" href="/admin/battle-organization" class="{% if header_admin_menu_active.battle_org %}is-active{% endif %}"><i class="fa-solid fa-sitemap" aria-hidden="true"></i> تنظيم المعركة</a>
+            <a role="menuitem" href="/admin/users" class="{% if header_admin_menu_active.users %}is-active{% endif %}"><i class="fa-solid fa-users-gear" aria-hidden="true"></i> إدارة المستخدمين</a>
           </div>
         </div>
         {% endif %}
         {% for hub in nav_role_hub_links %}
-        <a href="{{ hub.href }}" class="nav-hub-link" title="{{ hub.title }}"><i class="fa-solid {{ hub.icon }}" aria-hidden="true"></i> {{ hub.label }}</a>
+        <a href="{{ hub.href }}" class="nav-hub-link{% if hub.active %} is-active{% endif %}" title="{{ hub.title }}"{% if hub.active %} aria-current="page"{% endif %}><i class="fa-solid {{ hub.icon }}" aria-hidden="true"></i> {{ hub.label }}</a>
         {% endfor %}
       </nav>
       {% endif %}
       <nav class="header-bar__segment header-bar__segment--trail header-nav header-nav--top-tools" aria-label="الإشعارات والوصول السريع">
         {% if header_chat_rooms_url %}
-        <a href="{{ header_chat_rooms_url }}" title="غرفة المحادثة"><i class="fa-solid fa-comments" aria-hidden="true"></i> غرفة المحادثة</a>
+        <a href="{{ header_chat_rooms_url }}" class="{% if header_nav_chat_active %}is-active{% endif %}" title="غرفة المحادثة"{% if header_nav_chat_active %} aria-current="page"{% endif %}><i class="fa-solid fa-comments" aria-hidden="true"></i> غرفة المحادثة</a>
         {% endif %}
         {% if header_exercise_info_url %}
-        <a href="{{ header_exercise_info_url }}" title="معلومات التمرين"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> معلومات التمرين</a>
+        <a href="{{ header_exercise_info_url }}" class="{% if header_nav_exercise_info_active %}is-active{% endif %}" title="معلومات التمرين"{% if header_nav_exercise_info_active %} aria-current="page"{% endif %}><i class="fa-solid fa-circle-info" aria-hidden="true"></i> معلومات التمرين</a>
         {% endif %}
-        <a href="/library" title="المكتبة"><i class="fa-solid fa-book-open" aria-hidden="true"></i> المكتبة</a>
+        <a href="/library" class="{% if header_nav_library_active %}is-active{% endif %}" title="المكتبة"{% if header_nav_library_active %} aria-current="page"{% endif %}><i class="fa-solid fa-book-open" aria-hidden="true"></i> المكتبة</a>
         {% if notifications_log_url %}
-        <a href="{{ notifications_log_url }}" class="btn-icon-nav header-notif-bell" id="header-notif-link" title="سجل الإشعارات" aria-label="سجل الإشعارات">
+        <a href="{{ notifications_log_url }}" class="btn-icon-nav header-notif-bell{% if header_nav_notifications_active %} is-active{% endif %}" id="header-notif-link" title="سجل الإشعارات" aria-label="سجل الإشعارات"{% if header_nav_notifications_active %} aria-current="page"{% endif %}>
           <i class="fa-solid fa-bell" aria-hidden="true"></i>
           {% if notification_unread_count > 0 %}
           <span class="header-notif-bell__badge" id="header-notif-badge">{{ notification_unread_count }}</span>

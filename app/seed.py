@@ -107,3 +107,7 @@ def seed_all(db: Session) -> None:
         # حافظ على حسابات التجربة قابلة للدخول حتى لو تغيّر نظام التشفير.
         u.password_hash = hash_password(DEMO_PASSWORD)
     db.commit()
+
+    from app.planning_catalog_sync import sync_planning_catalogs_from_db
+
+    sync_planning_catalogs_from_db(db)

@@ -691,6 +691,33 @@ header nav a:not(.btn):hover i,
 .header-nav a:not(.btn):hover i {
   color: var(--brown-500);
 }
+header nav a:not(.btn).is-active,
+.header-nav a:not(.btn).is-active,
+.header-nav .nav-hub-link.is-active {
+  background: var(--tint-200);
+  color: var(--brown-800);
+  font-weight: 600;
+  text-decoration: none;
+}
+header nav a:not(.btn).is-active i,
+.header-nav a:not(.btn).is-active i,
+.header-nav .nav-hub-link.is-active i {
+  color: var(--brown-500);
+}
+.header-nav .header-notif-bell.is-active {
+  background: var(--tint-200);
+  border-radius: 999px;
+}
+.nav-dd__toggle.is-active {
+  background: var(--tint-200);
+  color: var(--brown-800);
+  font-weight: 600;
+}
+.nav-dd__menu a.is-active {
+  background: var(--tint-100);
+  color: var(--brown-800);
+  font-weight: 600;
+}
 
 header .btn-icon-nav i {
   font-size: 1.2rem;
@@ -4663,6 +4690,13 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .eval-preview-table.eval-structured td.eval-col--acq.eval-acq--incomplete .eval-preview-acquired-select {
   background: #fef2f2;
 }
+.eval-preview-table.eval-structured td.eval-col--notes.eval-notes--required {
+  background: #fee2e2 !important;
+  box-shadow: inset 0 0 0 2px #dc2626;
+}
+.eval-preview-table.eval-structured td.eval-col--notes.eval-notes--required .eval-notes-textarea {
+  background: #fef2f2;
+}
 .eval-preview-table.eval-structured.eval-structured--tight .eval-preview-td,
 .eval-preview-table.eval-structured.eval-structured--tight .eval-preview-th {
   padding: 0.09rem 0.3rem;
@@ -7629,6 +7663,14 @@ body.control-report-page #cr-panel-charts.control-report-tab-panel {
   font-size: 0.82rem;
   padding-inline: 0.65rem;
 }
+.ibank-tab[data-tab-btn="units-bg-3"],
+.ibank-tab[data-tab-btn="units-bg-4"],
+.ibank-tab[data-tab-btn="units-bg-5"],
+.ibank-tabpane[data-tab-pane="units-bg-3"],
+.ibank-tabpane[data-tab-pane="units-bg-4"],
+.ibank-tabpane[data-tab-pane="units-bg-5"] {
+  display: none !important;
+}
 .ibank-included-save-btn {
   flex-shrink: 0;
 }
@@ -8479,6 +8521,304 @@ body.control-report-page #cr-panel-charts.control-report-tab-panel {
 .planner-flow-slot-table .planner-flow-slot-idx {
   margin-inline-end: 0.35rem;
 }
+.planner-flow-action-table-section {
+  margin-bottom: 0.75rem;
+}
+.planner-flow-action-table-wrap {
+  margin-top: 0.35rem;
+  min-height: 10rem;
+}
+#pf-flow-table-body:empty {
+  min-height: 8rem;
+}
+#pf-flow-table-body:empty::after {
+  content: "انقر بزر الماوس الأيمن هنا لإدراج صف";
+  display: block;
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: var(--text-muted, #8a8278);
+  font-size: 0.92rem;
+  pointer-events: none;
+}
+.planner-flow-action-table.ibank-table th,
+.planner-flow-action-table.ibank-table td {
+  padding: 0.4rem 0.55rem;
+  vertical-align: middle;
+  text-align: center;
+}
+/* إلغاء التظليل المتناوب (zebra) في جدول المجرى */
+.planner-flow-action-table.ibank-table tbody tr,
+.planner-flow-action-table.ibank-table tbody tr:nth-child(even),
+.planner-flow-action-table.ibank-table tbody tr:nth-child(odd),
+.planner-flow-action-table.ibank-table tbody tr:hover {
+  background: var(--surface, #fff);
+}
+.planner-flow-action-table.ibank-table tbody tr > th,
+.planner-flow-action-table.ibank-table tbody tr > td,
+.planner-flow-action-table.ibank-table tbody tr:nth-child(even) > th,
+.planner-flow-action-table.ibank-table tbody tr:nth-child(even) > td {
+  background: transparent;
+}
+.planner-flow-action-table .pf-assignee-inner-table tbody tr,
+.planner-flow-action-table .pf-assignee-inner-table tbody tr:nth-child(even),
+.planner-flow-action-table .pf-assignee-inner-table tbody tr:hover {
+  background: transparent;
+}
+.planner-flow-action-table .pf-assignee-inner-table .pf-assignee-row-cell {
+  background: transparent;
+}
+.planner-flow-action-col-num {
+  width: 2.5rem;
+  text-align: center;
+  white-space: nowrap;
+}
+.planner-flow-action-table .pf-flow-seq {
+  font-weight: 600;
+  color: var(--text-muted, #6b635a);
+}
+.planner-flow-action-table .pf-flow-merged-cell,
+.planner-flow-action-table .pf-flow-cell {
+  min-width: 5rem;
+  line-height: 1.5;
+  word-break: break-word;
+  text-align: center;
+}
+.planner-flow-action-table .pf-flow-cell {
+  vertical-align: middle;
+  padding: 0.35rem 0.55rem;
+}
+.planner-flow-action-table .pf-flow-cell--assignee {
+  padding: 0;
+  vertical-align: middle;
+}
+.planner-flow-action-table .pf-flow-cell--simple[contenteditable="true"] {
+  outline: none;
+  cursor: text;
+  min-height: 1.8em;
+}
+.planner-flow-action-table .pf-assignee-inner-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  margin: 0;
+  background: transparent;
+}
+.planner-flow-action-table .pf-assignee-inner-table tbody tr:first-child .pf-assignee-row-cell {
+  border-top: none;
+}
+.planner-flow-action-table .pf-assignee-inner-table .pf-assignee-row-cell {
+  vertical-align: middle;
+  padding: 0.2rem 0.35rem;
+  border-top: 1px solid var(--border-soft, #c9bfb5);
+}
+.planner-flow-action-table .pf-assignee-cell-text {
+  display: block;
+  width: 100%;
+  text-align: center;
+  line-height: 1.45;
+  word-break: break-word;
+  outline: none;
+  cursor: text;
+}
+.planner-flow-action-table .pf-assignee-cell-text:focus {
+  box-shadow: inset 0 0 0 1px rgba(90, 120, 160, 0.4);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.65);
+}
+.planner-flow-action-table .pf-assignee-tools-row,
+.planner-flow-action-table .pf-assignee-sub-btn--add,
+.planner-flow-action-table .pf-assignee-sub-btn--del,
+.planner-flow-action-table [data-pf-assignee-add],
+.planner-flow-action-table [data-pf-assignee-del] {
+  display: none !important;
+}
+.planner-flow-action-table .pf-assignee-sub-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid var(--border-soft, #c9bfb5);
+  border-radius: 4px;
+  background: var(--surface, #fff);
+  color: var(--brown-800, #4a4036);
+  font-size: 0.78rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.planner-flow-action-table .pf-assignee-sub-btn--del {
+  width: 1.65rem;
+  height: 1.65rem;
+  padding: 0;
+}
+.planner-flow-action-table .pf-assignee-sub-btn--del:hover:not(:disabled) {
+  color: var(--danger, #b42318);
+  border-color: rgba(180, 35, 24, 0.45);
+}
+.planner-flow-action-table .pf-assignee-sub-btn--del:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.pf-flow-context-menu__item--assignee::before {
+  content: '';
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-inline-end: 0.35rem;
+  border-radius: 2px;
+  background: #90caf9;
+  vertical-align: middle;
+}
+.planner-flow-action-table .pf-assignee-sub-btn--add {
+  width: 100%;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.planner-flow-action-table .pf-assignee-sub-btn--add:hover {
+  background: #e8f4fc;
+  border-color: #90caf9;
+}
+.planner-flow-action-table .pf-flow-merged-cell[contenteditable="true"] {
+  outline: none;
+  cursor: text;
+}
+.planner-flow-action-table .pf-flow-merged-cell[contenteditable="true"]:focus,
+.planner-flow-action-table .pf-flow-cell[contenteditable="true"]:focus {
+  box-shadow: inset 0 0 0 2px rgba(90, 120, 160, 0.35);
+}
+.planner-flow-action-table.ibank-table tbody tr.pf-flow-row--event,
+.planner-flow-action-table.ibank-table tbody tr.pf-flow-row--event:nth-child(even),
+.planner-flow-action-table.ibank-table tbody tr.pf-flow-row--event:nth-child(odd),
+.planner-flow-action-table.ibank-table tbody tr.pf-flow-row--event:hover {
+  background-color: #fff9c4;
+}
+.planner-flow-action-table.ibank-table tbody tr.pf-flow-row--event > td.pf-flow-merged-cell {
+  background-color: #fff9c4;
+}
+.planner-flow-action-table.ibank-table tbody tr.pf-flow-row--dilemma,
+.planner-flow-action-table.ibank-table tbody tr.pf-flow-row--dilemma:nth-child(even),
+.planner-flow-action-table.ibank-table tbody tr.pf-flow-row--dilemma:nth-child(odd),
+.planner-flow-action-table.ibank-table tbody tr.pf-flow-row--dilemma:hover {
+  background-color: #ffe0b2;
+}
+.planner-flow-action-table.ibank-table tbody tr.pf-flow-row--dilemma > td.pf-flow-merged-cell {
+  background-color: #ffe0b2;
+}
+.pf-flow-context-menu {
+  position: fixed;
+  z-index: 10050;
+  margin: 0;
+  padding: 0.35rem 0;
+  list-style: none;
+  min-width: 11rem;
+  border: 1px solid var(--border-soft, #c9bfb5);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface, #fff);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.16);
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+.pf-flow-context-menu.is-open {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+}
+.pf-flow-insert-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.55rem;
+  margin: 0.35rem 0 0.55rem;
+}
+.pf-flow-insert-toolbar__hint {
+  font-size: 0.88rem;
+  margin-inline-end: 0.25rem;
+}
+.pf-flow-insert-btn--event {
+  background: #fff9c4;
+}
+.pf-flow-insert-btn--dilemma {
+  background: #ffe0b2;
+}
+.pf-flow-head-actions {
+  flex-shrink: 0;
+}
+.pf-flow-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+  padding: 0.75rem 1rem;
+  border-top: 2px solid var(--border-soft, #c9bfb5);
+  background: var(--surface-muted, #f5f1ec);
+  border-radius: 0 0 var(--radius-sm, 6px) var(--radius-sm, 6px);
+}
+.pf-flow-action-bar__btn {
+  min-width: 8.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.pf-flow-save-btn {
+  min-width: 5.5rem;
+}
+.pf-flow-context-menu__item--danger {
+  color: var(--danger, #b42318);
+  border-top: 1px solid var(--border-soft, #c9bfb5);
+  margin-top: 0.2rem;
+  padding-top: 0.55rem;
+}
+.planner-flow-action-table.ibank-table tbody tr.pf-flow-row.is-selected > td {
+  box-shadow: inset 0 0 0 2px rgba(90, 120, 160, 0.45);
+}
+.pf-flow-context-menu__item {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0.45rem 0.85rem;
+  border: none;
+  background: transparent;
+  text-align: start;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.pf-flow-context-menu__item:hover,
+.pf-flow-context-menu__item:focus {
+  background: var(--surface-muted, #f5f1ec);
+}
+.pf-flow-context-menu__item[data-action="event"]::before {
+  content: "";
+  display: inline-block;
+  width: 0.65rem;
+  height: 0.65rem;
+  margin-inline-end: 0.45rem;
+  border-radius: 2px;
+  background: #fff9c4;
+  vertical-align: middle;
+}
+.pf-flow-context-menu__item--dilemma::before,
+.pf-flow-context-menu__item[data-action="dilemma"]::before {
+  content: "";
+  display: inline-block;
+  width: 0.65rem;
+  height: 0.65rem;
+  margin-inline-end: 0.45rem;
+  border-radius: 2px;
+  background: #ffe0b2;
+  vertical-align: middle;
+}
+.planner-flow-table-save-status {
+  margin: 0;
+  font-size: 0.82rem;
+  min-height: 1.2em;
+}
+.planner-flow-table-save-status--err {
+  color: var(--danger, #b42318);
+}
 .planner-flow-bundle-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -9051,6 +9391,57 @@ main:has(.judge-pf-tabbed) > .judge-pf-root {
   min-width: 0;
   word-break: break-word;
   font-size: 0.88rem;
+}
+.ibank-tree-toolbar__unit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+  margin-top: 0.45rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--border, #d4c4b0);
+}
+.ibank-tree-toolbar__unit-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--brown-soft, #6b5344);
+  white-space: nowrap;
+}
+.ibank-tree-toolbar__unit-hint {
+  font-size: 0.75rem;
+}
+.ibank-tree-unit-form {
+  margin: 0;
+  flex: 0 1 24rem;
+  min-width: 17rem;
+  max-width: 28rem;
+}
+.ibank-tree-unit-select {
+  width: 100%;
+  max-width: 28rem;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.35rem;
+  border: 1px solid var(--border, #d4c4b0);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+.ibank-tree-node--file .ibank-tree-unit-form {
+  flex: 0 1 22rem;
+  min-width: 15rem;
+}
+.ibank-tree-unit-badge {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  color: var(--brown-soft, #6b5344);
+  background: #f5f0ea;
+  border: 1px solid var(--border, #d4c4b0);
+  border-radius: 4px;
+  padding: 0.12rem 0.4rem;
+  white-space: nowrap;
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ibank-tree-node--target-selected > .ibank-tree-row .ibank-tree-label {
   text-decoration: underline;

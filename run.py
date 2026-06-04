@@ -62,12 +62,41 @@ def _env_flag(name: str, default: bool = True) -> bool:
     return v not in ("0", "false", "no", "off")
 
 
+def _ensure_port_free(port: int, host: str = "0.0.0.0") -> None:
+    """إيقاف التشغيل إذا كان المنفذ مشغولاً (غالباً نسخة قديمة من python خارج .venv)."""
+    import socket
+
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        probe.bind((host, port))
+    except OSError:
+        print(
+            f"\n[خطأ] المنفذ {port} مستخدم بالفعل.\n"
+            f"  أوقف العملية القديمة (Task Manager أو: "
+            f'Get-NetTCPConnection -LocalPort {port} | %% {{ Stop-Process -Id $_.OwningProcess -Force }})\n'
+            f"  ثم شغّل: .venv\\Scripts\\python.exe run.py\n",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    finally:
+        probe.close()
+
+
 if __name__ == "__main__":
+    _ensure_port_free(PORT, HOST)
     app = create_app()
-    debug = _env_flag("FLASK_DEBUG", default=True)
+    debug = _env_flag("FLASK_DEBUG", default=False)
     open_browser = _env_flag("LF_OPEN_BROWSER", default=True)
-    use_reloader = debug and "debugpy" not in sys.modules
+    # إعادة التحميل التلقائي قد تشغّل مفسّراً غير .venv على Windows (صفحة 500 / كود قديم).
+    use_reloader = (
+        _env_flag("FLASK_USE_RELOADER", default=False)
+        and debug
+        and "debugpy" not in sys.modules
+    )
+    app.config["TEMPLATES_AUTO_RELOAD"] = True
     if open_browser:
         _schedule_browser_open(use_reloader=use_reloader)
+    print(f"  Python: {sys.executable}", flush=True)
     print_server_access_info(host=HOST, port=PORT)
     app.run(host=HOST, port=PORT, debug=debug, use_reloader=use_reloader)

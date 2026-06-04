@@ -21,6 +21,7 @@
         {% set rk = row.row_kind | default('score') %}
         {% set saved_row = saved_rows[loop.index0] if saved_rows and (loop.index0 < (saved_rows|length)) else {} %}
         {% set acq_saved = saved_row.get('acquired') if saved_row else none %}
+        {% set acq_explicit_saved = saved_row is mapping and 'acquired' in saved_row %}
         {% set crit_rows = eval_crit_media_by_row|default({}, true) %}
         {% set row_crit = crit_rows[loop.index0] if loop.index0 in crit_rows else [] %}
         {% if rk == 'section' %}
@@ -41,7 +42,7 @@
         {% else %}
           {% set cap_steps = 20 %}
         {% endif %}
-        {% set acq_display = acq_saved if acq_saved is not none and acq_saved != '' else init_aq %}
+        {% set acq_display = (acq_saved | string) if acq_explicit_saved else init_aq %}
         <tr class="eval-structured-row eval-row--score" data-eval-row-index="{{ loop.index0 }}" data-row-kind="score" data-max="{% if mxn is not none and mxn > 0 %}{{ mxn }}{% endif %}" data-max-text="{{ row.max_val | e }}" data-acquired="{{ acq_display | string | e }}">
           <th scope="row" class="eval-preview-rowhead eval-row-num">{{ loop.index }}</th>
           <td class="eval-preview-td eval-col--element">
@@ -61,15 +62,15 @@
           <td class="eval-preview-td eval-col--acq">
             <label class="sr-only">المكتسبة — الصف {{ loop.index }}</label>
             <select class="eval-preview-acquired-select eval-acquired-input" name="acquired_sel_{{ loop.index0 }}" autocomplete="off" dir="rtl" title="اختر علامة لا تتجاوز القصوى"{% if not eval_can_edit %} disabled{% endif %}>
-              <option value=""{% if acq_saved == '' or (acq_saved is none and init_aq == '') %} selected{% endif %}>&#8203;</option>
-              <option value="na"{% if acq_saved == 'na' or (acq_saved is none and init_aq == 'na') %} selected{% endif %}>لا ينطبق</option>
+              <option value=""{% if acq_explicit_saved and (acq_saved == '' or acq_saved is none) %} selected{% elif not acq_explicit_saved and init_aq == '' %} selected{% endif %}>&#8203;</option>
+              <option value="na"{% if acq_explicit_saved and acq_saved == 'na' %} selected{% elif not acq_explicit_saved and init_aq == 'na' %} selected{% endif %}>لا ينطبق</option>
               {% for step in range(0, cap_steps + 1) %}
               {% if step % 4 == 0 %}
               {% set val_key = (step // 4) | string %}
               {% else %}
               {% set val_key = ((step * 0.25) | round(2)) | string %}
               {% endif %}
-              <option value="{{ val_key }}"{% if acq_saved is not none and acq_saved != '' and acq_saved != 'na' and (acq_saved | string) == val_key %} selected{% elif (acq_saved is none or acq_saved == '') and init_aq != '' and init_aq != 'na' and (init_aq | string) == val_key %} selected{% endif %}>{{ val_key }}</option>
+              <option value="{{ val_key }}"{% if acq_explicit_saved and acq_saved is not none and acq_saved != '' and acq_saved != 'na' and (acq_saved | string) == val_key %} selected{% elif not acq_explicit_saved and init_aq != '' and init_aq != 'na' and (init_aq | string) == val_key %} selected{% endif %}>{{ val_key }}</option>
               {% endfor %}
             </select>
           </td>
@@ -111,7 +112,7 @@
       </tbody>
     </table>
   </div>
-  <p class="form-error-banner eval-approve-block-msg" id="eval-approve-block-msg" role="alert" dir="rtl"{% if not eval_approve_incomplete|default(false) and not eval_approve_grade_blocked|default(false) %} hidden{% endif %}>{% if eval_approve_grade_blocked|default(false) %}لا يمكن الاعتماد: التقدير «راسب» أو «مقبول» — يُسمح بالحفظ فقط.{% elif eval_approve_incomplete|default(false) %}لا يمكن الاعتماد: يوجد بند أو أكثر لم تُدخل له المكتسبة (الخانات المحددة باللون الأحمر). اختر علامة أو «لا ينطبق»، ثم احفظ إن لزم، ثم أعد الاعتماد.{% endif %}</p>
+  <p class="form-error-banner eval-approve-block-msg" id="eval-approve-block-msg" role="alert" dir="rtl"{% if not eval_approve_incomplete|default(false) and not eval_approve_grade_blocked|default(false) %} hidden{% endif %}>{% if eval_approve_grade_blocked|default(false) %}لا يمكن الاعتماد: التقدير «راسب» أو «مقبول» — عدّل العلامات إلى «جيد» فما فوق، أو اكتب ملاحظات في خانة الملاحظات ثم احفظ.{% elif eval_approve_incomplete|default(false) %}لا يمكن الاعتماد: يوجد بند أو أكثر لم تُدخل له المكتسبة (الخانات المحددة باللون الأحمر). اختر علامة أو «لا ينطبق»، ثم احفظ إن لزم، ثم أعد الاعتماد.{% endif %}</p>
   <p class="eval-acquired-warn" id="eval-acquired-warn" role="alert" hidden></p>
   {% if eval_chief_next_step_hint|default(false) and (show_chief_approve|default(false) or show_chief_reopen|default(false)) %}
   <p class="eval-chief-hint-row muted" dir="rtl"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> بعد <strong>اعتماد كبير المحكمين</strong> يُرسل التقييم إلى <strong>اعتماد السيطرة</strong>.</p>
@@ -136,8 +137,8 @@
       {% else %}
       <span class="muted">عرض فقط</span>
       {% endif %}
-      {% if show_eval_approve|default(false) and has_saved_rows and eval_approve_url %}
-      <form method="post" action="{{ eval_approve_url }}" id="eval-approve-form" style="margin:0;">
+      {% if show_eval_approve_form|default(show_eval_approve|default(false)) and has_saved_rows and eval_approve_url %}
+      <form method="post" action="{{ eval_approve_url }}" id="eval-approve-form" style="margin:0;"{% if not show_eval_approve|default(false) %} hidden{% endif %}>
         <button type="submit" class="btn btn-danger eval-btn-footer"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> اعتماد المحكم</button>
       </form>
       {% endif %}
@@ -202,7 +203,10 @@
 
   function maybeClearApproveBlockVisual() {
     if (collectEmptyAcquiredRows().length) return;
+    var gradeCheck = evaluateApproveGradeState();
+    if (!gradeCheck.allow) return;
     clearAcqIncompleteHighlight();
+    clearNotesRequiredHighlight();
     if (approveMsgEl) {
       approveMsgEl.hidden = true;
       approveMsgEl.textContent = '';
@@ -303,17 +307,20 @@
 
   if (approveForm) {
     approveForm.addEventListener('submit', function (e) {
-      var gradeEl = document.getElementById('eval-total-grade');
-      var totalGrade = gradeEl ? String(gradeEl.textContent || '').trim() : '';
-      if (!gradeAllowsApprove(totalGrade)) {
-        e.preventDefault();
-        showGradeApproveBlockMsg();
-        return false;
-      }
       var emptyRows = collectEmptyAcquiredRows();
       if (emptyRows.length) {
         e.preventDefault();
         showApproveBlockMsg(emptyRows);
+        return false;
+      }
+      var gradeCheck = evaluateApproveGradeState();
+      if (!gradeCheck.allow) {
+        e.preventDefault();
+        if (gradeCheck.reason === 'notes') {
+          showGradeNotesBlockMsg(gradeCheck.missingNotesRows);
+        } else {
+          showGradeApproveBlockMsg();
+        }
         return false;
       }
       e.preventDefault();
@@ -372,10 +379,7 @@
 
   function getAcquiredFromRow(tr) {
     var sel = tr.querySelector('.eval-acquired-input');
-    if (sel) {
-      var v = (sel.value || '').trim();
-      if (v !== '') return v;
-    }
+    if (sel) return String(sel.value || '').trim();
     var da = tr.getAttribute('data-acquired');
     if (da !== null && da !== undefined) return String(da).trim();
     return '';
@@ -465,25 +469,82 @@
     return 'ممتاز';
   }
   var NON_APPROVABLE_GRADES = { 'راسب': true, 'مقبول': true, 'متوسط': true };
-  function gradeAllowsApprove(grade) {
-    var g = String(grade || '').trim();
-    if (!g || g === 'غير محسوب') return false;
-    return !NON_APPROVABLE_GRADES[g];
+  function rowNotesText(tr) {
+    var notes = tr.querySelector('.eval-notes-textarea');
+    return notes ? String(notes.value || '').trim() : '';
+  }
+  function hasAnyNotesFilled() {
+    var found = false;
+    table.querySelectorAll('tr.eval-row--score').forEach(function (tr) {
+      if (rowNotesText(tr)) found = true;
+    });
+    return found;
+  }
+  function collectNotesRequiredRows() {
+    if (hasAnyNotesFilled()) return [];
+    var out = [];
+    table.querySelectorAll('tr.eval-row--score').forEach(function (tr) {
+      out.push(tr);
+    });
+    return out;
+  }
+  function clearNotesRequiredHighlight() {
+    table.querySelectorAll('td.eval-col--notes.eval-notes--required').forEach(function (td) {
+      td.classList.remove('eval-notes--required');
+    });
+  }
+  function evaluateApproveGradeState() {
+    var gradeEl = document.getElementById('eval-total-grade');
+    var totalGrade = gradeEl ? String(gradeEl.textContent || '').trim() : '';
+    if (!totalGrade || totalGrade === 'غير محسوب') {
+      return { allow: false, reason: 'grade' };
+    }
+    if (!NON_APPROVABLE_GRADES[totalGrade]) {
+      return { allow: true, reason: '' };
+    }
+    if (!NON_APPROVABLE_GRADES[totalGrade]) {
+      return { allow: true, reason: '' };
+    }
+    if (hasAnyNotesFilled()) {
+      return { allow: true, reason: '' };
+    }
+    return { allow: false, reason: 'notes', missingNotesRows: collectNotesRequiredRows() };
   }
   function showGradeApproveBlockMsg() {
     if (approveMsgEl) {
-      approveMsgEl.textContent = 'لا يمكن الاعتماد: التقدير «راسب» أو «مقبول» — يُسمح بالحفظ فقط.';
+      approveMsgEl.textContent = 'لا يمكن الاعتماد: التقدير «راسب» أو «مقبول» — عدّل العلامات إلى «جيد» فما فوق، أو اكتب ملاحظات في خانة الملاحظات ثم احفظ.';
       approveMsgEl.hidden = false;
     }
   }
-  function syncApproveButtonVisibility(grade) {
+  function showGradeNotesBlockMsg(missingRows) {
+    clearNotesRequiredHighlight();
+    if (approveMsgEl) {
+      approveMsgEl.textContent = 'لا يمكن الاعتماد: التقدير «راسب» أو «مقبول» — اكتب ملاحظات في خانة الملاحظات، ثم احفظ، ثم أعد الاعتماد.';
+      approveMsgEl.hidden = false;
+    }
+    (missingRows || []).forEach(function (tr) {
+      var td = tr.querySelector('td.eval-col--notes');
+      if (td) td.classList.add('eval-notes--required');
+    });
+    if (missingRows && missingRows[0]) {
+      var firstTd = missingRows[0].querySelector('td.eval-col--notes');
+      if (firstTd && firstTd.scrollIntoView) firstTd.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+  function syncApproveButtonVisibility() {
     if (!approveForm) return;
-    var allow = gradeAllowsApprove(grade);
+    var gradeCheck = evaluateApproveGradeState();
+    var allow = gradeCheck.allow;
     approveForm.hidden = !allow;
     approveForm.style.display = allow ? '' : 'none';
     if (!allow) {
-      showGradeApproveBlockMsg();
+      if (gradeCheck.reason === 'notes') {
+        showGradeNotesBlockMsg(gradeCheck.missingNotesRows);
+      } else {
+        showGradeApproveBlockMsg();
+      }
     } else if (!collectEmptyAcquiredRows().length) {
+      clearNotesRequiredHighlight();
       maybeClearApproveBlockVisual();
     }
   }
@@ -620,19 +681,30 @@
     if (sumMaxDen <= 0) {
       totalEl.textContent = '—';
       if (gradeEl) gradeEl.textContent = '';
+      syncApproveButtonVisibility();
       return;
     }
     var actualPct = (sumAcq / sumMaxDen) * 100;
     totalEl.textContent = Math.round(actualPct * 100) / 100 + '%';
     var totalGrade = gradeFromPct(actualPct);
     if (gradeEl) gradeEl.textContent = totalGrade;
-    syncApproveButtonVisibility(totalGrade);
+    syncApproveButtonVisibility();
   }
   updateTotal();
   if (root && root.getAttribute('data-approve-grade-blocked') === '1') {
-    var ge = document.getElementById('eval-total-grade');
-    syncApproveButtonVisibility(ge ? ge.textContent : '');
+    syncApproveButtonVisibility();
   }
+
+  table.addEventListener('input', function (e) {
+    var t = e.target;
+    if (!t || !t.classList.contains('eval-notes-textarea')) return;
+    var tr = t.closest('tr');
+    if (tr) {
+      var td = tr.querySelector('td.eval-col--notes');
+      if (td && String(t.value || '').trim() !== '') td.classList.remove('eval-notes--required');
+    }
+    syncApproveButtonVisibility();
+  });
 })();
 </script>
 <div id="eval-crit-media-modal" class="eval-crit-media-modal" hidden aria-hidden="true">

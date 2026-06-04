@@ -42,6 +42,15 @@ def _is_individual_judge_user(user) -> bool:
     return bool(is_judge(user) and not is_chief_judge(user) and not is_system_admin(user))
 
 
+def _header_nav_path_active(prefix: str, *, path: str) -> bool:
+    """هل المسار الحالي ينتمي لرابط الترويسة (الصفحة التابعة أو مساراتها الفرعية)؟"""
+    norm = (path or "").rstrip("/") or "/"
+    root = (prefix or "").rstrip("/") or "/"
+    if root == "/dashboard":
+        return norm in ("/", "/dashboard")
+    return norm == root or norm.startswith(root + "/")
+
+
 def inject_header_exercise():
     base = {
         "header_exercise": None,
@@ -57,6 +66,13 @@ def inject_header_exercise():
         "header_exercise_info_url": None,
         "hub_landing_preserve_buttons": False,
         "hide_header_center_nav": False,
+        "header_nav_dashboard_active": False,
+        "header_nav_admin_active": False,
+        "header_nav_library_active": False,
+        "header_nav_chat_active": False,
+        "header_nav_exercise_info_active": False,
+        "header_nav_notifications_active": False,
+        "header_admin_menu_active": {},
         "heartbeat_poll_ms": HEARTBEAT_POLL_MS,
         "heartbeat_fast_poll_ms": HEARTBEAT_FAST_POLL_MS,
     }
@@ -66,7 +82,23 @@ def inject_header_exercise():
     if request.path.startswith("/static/"):
         return base
     ep = request.endpoint or ""
+    req_path = request.path or "/"
     base["hub_landing_preserve_buttons"] = ep in _HUB_LANDING_PRESERVE_BUTTON_ENDPOINTS
+    base["header_nav_dashboard_active"] = _header_nav_path_active("/dashboard", path=req_path)
+    base["header_nav_admin_active"] = req_path.startswith("/admin")
+    base["header_nav_library_active"] = _header_nav_path_active("/library", path=req_path)
+    base["header_nav_chat_active"] = _header_nav_path_active("/chat-rooms", path=req_path)
+    base["header_nav_exercise_info_active"] = req_path.startswith("/exercises/")
+    base["header_nav_notifications_active"] = _header_nav_path_active("/notifications", path=req_path)
+    base["header_admin_menu_active"] = {
+        "create": req_path.startswith("/admin/exercises/create"),
+        "objectives": req_path.startswith("/admin/exercises/objectives"),
+        "information_bank": req_path.startswith("/admin/information-bank"),
+        "trainee_roster": req_path.startswith("/admin/exercises/trainee-unit-roster"),
+        "judge_roster": req_path.startswith("/admin/exercises/judge-unit-roster"),
+        "battle_org": req_path.startswith("/admin/battle-organization"),
+        "users": req_path.startswith("/admin/users"),
+    }
     db = getattr(g, "db", None)
     if db is None:
         return base
@@ -78,7 +110,15 @@ def inject_header_exercise():
         def _push_hub(href: str, label: str, icon: str, can_fn) -> None:
             if not can_fn(u):
                 return
-            nav_hubs.append({"href": href, "label": label, "icon": icon, "title": label})
+            nav_hubs.append(
+                {
+                    "href": href,
+                    "label": label,
+                    "icon": icon,
+                    "title": label,
+                    "active": _header_nav_path_active(href, path=req_path),
+                }
+            )
 
         _push_hub("/planner", "التخطيط", "fa-calendar-check", can_access_planner_hub)
         _push_hub("/control", "السيطرة", "fa-eye", can_access_control_hub)

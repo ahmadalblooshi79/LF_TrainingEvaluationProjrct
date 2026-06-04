@@ -395,6 +395,41 @@ def grade_label_from_percent(pct: float | None) -> str:
 _NON_APPROVABLE_GRADES = frozenset({"راسب", "مقبول", "متوسط"})
 
 
+def payload_row_score_pct(row: dict) -> float | None:
+    """نسبة البند من المكتسبة والقصوى في حمولة محفوظة."""
+    if not isinstance(row, dict):
+        return None
+    acq = row.get("acquired")
+    if acq is None or acq == "" or str(acq).strip().lower() == "na":
+        return None
+    try:
+        acquired = float(str(acq).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+    mx_raw = row.get("max_val")
+    max_val: float | None = None
+    if mx_raw not in (None, ""):
+        try:
+            max_val = float(str(mx_raw).replace(",", "."))
+        except (TypeError, ValueError):
+            max_val = None
+    if max_val is not None and max_val > 0:
+        return max(0.0, min(100.0, (acquired / max_val) * 100.0))
+    return max(0.0, min(100.0, (acquired / 5.0) * 100.0))
+
+
+def payload_has_any_notes(rows: list | None) -> bool:
+    """هل وُجدت ملاحظات في أي بند تقييم؟"""
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        if str(r.get("row_kind") or "score").strip().lower() == "section":
+            continue
+        if (r.get("notes") or "").strip():
+            return True
+    return False
+
+
 def display_grade_label(label: str | None) -> str:
     """عرض التقدير — يوحّد «متوسط» القديم إلى «مقبول»."""
     g = (label or "").strip()
@@ -407,11 +442,20 @@ def grade_allows_judge_approve(
     grade_label: str | None = None,
     *,
     total_pct: float | None = None,
+    payload_rows: list | None = None,
 ) -> bool:
-    """الاعتماد مسموح فقط لتقديرات جيد فما فوق (لا راسب ولا مقبول)."""
+    """
+    الاعتماد مسموح لتقدير جيد فما فوق، أو لتقدير راسب/مقبول إذا وُجدت
+    ملاحظات في خانة الملاحظات (أي بند) بعد الحفظ.
+    """
     if total_pct is not None:
-        return grade_label_from_percent(float(total_pct)) not in _NON_APPROVABLE_GRADES
-    g = display_grade_label(grade_label)
-    if not g or g == "غير محسوب":
+        overall = grade_label_from_percent(float(total_pct))
+    else:
+        overall = display_grade_label(grade_label)
+    if not overall or overall == "غير محسوب":
         return False
-    return g not in _NON_APPROVABLE_GRADES
+    if overall not in _NON_APPROVABLE_GRADES:
+        return True
+    if not payload_rows:
+        return False
+    return payload_has_any_notes(payload_rows)

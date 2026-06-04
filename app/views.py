@@ -4,6 +4,7 @@ import json
 import logging
 import mimetypes
 import re
+import sys
 import uuid
 import zipfile
 from datetime import datetime
@@ -13,6 +14,7 @@ from urllib.parse import quote, unquote
 from flask import (
     Blueprint,
     abort,
+    current_app,
     jsonify,
     redirect,
     render_template,
@@ -150,7 +152,6 @@ from app.unit_levels_catalog import (
     unit_level_row,
 )
 from app.information_bank_catalog import (
-    INFO_BANK_BRIGADE_GROUPS,
     INFO_BANK_UNIT_LEVEL_TEMPLATES,
     INFO_BANK_UNIT_LEVELS,
     brigade_group_for_tab,
@@ -1278,9 +1279,11 @@ def _evaluation_list_judge_sum_totals(
                 sum_max += float(mx)
             saved_row = saved_rows[idx] if idx < len(saved_rows) else {}
             acq = saved_row.get("acquired") if isinstance(saved_row, dict) else None
-            if acq is None or str(acq).strip() == "":
+            if isinstance(saved_row, dict) and "acquired" in saved_row:
+                acq_s = ("" if acq is None else str(acq)).strip().lower()
+            else:
                 acq = trow.get("acquired_initial")
-            acq_s = ("" if acq is None else str(acq)).strip().lower()
+                acq_s = ("" if acq is None else str(acq)).strip().lower()
             if acq_s and acq_s != "na":
                 try:
                     sum_acquired += float(str(acq).replace(",", "."))
@@ -2376,9 +2379,11 @@ def _evaluation_payload_has_empty_acquired_for_approve(rows: list) -> bool:
 def _evaluation_saved_allows_judge_approve(saved) -> bool:
     if saved is None:
         return False
+    rows = _parse_saved_eval_rows(getattr(saved, "payload_json", None))
     return grade_allows_judge_approve(
         getattr(saved, "grade_label", None),
         total_pct=getattr(saved, "total_pct", None),
+        payload_rows=rows,
     )
 
 
@@ -2402,6 +2407,11 @@ def _eval_list_viewer_ctx(user: User, saved) -> dict:
             can_approve_evaluation_results(user)
             and eval_judge_can_approve(saved)
             and _evaluation_saved_allows_judge_approve(saved)
+        ),
+        "show_eval_approve_form": bool(
+            can_approve_evaluation_results(user)
+            and eval_judge_can_approve(saved)
+            and saved is not None
         ),
         "eval_approve_grade_blocked": grade_blocks_approve,
         "show_chief_approve": bool(
@@ -5440,6 +5450,64 @@ def _planner_bundle_judge_assignments(db, exercise_id: int, unit_level_key: str)
     )
 
 
+def _parse_planner_flow_table_rows(payload_json: str | None) -> list[dict]:
+    if not (payload_json or "").strip():
+        return []
+    try:
+        data = json.loads(payload_json)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    out: list[dict] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind") or "row").strip().lower()
+        if kind not in ("event", "dilemma", "row"):
+            kind = "row"
+        if kind in ("event", "dilemma"):
+            out.append({"kind": kind, "text": str(item.get("text") or "")[:4000]})
+        else:
+            out.append(
+                {
+                    "kind": "row",
+                    "time": str(item.get("time") or "")[:500],
+                    "description": str(item.get("description") or "")[:4000],
+                    "assignee": str(item.get("assignee") or "")[:500],
+                    "method": str(item.get("method") or "")[:500],
+                    "reaction": str(item.get("reaction") or "")[:500],
+                }
+            )
+    return out
+
+
+def _normalize_planner_flow_table_rows(raw_rows) -> list[dict]:
+    if not isinstance(raw_rows, list):
+        return []
+    out: list[dict] = []
+    for item in raw_rows:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind") or "row").strip().lower()
+        if kind not in ("event", "dilemma", "row"):
+            kind = "row"
+        if kind in ("event", "dilemma"):
+            out.append({"kind": kind, "text": str(item.get("text") or "")[:4000]})
+        else:
+            out.append(
+                {
+                    "kind": "row",
+                    "time": str(item.get("time") or "")[:500],
+                    "description": str(item.get("description") or "")[:4000],
+                    "assignee": str(item.get("assignee") or "")[:500],
+                    "method": str(item.get("method") or "")[:500],
+                    "reaction": str(item.get("reaction") or "")[:500],
+                }
+            )
+    return out
+
+
 _UI_MSG_PLANNER_BUNDLE = {
     "bad_event_file": "يُقبل ملف PDF أو Word (.doc/.docx) فقط.",
     "bad_xlsx": "يُقبل ملف Excel (.xlsx) فقط.",
@@ -5493,6 +5561,7 @@ def _build_planner_flow_bundle_page_context(
         event_flow_rows=[],
         action_slot_rows=[],
         selected_event_flow_id=None,
+        flow_table_rows=[],
         readonly_mode=readonly,
         pf_workspace_endpoint=pf_workspace_endpoint,
         chief_hub_query_on_judge_links=chief_hub_query_on_judge_links,
@@ -5532,6 +5601,7 @@ def _build_planner_flow_bundle_page_context(
             "event_flow_rows": [],
             "action_slot_rows": [],
             "selected_event_flow_id": None,
+            "flow_table_rows": [],
             "planner_event_flow_file_ok": False,
         }
     bundle = (
@@ -5595,6 +5665,9 @@ def _build_planner_flow_bundle_page_context(
         selected_event_flow_id = None
     if selected_event_flow_id is None and event_flow_rows:
         selected_event_flow_id = event_flow_rows[0]["id"]
+    flow_table_rows = _parse_planner_flow_table_rows(
+        getattr(bundle, "flow_table_json", None)
+    )
     return {
         **empty_base,
         "has_exercise": True,
@@ -5614,6 +5687,7 @@ def _build_planner_flow_bundle_page_context(
         "event_flow_rows": event_flow_rows,
         "action_slot_rows": action_slot_rows,
         "selected_event_flow_id": selected_event_flow_id,
+        "flow_table_rows": flow_table_rows,
     }
 
 
@@ -6116,6 +6190,29 @@ def planner_flow_bundle_link(bundle_id: int):
     bundle.updated_at = datetime.utcnow()
     db.commit()
     return _redirect_planner_bundle_workspace(bundle, ok="link_ok")
+
+
+@bp.route("/planner/create-flow/<int:bundle_id>/save-flow-table", methods=["POST"])
+def planner_flow_bundle_save_flow_table(bundle_id: int):
+    user = get_current_user_optional()
+    if not user:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    if not can_access_planner_hub(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    bundle = db.get(ExercisePlannerFlowBundle, bundle_id)
+    if ex is None or bundle is None or bundle.exercise_id != ex.id:
+        return jsonify({"ok": False, "error": "not_found"}), 404
+    payload = request.get_json(silent=True)
+    raw_rows = payload.get("rows") if isinstance(payload, dict) else None
+    normalized = _normalize_planner_flow_table_rows(raw_rows)
+    bundle.flow_table_json = json.dumps(normalized, ensure_ascii=False)
+    bundle.updated_at = datetime.utcnow()
+    db.commit()
+    return jsonify({"ok": True, "row_count": len(normalized)})
 
 
 @bp.route("/planner/create-flow/<int:bundle_id>/assign-judge", methods=["POST"])
@@ -7370,7 +7467,7 @@ def planner_evaluation_list_approve(unit_key: str, item_id: int):
 
 # مساحة المحكمين — عناصر الشريط (المعرّف، العنوان، أيقونة Font Awesome)
 JUDGE_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
-    ("dilemmas", "قوائم المعاضل", "fa-file-pdf"),
+    ("dilemmas", "قوائم تقييم الإجراءات", "fa-file-pdf"),
     ("evaluation-lists", "قوائم التقييم", "fa-file-excel"),
     ("planner-flow-materials", "المجرى وتقييم الإجراءات", "fa-diagram-project"),
     ("visual-documentation", "التوثيق المرئي", "fa-photo-film"),
@@ -9020,7 +9117,8 @@ def _build_control_positives_negatives(
 def _control_exercise_performance_report(db, user: User) -> dict:
     """تقرير السيطرة الشامل وفق النموذج التشغيلي المعتمد في الصورة المرجعية.
 
-    ملاحظة: التصميم يُحافظ عليه كما هو، بينما تُحسب القيم من نتائج التقييم المحفوظة/المعتمدة.
+    ملاحظة: التصميم يُحافظ عليه كما هو. رسم المجموعات ومؤشر المتوسط العام
+    يعتمدان على النتائج المحفوظة؛ بقية بعض المؤشرات ما زالت من المعتمد.
     """
 
     def _ar_month_name(m: int) -> str:
@@ -9169,21 +9267,31 @@ def _control_exercise_performance_report(db, user: User) -> dict:
         if v is not None:
             approved_totals.append(float(v))
     overall_avg = _avg(approved_totals) or (_avg(scored_row_pcts) if scored_row_pcts else None)
-    overall_avg_i = int(round(overall_avg)) if overall_avg is not None else 0
+    saved_list_pcts: list[float] = []
+    for sr in saved_by_item.values():
+        sv = _evaluation_saved_total_pct(sr)
+        if sv is not None:
+            saved_list_pcts.append(float(sv))
+    saved_overall_avg = _avg(saved_list_pcts)
+    overall_avg_i = (
+        int(round(saved_overall_avg))
+        if saved_overall_avg is not None
+        else (int(round(overall_avg)) if overall_avg is not None else 0)
+    )
 
-    # متوسط كل وحدة (مجموعات) من العناصر المعتمدة
+    # متوسط كل وحدة (مجموعات) من عناصر التقييم المحفوظة (لا يشترط الاعتماد)
     by_unit_vals: dict[str, list[float]] = {}
     for it in eval_items:
-        sr = approved_by_item.get(int(getattr(it, "id", 0) or 0))
+        sr = saved_by_item.get(int(getattr(it, "id", 0) or 0))
         if sr is None:
             continue
-        uk = (getattr(it, "unit_level_key", "") or "").strip()
+        uk = (
+            (getattr(it, "unit_level_key", "") or getattr(sr, "unit_level_key", "") or "")
+            .strip()
+        )
         if not uk:
             continue
-        v = getattr(sr, "total_pct", None)
-        if v is None:
-            rows = [float(x) for x in (_eval_row_score_pct(r) for r in _parse_saved_eval_rows(sr.payload_json)) if x is not None]
-            v = (sum(rows) / len(rows)) if rows else None
+        v = _evaluation_saved_total_pct(sr)
         if v is None:
             continue
         by_unit_vals.setdefault(uk, []).append(float(v))
@@ -9200,20 +9308,10 @@ def _control_exercise_performance_report(db, user: User) -> dict:
         canon = _planner_bundle_eval_canonical_saved(db, ex0.id, int(action_row.id))
         if canon is None or not (getattr(canon, "payload_json", None) or "").strip():
             continue
-        uk = (getattr(bundle, "unit_level_key", "") or "").strip()
+        uk = (getattr(bundle, "unit_level_key", "") or getattr(canon, "unit_level_key", "") or "").strip()
         if not uk:
             continue
-        v = getattr(canon, "total_pct", None)
-        if v is None:
-            rows = [
-                float(x)
-                for x in (
-                    _eval_row_score_pct(r)
-                    for r in _parse_saved_eval_rows(canon.payload_json)
-                )
-                if x is not None
-            ]
-            v = (sum(rows) / len(rows)) if rows else None
+        v = _evaluation_saved_total_pct(canon)
         if v is None:
             continue
         by_unit_vals.setdefault(uk, []).append(float(v))
@@ -9229,24 +9327,37 @@ def _control_exercise_performance_report(db, user: User) -> dict:
         "#8a8f7a",
         "#7d8fa8",
     ]
+    unit_order = {row["key"]: idx for idx, row in enumerate(UNIT_LEVELS)}
     unit_avg_rows: list[dict] = []
-    for i, ul in enumerate(UNIT_LEVELS):
-        uk = (ul.get("key") or "").strip()
-        if not uk:
-            continue
+    seen_unit_keys: set[str] = set()
+
+    def _append_unit_avg_row(unit_key: str, sort_idx: int) -> None:
+        uk = (unit_key or "").strip()
+        if not uk or uk in seen_unit_keys:
+            return
         vals = by_unit_vals.get(uk) or []
         avg_u = _avg(vals)
         if avg_u is None:
-            continue
+            return
+        seen_unit_keys.add(uk)
         unit_avg_rows.append(
             {
                 "unit_key": uk,
-                "label": (ul.get("label") or uk),
+                "label": label_for_unit_level_key(uk, db) or uk,
                 "value": int(round(avg_u)),
                 "raw": float(avg_u),
-                "color": palette[i % len(palette)],
+                "color": palette[len(unit_avg_rows) % len(palette)],
+                "_sort": sort_idx,
             }
         )
+
+    for idx, ul in enumerate(UNIT_LEVELS):
+        _append_unit_avg_row(ul.get("key") or "", idx)
+    for uk in sorted(by_unit_vals.keys()):
+        _append_unit_avg_row(uk, unit_order.get(uk, 9000))
+    unit_avg_rows.sort(key=lambda r: (int(r.get("_sort", 9000)), r["label"]))
+    for row in unit_avg_rows:
+        row.pop("_sort", None)
     sorted_by_perf = sorted(
         unit_avg_rows, key=lambda r: float(r.get("raw", 0.0)), reverse=True
     )
@@ -12700,7 +12811,9 @@ def _ensure_information_bank_catalog_rows(db) -> None:
             r.sort_order = idx
             r.is_system = True
             changed = True
-    for bg in INFO_BANK_BRIGADE_GROUPS:
+    from app.ibank_ui import ibank_brigade_groups_for_page
+
+    for bg in ibank_brigade_groups_for_page():
         bg_key = bg["key"]
         for idx, row in enumerate(INFO_BANK_UNIT_LEVEL_TEMPLATES):
             catalog_key = unit_catalog_key_for_brigade(bg_key, row["key"])
@@ -12789,9 +12902,11 @@ def _information_bank_unit_levels(db, brigade_group: str | None = None) -> list[
 
 
 def _information_bank_brigade_units_map(db) -> dict[str, list[dict[str, str | bool]]]:
+    from app.ibank_ui import ibank_brigade_groups_for_page
+
     return {
         bg["key"]: _information_bank_unit_levels(db, bg["key"])
-        for bg in INFO_BANK_BRIGADE_GROUPS
+        for bg in ibank_brigade_groups_for_page()
     }
 
 
@@ -12979,7 +13094,9 @@ def admin_information_bank_phases_included_save():
 @bp.route("/admin/information-bank/units/included", methods=["POST"])
 def admin_information_bank_units_included_save():
     return_tab = (request.form.get("return_tab") or "units-bg-1").strip()
-    if return_tab not in {bg["tab"] for bg in INFO_BANK_BRIGADE_GROUPS}:
+    from app.ibank_ui import ibank_brigade_groups_for_page
+
+    if return_tab not in {bg["tab"] for bg in ibank_brigade_groups_for_page()}:
         return_tab = "units-bg-1"
     auth_resp = _ibank_included_save_auth_or_response(return_tab)
     if auth_resp is not None:
@@ -13002,8 +13119,16 @@ def admin_information_bank_units_included_save():
                     tab=return_tab,
                     err_msg="إلغاء الإدراج في التمرين يتطلب كلمة مرور إدارة النظام الصحيحة.",
                 )
+        from app.ibank_ui import unit_level_row_is_removed_brigade
+
         for row in rows:
-            row.included_in_exercise = (row.key or "").strip() in new_keys
+            key = (row.key or "").strip()
+            if unit_level_row_is_removed_brigade(
+                key=key, brigade_group=getattr(row, "brigade_group", None)
+            ):
+                row.included_in_exercise = False
+                continue
+            row.included_in_exercise = key in new_keys
         db.commit()
         from app.planning_catalog_sync import sync_planning_catalogs_from_db
 
@@ -13019,6 +13144,20 @@ def admin_information_bank_units_included_save():
             tab=return_tab,
             err_msg="حدث خطأ أثناء الحفظ. أعد المحاولة.",
         )
+
+
+def _reload_information_bank_catalog_module():
+    """إعادة تحميل كتالوج بنك المعلومات (debugpy لا يعيد تحميل Python تلقائياً)."""
+    import importlib
+    from app import information_bank_catalog as ibc
+
+    return importlib.reload(ibc)
+
+
+def _ibank_ui_brigade_groups() -> list[dict[str, str]]:
+    """مجموعات الألوية الظاهرة في الواجهة — دائماً من أحدث كتالوج على القرص."""
+    ibc = _reload_information_bank_catalog_module()
+    return ibc.info_bank_brigade_groups_for_ui()
 
 
 @bp.route("/admin/information-bank", methods=["GET"])
@@ -13037,37 +13176,69 @@ def admin_information_bank():
     unit_notes = {r.unit_level_key: r.notes for r in db.query(InformationBankUnitNote).all()}
     from app.info_bank_tree import build_tree_payload, ensure_all_information_bank_trees
 
-    ensure_all_information_bank_trees(db)
-    tree_event_flow = build_tree_payload(db, "event_flow")
-    tree_action_eval = build_tree_payload(db, "action_eval")
-    tree_dilemma_eval = build_tree_payload(db, "dilemma_eval")
+    tree_event_flow: list = []
+    tree_action_eval: list = []
+    tree_dilemma_eval: list = []
+    ibank_unit_labels = {
+        (u.get("key") or "").strip(): (u.get("label") or "").strip()
+        for u in UNIT_LEVELS
+        if (u.get("key") or "").strip()
+    }
+    try:
+        ensure_all_information_bank_trees(db)
+        tree_event_flow = build_tree_payload(db, "event_flow", unit_label_by_key=ibank_unit_labels)
+        tree_action_eval = build_tree_payload(
+            db, "action_eval", unit_label_by_key=ibank_unit_labels
+        )
+        tree_dilemma_eval = build_tree_payload(
+            db, "dilemma_eval", unit_label_by_key=ibank_unit_labels
+        )
+    except Exception as exc:
+        db.rollback()
+        current_app.logger.exception("information bank tree build failed: %s", exc)
     err = (request.args.get("err") or "").strip()[:2000]
     ok = (request.args.get("ok") or "").strip()[:500]
-    brigade_tabs = {bg["tab"] for bg in INFO_BANK_BRIGADE_GROUPS}
+    from app.ibank_ui import ibank_brigade_groups_for_page, is_removed_brigade_tab
+
+    ui_brigade_groups = ibank_brigade_groups_for_page()
+    brigade_tabs = {bg["tab"] for bg in ui_brigade_groups}
     active_tab = (request.args.get("tab") or "phases").strip()
+    if is_removed_brigade_tab(active_tab):
+        active_tab = "units-bg-1"
     allowed_tabs = {"phases", "event-flow", "action-eval", "dilemma-eval"} | brigade_tabs
     if active_tab not in allowed_tabs:
         active_tab = "phases"
-    return render_template(
-        "admin_information_bank.html",
-        **_ctx(
-            user,
-            training_phases=training_phases,
-            info_bank_brigade_groups=INFO_BANK_BRIGADE_GROUPS,
-            info_bank_brigade_units=info_bank_brigade_units,
-            phase_notes=phase_notes,
-            unit_notes=unit_notes,
-            tree_event_flow=tree_event_flow,
-            tree_action_eval=tree_action_eval,
-            tree_dilemma_eval=tree_dilemma_eval,
-            training_phase_label=lambda key: _information_bank_training_phase_label(db, key),
-            info_bank_unit_label=lambda key: _information_bank_unit_label(db, key),
-            error=err,
-            ok_msg=ok,
-            active_tab=active_tab,
-            information_bank_can_manage=can_manage_information_bank(user),
-        ),
+    from flask import make_response
+
+    resp = make_response(
+        render_template(
+            "admin_information_bank.html",
+            **_ctx(
+                user,
+                training_phases=training_phases,
+                info_bank_brigade_groups=ui_brigade_groups,
+                info_bank_brigade_units=info_bank_brigade_units,
+                phase_notes=phase_notes,
+                unit_notes=unit_notes,
+                tree_event_flow=tree_event_flow,
+                tree_action_eval=tree_action_eval,
+                tree_dilemma_eval=tree_dilemma_eval,
+                training_phase_label=lambda key: _information_bank_training_phase_label(
+                    db, key
+                ),
+                info_bank_unit_label=lambda key: _information_bank_unit_label(db, key),
+                error=err,
+                ok_msg=ok,
+                active_tab=active_tab,
+                information_bank_can_manage=can_manage_information_bank(user),
+                ibank_tree_unit_levels=list(UNIT_LEVELS),
+            ),
+        )
     )
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["X-Ibank-Ui-Build"] = "action-eval-unit-v7"
+    return resp
 
 
 @bp.route("/admin/information-bank/phase-notes", methods=["POST"])
@@ -13187,7 +13358,9 @@ def admin_information_bank_unit_add():
 
     label = (request.form.get("unit_label") or "").strip()[:300]
     tab = (request.form.get("brigade_tab") or "units-bg-1").strip()
-    if tab not in {bg["tab"] for bg in INFO_BANK_BRIGADE_GROUPS}:
+    from app.ibank_ui import ibank_brigade_groups_for_page, is_removed_brigade_tab
+
+    if is_removed_brigade_tab(tab) or tab not in {bg["tab"] for bg in ibank_brigade_groups_for_page()}:
         tab = "units-bg-1"
     bg_key = brigade_group_for_tab(tab)
     if not label:
@@ -13214,6 +13387,8 @@ def admin_information_bank_unit_add():
     from app.info_bank_tree import INFO_BANK_TREE_KINDS, ensure_information_bank_tree, get_or_create_folder
 
     for k in INFO_BANK_TREE_KINDS:
+        if k == "action_eval":
+            continue
         ensure_information_bank_tree(db, k)
         phase_nodes = (
             db.query(InformationBankTreeNode)
@@ -13247,7 +13422,9 @@ def admin_information_bank_unit_edit():
     key = (request.form.get("unit_key") or "").strip()
     label = (request.form.get("unit_label") or "").strip()[:300]
     tab = (request.form.get("brigade_tab") or "units-bg-1").strip()
-    if tab not in {bg["tab"] for bg in INFO_BANK_BRIGADE_GROUPS}:
+    from app.ibank_ui import ibank_brigade_groups_for_page, is_removed_brigade_tab
+
+    if is_removed_brigade_tab(tab) or tab not in {bg["tab"] for bg in ibank_brigade_groups_for_page()}:
         tab = "units-bg-1"
     ajax = (request.headers.get("X-Requested-With") or "").strip() == "XMLHttpRequest"
 
@@ -13291,7 +13468,9 @@ def admin_information_bank_unit_delete():
 
     key = (request.form.get("unit_key") or "").strip()
     tab = (request.form.get("brigade_tab") or "units-bg-1").strip()
-    if tab not in {bg["tab"] for bg in INFO_BANK_BRIGADE_GROUPS}:
+    from app.ibank_ui import ibank_brigade_groups_for_page, is_removed_brigade_tab
+
+    if is_removed_brigade_tab(tab) or tab not in {bg["tab"] for bg in ibank_brigade_groups_for_page()}:
         tab = "units-bg-1"
     db = g.db
     row = db.get(InformationBankUnitLevel, key)
@@ -13339,10 +13518,13 @@ def admin_information_bank_tree_upload():
     from flask import g
 
     from app.info_bank_tree import (
+        _is_phase_root_folder,
+        _unit_key_for_node,
         ensure_information_bank_tree,
         get_node,
         kind_tab,
         upload_files_to_parent,
+        upload_includes_subdirectory_paths,
     )
 
     db = g.db
@@ -13361,6 +13543,25 @@ def admin_information_bank_tree_upload():
     if parent is None or not parent.is_folder:
         return redirect(url_for("views.admin_information_bank", tab=tab, err="المجلد المستهدف غير صالح."))
     files = [x for x in request.files.getlist("files") if x and getattr(x, "filename", "").strip()]
+    if kind == "action_eval":
+        has_subdirs = upload_includes_subdirectory_paths(files)
+        if _is_phase_root_folder(parent):
+            if not has_subdirs:
+                return redirect(
+                    url_for(
+                        "views.admin_information_bank",
+                        tab=tab,
+                        err="حدّد مرحلة التمرين ثم «إرفاق مجلد» (مجلد كامل وليس ملفات متفرقة).",
+                    )
+                )
+        elif not _unit_key_for_node(db, parent) and not has_subdirs:
+            return redirect(
+                url_for(
+                    "views.admin_information_bank",
+                    tab=tab,
+                    err="اختر مستوى الوحدة من القائمة على المجلد المرفق، أو ارفق مجلداً فرعياً.",
+                )
+            )
     if not files:
         return redirect(url_for("views.admin_information_bank", tab=tab, err="اختر ملفاً أو مجلداً للإدراج."))
     added, errors = upload_files_to_parent(db, kind=kind, parent_id=parent_id, file_storages=files)
@@ -13402,6 +13603,39 @@ def admin_information_bank_tree_delete(node_id: int):
     ):
         return jsonify(ok=True, node_id=int(node_id), tab=tab)
     return redirect(url_for("views.admin_information_bank", tab=tab, ok="تم الحذف."))
+
+
+@bp.route("/admin/information-bank/tree/<int:node_id>/unit-level", methods=["POST"])
+def admin_information_bank_tree_unit_level(node_id: int):
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.info_bank_tree import kind_tab, set_folder_unit_level
+
+    db = g.db
+    kind = (request.form.get("kind") or "").strip()
+    if kind != "action_eval":
+        abort(400)
+    tab = kind_tab(kind)
+    unit_key = (request.form.get("unit_key") or "").strip()
+    row = db.get(InformationBankTreeNode, node_id)
+    is_folder = bool(row and row.is_folder)
+    try:
+        set_folder_unit_level(db, kind=kind, node_id=node_id, unit_key=unit_key)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        return redirect(
+            url_for("views.admin_information_bank", tab=tab, err=str(exc) or "تعذّر التعيين.")
+        )
+    ok_msg = (
+        "تم تعيين مستوى الوحدة وتطبيقه على المجلد وجميع محتوياته."
+        if is_folder
+        else "تم تعيين مستوى الوحدة للملف."
+    )
+    return redirect(url_for("views.admin_information_bank", tab=tab, ok=ok_msg))
 
 
 @bp.route("/admin/information-bank/tree/move", methods=["POST"])
@@ -13594,7 +13828,7 @@ def admin_information_bank_action_eval_upload():
     err_q = " ".join(errors)[:2000] if errors else ""
     if not added:
         return redirect(url_for("views.admin_information_bank", tab="action-eval", err=err_q or "لم تُضف أي ملف."))
-    ok_msg = f"تمت إضافة {added} ملف(ات) لتقييم الإجراءات."
+    ok_msg = f"تمت إضافة {added} ملف(ات) لقوائم تقييم الإجراءات."
     if err_q:
         return redirect(url_for("views.admin_information_bank", tab="action-eval", ok=ok_msg, err=f"تجاهل أو فشل بعض الملفات: {err_q}"))
     return redirect(url_for("views.admin_information_bank", tab="action-eval", ok=ok_msg))
