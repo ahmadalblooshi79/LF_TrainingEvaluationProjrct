@@ -1,0 +1,19 @@
+  Python: C:\Users\USER\Documents\GitHub\LF_TrainingEvaluationProjrct\.venv\Scripts\python.exe
+
+============================================================
+  LF Training Evaluation - server running
+============================================================
+  Port: 8005
+  Listen: 0.0.0.0 (LAN + Wi-Fi)
+
+  This PC:
+    http://127.0.0.1:8005/
+
+  Other devices (browser only, same network):
+    http://192.168.0.114:8005/
+    http://192.168.175.1:8005/
+    http://192.168.92.1:8005/
+============================================================
+
+ * Serving Flask app 'app'
+ * Debug mode: on

@@ -7345,9 +7345,9 @@ def planner_hub_section(slug: str):
     if slug_norm == "new-flow":
         return redirect(url_for("views.planner_flow_bundle_workspace"))
     if slug_norm == "new-evaluation-list":
-        return redirect(url_for("views.admin_evaluation_lists_home"))
+        return redirect(url_for("views.admin_evaluation_lists"))
     if slug_norm == "evaluation-lists":
-        return redirect(url_for("views.planner_evaluation_lists_home"))
+        return redirect(url_for("views.admin_evaluation_lists"))
     if slug_norm == "visual-documentation":
         return redirect(url_for("views.visual_documentation", from_planner=1))
     title = PLANNER_HUB_SLUGS.get(slug_norm)
@@ -10497,6 +10497,9 @@ def _sync_judges_from_roster(db, ex: Exercise) -> None:
     if ex is None:
         return
 
+    from app.planning_catalog_sync import sync_planning_catalogs_from_db
+
+    sync_planning_catalogs_from_db(db)
     trainees = (
         db.query(ExerciseRosterRow)
         .filter(
@@ -10675,7 +10678,9 @@ def admin_exercise_objectives():
     )
 
 
-def _zip_roster_rows_from_manual_form() -> list[tuple[str, str, str, str]]:
+def _zip_roster_rows_from_manual_form(db) -> list[tuple[str, str, str, str]]:
+    from app.evaluation_list_ibank_sync import _resolve_unit_key
+
     ms = request.form.getlist("roster_military")
     rs = request.form.getlist("roster_rank")
     ns = request.form.getlist("roster_full_name")
@@ -10686,7 +10691,8 @@ def _zip_roster_rows_from_manual_form() -> list[tuple[str, str, str, str]]:
         a = (ms[i] if i < len(ms) else "").strip()[:128]
         b = (rs[i] if i < len(rs) else "").strip()[:256]
         c = (ns[i] if i < len(ns) else "").strip()[:256]
-        uk = normalize_unit_level_key(uls[i] if i < len(uls) else "")
+        raw_ul = (uls[i] if i < len(uls) else "").strip()
+        uk = _resolve_unit_key(raw_ul, db) or normalize_unit_level_key(raw_ul)
         if a or b or c or uk:
             out.append((a, b, c, uk))
     return out[:500]
@@ -10706,6 +10712,10 @@ def _exercise_roster_page(roster_kind: str):
     from flask import g
 
     db = g.db
+
+    from app.planning_catalog_sync import sync_planning_catalogs_from_db
+
+    sync_planning_catalogs_from_db(db)
 
     meta = {
         ExerciseRosterKind.TRAINEE.value: {
@@ -10791,7 +10801,7 @@ def _exercise_roster_page(roster_kind: str):
     if source == "excel":
         tuples = parse_roster_rows_from_upload(request.files.get("roster_file"))
     else:
-        tuples = _zip_roster_rows_from_manual_form()
+        tuples = _zip_roster_rows_from_manual_form(db)
 
     if not tuples:
         return (
@@ -10824,9 +10834,10 @@ def _exercise_roster_page(roster_kind: str):
             )
         )
     db.commit()
-    # بعد حفظ قائمة المحكمين: أنشئ/حدّث حساباتهم وتخصيصاتهم تلقائياً
+    eval_sync_msg = ""
     if roster_kind == ExerciseRosterKind.JUDGE.value:
         _sync_judges_from_roster(db, ex)
+        eval_sync_msg = " تم ربط حسابات المحكمين بالوحدات."
     ex_show = (
         db.query(Exercise)
         .options(joinedload(Exercise.roster_rows))
@@ -10836,7 +10847,7 @@ def _exercise_roster_page(roster_kind: str):
     write_exercise_json_file(db, ex_show.id)
     return _render(
         error="",
-        ok_msg=f"تم حفظ {len(tuples)} صفاً. تم تحديث ملف JSON في مجلد التصدير.",
+        ok_msg=f"تم حفظ {len(tuples)} صفاً. تم تحديث ملف JSON في مجلد التصدير.{eval_sync_msg}",
         exercise=ex_show,
     )
 
@@ -10935,7 +10946,7 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
     current_exercise = _admin_current_workspace_exercise(db, user)
     if not row or row.unit_level_key != unit_key or (current_exercise is not None and row.exercise_id != current_exercise.id):
         abort(404)
-    list_url = url_for("views.admin_evaluation_lists", unit_key=unit_key)
+    list_url = _admin_eval_lists_page_url(unit_key, row.exercise_phase)
     if not (row.pdf_relpath or "").strip():
         return redirect(list_url)
     fspath = _evaluation_list_file_abspath(row.pdf_relpath)
@@ -11037,8 +11048,8 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
             item_title=row.text or "تقييم",
             evaluation_item_id=row.id,
             can_edit=not saved_is_approved,
-            close_href=url_for("views.admin_evaluation_lists", unit_key=unit_key),
-            subpage_close_fallback=url_for("views.admin_evaluation_lists", unit_key=unit_key),
+            close_href=list_url,
+            subpage_close_fallback=list_url,
             close_label="إغلاق والعودة",
             saved_row_id=saved_row_id,
             saved_payload=saved_payload,
@@ -11257,7 +11268,8 @@ def admin_evaluation_list_delete_item(unit_key: str, item_id: int):
         _unlink_evaluation_list_stored_file(row.pdf_relpath)
     db.delete(row)
     db.commit()
-    return redirect(url_for("views.admin_evaluation_lists", unit_key=unit_key))
+    phase = _normalized_exercise_phase(request.args.get("phase"))
+    return redirect(_admin_eval_lists_page_url(unit_key, phase))
 
 
 @bp.route(
@@ -11280,12 +11292,13 @@ def admin_evaluation_list_set_phase(unit_key: str, item_id: int):
     ):
         abort(404)
     phase = _normalized_exercise_phase(request.form.get("exercise_phase"))
+    page_phase = _normalized_exercise_phase(request.args.get("phase"))
     if not phase and EXERCISE_PHASE_OPTIONS:
-        return redirect(url_for("views.admin_evaluation_lists", unit_key=unit_key))
+        return redirect(_admin_eval_lists_page_url(unit_key, page_phase))
     if phase:
         _sync_evaluation_list_item_phase(db, row, phase)
     db.commit()
-    return redirect(url_for("views.admin_evaluation_lists", unit_key=unit_key))
+    return redirect(_admin_eval_lists_page_url(unit_key, phase or page_phase))
 
 
 @bp.route(
@@ -12342,214 +12355,359 @@ def admin_evaluation_list_clear(unit_key: str):
             _unlink_evaluation_list_stored_file(row.pdf_relpath)
     q.delete(synchronize_session=False)
     db.commit()
-    return redirect(url_for("views.admin_evaluation_lists", unit_key=unit_key))
+    return redirect(url_for("views.admin_evaluation_lists"))
+
+
+def _admin_eval_lists_page_url(unit_key: str = "", phase_key: str = "") -> str:
+    if phase_key:
+        return url_for("views.admin_evaluation_lists", phase=phase_key)
+    return url_for("views.admin_evaluation_lists")
+
+
+def _eval_lists_redirect(*, phase_key: str = "", ok: str = "", err: str = ""):
+    kwargs: dict[str, str] = {}
+    if phase_key:
+        kwargs["phase"] = phase_key
+    if ok:
+        kwargs["ok"] = ok
+    if err:
+        kwargs["err"] = err
+    return redirect(url_for("views.admin_evaluation_lists", **kwargs))
+
+
+def _parse_eval_list_publish_selections(form) -> dict[str, set[int]]:
+    """تحليل checkboxes: unit_key:node_id → {unit_key: {node_id, ...}}."""
+    from collections import defaultdict
+
+    out: dict[str, set[int]] = defaultdict(set)
+    for uk in form.getlist("publish_unit"):
+        uk = (uk or "").strip()
+        if uk:
+            out.setdefault(uk, set())
+    for raw in form.getlist("publish_sel"):
+        part = (raw or "").strip()
+        if ":" not in part:
+            continue
+        uk, nid_s = part.split(":", 1)
+        uk = uk.strip()
+        try:
+            nid = int(nid_s.strip())
+        except (TypeError, ValueError):
+            continue
+        if uk and nid > 0:
+            out[uk].add(nid)
+    return dict(out)
 
 
 def _render_admin_evaluation_lists(
     db,
     user: User,
-    *,
-    unit_key: str,
-    unit: dict[str, str] | None,
 ):
-    unit_key = (unit_key or "").strip()
+    from app.evaluation_list_ibank_sync import (
+        build_eval_list_display_groups,
+        effective_eval_list_phase_keys,
+        roster_eval_display_unit_keys,
+        roster_judge_unit_keys,
+        summarize_judge_roster_for_eval_lists,
+    )
+    from app.planning_catalog_sync import sync_planning_catalogs_from_db
+
+    sync_planning_catalogs_from_db(db)
+
     current_exercise = _admin_current_workspace_exercise(db, user)
+    error = (request.args.get("err") or "").strip()
+    ok_msg = (request.args.get("ok") or "").strip()
+    page_note = ""
+    judge_roster = {"total": 0, "with_unit": 0, "without_names": []}
 
-    def _display_name_for_upload(filename: str) -> str:
-        base = Path(filename or "").name.strip()
-        if not base:
-            return "تقييم"
-        return base[:2000]
+    eval_groups: list[dict] = []
+    roster_unit_count = 0
+    judge_unit_count = 0
+    published_count = 0
+    selected_phase = (request.args.get("phase") or "").strip()
+    phase_options: list[tuple[str, str]] = list(EXERCISE_PHASE_OPTIONS)
 
-    error = ""
-    ok_msg = ""
-    if request.method == "POST":
-        if unit is None:
-            error = (
-                "لا توجد مستويات وحدة في كتالوج التخطيط. "
-                "أضف مستويات الوحدة إلى الكتالوج أولاً (بنك المعلومات له كتالوج مستقل)."
-            )
-        phase = _normalized_exercise_phase(request.form.get("exercise_phase"))
-        if unit is not None and not phase and EXERCISE_PHASE_OPTIONS:
-            error = "اختر مرحلة التمرين قبل إضافة الملفات."
-        if unit is not None and not EXERCISE_PHASE_OPTIONS:
-            error = (
-                "لا توجد مراحل تمرين في كتالوج التخطيط. "
-                "أضف المراحل أولاً (بنك المعلومات له كتالوج مستقل)."
-            )
-        if unit is not None and current_exercise is None:
-            error = "لا يوجد تمرين حالي. أنشئ تمريناً جديداً قبل إدراج قوائم التقييم."
-            files = []
-        elif unit is not None and phase:
-            files = request.files.getlist("evaluation_lists_file")
-        else:
-            files = []
-        valid_files: list[tuple[bytes, str]] = []
-        for f in files:
-            if not f or not getattr(f, "filename", ""):
-                continue
-            try:
-                data = f.read()
-            except Exception:
-                error = "تعذر قراءة أحد الملفات."
-                break
-            fn = (getattr(f, "filename", "") or "").strip()
-            if not fn.lower().endswith(".xlsx"):
-                error = "يُقبل فقط ملف Excel بصيغة .xlsx."
-                break
-            if not _is_xlsx_bytes(data):
-                error = "الملف ليس مصنفاً Excel صالحاً (.xlsx)."
-                break
-            if len(data) > 30 * 1024 * 1024:
-                error = "الملف كبير جداً (الحد 30 ميغابايت لكل ملف)."
-                break
-            valid_files.append((data, _display_name_for_upload(f.filename)))
-        if unit is not None and phase and not error and not valid_files:
-            error = "اختر ملفاً بصيغة .xlsx (يمكن اختيار عدة ملفات دفعة واحدة)."
-        if unit is not None and phase and not error and valid_files:
-            stored_hashes = _hashes_of_unit_pdfs(
-                db,
-                EvaluationListPdfItem,
-                unit_key,
-                _evaluation_list_file_abspath,
-                current_exercise.id if current_exercise else None,
-                exercise_phase=phase,
-            )
-            batch_hashes: set[str] = set()
-            to_add: list[tuple[bytes, str]] = []
-            skipped_labels: list[str] = []
-            for data, label in valid_files:
-                h = hashlib.sha256(data).hexdigest()
-                if h in stored_hashes or h in batch_hashes:
-                    skipped_labels.append(label)
-                    continue
-                to_add.append((data, label))
-                batch_hashes.add(h)
-                stored_hashes.add(h)
-
-            if not to_add and skipped_labels:
-                error = (
-                    "لا يمكن الإضافة: الملف (أو الملفات) مطابق لملف موجود مسبقاً في القائمة الحالية "
-                    "(No Duplicate)."
-                )
-            elif to_add:
-                EVALUATION_LIST_XLSX_DIR.mkdir(parents=True, exist_ok=True)
-                udir = EVALUATION_LIST_XLSX_DIR / unit_key
-                udir.mkdir(parents=True, exist_ok=True)
-                mx = (
-                    db.query(func.max(EvaluationListPdfItem.sort_order))
-                    .filter(
-                        EvaluationListPdfItem.unit_level_key == unit_key,
-                        EvaluationListPdfItem.exercise_id == current_exercise.id,
-                    )
-                    .scalar()
-                )
-                start = (int(mx) if mx is not None else -1) + 1
-                n = 0
-                for i, (data, label) in enumerate(to_add):
-                    rel_name = f"{unit_key}/{uuid.uuid4().hex}.xlsx"
-                    full = (EVALUATION_LIST_XLSX_DIR / rel_name).resolve()
-                    try:
-                        full.parent.mkdir(parents=True, exist_ok=True)
-                        full.write_bytes(data)
-                    except OSError:
-                        error = "تعذر حفظ الملفات على الخادم."
-                        db.rollback()
-                        break
-                    db.add(
-                        EvaluationListPdfItem(
-                            exercise_id=current_exercise.id if current_exercise else None,
-                            exercise_phase=phase,
-                            unit_level_key=unit_key,
-                            unit_level_label=unit["label"],
-                            sort_order=start + i,
-                            text=label,
-                            pdf_relpath=rel_name.replace("\\", "/"),
-                        )
-                    )
-                    n += 1
-                if not error:
-                    db.commit()
-                    if n > 0 and current_exercise is not None:
-                        from app.notifications_service import notify_evaluation_lists_added
-
-                        notify_evaluation_lists_added(
-                            db,
-                            exercise_id=int(current_exercise.id),
-                            unit_key=unit_key,
-                            unit_label=unit["label"],
-                            n_files=n,
-                        )
-                        db.commit()
-                    if skipped_labels:
-                        preview = "، ".join(skipped_labels[:8])
-                        if len(skipped_labels) > 8:
-                            preview += " …"
-                        ok_msg = (
-                            f"تمت إضافة {n} ملفاً إلى قوائم التقييم لهذا المستوى. "
-                            f"تُرك دون إضافة — مكرر (No Duplicate): {preview}"
-                        )
-                    else:
-                        ok_msg = f"تمت إضافة {n} ملفاً إلى قوائم التقييم لهذا المستوى."
-
-    existing: list = []
-    if unit is not None:
-        existing_q = db.query(EvaluationListPdfItem).filter(
-            EvaluationListPdfItem.unit_level_key == unit_key
+    if current_exercise is not None:
+        ex_id = int(current_exercise.id)
+        judge_roster = summarize_judge_roster_for_eval_lists(db, ex_id)
+        judge_unit_count = len(roster_judge_unit_keys(db, ex_id))
+        roster_unit_count = len(roster_eval_display_unit_keys(db, ex_id))
+        if not phase_options:
+            roster_units = roster_eval_display_unit_keys(db, ex_id)
+            for pk in effective_eval_list_phase_keys(db, roster_units=roster_units):
+                phase_options.append((pk, exercise_phase_label(pk) or pk))
+        if not selected_phase and phase_options:
+            selected_phase = phase_options[0][0]
+        eval_groups, _meta = build_eval_list_display_groups(
+            db,
+            exercise_id=ex_id,
+            phase_key=selected_phase or None,
         )
-        if current_exercise is not None:
-            existing_q = existing_q.filter(EvaluationListPdfItem.exercise_id == current_exercise.id)
+        published_count = sum(
+            1
+            for g in eval_groups
+            for r in g.get("list_rows") or []
+            if r.get("published")
+        )
+        if judge_unit_count:
+            page_note = (
+                f"«نسخ الكل» يحدّث القوائم من البنك دون نشر. حدّد بالـ checkbox ثم «نشر القوائم». "
+                f"{judge_unit_count} مستوى وحدة (محكمين)، "
+                f"{published_count} قائمة منشورة في هذه المرحلة."
+            )
+        elif roster_unit_count:
+            page_note = (
+                f"وُجد {roster_unit_count} مستوى وحدة — "
+                f"عيّن مستوى الوحدة للمحكمين ثم انشر القوائم المختارة."
+            )
+        elif int(judge_roster.get("total") or 0) > 0:
+            page_note = (
+                f"يوجد {judge_roster['total']} محكم(ين) بدون مستوى وحدة — "
+                f"افتح قائمة المحكمين واختر مستوى الوحدة لكل محكم."
+            )
         else:
-            existing_q = existing_q.filter(EvaluationListPdfItem.exercise_id == -1)
-        existing = existing_q.order_by(
-            _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
-            EvaluationListPdfItem.sort_order,
-            EvaluationListPdfItem.id,
-        ).all()
-    unit_label = unit["label"] if unit else "—"
+            page_note = (
+                "أضف المحكمين مع مستوى الوحدة، ثم اختر المرحلة والقوائم للنشر."
+            )
+
     return render_template(
         "admin_evaluation_lists.html",
         **_ctx(
             user,
-            unit_levels=UNIT_LEVELS,
-            selected_unit_key=unit_key,
-            selected_unit_label=unit_label,
-            exercise_phase_options=EXERCISE_PHASE_OPTIONS,
-            upload_phase_default=DEFAULT_EXERCISE_PHASE,
-            items=existing,
+            eval_groups=eval_groups,
+            page_note=page_note,
+            roster_unit_count=roster_unit_count,
+            judge_unit_count=judge_unit_count,
+            judge_roster=judge_roster,
+            published_count=published_count,
+            selected_phase=selected_phase,
+            phase_options=phase_options,
+            current_exercise=current_exercise,
             error=error,
             ok_msg=ok_msg,
-            catalog_empty=not UNIT_LEVELS,
-            phases_catalog_empty=not EXERCISE_PHASE_OPTIONS,
+            phases_catalog_empty=not EXERCISE_PHASE_OPTIONS and not phase_options,
         ),
     )
 
 
-@bp.route("/admin/evaluation-lists/<unit_key>", methods=["GET", "POST"])
-def admin_evaluation_lists(unit_key: str):
-    user = get_current_user_optional()
-    if not user:
-        return redirect(f"/login?next=/admin/evaluation-lists/{unit_key}")
-    _require_planner_hub_catalog_access(user)
-    from flask import g
-
-    unit = _require_unit_level_row(unit_key)
-    return _render_admin_evaluation_lists(g.db, user, unit_key=unit_key, unit=unit)
-
-
-@bp.route("/admin/evaluation-lists")
-@bp.route("/admin/evaluation-lists/", methods=["GET", "POST"])
-def admin_evaluation_lists_home():
+@bp.route(
+    "/admin/evaluation-lists/<unit_key>/ibank/<int:node_id>/publish",
+    methods=["POST"],
+)
+def admin_evaluation_lists_publish_one_from_ibank(unit_key: str, node_id: int):
     user = get_current_user_optional()
     if not user:
         return redirect("/login?next=/admin/evaluation-lists")
     _require_planner_hub_catalog_access(user)
     from flask import g
 
-    first = default_unit_level_key()
-    if request.method == "GET" and first:
-        return redirect(url_for("views.admin_evaluation_lists", unit_key=first))
-    return _render_admin_evaluation_lists(g.db, user, unit_key="", unit=None)
+    from app.evaluation_list_ibank_sync import (
+        prepare_dilemma_eval_ibank_tree,
+        publish_single_eval_list_from_ibank,
+    )
+
+    db = g.db
+    ex = _admin_current_workspace_exercise(db, user)
+    phase_key = (request.form.get("phase_key") or request.args.get("phase") or "").strip()
+    if ex is None:
+        return _eval_lists_redirect(err="لا يوجد تمرين حالي.")
+    if not phase_key:
+        return _eval_lists_redirect(err="اختر مرحلة التمرين.")
+    try:
+        prepare_dilemma_eval_ibank_tree(db)
+        stats = publish_single_eval_list_from_ibank(
+            db,
+            exercise_id=int(ex.id),
+            phase_key=phase_key,
+            unit_key=unit_key,
+            node_id=int(node_id),
+        )
+    except Exception:
+        db.rollback()
+        return _eval_lists_redirect(
+            phase_key=phase_key,
+            err="تعذّر نشر القائمة.",
+        )
+    db.commit()
+    if int(stats.get("sources", 0)) == 0 and int(stats.get("added", 0)) == 0 and int(stats.get("updated", 0)) == 0:
+        return _eval_lists_redirect(
+            phase_key=phase_key,
+            err="لم يُنشر الملف. تحقق من بنك المعلومات.",
+        )
+    return _eval_lists_redirect(phase_key=phase_key, ok="تم نشر القائمة.")
+
+
+@bp.route(
+    "/admin/evaluation-lists/<unit_key>/ibank/<int:node_id>/withdraw",
+    methods=["POST"],
+)
+def admin_evaluation_lists_withdraw_one_from_ibank(unit_key: str, node_id: int):
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/admin/evaluation-lists")
+    _require_planner_hub_catalog_access(user)
+    from flask import g
+
+    from app.evaluation_list_ibank_sync import (
+        prepare_dilemma_eval_ibank_tree,
+        withdraw_single_eval_list_from_ibank,
+    )
+
+    db = g.db
+    ex = _admin_current_workspace_exercise(db, user)
+    phase_key = (request.form.get("phase_key") or request.args.get("phase") or "").strip()
+    if ex is None:
+        return _eval_lists_redirect(err="لا يوجد تمرين حالي.")
+    if not phase_key:
+        return _eval_lists_redirect(err="اختر مرحلة التمرين.")
+    try:
+        prepare_dilemma_eval_ibank_tree(db)
+        stats = withdraw_single_eval_list_from_ibank(
+            db,
+            exercise_id=int(ex.id),
+            phase_key=phase_key,
+            unit_key=unit_key,
+            node_id=int(node_id),
+        )
+    except Exception:
+        db.rollback()
+        return _eval_lists_redirect(
+            phase_key=phase_key,
+            err="تعذّر سحب نشر القائمة.",
+        )
+    db.commit()
+    if int(stats.get("removed", 0)) == 0:
+        return _eval_lists_redirect(
+            phase_key=phase_key,
+            err="القائمة غير منشورة أو تعذّر سحبها.",
+        )
+    return _eval_lists_redirect(phase_key=phase_key, ok="تم سحب نشر القائمة.")
+
+
+@bp.route("/admin/evaluation-lists/publish-phase-from-ibank", methods=["POST"])
+def admin_evaluation_lists_publish_phase_from_ibank():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/admin/evaluation-lists")
+    _require_planner_hub_catalog_access(user)
+    from flask import g
+
+    from app.evaluation_list_ibank_sync import (
+        publish_all_evaluation_lists_from_ibank,
+        publish_phase_evaluation_lists_from_ibank,
+        prepare_dilemma_eval_ibank_tree,
+    )
+
+    db = g.db
+    ex = _admin_current_workspace_exercise(db, user)
+    if ex is None:
+        return _eval_lists_redirect(err="لا يوجد تمرين حالي.")
+    phase_key = (request.form.get("phase_key") or "").strip()
+    if not phase_key:
+        return _eval_lists_redirect(err="اختر مرحلة التمرين.")
+    selections = _parse_eval_list_publish_selections(request.form)
+    if not selections:
+        return _eval_lists_redirect(
+            phase_key=phase_key,
+            err="لا توجد وحدات في هذه المرحلة للنشر.",
+        )
+    try:
+        prepare_dilemma_eval_ibank_tree(db)
+        stats = publish_phase_evaluation_lists_from_ibank(
+            db,
+            exercise_id=int(ex.id),
+            phase_key=phase_key,
+            selections_by_unit=selections,
+        )
+    except Exception:
+        db.rollback()
+        return _eval_lists_redirect(
+            phase_key=phase_key,
+            err="تعذّر نشر القوائم. أعد تشغيل الخادم من .venv ثم حاول مجدداً.",
+        )
+    db.commit()
+    n = int(stats.get("sources", 0))
+    if n == 0:
+        return _eval_lists_redirect(
+            phase_key=phase_key,
+            err="لم يُنشر أي ملف. تحقق من الاختيار وبنك المعلومات.",
+        )
+    pl = exercise_phase_label(phase_key) or phase_key
+    return _eval_lists_redirect(
+        phase_key=phase_key,
+        ok=f"تم نشر {n} قائمة لمرحلة «{pl}» (أُضيف {stats.get('added', 0)}، حُذف {stats.get('removed', 0)}).",
+    )
+
+
+@bp.route("/admin/evaluation-lists/publish-from-ibank", methods=["POST"])
+def admin_evaluation_lists_publish_from_ibank():
+    """توافق — يُوجّه إلى نشر المرحلة."""
+    return admin_evaluation_lists_publish_phase_from_ibank()
+
+
+@bp.route("/admin/evaluation-lists/publish-all-from-ibank", methods=["POST"])
+def admin_evaluation_lists_publish_all_from_ibank():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/admin/evaluation-lists")
+    _require_planner_hub_catalog_access(user)
+    from flask import g
+
+    from app.evaluation_list_ibank_sync import (
+        publish_all_evaluation_lists_from_ibank,
+        prepare_dilemma_eval_ibank_tree,
+    )
+
+    db = g.db
+    ex = _admin_current_workspace_exercise(db, user)
+    phase_key = (request.form.get("phase_key") or request.args.get("phase") or "").strip()
+    if ex is None:
+        return _eval_lists_redirect(err="لا يوجد تمرين حالي.")
+    try:
+        prepare_dilemma_eval_ibank_tree(db)
+        stats = publish_all_evaluation_lists_from_ibank(db, exercise_id=int(ex.id))
+    except Exception:
+        db.rollback()
+        return _eval_lists_redirect(
+            phase_key=phase_key,
+            err="تعذّر تحديث القوائم من البنك. أعد تشغيل الخادم من .venv ثم حاول مجدداً.",
+        )
+    db.commit()
+    avail = int(stats.get("sources_available", 0))
+    removed = int(stats.get("removed", 0))
+    if avail == 0:
+        return _eval_lists_redirect(
+            phase_key=phase_key,
+            err="لا توجد ملفات مطابقة في بنك المعلومات. تحقق من المراحل ومستويات الوحدة.",
+        )
+    ok_parts = [
+        f"تم تحديث {avail} قائمة من بنك المعلومات — جميعها غير منشورة.",
+        "حدّد القوائم ثم اضغط «نشر القوائم».",
+    ]
+    if removed:
+        ok_parts.insert(1, f"أُلغي نشر {removed} قائمة سابقة.")
+    return _eval_lists_redirect(
+        phase_key=phase_key,
+        ok=" ".join(ok_parts),
+    )
+
+
+@bp.route("/admin/evaluation-lists", methods=["GET"])
+@bp.route("/admin/evaluation-lists/", methods=["GET"])
+def admin_evaluation_lists():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/admin/evaluation-lists")
+    _require_planner_hub_catalog_access(user)
+    from flask import g
+
+    return _render_admin_evaluation_lists(g.db, user)
+
+
+@bp.route("/admin/evaluation-lists/<unit_key>", methods=["GET"])
+def admin_evaluation_lists_unit_redirect(unit_key: str):
+    """توافق خلفي — الصفحة الموحّدة بدون اختيار وحدة."""
+    return redirect(url_for("views.admin_evaluation_lists"))
 
 
 @bp.route("/admin/battle-organization", methods=["GET"])
@@ -13412,7 +13570,10 @@ def admin_information_bank():
             judge_name_by_unit=ibank_judge_names_by_unit,
         )
         tree_dilemma_eval = build_tree_payload(
-            db, "dilemma_eval", unit_label_by_key=ibank_unit_labels
+            db,
+            "dilemma_eval",
+            unit_label_by_key=ibank_unit_labels,
+            judge_name_by_unit=ibank_judge_names_by_unit,
         )
     except Exception as exc:
         db.rollback()
@@ -13744,6 +13905,7 @@ def admin_information_bank_tree_upload():
         _unit_key_for_node,
         ensure_information_bank_tree,
         get_node,
+        is_unit_eval_tree_kind,
         kind_tab,
         upload_files_to_parent,
         upload_includes_subdirectory_paths,
@@ -13765,7 +13927,7 @@ def admin_information_bank_tree_upload():
     if parent is None or not parent.is_folder:
         return redirect(url_for("views.admin_information_bank", tab=tab, err="المجلد المستهدف غير صالح."))
     files = [x for x in request.files.getlist("files") if x and getattr(x, "filename", "").strip()]
-    if kind == "action_eval":
+    if is_unit_eval_tree_kind(kind):
         has_subdirs = upload_includes_subdirectory_paths(files)
         if _is_phase_root_folder(parent):
             if not has_subdirs:
@@ -13834,11 +13996,11 @@ def admin_information_bank_tree_unit_level(node_id: int):
         abort(403)
     from flask import g
 
-    from app.info_bank_tree import kind_tab, set_folder_unit_level
+    from app.info_bank_tree import kind_tab, set_folder_unit_level, is_unit_eval_tree_kind
 
     db = g.db
     kind = (request.form.get("kind") or "").strip()
-    if kind != "action_eval":
+    if not is_unit_eval_tree_kind(kind):
         abort(400)
     tab = kind_tab(kind)
     unit_key = (request.form.get("unit_key") or "").strip()
@@ -13853,7 +14015,7 @@ def admin_information_bank_tree_unit_level(node_id: int):
             url_for("views.admin_information_bank", tab=tab, err=str(exc) or "تعذّر التعيين.")
         )
     ok_msg = (
-        "تم تعيين مستوى الوحدة وتطبيقه على المجلد وجميع محتوياته."
+        "تم تعيين مستوى الوحدة لهذا المجلد ومحتوياته (المجلدات الفرعية ذات التعيين الخاص تبقى كما هي)."
         if is_folder
         else "تم تعيين مستوى الوحدة للملف."
     )
@@ -13867,7 +14029,7 @@ def admin_information_bank_tree_move():
         return jsonify(ok=False, error="غير مسموح."), 403
     from flask import g
 
-    from app.info_bank_tree import move_tree_node
+    from app.info_bank_tree import reorder_tree_sibling, reorder_tree_sibling_step
 
     data = request.get_json(force=True, silent=True) or {}
     kind = (data.get("kind") or "").strip()
@@ -13877,15 +14039,26 @@ def admin_information_bank_tree_move():
         nid = int(data.get("node_id"))
     except (TypeError, ValueError):
         return jsonify(ok=False, error="بيانات غير صالحة."), 400
-    parent_raw = data.get("parent_id")
-    try:
-        pid = int(parent_raw) if parent_raw is not None and parent_raw != "" else 0
-    except (TypeError, ValueError):
-        return jsonify(ok=False, error="بيانات غير صالحة."), 400
-    parent_id = None if pid < 1 else pid
+    direction = (data.get("direction") or "").strip().lower()
     db = g.db
     try:
-        move_tree_node(db, kind=kind, node_id=nid, parent_id=parent_id)
+        if direction in ("up", "down"):
+            reorder_tree_sibling_step(
+                db, kind=kind, node_id=nid, direction=direction
+            )
+        else:
+            try:
+                anchor_id = int(data.get("anchor_id"))
+            except (TypeError, ValueError):
+                return jsonify(ok=False, error="بيانات غير صالحة."), 400
+            position = (data.get("position") or "before").strip().lower()
+            reorder_tree_sibling(
+                db,
+                kind=kind,
+                node_id=nid,
+                anchor_id=anchor_id,
+                position=position,
+            )
         db.commit()
     except ValueError as exc:
         db.rollback()
@@ -14127,7 +14300,7 @@ def admin_information_bank_dilemma_eval_upload():
     err_q = " ".join(errors)[:2000] if errors else ""
     if not added:
         return redirect(url_for("views.admin_information_bank", tab="dilemma-eval", err=err_q or "لم تُضف أي ملف."))
-    ok_msg = f"تمت إضافة {added} ملف(ات) لتقييم المعاضل."
+    ok_msg = f"تمت إضافة {added} ملف(ات) لقوائم التقييم."
     if err_q:
         return redirect(url_for("views.admin_information_bank", tab="dilemma-eval", ok=ok_msg, err=f"تجاهل أو فشل بعض الملفات: {err_q}"))
     return redirect(url_for("views.admin_information_bank", tab="dilemma-eval", ok=ok_msg))
@@ -14148,7 +14321,33 @@ def admin_information_bank_dilemma_eval_delete(item_id: int):
         _unlink_info_bank_file("dilemma_eval", row.file_relpath)
     db.delete(row)
     db.commit()
-    return redirect(url_for("views.admin_information_bank", tab="dilemma-eval", ok="تم حذف قائمة تقييم المعاضل."))
+    return redirect(url_for("views.admin_information_bank", tab="dilemma-eval", ok="تم حذف قائمة التقييم."))
+
+
+@bp.route("/admin/information-bank/eval-list/purge-all", methods=["POST"])
+def admin_information_bank_eval_list_purge_all():
+    """مسح جميع محتويات تبويب «قوائم التقييم» (شجرة dilemma_eval)."""
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.info_bank_tree import kind_tab, purge_information_bank_tree
+
+    db = g.db
+    kind = (request.form.get("kind") or "dilemma_eval").strip()
+    if kind != "dilemma_eval":
+        abort(400)
+    tab = kind_tab(kind)
+    stats = purge_information_bank_tree(db, kind)
+    db.commit()
+    parts = [f"{stats.get('tree_nodes', 0)} عنصر شجرة"]
+    if stats.get("legacy_rows"):
+        parts.append(f"{stats['legacy_rows']} ملف قديم")
+    if stats.get("suppressions"):
+        parts.append(f"{stats['suppressions']} تثبيت حذف")
+    msg = f"تم مسح تبويب قوائم التقييم بالكامل ({'، '.join(parts)})"
+    return redirect(url_for("views.admin_information_bank", tab=tab, ok=msg))
 
 
 @bp.route("/admin/information-bank/file/event-flow/<int:item_id>", methods=["GET"])

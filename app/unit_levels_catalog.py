@@ -63,8 +63,6 @@ def label_for_unit_level_key(key: str | None, db: Session | None = None) -> str:
     for row in UNIT_LEVELS:
         if row["key"] == k:
             return row["label"]
-    if unit_level_row_is_removed_brigade(key=k):
-        return ""
     label = info_bank_unit_label(k)
     if label:
         return label

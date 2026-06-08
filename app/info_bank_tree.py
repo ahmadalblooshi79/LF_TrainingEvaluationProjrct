@@ -31,6 +31,11 @@ from app.models.domain import (
 )
 
 INFO_BANK_TREE_KINDS = ("event_flow", "action_eval", "dilemma_eval")
+INFO_BANK_UNIT_EVAL_TREE_KINDS = frozenset({"action_eval", "dilemma_eval"})
+
+
+def is_unit_eval_tree_kind(kind: str) -> bool:
+    return kind in INFO_BANK_UNIT_EVAL_TREE_KINDS
 
 # المراحل الرئيسية الثلاث المطلوبة في الشجرة
 PRIMARY_PHASE_KEYS = ("preparation", "opening", "battle_exposure")
@@ -366,51 +371,78 @@ def _unit_key_for_node(db: Session, node: InformationBankTreeNode) -> str:
 def _apply_catalog_keys_from_parent(
     db: Session, row: InformationBankTreeNode, parent: InformationBankTreeNode | None
 ) -> None:
+    """تعبئة مفاتيح الكتالوج الناقصة فقط — دون مسح تعيين مستوى وحدة صريح على العنصر."""
     if parent is None:
         return
     if _is_phase_root_folder(parent):
-        row.catalog_phase_key = (parent.catalog_phase_key or "").strip()[:64]
-        row.catalog_unit_key = (row.catalog_unit_key or "").strip()[:128]
+        pk = (parent.catalog_phase_key or "").strip()[:64]
+        if not row.is_folder and pk and not (row.catalog_phase_key or "").strip():
+            row.catalog_phase_key = pk[:64]
         return
     pk = _phase_key_for_node(db, parent)
     uk = _unit_key_for_node(db, parent)
-    if pk:
-        row.catalog_phase_key = pk[:64]
-    if uk:
+    if uk and not (row.catalog_unit_key or "").strip():
         row.catalog_unit_key = uk[:128]
+    if pk and not row.is_folder and not (row.catalog_phase_key or "").strip():
+        row.catalog_phase_key = pk[:64]
 
 
 def _propagate_catalog_to_subtree(
     db: Session, root_id: int, *, phase_key: str, unit_key: str
 ) -> None:
+    """تطبيق مستوى الوحدة على المحتوى التابع — مع احترام تعيينات المجلدات الفرعية."""
     pk = (phase_key or "").strip()
     uk = (unit_key or "").strip()
-    queue = [int(root_id)]
-    seen: set[int] = set()
+    queue: list[tuple[int, str]] = []
+    for ch in (
+        db.query(InformationBankTreeNode)
+        .filter(InformationBankTreeNode.parent_id == int(root_id))
+        .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
+        .all()
+    ):
+        if ch.is_folder and not _is_phase_root_folder(ch):
+            own_uk = (ch.catalog_unit_key or "").strip()
+            eff_uk = own_uk or uk
+            if not own_uk and uk:
+                ch.catalog_unit_key = uk[:128]
+            ch.catalog_phase_key = ""
+            queue.append((int(ch.id), eff_uk))
+        elif not ch.is_folder:
+            if uk:
+                ch.catalog_unit_key = uk[:128]
+            if pk:
+                ch.catalog_phase_key = pk[:64]
+        else:
+            queue.append((int(ch.id), uk))
+
+    seen: set[int] = {int(root_id)}
     while queue:
-        nid = queue.pop(0)
+        nid, eff_uk = queue.pop(0)
         if nid in seen:
             continue
         seen.add(nid)
-        children = (
+        for ch in (
             db.query(InformationBankTreeNode)
             .filter(InformationBankTreeNode.parent_id == nid)
             .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
             .all()
-        )
-        for ch in children:
-            if ch.is_folder:
-                if not _is_phase_root_folder(ch):
-                    ch.catalog_unit_key = uk[:128]
+        ):
+            if ch.is_folder and not _is_phase_root_folder(ch):
+                own_uk = (ch.catalog_unit_key or "").strip()
+                child_eff = own_uk or eff_uk
+                if not own_uk and eff_uk:
+                    ch.catalog_unit_key = eff_uk[:128]
                 ch.catalog_phase_key = ""
-            else:
-                ch.catalog_unit_key = uk[:128]
-                ch.catalog_phase_key = pk[:64]
-            queue.append(int(ch.id))
+                queue.append((int(ch.id), child_eff))
+            elif not ch.is_folder:
+                if eff_uk:
+                    ch.catalog_unit_key = eff_uk[:128]
+                if pk:
+                    ch.catalog_phase_key = pk[:64]
 
 
-def _action_eval_show_unit_select(db: Session, node: InformationBankTreeNode) -> bool:
-    if node.kind != "action_eval" or _is_phase_root_folder(node):
+def _unit_eval_show_unit_select(db: Session, node: InformationBankTreeNode) -> bool:
+    if not is_unit_eval_tree_kind(node.kind) or _is_phase_root_folder(node):
         return False
     return bool(_phase_key_for_node(db, node))
 
@@ -419,7 +451,7 @@ def set_folder_unit_level(
     db: Session, *, kind: str, node_id: int, unit_key: str
 ) -> None:
     """تعيين مستوى الوحدة لعنصر داخل مرحلة (مجلد يُطبَّق على محتوياته، ملف يُحفظ له وحده)."""
-    if kind != "action_eval":
+    if not is_unit_eval_tree_kind(kind):
         raise ValueError("unsupported kind")
     row = get_node(db, node_id, kind)
     if row is None:
@@ -595,20 +627,22 @@ def _merge_duplicate_phase_root_folders(db: Session, kind: str) -> bool:
         )
         for ch in children:
             ch.parent_id = int(canon.id)
-            if kind == "action_eval":
+            if is_unit_eval_tree_kind(kind):
                 _apply_catalog_keys_from_parent(db, ch, canon)
         db.delete(root)
         changed = True
     return changed
 
 
-def _backfill_action_eval_folder_catalog(db: Session) -> bool:
+def _backfill_unit_eval_folder_catalog(db: Session, kind: str) -> bool:
     """تعزيز سياق المرحلة/الوحدة على المجلدات الفرعية القديمة."""
+    if not is_unit_eval_tree_kind(kind):
+        return False
     changed = False
     phase_roots = (
         db.query(InformationBankTreeNode)
         .filter(
-            InformationBankTreeNode.kind == "action_eval",
+            InformationBankTreeNode.kind == kind,
             InformationBankTreeNode.parent_id.is_(None),
             InformationBankTreeNode.is_folder.is_(True),
         )
@@ -706,13 +740,14 @@ def _hoist_children_from_unit_folder(
             ch.catalog_phase_key = pk[:64] if uk else ""
 
 
-def repair_action_eval_tree(db: Session) -> None:
-    """إصلاح شجرة تقييم الإجراءات: ربط مجلدات المراحل القديمة وتسطيح مجلدات الوحدات."""
-    kind = "action_eval"
+def repair_unit_eval_tree(db: Session, kind: str) -> None:
+    """إصلاح شجرة قوائم التقييم: ربط مجلدات المراحل القديمة وتسطيح مجلدات الوحدات."""
+    if not is_unit_eval_tree_kind(kind):
+        return
     changed = _link_orphan_phase_root_folders(db, kind)
     if _merge_duplicate_phase_root_folders(db, kind):
         changed = True
-    if _backfill_action_eval_folder_catalog(db):
+    if _backfill_unit_eval_folder_catalog(db, kind):
         changed = True
     phase_roots = (
         db.query(InformationBankTreeNode)
@@ -794,7 +829,7 @@ def ensure_information_bank_tree(db: Session, kind: str) -> None:
             phase_node.sort_order = ph.sort_order
             changed = True
         for un in units:
-            if kind == "action_eval":
+            if is_unit_eval_tree_kind(kind):
                 continue
             if _is_tree_suppressed(
                 db,
@@ -824,7 +859,7 @@ def ensure_information_bank_tree(db: Session, kind: str) -> None:
                 changed = True
     if changed:
         db.commit()
-    if kind == "action_eval":
+    if is_unit_eval_tree_kind(kind):
         if _link_orphan_phase_root_folders(db, kind):
             db.commit()
 
@@ -833,7 +868,8 @@ def ensure_all_information_bank_trees(db: Session) -> None:
     for k in INFO_BANK_TREE_KINDS:
         ensure_information_bank_tree(db, k)
         migrate_legacy_flat_files(db, k)
-    repair_action_eval_tree(db)
+    for k in INFO_BANK_UNIT_EVAL_TREE_KINDS:
+        repair_unit_eval_tree(db, k)
 
 
 def get_node(db: Session, node_id: int, kind: str | None = None) -> InformationBankTreeNode | None:
@@ -870,7 +906,7 @@ def get_or_create_folder(
         q = q.filter(InformationBankTreeNode.catalog_unit_key == catalog_unit_key)
     existing = q.first()
     if existing:
-        if kind == "action_eval" and parent_id is not None:
+        if is_unit_eval_tree_kind(kind) and parent_id is not None:
             parent = get_node(db, parent_id, kind)
             if parent is not None:
                 _apply_catalog_keys_from_parent(db, existing, parent)
@@ -886,7 +922,7 @@ def get_or_create_folder(
         is_system=is_system,
     )
     parent = get_node(db, parent_id, kind) if parent_id else None
-    if kind == "action_eval" and parent is not None:
+    if is_unit_eval_tree_kind(kind) and parent is not None:
         if not (catalog_unit_key or "").strip():
             _apply_catalog_keys_from_parent(db, row, parent)
     db.add(row)
@@ -899,6 +935,12 @@ def apply_unit_key_to_action_eval_folder(
 ) -> None:
     """تعيين مستوى الوحدة لمجلد داخل مرحلة (وليس مجلد مرحلة التمرين الجذر)."""
     set_folder_unit_level(db, kind="action_eval", node_id=node_id, unit_key=unit_key)
+
+
+def apply_unit_key_to_eval_list_folder(
+    db: Session, *, kind: str, node_id: int, unit_key: str
+) -> None:
+    set_folder_unit_level(db, kind=kind, node_id=node_id, unit_key=unit_key)
 
 
 def add_custom_folder(
@@ -928,7 +970,7 @@ def add_custom_folder(
         catalog_phase_key=inherit_pk if inherit_pk and not effective_uk else "",
         catalog_unit_key=effective_uk,
     )
-    if kind == "action_eval" and effective_uk:
+    if is_unit_eval_tree_kind(kind) and effective_uk:
         phase_key = _phase_key_for_node(db, row) or inherit_pk
         if phase_key and not _is_phase_root_folder(row):
             row.catalog_unit_key = effective_uk[:128]
@@ -983,6 +1025,131 @@ def delete_node(db: Session, node: InformationBankTreeNode) -> None:
     db.delete(node)
 
 
+def _siblings_ordered(
+    db: Session, *, kind: str, parent_id: int | None
+) -> list[InformationBankTreeNode]:
+    return (
+        db.query(InformationBankTreeNode)
+        .filter(
+            InformationBankTreeNode.kind == kind,
+            InformationBankTreeNode.parent_id == parent_id,
+        )
+        .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
+        .all()
+    )
+
+
+def _apply_unit_eval_parent_context(
+    db: Session, *, kind: str, row: InformationBankTreeNode, parent_id: int | None
+) -> None:
+    """تحديث سياق المرحلة/الوحدة بعد تغيير الأب."""
+    if not is_unit_eval_tree_kind(kind):
+        return
+    dest_parent = get_node(db, parent_id, kind) if parent_id else None
+    if row.is_folder:
+        if dest_parent is not None:
+            _apply_catalog_keys_from_parent(db, row, dest_parent)
+            uk = _unit_key_for_node(db, row)
+            pk = _phase_key_for_node(db, row)
+            if uk:
+                _propagate_catalog_to_subtree(
+                    db, int(row.id), phase_key=pk, unit_key=uk
+                )
+        else:
+            _clear_catalog_keys_subtree(db, int(row.id))
+    elif dest_parent is not None:
+        _apply_catalog_keys_from_parent(db, row, dest_parent)
+    else:
+        row.catalog_phase_key = ""
+        row.catalog_unit_key = ""
+
+
+def reorder_tree_sibling_step(
+    db: Session,
+    *,
+    kind: str,
+    node_id: int,
+    direction: str,
+) -> None:
+    """تحريك مجلد خطوة واحدة لأعلى أو لأسفل بين أشقائه."""
+    row = get_node(db, node_id, kind)
+    if row is None:
+        raise ValueError("العنصر غير موجود.")
+    if not row.is_folder:
+        raise ValueError("يُعاد ترتيب المجلدات فقط.")
+    step = (direction or "").strip().lower()
+    if step not in ("up", "down"):
+        raise ValueError("اتجاه غير صالح.")
+    siblings = _siblings_ordered(db, kind=kind, parent_id=row.parent_id)
+    if len(siblings) < 2:
+        return
+    idx = next((i for i, s in enumerate(siblings) if int(s.id) == int(row.id)), None)
+    if idx is None:
+        return
+    swap_idx = idx - 1 if step == "up" else idx + 1
+    if swap_idx < 0 or swap_idx >= len(siblings):
+        return
+    cur = siblings[idx]
+    other = siblings[swap_idx]
+    cur.sort_order, other.sort_order = other.sort_order, cur.sort_order
+    db.flush()
+
+
+def reorder_tree_sibling(
+    db: Session,
+    *,
+    kind: str,
+    node_id: int,
+    anchor_id: int,
+    position: str,
+) -> None:
+    """إعادة ترتيب مجلد بين أشقائه فقط (دون تغيير الأب أو الهيكل)."""
+    row = get_node(db, node_id, kind)
+    anchor = get_node(db, anchor_id, kind)
+    if row is None or anchor is None:
+        raise ValueError("العنصر غير موجود.")
+    if not row.is_folder:
+        raise ValueError("يُعاد ترتيب المجلدات فقط.")
+    if int(row.id) == int(anchor.id):
+        return
+    if row.parent_id != anchor.parent_id:
+        raise ValueError("المجلدان ليسا في نفس المستوى.")
+    pos = (position or "").strip().lower()
+    if pos not in ("before", "after"):
+        raise ValueError("موضع الإدراج غير صالح.")
+    siblings = _siblings_ordered(db, kind=kind, parent_id=row.parent_id)
+    ordered = [s for s in siblings if int(s.id) != int(row.id)]
+    anchor_idx = next(
+        (i for i, s in enumerate(ordered) if int(s.id) == int(anchor.id)),
+        None,
+    )
+    if anchor_idx is None:
+        return
+    insert_at = anchor_idx if pos == "before" else anchor_idx + 1
+    ordered.insert(insert_at, row)
+    for i, s in enumerate(ordered):
+        s.sort_order = i
+    db.flush()
+
+
+def insert_tree_node_at(
+    db: Session,
+    *,
+    kind: str,
+    node_id: int,
+    anchor_id: int,
+    position: str,
+) -> None:
+    """توافق خلفي — إعادة ترتيب بين الأشقاء فقط."""
+    reorder_tree_sibling(
+        db,
+        kind=kind,
+        node_id=node_id,
+        anchor_id=anchor_id,
+        position=position,
+    )
+
+
 def move_tree_node(
     db: Session, *, kind: str, node_id: int, parent_id: int | None
 ) -> None:
@@ -1009,24 +1176,9 @@ def move_tree_node(
     row.parent_id = new_parent_id
     db.flush()
     row.sort_order = _next_sort(db, kind, new_parent_id)
-    dest_parent = get_node(db, new_parent_id, kind) if new_parent_id else None
-    if row.is_folder:
-        if kind == "action_eval" and dest_parent is not None:
-            _apply_catalog_keys_from_parent(db, row, dest_parent)
-            uk = _unit_key_for_node(db, row)
-            pk = _phase_key_for_node(db, row)
-            if uk:
-                _propagate_catalog_to_subtree(
-                    db, int(row.id), phase_key=pk, unit_key=uk
-                )
-        else:
-            _clear_catalog_keys_subtree(db, int(row.id))
-    else:
-        if kind == "action_eval" and dest_parent is not None:
-            _apply_catalog_keys_from_parent(db, row, dest_parent)
-        else:
-            row.catalog_phase_key = ""
-            row.catalog_unit_key = ""
+    _apply_unit_eval_parent_context(
+        db, kind=kind, row=row, parent_id=new_parent_id
+    )
 
 
 def _write_file_bytes(
@@ -1058,7 +1210,7 @@ def _write_file_bytes(
         sort_order=_next_sort(db, kind, parent_id),
         is_system=False,
     )
-    if kind == "action_eval":
+    if is_unit_eval_tree_kind(kind):
         _apply_catalog_keys_from_parent(db, row, parent)
     db.add(row)
     return row
@@ -1197,8 +1349,8 @@ def build_tree_payload(
             "effective_unit_key": eff_uk,
             "unit_level_label": labels.get(eff_uk, "") if eff_uk else "",
             "judge_name": judge_map.get(eff_uk, "") if eff_uk else "",
-            "show_unit_select": _action_eval_show_unit_select(db, n)
-            if kind == "action_eval"
+            "show_unit_select": _unit_eval_show_unit_select(db, n)
+            if is_unit_eval_tree_kind(kind)
             else False,
         }
         if not n.is_folder and n.file_relpath:
@@ -1251,6 +1403,49 @@ def migrate_legacy_flat_files(db: Session, kind: str) -> None:
             )
         )
     db.commit()
+
+
+def purge_information_bank_tree(db: Session, kind: str) -> dict[str, int]:
+    """حذف جميع عقد الشجرة (مراحل، وحدات، ملفات) والسجلات المسطحة القديمة لنوع معيّن."""
+    if kind not in INFO_BANK_TREE_KINDS:
+        raise ValueError("invalid kind")
+    from app.database import ensure_information_bank_tree_suppressions_table
+
+    ensure_information_bank_tree_suppressions_table()
+    tree_count = (
+        db.query(InformationBankTreeNode)
+        .filter(InformationBankTreeNode.kind == kind)
+        .count()
+    )
+    for row in (
+        db.query(InformationBankTreeNode)
+        .filter(InformationBankTreeNode.kind == kind)
+        .all()
+    ):
+        if not row.is_folder and row.file_relpath:
+            unlink_node_file(row.kind, row.file_relpath)
+        db.delete(row)
+    legacy_deleted = 0
+    model = _LEGACY_MODEL_BY_KIND.get(kind)
+    if model is not None:
+        for row in db.query(model).all():
+            rel = (getattr(row, "file_relpath", None) or "").strip()
+            if rel:
+                unlink_node_file(kind, rel)
+            db.delete(row)
+            legacy_deleted += 1
+    sup_result = db.execute(
+        text(
+            "DELETE FROM information_bank_tree_suppressions WHERE kind = :kind"
+        ),
+        {"kind": kind},
+    )
+    db.flush()
+    return {
+        "tree_nodes": int(tree_count),
+        "legacy_rows": legacy_deleted,
+        "suppressions": int(sup_result.rowcount or 0),
+    }
 
 
 if __name__ == "__main__":

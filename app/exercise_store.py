@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select, text
 from sqlalchemy.orm import Session, joinedload
 
 from app import exercise_options as ex_opts
@@ -900,14 +900,155 @@ def _remove_exercise_upload_files(db: Session, exercise_id: int) -> None:
         _safe_unlink_under(EVAL_CRITERION_MEDIA_DIR, rel)
 
 
+def _ensure_sqlite_foreign_keys(db: Session) -> None:
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name == "sqlite":
+        db.execute(text("PRAGMA foreign_keys=ON"))
+
+
+def _purge_exercise_database_rows(db: Session, exercise_id: int) -> None:
+    """حذف كل صفوف بيانات التمرين من القاعدة (دون بنك المعلومات ولا المستخدمين)."""
+    _ensure_sqlite_foreign_keys(db)
+    eid = int(exercise_id)
+    bundle_ids = list(
+        db.scalars(
+            select(ExercisePlannerFlowBundle.id).where(
+                ExercisePlannerFlowBundle.exercise_id == eid
+            )
+        )
+    )
+    db.execute(
+        delete(PlannerFlowBundleEvalSavedResult).where(
+            PlannerFlowBundleEvalSavedResult.exercise_id == eid
+        )
+    )
+    db.execute(
+        delete(EvaluationListSavedResult).where(
+            EvaluationListSavedResult.exercise_id == eid
+        )
+    )
+    db.execute(
+        delete(EvaluationCriterionMedia).where(
+            EvaluationCriterionMedia.exercise_id == eid
+        )
+    )
+    db.execute(
+        delete(AnalystFinalEvaluationAllocatedMax).where(
+            AnalystFinalEvaluationAllocatedMax.exercise_id == eid
+        )
+    )
+    db.execute(
+        delete(AnalystFinalEvaluationPhaseAllocatedMax).where(
+            AnalystFinalEvaluationPhaseAllocatedMax.exercise_id == eid
+        )
+    )
+    db.execute(
+        delete(AnalystEvaluationCriteriaPhaseItem).where(
+            AnalystEvaluationCriteriaPhaseItem.exercise_id == eid
+        )
+    )
+    db.execute(
+        delete(AnalystEvaluationCriteriaResult).where(
+            AnalystEvaluationCriteriaResult.exercise_id == eid
+        )
+    )
+    db.execute(
+        delete(AnalystEvaluationCriteriaUnit).where(
+            AnalystEvaluationCriteriaUnit.exercise_id == eid
+        )
+    )
+    db.execute(
+        delete(JudgeIncompleteTaskStatus).where(
+            JudgeIncompleteTaskStatus.exercise_id == eid
+        )
+    )
+    db.execute(
+        delete(JudgeTraineeAssignment).where(
+            JudgeTraineeAssignment.exercise_id == eid
+        )
+    )
+    if bundle_ids:
+        db.execute(
+            delete(ExercisePlannerFlowBundleActionEval).where(
+                ExercisePlannerFlowBundleActionEval.bundle_id.in_(bundle_ids)
+            )
+        )
+        db.execute(
+            delete(ExercisePlannerFlowBundleEventFlow).where(
+                ExercisePlannerFlowBundleEventFlow.bundle_id.in_(bundle_ids)
+            )
+        )
+    db.execute(
+        delete(ExercisePlannerFlowBundle).where(
+            ExercisePlannerFlowBundle.exercise_id == eid
+        )
+    )
+    db.execute(delete(VisualDocument).where(VisualDocument.exercise_id == eid))
+    db.execute(delete(DilemmaItem).where(DilemmaItem.exercise_id == eid))
+    db.execute(
+        delete(EvaluationListPdfItem).where(EvaluationListPdfItem.exercise_id == eid)
+    )
+    db.execute(delete(ChatRoom).where(ChatRoom.exercise_id == eid))
+    db.execute(
+        delete(ExerciseNotification).where(ExerciseNotification.exercise_id == eid)
+    )
+    db.execute(delete(ExerciseRosterRow).where(ExerciseRosterRow.exercise_id == eid))
+    db.execute(
+        delete(ExerciseBattleUnitPersonnel).where(
+            ExerciseBattleUnitPersonnel.exercise_id == eid
+        )
+    )
+    db.execute(delete(ExerciseObjective).where(ExerciseObjective.exercise_id == eid))
+    db.execute(
+        delete(ExerciseTimelineItem).where(ExerciseTimelineItem.exercise_id == eid)
+    )
+    db.execute(delete(ExerciseRefLink).where(ExerciseRefLink.exercise_id == eid))
+    db.execute(delete(EventFlow).where(EventFlow.exercise_id == eid))
+    db.execute(delete(Problem).where(Problem.exercise_id == eid))
+    db.execute(delete(Checklist).where(Checklist.exercise_id == eid))
+    db.execute(delete(EvaluationNote).where(EvaluationNote.exercise_id == eid))
+    db.execute(delete(Exercise).where(Exercise.id == eid))
+    db.flush()
+
+
+def _remove_exercise_export_artifacts(ex: Exercise) -> None:
+    """حذف ملف JSON للتمرين ومجلد الملفات المرفقة بجانبه في exercise_store."""
+    directory = export_directory()
+    candidates: set[Path] = set()
+    candidates.add(_export_path_for_exercise(directory, ex.title, ex.code, ex.id))
+    for p in directory.glob("*.json"):
+        if p.is_file():
+            candidates.add(p)
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        ex_blob = data.get("exercise") if isinstance(data, dict) else None
+        if not isinstance(ex_blob, dict) or ex_blob.get("id") != ex.id:
+            continue
+        bundle = archive_bundle_dir_for_json(path)
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        if bundle.is_dir():
+            try:
+                shutil.rmtree(bundle)
+            except OSError:
+                pass
+
+
 def wipe_exercise_from_system(db: Session, exercise_id: int) -> bool:
     """حذف التمرين وكل بياناته من النظام (دون بنك المعلومات ولا أرشفة)."""
     ex = db.get(Exercise, exercise_id)
     if not ex:
         return False
     _remove_exercise_upload_files(db, exercise_id)
-    db.execute(delete(Exercise).where(Exercise.id == exercise_id))
-    db.flush()
+    _remove_exercise_export_artifacts(ex)
+    _purge_exercise_database_rows(db, exercise_id)
     return True
 
 

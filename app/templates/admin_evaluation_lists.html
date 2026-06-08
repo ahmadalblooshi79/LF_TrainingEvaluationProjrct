@@ -1,162 +1,395 @@
 {% extends "base.html" %}
+
 {% block title %}قوائم التقييم — مساحة التخطيط{% endblock %}
+
 {% block content %}
-<div class="page-header">
+
+<div class="page-header eval-lists-page-header">
+
   <h1><i class="fa-solid fa-clipboard-list fa-icon-title" aria-hidden="true"></i> قوائم التقييم</h1>
+
   <div class="page-header__nav">
     {% include 'partials/subpage_close.html' %}
   </div>
+
 </div>
+
 {% if error %}
-<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ error }}</p>
+<p class="form-error-banner eval-lists-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ error }}</p>
 {% endif %}
+
 {% if ok_msg %}
-<p class="form-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
+<p class="form-ok-banner eval-lists-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
 {% endif %}
-{% if catalog_empty %}
-<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا توجد مستويات وحدة في كتالوج التخطيط. بنك المعلومات يستخدم كتالوجاً منفصلاً ولم يُمس.</p>
+
+{% if not current_exercise and not workspace_exercise %}
+<p class="form-error-banner eval-lists-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يوجد تمرين حالي. أنشئ تمريناً جديداً من <a href="{{ url_for('views.admin_exercise_create') }}">إنشاء تمرين جديد</a>.</p>
 {% endif %}
+
 {% if phases_catalog_empty %}
-<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا توجد مراحل تمرين في كتالوج التخطيط. بنك المعلومات يستخدم كتالوج مراحل منفصلاً ولم يُمس.</p>
+<p class="form-error-banner eval-lists-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا توجد مراحل تمرين مدرجة في التمرين. فعّل المراحل من بنك المعلومات → مراحل التمرين.</p>
 {% endif %}
 
-<div class="dilemmas-page">
-  <div class="dilemmas-col">
-    <section class="card dilemmas-current">
-      <h2 class="h2-in-card"><i class="fa-solid fa-list-ol fa-icon-title" aria-hidden="true"></i> القائمة الحالية — {{ selected_unit_label }}</h2>
-      {% if items %}
-      <ol class="objectives-list dilemmas-list">
-        {% for it in items %}
-          {% set row_phase = normalize_exercise_phase(it.exercise_phase) %}
-          <li class="objectives-list__item dilemmas-list__item">
-            <div class="dilemmas-list__toolbar">
-              <div class="dilemmas-list__title" title="{{ it.text }}"><i class="fa-solid fa-file-excel dilemmas-list__title-icon" aria-hidden="true"></i><span>{{ it.text }}</span></div>
-              <form method="post" action="{{ url_for('views.admin_evaluation_list_set_phase', unit_key=selected_unit_key, item_id=it.id) }}" class="dilemmas-current-phase-form dilemmas-current-phase-form--row dilemmas-current-phase-form--toolbar">
-                <label class="muted dilemmas-current-phase-form__label" for="eval-phase-{{ it.id }}">مرحلة التقييم</label>
-                <select id="eval-phase-{{ it.id }}" name="exercise_phase" class="unit-level-select dilemmas-current-phase-form__select" aria-label="مرحلة التقييم لهذا العنصر"
-                        onchange="this.form.submit()">
-                  {% for pk, pl in exercise_phase_options %}
-                  <option value="{{ pk }}" {% if pk == row_phase %}selected{% endif %}>{{ pl }}</option>
-                  {% endfor %}
-                </select>
-              </form>
-              <div class="dilemmas-list__actions">
-              {% if it.pdf_relpath %}
-              <a class="btn btn-ghost dilemmas-open-pdf-btn" href="{{ url_for('views.admin_evaluation_list_file_viewer', unit_key=selected_unit_key, item_id=it.id) }}">
-                <i class="fa-solid fa-file-excel" aria-hidden="true"></i>
-                فتح / تنزيل (Excel)
-              </a>
-              <form method="post" class="dilemmas-item-delete-form" action="{{ url_for('views.admin_evaluation_list_delete_item', unit_key=selected_unit_key, item_id=it.id) }}"
-                    onsubmit="return confirm('حذف هذا التقييم وملفه من القائمة؟');">
-                <button type="submit" class="btn btn-ghost dilemmas-delete-one-btn" title="حذف التقييم" aria-label="حذف التقييم">
-                  <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
-                </button>
-              </form>
-              {% else %}
-              <span class="muted dilemmas-list__no-pdf">لا يوجد ملف مرتبط (بيانات قديمة)</span>
-              <form method="post" class="dilemmas-item-delete-form" action="{{ url_for('views.admin_evaluation_list_delete_item', unit_key=selected_unit_key, item_id=it.id) }}"
-                    onsubmit="return confirm('حذف هذا السطر من القائمة؟');">
-                <button type="submit" class="btn btn-ghost dilemmas-delete-one-btn" title="حذف السطر" aria-label="حذف السطر">
-                  <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
-                </button>
-              </form>
-              {% endif %}
-              </div>
-            </div>
-          </li>
-        {% endfor %}
-      </ol>
-      {% else %}
-      <p class="muted">لا توجد ملفات تقييم محفوظة لهذا المستوى. أضف ملفاً بصيغة Excel (.xlsx) من العمود المجاور.</p>
-      {% endif %}
-    </section>
+<section class="card eval-lists-toolbar-card">
 
-    <section class="card dilemmas-add">
-      <h2 class="h2-in-card">
-        <i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i>
-        إدراج ملفات التقييم (Excel)
-      </h2>
-      <form method="post" action="{{ url_for('views.admin_evaluation_lists', unit_key=selected_unit_key) }}" enctype="multipart/form-data" class="dilemmas-upload-form">
-        <div class="form-group">
-          <label for="upload-phase-eval-lists"><i class="fa-solid fa-timeline fa-icon-label" aria-hidden="true"></i> مرحلة التمرين (للملفات الجديدة)</label>
-          <select id="upload-phase-eval-lists" name="exercise_phase" class="unit-level-select" aria-label="مرحلة التمرين للملفات المضافة" {% if phases_catalog_empty %}disabled{% endif %}>
-            {% for pk, pl in exercise_phase_options %}
-              <option value="{{ pk }}" {% if pk == upload_phase_default %}selected{% endif %}>{{ pl }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="unit-level-select-eval-lists"><i class="fa-solid fa-layer-group fa-icon-label" aria-hidden="true"></i> مستوى الوحدة</label>
-          <select id="unit-level-select-eval-lists" class="unit-level-select" {% if catalog_empty %}disabled{% endif %}>
-            {% for u in unit_levels %}
-              <option value="{{ u.key }}" {% if u.key == selected_unit_key %}selected{% endif %}>{{ u.label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="form-group">
-          <span class="battle-field-label" id="eval-lists-file-label">ملف التقييم</span>
-          <input id="eval-lists-xlsx-input" name="evaluation_lists_file" type="file"
-                 accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                 multiple
-                 class="sr-only"
-                 tabindex="-1"
-                 aria-labelledby="eval-lists-file-label"
-                 {% if not items %}required{% endif %}
-          >
-          <div class="dilemmas-file-trigger-row dilemmas-file-trigger-row--align">
-            <button type="button" class="btn btn-ghost dilemmas-pdf-trigger" id="eval-lists-xlsx-trigger" {% if not items %}title="اختيار ملف Excel واحد أو أكثر (.xlsx)"{% endif %}>
-              <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
-              اختيار ملف (.xlsx)
+  <div class="eval-lists-toolbar-card__row">
+
+    {% if phase_options %}
+    <form method="get" action="{{ url_for('views.admin_evaluation_lists') }}" class="eval-lists-phase-picker">
+      <label for="eval-lists-phase-select" class="eval-lists-phase-picker__label">مرحلة التمرين</label>
+      <select id="eval-lists-phase-select" name="phase" class="eval-lists-phase-picker__select" onchange="this.form.submit()">
+        {% for pk, pl in phase_options %}
+        <option value="{{ pk }}" {% if pk == selected_phase %}selected{% endif %}>{{ pl }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    {% endif %}
+
+    {% if current_exercise and eval_groups %}
+    <form method="post" action="{{ url_for('views.admin_evaluation_lists_publish_all_from_ibank') }}" class="eval-lists-publish-all-form">
+      <input type="hidden" name="phase_key" value="{{ selected_phase }}">
+      <button type="submit" class="btn btn-ghost btn-sm" onclick="return confirm('تحديث القوائم من بنك المعلومات وإلغاء نشر الكل؟\n\nستظهر جميع القوائم «غير منشورة» — حدّد ما تريد ثم اضغط «نشر القوائم».');">
+        <i class="fa-solid fa-cloud-arrow-down" aria-hidden="true"></i>
+        نسخ الكل
+      </button>
+    </form>
+    {% endif %}
+
+  </div>
+
+  {% if page_note %}
+  <p class="muted eval-lists-sync-note" role="status"><i class="fa-solid fa-database" aria-hidden="true"></i> {{ page_note }}</p>
+  {% endif %}
+
+</section>
+
+{% if eval_groups %}
+
+<form method="post" action="{{ url_for('views.admin_evaluation_lists_publish_phase_from_ibank') }}" class="eval-lists-phase-publish-form" id="eval-lists-phase-form" data-phase="{{ selected_phase }}">
+
+  <input type="hidden" name="phase_key" value="{{ selected_phase }}">
+
+  <div class="eval-lists-publish-bar">
+    <h2 class="eval-lists-phase-heading">
+      <i class="fa-solid fa-timeline" aria-hidden="true"></i>
+      {% for pk, pl in phase_options %}{% if pk == selected_phase %}{{ pl }}{% endif %}{% endfor %}
+    </h2>
+    <button type="submit" class="btn btn-primary btn-sm" id="eval-lists-publish-btn">
+      <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
+      نشر القوائم
+    </button>
+  </div>
+
+  {% for group in eval_groups %}
+  <input type="hidden" name="publish_unit" value="{{ group.unit_key }}">
+
+  <section class="card eval-lists-unit-group eval-lists-unit-group--collapsed" data-unit="{{ group.unit_key }}">
+
+    <div class="eval-lists-unit-group__header">
+      <button type="button" class="eval-lists-unit-group__toggle js-eval-lists-unit-collapse" aria-expanded="false" aria-controls="eval-lists-body-{{ loop.index }}">
+        <i class="fa-solid fa-chevron-down eval-lists-unit-group__chevron" aria-hidden="true"></i>
+        <span class="eval-lists-unit-group__title">
+          <i class="fa-solid fa-layer-group" aria-hidden="true"></i>
+          {{ group.unit_label }}
+          {% if group.ibank_source_count|default(0) > 0 %}
+          <span class="muted eval-lists-unit-meta">({{ group.ibank_source_count }} في البنك)</span>
+          {% endif %}
+        </span>
+      </button>
+      <div class="eval-lists-select-btns">
+        <button type="button" class="btn btn-ghost btn-sm js-eval-lists-select-unit" data-unit="{{ group.unit_key }}" data-action="all">
+          تحديد الكل
+        </button>
+        <button type="button" class="btn btn-ghost btn-sm js-eval-lists-select-unit" data-unit="{{ group.unit_key }}" data-action="none">
+          إلغاء تحديد الكل
+        </button>
+      </div>
+    </div>
+
+    <div class="eval-lists-unit-group__body" id="eval-lists-body-{{ loop.index }}">
+
+      <p class="eval-lists-roster-meta muted">
+        <span><i class="fa-solid fa-user-tie" aria-hidden="true"></i> <span class="eval-lists-roster-meta__role">(المحكم)</span> {{ group.judge_name }}</span>
+        <span class="eval-lists-roster-meta__sep" aria-hidden="true">|</span>
+        <span><i class="fa-solid fa-user-graduate" aria-hidden="true"></i> <span class="eval-lists-roster-meta__role">(المتدرب)</span> {{ group.trainee_name }}</span>
+      </p>
+
+      {% if group.list_folder_groups %}
+
+      <div class="eval-lists-folders">
+        {% for folder in group.list_folder_groups %}
+        <div class="eval-lists-folder-group" data-unit="{{ group.unit_key }}" data-folder="{{ folder.folder_key }}">
+          <div class="eval-lists-folder-group__header">
+            <button type="button" class="eval-lists-folder-group__toggle js-eval-lists-folder-collapse" aria-expanded="true">
+              <i class="fa-solid fa-chevron-down eval-lists-folder-group__chevron" aria-hidden="true"></i>
+              <i class="fa-solid fa-folder eval-lists-folder-group__icon" aria-hidden="true"></i>
+              <span class="eval-lists-folder-group__title">{{ folder.folder_name }}</span>
+              <span class="muted eval-lists-folder-group__count">({{ folder.rows|length }})</span>
             </button>
-            <span class="muted dilemmas-file-name" id="eval-lists-file-name" aria-live="polite"></span>
+            <div class="eval-lists-select-btns">
+              <button type="button" class="btn btn-ghost btn-sm js-eval-lists-select-folder" data-unit="{{ group.unit_key }}" data-folder="{{ folder.folder_key }}" data-action="all">
+                تحديد الكل
+              </button>
+              <button type="button" class="btn btn-ghost btn-sm js-eval-lists-select-folder" data-unit="{{ group.unit_key }}" data-folder="{{ folder.folder_key }}" data-action="none">
+                إلغاء تحديد الكل
+              </button>
+            </div>
+          </div>
+          <div class="eval-lists-folder-group__body">
+            <ul class="eval-lists-rows" aria-label="{{ folder.folder_name }}">
+              {% for row in folder.rows %}
+              {% set action_uk = row.item_unit_key or group.unit_key %}
+              <li class="eval-lists-row{% if row.published %} eval-lists-row--published{% else %} eval-lists-row--unpublished{% endif %}">
+                <span class="eval-lists-row__seq" aria-hidden="true">{{ loop.index }}</span>
+                <label class="eval-lists-row__cb" title="تضمين في النشر" onclick="event.stopPropagation()">
+                  <input type="checkbox" class="eval-lists-publish-cb" name="publish_sel" value="{{ group.unit_key }}:{{ row.node_id }}" data-unit="{{ group.unit_key }}" data-folder="{{ folder.folder_key }}"{% if row.selected %} checked{% endif %}>
+                </label>
+                <span class="eval-lists-row__title" title="{{ row.title }}">
+                  <i class="fa-solid fa-file-excel eval-lists-row__icon" aria-hidden="true"></i>
+                  <span class="eval-lists-row__name">{{ row.title }}</span>
+                  {% if row.published %}
+                  <span class="eval-lists-badge eval-lists-badge--published">منشورة</span>
+                  {% else %}
+                  <span class="eval-lists-badge eval-lists-badge--unpublished">غير منشورة</span>
+                  {% endif %}
+                </span>
+                <div class="eval-lists-row__actions" onclick="event.stopPropagation()">
+                  {% if row.published %}
+                  <button type="submit" class="btn btn-ghost btn-sm eval-lists-row__withdraw js-eval-lists-row-action"
+                    formaction="{{ url_for('views.admin_evaluation_lists_withdraw_one_from_ibank', unit_key=action_uk, node_id=row.node_id) }}"
+                    formmethod="post"
+                    title="سحب النشر">
+                    <i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i>
+                    <span class="eval-lists-row__btn-label">سحب</span>
+                  </button>
+                  {% if row.item_id %}
+                  <a class="btn btn-ghost btn-sm eval-lists-row__open js-eval-lists-row-action" href="{{ url_for('views.admin_evaluation_list_file_viewer', unit_key=action_uk, item_id=row.item_id) }}" title="فتح المعايير">
+                    <i class="fa-solid fa-table-list" aria-hidden="true"></i>
+                    <span class="eval-lists-row__btn-label">فتح</span>
+                  </a>
+                  {% endif %}
+                  {% else %}
+                  <button type="submit" class="btn btn-primary btn-sm eval-lists-row__publish js-eval-lists-row-action"
+                    formaction="{{ url_for('views.admin_evaluation_lists_publish_one_from_ibank', unit_key=action_uk, node_id=row.node_id) }}"
+                    formmethod="post"
+                    title="نشر القائمة">
+                    <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
+                    <span class="eval-lists-row__btn-label">نشر</span>
+                  </button>
+                  {% endif %}
+                </div>
+              </li>
+              {% endfor %}
+            </ul>
           </div>
         </div>
-        <div class="btn-group dilemmas-add__actions dilemmas-add__actions--end">
-          <button class="btn" type="submit" id="eval-lists-save-btn" disabled><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> إضافة إلى القائمة</button>
-        </div>
-      </form>
-      {% if items %}
-      <form method="post" action="/admin/evaluation-lists/{{ selected_unit_key }}/clear"
-            class="dilemmas-clear-form dilemmas-clear-form--align"
-            onsubmit="return confirm('هل تريد مسح كل عناصر التقييم وملفات Excel لهذا المستوى؟');">
-        <button class="btn btn-ghost" type="submit"><i class="fa-solid fa-trash" aria-hidden="true"></i> مسح القائمة وملفات هذا المستوى</button>
-      </form>
+        {% endfor %}
+      </div>
+
+      {% else %}
+      <p class="muted eval-lists-empty">لا توجد ملفات في <a href="{{ url_for('views.admin_information_bank', tab='dilemma-eval') }}">بنك المعلومات → قوائم التقييم</a>.</p>
       {% endif %}
-    </section>
-  </div>
-</div>
+
+    </div>
+
+  </section>
+  {% endfor %}
+
+</form>
+
+{% elif current_exercise or workspace_exercise %}
+
+<section class="card eval-lists-empty-card">
+  {% if judge_roster.without_names|default([])|length > 0 %}
+  <p class="form-error-banner" role="alert">
+    <i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i>
+    {{ judge_roster.without_names|length }} محكم(ين) بدون مستوى وحدة: {{ judge_roster.without_names|join('، ') }}.
+    <a href="{{ url_for('views.admin_exercise_judge_unit_roster') }}">قائمة المحكمين</a>
+  </p>
+  {% elif judge_roster.total|default(0) == 0 %}
+  <p class="muted">لا توجد مستويات وحدة. افتح <a href="{{ url_for('views.admin_exercise_judge_unit_roster') }}">قائمة المحكمين</a>.</p>
+  {% else %}
+  <p class="muted">لا مجموعات في هذه المرحلة. تحقق من <a href="{{ url_for('views.admin_exercise_judge_unit_roster') }}">المحكمين</a> و<a href="{{ url_for('views.admin_information_bank', tab='dilemma-eval') }}">بنك المعلومات</a>.</p>
+  {% endif %}
+</section>
+
+{% endif %}
+
 <script>
 (() => {
-  const sel = document.getElementById("unit-level-select-eval-lists");
-  if (sel) {
-    sel.addEventListener("change", () => {
-      const val = (sel.value || "").trim();
-      if (!val) return;
-      window.location.href = `/admin/evaluation-lists/${encodeURIComponent(val)}`;
+  const form = document.getElementById("eval-lists-phase-form");
+  const publishBtn = document.getElementById("eval-lists-publish-btn");
+  const STORAGE_KEY = "eval-lists-expanded-v1";
+  const currentPhase = (form && form.dataset.phase) || "";
+
+  const expandedUnits = () => {
+    const out = new Set();
+    document.querySelectorAll(".eval-lists-unit-group").forEach((sec) => {
+      if (!sec.classList.contains("eval-lists-unit-group--collapsed")) {
+        const uk = sec.getAttribute("data-unit") || "";
+        if (uk) out.add(uk);
+      }
     });
-  }
-  const input = document.getElementById("eval-lists-xlsx-input");
-  const trigger = document.getElementById("eval-lists-xlsx-trigger");
-  const nameEl = document.getElementById("eval-lists-file-name");
-  const saveBtn = document.getElementById("eval-lists-save-btn");
-  if (trigger && input) {
-    trigger.addEventListener("click", () => input.click());
-  }
-  function syncFileHint() {
-    if (!input || !nameEl || !saveBtn) return;
-    const n = input.files ? input.files.length : 0;
-    if (n === 0) {
-      nameEl.textContent = "";
-      saveBtn.disabled = true;
+    return out;
+  };
+
+  const expandedFolders = () => {
+    const out = new Set();
+    document.querySelectorAll(".eval-lists-folder-group").forEach((sec) => {
+      if (!sec.classList.contains("eval-lists-folder-group--collapsed")) {
+        const uk = sec.getAttribute("data-unit") || "";
+        const fk = sec.getAttribute("data-folder") || "";
+        if (uk && fk) out.add(`${uk}|${fk}`);
+      }
+    });
+    return out;
+  };
+
+  const saveExpandedState = (extraUnits = [], extraFolders = []) => {
+    const units = expandedUnits();
+    const folders = expandedFolders();
+    extraUnits.forEach((uk) => { if (uk) units.add(uk); });
+    extraFolders.forEach((key) => { if (key) folders.add(key); });
+    try {
+      sessionStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          phase: currentPhase,
+          units: [...units],
+          folders: [...folders],
+        })
+      );
+    } catch (_err) {
+      /* ignore quota errors */
+    }
+  };
+
+  const setUnitExpanded = (uk, open) => {
+    const sec = document.querySelector(`.eval-lists-unit-group[data-unit="${uk}"]`);
+    if (!sec) return;
+    sec.classList.toggle("eval-lists-unit-group--collapsed", !open);
+    const btn = sec.querySelector(".js-eval-lists-unit-collapse");
+    if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+
+  const setFolderExpanded = (uk, fk, open) => {
+    const sec = document.querySelector(
+      `.eval-lists-folder-group[data-unit="${uk}"][data-folder="${fk}"]`
+    );
+    if (!sec) return;
+    sec.classList.toggle("eval-lists-folder-group--collapsed", !open);
+    const btn = sec.querySelector(".js-eval-lists-folder-collapse");
+    if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+
+  const restoreExpandedState = () => {
+    let saved = null;
+    try {
+      saved = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || "null");
+    } catch (_err) {
+      saved = null;
+    }
+    if (!saved || saved.phase !== currentPhase) return;
+    (saved.units || []).forEach((uk) => setUnitExpanded(uk, true));
+    (saved.folders || []).forEach((key) => {
+      const [uk, fk] = String(key).split("|");
+      if (uk && fk) setFolderExpanded(uk, fk, true);
+    });
+  };
+
+  restoreExpandedState();
+
+  const syncPublishBtn = () => {
+    if (!form || !publishBtn) return;
+    const boxes = form.querySelectorAll(".eval-lists-publish-cb");
+    if (!boxes.length) {
+      publishBtn.disabled = true;
       return;
     }
-    nameEl.textContent = n === 1 ? input.files[0].name : `تم اختيار ${n} ملفات`;
-    saveBtn.disabled = false;
+    publishBtn.disabled = false;
+  };
+
+  if (form) {
+    form.addEventListener("change", (ev) => {
+      if (ev.target && ev.target.classList.contains("eval-lists-publish-cb")) {
+        syncPublishBtn();
+      }
+    });
+    syncPublishBtn();
   }
-  if (input) {
-    input.addEventListener("change", syncFileHint);
-    syncFileHint();
-  }
+
+  document.querySelectorAll(".js-eval-lists-row-action").forEach((el) => {
+    el.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const unitSec = el.closest(".eval-lists-unit-group");
+      const folderSec = el.closest(".eval-lists-folder-group");
+      const uk = unitSec && unitSec.getAttribute("data-unit");
+      const fk = folderSec && folderSec.getAttribute("data-folder");
+      const extraUnits = uk ? [uk] : [];
+      const extraFolders = uk && fk ? [`${uk}|${fk}`] : [];
+      saveExpandedState(extraUnits, extraFolders);
+    });
+  });
+
+  document.querySelectorAll(".eval-lists-row").forEach((row) => {
+    row.addEventListener("click", (ev) => {
+      if (ev.target.closest(".eval-lists-row__actions, .eval-lists-row__cb")) {
+        ev.stopPropagation();
+      }
+    });
+  });
+
+  const applySelectAction = (boxes, action) => {
+    const checked = action !== "none";
+    boxes.forEach((cb) => { cb.checked = checked; });
+    syncPublishBtn();
+  };
+
+  document.querySelectorAll(".js-eval-lists-select-unit").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const uk = btn.getAttribute("data-unit") || "";
+      const action = btn.getAttribute("data-action") || "all";
+      const boxes = document.querySelectorAll(`.eval-lists-publish-cb[data-unit="${uk}"]`);
+      applySelectAction(boxes, action);
+    });
+  });
+
+  document.querySelectorAll(".js-eval-lists-select-folder").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const uk = btn.getAttribute("data-unit") || "";
+      const fk = btn.getAttribute("data-folder") || "";
+      const action = btn.getAttribute("data-action") || "all";
+      const boxes = document.querySelectorAll(
+        `.eval-lists-publish-cb[data-unit="${uk}"][data-folder="${fk}"]`
+      );
+      applySelectAction(boxes, action);
+    });
+  });
+
+  document.querySelectorAll(".js-eval-lists-unit-collapse").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const section = btn.closest(".eval-lists-unit-group");
+      if (!section) return;
+      const collapsed = section.classList.toggle("eval-lists-unit-group--collapsed");
+      btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      saveExpandedState();
+    });
+  });
+
+  document.querySelectorAll(".js-eval-lists-folder-collapse").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const section = btn.closest(".eval-lists-folder-group");
+      if (!section) return;
+      const collapsed = section.classList.toggle("eval-lists-folder-group--collapsed");
+      btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      saveExpandedState();
+    });
+  });
 })();
 </script>
+
 {% endblock %}

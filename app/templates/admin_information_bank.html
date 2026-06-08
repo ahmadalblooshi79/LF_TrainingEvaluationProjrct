@@ -39,7 +39,7 @@
       <button type="button" class="ibank-tab{% if active_tab == 'units-bg-1' %} is-active{% endif %}" data-tab-btn="units-bg-1" role="tab" aria-selected="{{ 'true' if active_tab == 'units-bg-1' else 'false' }}">مجموعة لواء الإمارات / 1</button>
       <button type="button" class="ibank-tab{% if active_tab == 'event-flow' %} is-active{% endif %}" data-tab-btn="event-flow" role="tab" aria-selected="{{ 'true' if active_tab == 'event-flow' else 'false' }}">مجرى الأحداث والمعاضل</button>
       <button type="button" class="ibank-tab{% if active_tab == 'action-eval' %} is-active{% endif %}" data-tab-btn="action-eval" role="tab" aria-selected="{{ 'true' if active_tab == 'action-eval' else 'false' }}">قوائم تقييم الإجراءات</button>
-      <button type="button" class="ibank-tab{% if active_tab == 'dilemma-eval' %} is-active{% endif %}" data-tab-btn="dilemma-eval" role="tab" aria-selected="{{ 'true' if active_tab == 'dilemma-eval' else 'false' }}">قوائم تقييم المعاضل</button>
+      <button type="button" class="ibank-tab{% if active_tab == 'dilemma-eval' %} is-active{% endif %}" data-tab-btn="dilemma-eval" role="tab" aria-selected="{{ 'true' if active_tab == 'dilemma-eval' else 'false' }}">قوائم التقييم</button>
     </div>
     <div class="ibank-tab-body">
       <div class="ibank-tabpane{% if active_tab == 'phases' %} is-active{% endif %}" data-tab-pane="phases" role="tabpanel">
@@ -147,7 +147,7 @@
       </div>
 
       <div class="ibank-tabpane{% if active_tab == 'dilemma-eval' %} is-active{% endif %}" data-tab-pane="dilemma-eval" role="tabpanel">
-        {% with kind='dilemma_eval', tree_nodes=tree_dilemma_eval %}
+        {% with kind='dilemma_eval', tree_nodes=tree_dilemma_eval, ibank_tree_unit_levels=ibank_tree_unit_levels, ibank_judge_names_by_unit=ibank_judge_names_by_unit %}
         {% include 'admin_information_bank_tree_panel.html' %}
         {% endwith %}
       </div>
@@ -257,9 +257,8 @@
     }
     card.querySelectorAll('.ibank-tree-page').forEach(function (page) {
       var kind = page.getAttribute('data-ibank-tree-kind') || '';
+      var isUnitEvalTree = (kind === 'action_eval' || kind === 'dilemma_eval');
       var treeRoot = page.querySelector('.js-ibank-tree');
-      var mvEl = page.querySelector('.js-ibank-tree-move-url-holder');
-      var moveUrl = mvEl ? (mvEl.getAttribute('data-move-url') || '') : '';
       var targetId = '';
       var parentInputs = page.querySelectorAll('.js-ibank-tree-parent-id, .js-ibank-tree-upload-parent');
       var labelEl = page.querySelector('.js-ibank-tree-target-label');
@@ -358,7 +357,7 @@
       }
 
       function defaultRootLabel() {
-        if (kind === 'action_eval') {
+        if (isUnitEvalTree) {
           return 'الجذر — حدّد مرحلة التمرين ثم «إرفاق مجلد» أو «إضافة مجلد» (اختياري)، واختر مستوى الوحدة من القائمة على المجلد';
         }
         return 'الجذر';
@@ -380,7 +379,7 @@
       }
 
       function folderHasUnitLevel(li) {
-        if (kind !== 'action_eval' || !li) return true;
+        if (!isUnitEvalTree || !li) return true;
         return Boolean((li.getAttribute('data-effective-unit-key') || '').trim());
       }
 
@@ -392,7 +391,7 @@
             labelEl.textContent = 'المستهدف: ' + defaultRootLabel();
           } else {
             var tgtLi = page.querySelector('[data-node-id="' + targetId + '"]');
-            var hint = (kind === 'action_eval' && tgtLi && !folderHasUnitLevel(tgtLi) && !isPhaseRootLi(tgtLi))
+            var hint = (isUnitEvalTree && tgtLi && !folderHasUnitLevel(tgtLi) && !isPhaseRootLi(tgtLi))
               ? ' — اختر مستوى الوحدة من القائمة على المجلد المرفق'
               : '';
             labelEl.textContent = 'المستهدف: ' + (name || '') + hint;
@@ -407,7 +406,7 @@
         });
       }
 
-      if (kind === 'action_eval') {
+      if (isUnitEvalTree) {
         page.querySelectorAll('.ibank-tree-root > .ibank-tree-node--folder.ibank-tree-has-children').forEach(function (li) {
           setFolderExpanded(li, true);
         });
@@ -430,7 +429,7 @@
       }
 
       page.querySelectorAll('.js-ibank-tree-upload-files-form, .js-ibank-tree-upload-dir-form').forEach(function (uf) {
-        if (kind !== 'action_eval') return;
+        if (!isUnitEvalTree) return;
         var isDirForm = uf.classList.contains('js-ibank-tree-upload-dir-form');
         uf.addEventListener('submit', function (e) {
           if (!targetId) {
@@ -580,149 +579,6 @@
       bindPick('.js-ibank-tree-pick-dir', '.js-ibank-tree-dir', '.js-ibank-tree-upload-dir-form');
 
       setTarget('', '');
-
-      var dragHoverLi = null;
-      function folderDropTarget(li) {
-        if (!li || !li.classList.contains('ibank-tree-node--folder')) return null;
-        return li;
-      }
-      function resolveDropParentId(targetEl) {
-        var foldLi = folderDropTarget(targetEl.closest('li.ibank-tree-node--folder'));
-        if (foldLi) {
-          return parseInt(foldLi.getAttribute('data-node-id'), 10) || 0;
-        }
-        var fileLi = targetEl.closest('li.ibank-tree-node--file');
-        if (fileLi) {
-          var parentUl = fileLi.parentElement;
-          var parentFolder = parentUl && parentUl.closest('li.ibank-tree-node--folder');
-          if (parentFolder) {
-            return parseInt(parentFolder.getAttribute('data-node-id'), 10) || 0;
-          }
-        }
-        return 0;
-      }
-      function clearDragHover() {
-        if (dragHoverLi) {
-          dragHoverLi.classList.remove('ibank-tree-node--drag-hover');
-          dragHoverLi = null;
-        }
-      }
-
-      function isTreeNodeDrag(dt) {
-        if (!dt || !dt.types) return false;
-        for (var i = 0; i < dt.types.length; i++) {
-          if (dt.types[i] === 'application/x-lf-ibank-tree-node') return true;
-        }
-        return false;
-      }
-
-      function postMove(fromId, toParentId) {
-        if (!moveUrl) return;
-        fetch(moveUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ kind: kind, node_id: fromId, parent_id: toParentId || 0 }),
-        })
-          .then(function (r) {
-            var ct = (r.headers.get('content-type') || '').toLowerCase();
-            if (ct.indexOf('application/json') < 0) {
-              return {
-                ok: false,
-                json: {
-                  error: r.status >= 400
-                    ? ('HTTP ' + r.status)
-                    : 'استجابة غير متوقعة — أعد تحميل الصفحة وحاول مجدداً.',
-                },
-              };
-            }
-            return r.json().then(function (j) {
-              var payload = typeof j === 'object' && j !== null ? j : {};
-              if (!r.ok && !payload.error) {
-                payload.error = 'طلب غير مصرّح أو خطأ بالخادم.';
-              }
-              return { ok: r.ok, json: payload };
-            });
-          })
-          .then(function (res) {
-            var body = res.json || {};
-            if (!res.ok || !body.ok) {
-              alert(body.error || 'تعذّر النقل.');
-              return;
-            }
-            saveTreeUiState();
-            window.location.reload();
-          })
-          .catch(function () { alert('تعذر الاتصال بالخادم.'); });
-      }
-
-      if (treeRoot && moveUrl) {
-        page.querySelectorAll('li.ibank-tree-node[draggable="true"]').forEach(function (li) {
-          li.addEventListener('dragstart', function (e) {
-            if (e.target.closest('button,a,form,input,textarea,select')) {
-              e.preventDefault();
-              return;
-            }
-            var nid = li.getAttribute('data-node-id');
-            if (!nid) return;
-            try {
-              e.dataTransfer.setData('application/x-lf-ibank-tree-node', nid);
-              e.dataTransfer.effectAllowed = 'move';
-            } catch (err) {}
-            li.classList.add('ibank-tree-node--dragging');
-          });
-          li.addEventListener('dragend', function () {
-            li.classList.remove('ibank-tree-node--dragging');
-            clearDragHover();
-          });
-        });
-
-        treeRoot.addEventListener('dragenter', function (e) {
-          if (!isTreeNodeDrag(e.dataTransfer)) return;
-          e.preventDefault();
-        });
-
-        treeRoot.addEventListener('dragover', function (e) {
-          if (!isTreeNodeDrag(e.dataTransfer)) return;
-          e.preventDefault();
-          e.stopPropagation();
-          var foldLi = folderDropTarget(e.target.closest('li.ibank-tree-node--folder'));
-          if (!foldLi || !page.contains(foldLi)) {
-            clearDragHover();
-            try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
-            return;
-          }
-          if (dragHoverLi !== foldLi) {
-            clearDragHover();
-            dragHoverLi = foldLi;
-            foldLi.classList.add('ibank-tree-node--drag-hover');
-          }
-          try {
-            e.dataTransfer.dropEffect = 'move';
-          } catch (err) {}
-        });
-
-        treeRoot.addEventListener('dragleave', function (e) {
-          var foldLi = e.target.closest('li.ibank-tree-node--folder');
-          if (foldLi && !foldLi.contains(e.relatedTarget)) {
-            foldLi.classList.remove('ibank-tree-node--drag-hover');
-            if (dragHoverLi === foldLi) dragHoverLi = null;
-          }
-        });
-
-        treeRoot.addEventListener('drop', function (e) {
-          e.preventDefault();
-          e.stopPropagation();
-          clearDragHover();
-          var rawId = e.dataTransfer.getData('application/x-lf-ibank-tree-node');
-          if (!rawId) return;
-          var fromId = parseInt(rawId, 10);
-          if (!fromId) return;
-          var toPid = resolveDropParentId(e.target);
-          if (toPid && fromId === toPid) return;
-          postMove(fromId, toPid);
-        });
-      }
     });
 
     function payloadFromEl(el) {

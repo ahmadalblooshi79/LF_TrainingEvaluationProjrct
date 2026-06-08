@@ -11,13 +11,14 @@ import threading
 import time
 import webbrowser
 
-from app import create_app
-from app.network_util import print_server_access_info
-
-# منفذ ثابت للتطبيق حتى لا تتكرر مشكلة اختلاف الرابط بين 8003/8004/8005.
-PORT = int(os.environ.get("PORT", "8005"))
+# قراءة المنفذ قبل تحميل التطبيق (load_dotenv في config قد يضبط PORT=8005).
+_PREFERRED_PORT = int(os.environ.get("PORT", "8005"))
+PORT = _PREFERRED_PORT
 HOST = os.environ.get("HOST", "0.0.0.0")
-APP_URL = f"http://127.0.0.1:{PORT}/"
+
+
+def _app_url(port: int | None = None) -> str:
+    return f"http://127.0.0.1:{int(port if port is not None else PORT)}/"
 
 
 def _chrome_exe() -> str | None:
@@ -34,11 +35,12 @@ def _chrome_exe() -> str | None:
 
 def _open_browser() -> None:
     time.sleep(1.0)
+    url = _app_url()
     chrome = _chrome_exe()
     if chrome:
-        subprocess.Popen([chrome, APP_URL], close_fds=False)
+        subprocess.Popen([chrome, url], close_fds=False)
     else:
-        webbrowser.open(APP_URL)
+        webbrowser.open(url)
 
 
 _BROWSER_OPEN_SCHEDULED = False
@@ -62,31 +64,129 @@ def _env_flag(name: str, default: bool = True) -> bool:
     return v not in ("0", "false", "no", "off")
 
 
-def _ensure_port_free(port: int, host: str = "0.0.0.0") -> None:
-    """إيقاف التشغيل إذا كان المنفذ مشغولاً (غالباً نسخة قديمة من python خارج .venv)."""
+def _pids_listening_on_port(port: int) -> set[int]:
+    """معرّفات العمليات التي تستمع على المنفذ (Windows: netstat -ano)."""
+    pids: set[int] = set()
+    if sys.platform == "win32":
+        try:
+            out = subprocess.check_output(
+                ["netstat", "-ano"],
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            needle = f":{int(port)}"
+            for line in out.splitlines():
+                if needle not in line or "LISTENING" not in line.upper():
+                    continue
+                parts = line.split()
+                if not parts:
+                    continue
+                try:
+                    pid = int(parts[-1])
+                except (TypeError, ValueError):
+                    continue
+                if pid > 0:
+                    pids.add(pid)
+        except (OSError, subprocess.SubprocessError, ValueError):
+            pass
+        return pids
+    try:
+        import socket
+
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        probe.bind(("127.0.0.1", int(port)))
+        probe.close()
+    except OSError:
+        pass
+    return pids
+
+
+def _stop_other_listeners_on_port(port: int) -> None:
+    """إيقاف نسخ قديمة من الخادم على نفس المنفذ (سبب شائع لـ 500 / SQLite lock)."""
+    my_pid = os.getpid()
+    for pid in sorted(_pids_listening_on_port(port)):
+        if pid == my_pid:
+            continue
+        if sys.platform == "win32":
+            subprocess.run(
+                ["taskkill", "/F", "/PID", str(pid)],
+                capture_output=True,
+                check=False,
+            )
+        else:
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass
+    if _pids_listening_on_port(port) - {my_pid}:
+        time.sleep(0.8)
+
+
+def _can_bind_exclusive(port: int, host: str = "0.0.0.0") -> bool:
     import socket
 
     probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    if sys.platform == "win32" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    else:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
-        probe.bind((host, port))
+        probe.bind((host, int(port)))
+        return True
     except OSError:
-        print(
-            f"\n[خطأ] المنفذ {port} مستخدم بالفعل.\n"
-            f"  أوقف العملية القديمة (Task Manager أو: "
-            f'Get-NetTCPConnection -LocalPort {port} | %% {{ Stop-Process -Id $_.OwningProcess -Force }})\n'
-            f"  ثم شغّل: .venv\\Scripts\\python.exe run.py\n",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+        return False
     finally:
         probe.close()
 
 
+def _resolve_listen_port(preferred: int, host: str = "0.0.0.0") -> int:
+    """منفذ للاستماع — يوقف الخوادم القديمة ويتجنّب تعارض Windows (socket شبح)."""
+    for port in range(int(preferred), int(preferred) + 11):
+        _stop_other_listeners_on_port(port)
+        if _can_bind_exclusive(port, host):
+            if port != preferred:
+                print(
+                    f"\n[تنبيه] المنفذ {preferred} معطّل (socket شبح أو نسخة قديمة).\n"
+                    f"  يعمل الخادم على المنفذ {port}: {_app_url(port)}\n",
+                    file=sys.stderr,
+                )
+            return port
+    print(
+        f"\n[خطأ] لا يوجد منفذ متاح بين {preferred} و{preferred + 10}.\n"
+        f"  أعد تشغيل Windows أو عيّن PORT يدوياً.\n",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def _ensure_port_free(port: int, host: str = "0.0.0.0") -> None:
+    """توافق — يُستدعى _resolve_listen_port من main."""
+    if not _can_bind_exclusive(port, host):
+        print(
+            f"\n[خطأ] المنفذ {port} ما زال مستخدماً.\n"
+            f"  ثم شغّل: .venv\\Scripts\\python.exe run.py\n",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 if __name__ == "__main__":
-    _ensure_port_free(PORT, HOST)
+    PORT = _resolve_listen_port(_PREFERRED_PORT, HOST)
+    from app import create_app
+    from app.network_util import print_server_access_info
+
     app = create_app()
     debug = _env_flag("FLASK_DEBUG", default=False)
+    if not str(sys.executable).lower().endswith(
+        (r".venv\scripts\python.exe", r"/.venv/bin/python")
+    ):
+        print(
+            f"\n[تحذير] المفسّر الحالي ليس .venv:\n  {sys.executable}\n"
+            f"  يُفضّل: .venv\\Scripts\\python.exe run.py\n",
+            file=sys.stderr,
+        )
     open_browser = _env_flag("LF_OPEN_BROWSER", default=True)
     # إعادة التحميل التلقائي قد تشغّل مفسّراً غير .venv على Windows (صفحة 500 / كود قديم).
     use_reloader = (

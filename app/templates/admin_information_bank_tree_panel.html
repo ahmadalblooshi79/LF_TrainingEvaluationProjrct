@@ -1,6 +1,7 @@
 {# kind: event_flow | action_eval | dilemma_eval #}
 
-{% set tree_title = {'event_flow': 'مجرى الأحداث والمعاضل', 'action_eval': 'قوائم تقييم الإجراءات', 'dilemma_eval': 'قوائم تقييم المعاضل'}[kind] %}
+{% set is_unit_eval_tree = kind in ['action_eval', 'dilemma_eval'] %}
+{% set tree_title = {'event_flow': 'مجرى الأحداث والمعاضل', 'action_eval': 'قوائم تقييم الإجراءات', 'dilemma_eval': 'قوائم التقييم'}[kind] %}
 
 <div class="ibank-tree-page" dir="rtl" data-ibank-tree-kind="{{ kind }}" data-ibank-ui-build="action-eval-unit-v9">
 
@@ -9,8 +10,6 @@
     <h2 class="h2-in-card"><i class="fa-solid fa-folder-tree fa-icon-title" aria-hidden="true"></i> {{ tree_title }}</h2>
 
     {% if information_bank_can_manage %}
-
-    <span class="js-ibank-tree-move-url-holder" data-move-url="{{ url_for('views.admin_information_bank_tree_move') }}" hidden aria-hidden="true"></span>
 
     <div class="ibank-tree-toolbar">
 
@@ -22,7 +21,7 @@
 
           <input type="hidden" name="parent_id" value="" class="js-ibank-tree-parent-id">
 
-          <input type="text" name="folder_name" class="ibank-tree-folder-name-input" placeholder="{% if kind == 'action_eval' %}اسم مجلد (اختياري){% else %}اسم مجلد جديد{% endif %}" maxlength="500" required aria-label="اسم المجلد">
+          <input type="text" name="folder_name" class="ibank-tree-folder-name-input" placeholder="{% if is_unit_eval_tree %}اسم مجلد (اختياري){% else %}اسم مجلد جديد{% endif %}" maxlength="500" required aria-label="اسم المجلد">
 
           <button type="submit" class="btn btn-ghost btn-sm-compact"><i class="fa-solid fa-folder-plus" aria-hidden="true"></i> إضافة مجلد</button>
 
@@ -56,9 +55,16 @@
 
         <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-clear-select"><i class="fa-solid fa-xmark" aria-hidden="true"></i> إلغاء التحديد</button>
 
+        {% if kind == 'dilemma_eval' %}
+        <form method="post" action="/admin/information-bank/eval-list/purge-all" class="ibank-tree-purge-form" onsubmit="return confirm('مسح جميع محتويات تبويب قوائم التقييم (المراحل، الوحدات، والملفات)؟ لا يمكن التراجع.');">
+          <input type="hidden" name="kind" value="dilemma_eval">
+          <button type="submit" class="btn btn-danger btn-sm-compact"><i class="fa-solid fa-trash-can" aria-hidden="true"></i> مسح كل المحتويات</button>
+        </form>
+        {% endif %}
+
       </div>
 
-      <p class="ibank-tree-selection-label js-ibank-tree-target-label" role="status">{% if kind == 'action_eval' %}المستهدف: الجذر — حدّد مرحلة التمرين ثم «إرفاق مجلد» أو «إضافة مجلد» (اختياري)، واختر مستوى الوحدة من القائمة على المجلد{% else %}المستهدف: الجذر — انقر «تحديد» على مجلد في الشجرة{% endif %}</p>
+      <p class="ibank-tree-selection-label js-ibank-tree-target-label" role="status">{% if is_unit_eval_tree %}المستهدف: الجذر — حدّد مرحلة التمرين ثم «إرفاق مجلد» أو «إضافة مجلد» (اختياري)، واختر مستوى الوحدة من القائمة على المجلد{% else %}المستهدف: الجذر — انقر «تحديد» على مجلد في الشجرة{% endif %}</p>
 
     </div>
 
@@ -99,7 +105,7 @@
 
           {% for n in nodes %}
 
-          <li class="ibank-tree-node{% if n.is_folder %} ibank-tree-node--folder{% else %} ibank-tree-node--file{% endif %}{% if n.is_system %} ibank-tree-node--system{% endif %}{% if n.children %} ibank-tree-has-children{% endif %}" role="treeitem"{% if n.children %} aria-expanded="false"{% endif %} data-node-id="{{ n.id }}" data-is-folder="{{ '1' if n.is_folder else '0' }}" data-effective-unit-key="{{ n.effective_unit_key|e }}"{% if information_bank_can_manage %} draggable="true"{% endif %}>
+          <li class="ibank-tree-node{% if n.is_folder %} ibank-tree-node--folder{% else %} ibank-tree-node--file{% endif %}{% if n.is_system %} ibank-tree-node--system{% endif %}{% if n.children %} ibank-tree-has-children{% endif %}" role="treeitem"{% if n.children %} aria-expanded="false"{% endif %} data-node-id="{{ n.id }}" data-is-folder="{{ '1' if n.is_folder else '0' }}" data-effective-unit-key="{{ n.effective_unit_key|e }}">
 
             <div class="ibank-tree-row" style="--ibank-depth: {{ depth }}">
 
@@ -119,7 +125,7 @@
 
               <span class="ibank-tree-label">{{ n.name }}</span>
 
-              {% if kind == 'action_eval' %}
+              {% if is_unit_eval_tree %}
               {% if n.is_folder and not n.is_phase_root %}
               {{ ibank_action_eval_unit_cluster(n) }}
               {% elif not n.is_folder and (n.show_unit_select or n.effective_unit_key) %}
@@ -181,7 +187,7 @@
 
   </section>
 
-  {% if kind == 'action_eval' %}
+  {% if is_unit_eval_tree %}
   <script type="application/json" class="js-ibank-judge-by-unit-data">{{ ibank_judge_names_by_unit|default({})|tojson }}</script>
   {% endif %}
 

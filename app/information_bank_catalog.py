@@ -119,6 +119,19 @@ def training_phase_label(key: str | None) -> str:
     return ""
 
 
+_LEGACY_BRIGADE_UNIT_PREFIXES = ("bg3_", "bg4_", "bg5_")
+
+
+def _legacy_brigade_unit_template_key(key: str) -> str | None:
+    """مفاتيح قديمة لمجموعات ألوية محذوفة (مثل ``bg3_ul_brigade_grp_cmd`` → ``ul_brigade_grp_cmd``)."""
+    for prefix in _LEGACY_BRIGADE_UNIT_PREFIXES:
+        if key.startswith(prefix):
+            base = key[len(prefix) :]
+            if base:
+                return base
+    return None
+
+
 def info_bank_unit_label(key: str | None) -> str:
     k = (key or "").strip()
     if k == PLANNING_CATALOG_ALL_KEY:
@@ -128,6 +141,11 @@ def info_bank_unit_label(key: str | None) -> str:
             return row["label"]
         for bg in INFO_BANK_BRIGADE_GROUPS:
             if unit_catalog_key_for_brigade(bg["key"], row["key"]) == k:
+                return row["label"]
+    legacy_base = _legacy_brigade_unit_template_key(k)
+    if legacy_base:
+        for row in INFO_BANK_UNIT_LEVEL_TEMPLATES:
+            if row["key"] == legacy_base:
                 return row["label"]
     return ""
 
