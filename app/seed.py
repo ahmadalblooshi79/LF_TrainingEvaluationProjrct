@@ -108,6 +108,10 @@ def seed_all(db: Session) -> None:
         u.password_hash = hash_password(DEMO_PASSWORD)
     db.commit()
 
-    from app.planning_catalog_sync import sync_planning_catalogs_from_db
+    from app.planning_catalog_sync import (
+        purge_removed_brigade_unit_levels,
+        sync_planning_catalogs_from_db,
+    )
 
-    sync_planning_catalogs_from_db(db)
+    purge_removed_brigade_unit_levels(db)
+    sync_planning_catalogs_from_db(db, force=True)

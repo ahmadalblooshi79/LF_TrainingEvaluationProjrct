@@ -1,7 +1,7 @@
 """مزامنة كتالوج التخطيط (مستويات الوحدة ومراحل التمرين) من بنك المعلومات."""
 from __future__ import annotations
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app import exercise_phase_catalog as phase_cat
@@ -17,6 +17,37 @@ from app.models import (
     InformationBankUnitNote,
     InformationBankTreeNode,
 )
+
+_catalog_cache_fp: tuple | None = None
+
+
+def invalidate_planning_catalog_cache() -> None:
+    """إبطال ذاكرة المزامنة بعد تعديل بنك المعلومات."""
+    global _catalog_cache_fp
+    _catalog_cache_fp = None
+
+
+def _compute_catalog_fingerprint(db: Session) -> tuple:
+    """بصمة خفيفة لاكتشاف تغيّر الكتالوج دون إعادة تحميل كامل في كل طلب."""
+    u_row = (
+        db.query(
+            func.count(InformationBankUnitLevel.key),
+            func.max(InformationBankUnitLevel.updated_at),
+            func.max(InformationBankUnitLevel.sort_order),
+        )
+        .filter(InformationBankUnitLevel.included_in_exercise.is_(True))
+        .one()
+    )
+    p_row = (
+        db.query(
+            func.count(InformationBankTrainingPhase.key),
+            func.max(InformationBankTrainingPhase.updated_at),
+            func.max(InformationBankTrainingPhase.sort_order),
+        )
+        .filter(InformationBankTrainingPhase.included_in_exercise.is_(True))
+        .one()
+    )
+    return (tuple(u_row), tuple(p_row))
 
 
 def purge_removed_brigade_unit_levels(db: Session) -> int:
@@ -47,6 +78,7 @@ def purge_removed_brigade_unit_levels(db: Session) -> int:
     for r in rows:
         db.delete(r)
     db.commit()
+    invalidate_planning_catalog_cache()
     return len(rows)
 
 
@@ -101,7 +133,12 @@ def sync_planning_exercise_phases_from_db(db: Session) -> list[tuple[str, str]]:
     return included
 
 
-def sync_planning_catalogs_from_db(db: Session) -> None:
-    purge_removed_brigade_unit_levels(db)
+def sync_planning_catalogs_from_db(db: Session, *, force: bool = False) -> None:
+    """مزامنة الكتالوج في الذاكرة — مع تخطّي تلقائي إذا لم يتغيّر المحتوى."""
+    global _catalog_cache_fp
+    fp = _compute_catalog_fingerprint(db)
+    if not force and fp == _catalog_cache_fp:
+        return
     sync_planning_unit_levels_from_db(db)
     sync_planning_exercise_phases_from_db(db)
+    _catalog_cache_fp = fp

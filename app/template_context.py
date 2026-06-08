@@ -81,6 +81,8 @@ def inject_header_exercise():
         return base
     if request.path.startswith("/static/"):
         return base
+    if (request.path or "").startswith("/api/"):
+        return base
     ep = request.endpoint or ""
     req_path = request.path or "/"
     base["hub_landing_preserve_buttons"] = ep in _HUB_LANDING_PRESERVE_BUTTON_ENDPOINTS
@@ -146,13 +148,12 @@ def inject_header_exercise():
             base["header_exercise_info_url"] = url_for("views.exercise_detail", eid=int(ws.id))
 
         if can_view_notifications_log(u):
-            n_ex = db.query(Exercise).order_by(Exercise.id.desc()).first()
-            if n_ex is not None:
+            if ws is not None:
                 unread = (
                     db.query(func.count(ExerciseNotification.id))
                     .filter(
                         ExerciseNotification.user_id == u.id,
-                        ExerciseNotification.exercise_id == n_ex.id,
+                        ExerciseNotification.exercise_id == ws.id,
                         ExerciseNotification.is_read == False,
                     )
                     .scalar()
@@ -164,7 +165,7 @@ def inject_header_exercise():
                         db.query(ExerciseNotification)
                         .filter(
                             ExerciseNotification.user_id == u.id,
-                            ExerciseNotification.exercise_id == n_ex.id,
+                            ExerciseNotification.exercise_id == ws.id,
                             ExerciseNotification.is_read == False,
                         )
                         .order_by(

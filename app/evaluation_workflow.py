@@ -4,6 +4,12 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.evaluation_list_columns import display_grade_label
+from app.evaluation_list_ibank_sync import _phase_match_keys
+from app.exercise_phase_catalog import (
+    exercise_phase_keys,
+    exercise_phase_label,
+    normalize_exercise_phase,
+)
 from app.models import (
     EvaluationListPdfItem,
     EvaluationListSavedResult,
@@ -117,22 +123,13 @@ def eval_dispatch_status_ar(saved: SavedRow | None) -> tuple[str, str]:
     return ("بانتظار الإعتماد", "pending")
 
 
-def evaluation_unit_home_rows(
+def _evaluation_home_items_bundle(
     db,
     exercise,
-    unit_levels: list[dict],
-) -> list[dict]:
-    """صفوف صفحة مستويات الوحدات: عدد القوائم المخصصة وغير المنجزة لكل وحدة."""
+) -> tuple[list, dict[int, EvaluationListSavedResult]]:
+    """تحميل قوائم التقييم وأحدث نتيجة محفوظة لكل قائمة في التمرين."""
     if exercise is None:
-        return [
-            {
-                "key": (u.get("key") or "").strip(),
-                "label": (u.get("label") or u.get("key") or "").strip(),
-                "total_count": 0,
-                "not_done_count": 0,
-            }
-            for u in unit_levels
-        ]
+        return [], {}
     ex_id = int(exercise.id)
     items = (
         db.query(EvaluationListPdfItem)
@@ -158,10 +155,47 @@ def evaluation_unit_home_rows(
             iid = int(row.evaluation_item_id)
             if iid not in canonical:
                 canonical[iid] = row
+    return items, canonical
+
+
+def parse_evaluation_list_phase_key(raw: str | None) -> str | None:
+    """استخراج مفتاح مرحلة التمرين من معامل الطلب."""
+    v = (raw or "").strip()
+    if not v:
+        return None
+    pk = normalize_exercise_phase(v)
+    return pk or v
+
+
+def filter_evaluation_items_by_phase(items, phase_key: str | None):
+    """تصفية قوائم التقييم حسب مرحلة التمرين (نفس منطق صفحة مستويات الوحدات)."""
+    if not phase_key:
+        return list(items)
+    return [it for it in items if _item_matches_phase(it, phase_key)]
+
+
+def _item_matches_phase(item, phase_key: str) -> bool:
+    raw = (getattr(item, "exercise_phase", None) or "").strip()
+    target = normalize_exercise_phase(phase_key)
+    item_norm = normalize_exercise_phase(raw)
+    if item_norm == target:
+        return True
+    return bool(raw and raw in _phase_match_keys(phase_key))
+
+
+def _evaluation_unit_rows_from_bundle(
+    items,
+    canonical: dict[int, EvaluationListSavedResult],
+    unit_levels: list[dict],
+    *,
+    phase_key: str | None = None,
+) -> list[dict]:
     by_unit: dict[str, dict[str, int]] = {}
     for it in items:
         uk = (it.unit_level_key or "").strip()
         if not uk:
+            continue
+        if phase_key is not None and not _item_matches_phase(it, phase_key):
             continue
         slot = by_unit.setdefault(uk, {"total": 0, "not_done": 0})
         slot["total"] += 1
@@ -180,6 +214,75 @@ def evaluation_unit_home_rows(
             }
         )
     return rows
+
+
+def evaluation_unit_home_rows(
+    db,
+    exercise,
+    unit_levels: list[dict],
+    *,
+    phase_key: str | None = None,
+) -> list[dict]:
+    """صفوف صفحة مستويات الوحدات: عدد القوائم المخصصة وغير المنجزة لكل وحدة."""
+    if exercise is None:
+        return [
+            {
+                "key": (u.get("key") or "").strip(),
+                "label": (u.get("label") or u.get("key") or "").strip(),
+                "total_count": 0,
+                "not_done_count": 0,
+            }
+            for u in unit_levels
+        ]
+    items, canonical = _evaluation_home_items_bundle(db, exercise)
+    return _evaluation_unit_rows_from_bundle(
+        items, canonical, unit_levels, phase_key=phase_key
+    )
+
+
+def evaluation_unit_home_phase_tabs(
+    db,
+    exercise,
+    unit_levels: list[dict],
+) -> list[dict]:
+    """تبويبات مراحل التمرين لصفحة مستويات الوحدات (ديناميكية حسب كتالوج المراحل)."""
+    catalog_keys = list(exercise_phase_keys())
+    if exercise is None:
+        return [
+            {
+                "phase_key": pk,
+                "phase_label": exercise_phase_label(pk),
+                "unit_rows": evaluation_unit_home_rows(db, None, unit_levels),
+                "totals": {"total": 0, "not_done": 0},
+            }
+            for pk in catalog_keys
+        ]
+
+    items, canonical = _evaluation_home_items_bundle(db, exercise)
+    phase_keys_seen: set[str] = set()
+    for it in items:
+        pk = normalize_exercise_phase(getattr(it, "exercise_phase", None))
+        if pk:
+            phase_keys_seen.add(pk)
+
+    ordered: list[str] = list(catalog_keys) if catalog_keys else sorted(phase_keys_seen)
+    for pk in sorted(phase_keys_seen - set(ordered)):
+        ordered.append(pk)
+
+    tabs: list[dict] = []
+    for pk in ordered:
+        unit_rows = _evaluation_unit_rows_from_bundle(
+            items, canonical, unit_levels, phase_key=pk
+        )
+        tabs.append(
+            {
+                "phase_key": pk,
+                "phase_label": exercise_phase_label(pk),
+                "unit_rows": unit_rows,
+                "totals": evaluation_unit_home_totals(unit_rows),
+            }
+        )
+    return tabs
 
 
 def evaluation_unit_home_totals(unit_rows: list[dict]) -> dict[str, int]:

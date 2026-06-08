@@ -9,3 +9,9 @@ __pycache__/
 # أسرار محلية (مفاتيح، كلمات مرور) — لا تُرفع أبداً
 .env
 exercises.db
+# سجلات تشغيل محلية
+server-*.log
+_server_*.txt
+_transcript_snippets.txt
+# صور خلفية مؤقتة (غير مستخدمة)
+app/static/images/

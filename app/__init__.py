@@ -38,7 +38,11 @@ def create_app() -> Flask:
         template_folder=os.path.join(os.path.dirname(__file__), "templates"),
     )
     app.config["SECRET_KEY"] = SECRET_KEY
-    app.config["TEMPLATES_AUTO_RELOAD"] = True
+    app.config["TEMPLATES_AUTO_RELOAD"] = os.getenv("FLASK_DEBUG", "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
     with app.app_context():
         Base.metadata.create_all(bind=engine)
@@ -68,11 +72,12 @@ def create_app() -> Flask:
 
     @app.before_request
     def _open_db():
-        if request.path.startswith("/static/"):
+        path = request.path or ""
+        if path.startswith("/static/"):
             return
         g.db = SessionLocal()
-        # طلبات النبضات خفيفة ومتكررة على LAN/Wi‑Fi — لا حاجة لمزامنة الكتالوج في كل استعلام
-        if request.path in ("/api/system/heartbeat", "/api/notifications/summary"):
+        # طلبات خفيفة — لا مزامنة كتالوج (تسريع الدخول والنبضات والصفحات البسيطة)
+        if path.startswith("/api/") or path in ("/login", "/logout"):
             return
         from app.planning_catalog_sync import sync_planning_catalogs_from_db
 

@@ -32,7 +32,12 @@ def get_session_user_id() -> int | None:
 
 
 def get_current_user_optional() -> User | None:
+    if getattr(g, "_current_user_loaded", False):
+        return getattr(g, "_current_user", None)
     uid = get_session_user_id()
-    if not uid or not hasattr(g, "db") or g.db is None:
-        return None
-    return get_user_by_id(g.db, uid)
+    user = None
+    if uid and hasattr(g, "db") and g.db is not None:
+        user = get_user_by_id(g.db, uid)
+    g._current_user_loaded = True
+    g._current_user = user
+    return user

@@ -13,37 +13,103 @@
 <section class="card judge-eval-lists-fill-card">
   <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل لهذا المستخدم. افتح/أنشئ تمريناً أولاً.</p>
 </section>
+{% elif judge_no_unit_assignment %}
+<section class="card judge-eval-lists-fill-card">
+  <p class="muted" dir="rtl" style="margin:0;">لم يُخصّص لك مستوى وحدة في قائمة المحكمين لهذا التمرين. راجع مسؤول التخطيط أو السيطرة.</p>
+</section>
+{% elif phase_tabs %}
+{% set initial_phase = active_phase_key | default(phase_tabs[0].phase_key) %}
+<section class="card judge-eval-lists-fill-card">
+  <div class="judge-eval-lists-phase-tabs" id="judge-eval-lists-phase-tabs" data-initial-phase="{{ initial_phase }}">
+    <div class="aerd-tabs" role="tablist" aria-label="مراحل التمرين">
+      {% for tab in phase_tabs %}
+      <button
+        type="button"
+        class="aerd-tab aerd-tab--{{ tab.phase_key }}{% if tab.phase_key == initial_phase %} is-active{% endif %}"
+        data-judge-eval-phase-tab="{{ tab.phase_key }}"
+        role="tab"
+        aria-selected="{{ 'true' if tab.phase_key == initial_phase else 'false' }}"
+        aria-controls="judge-eval-phase-pane-{{ tab.phase_key }}">
+        {{ tab.phase_label }}
+        <span class="judge-eval-phase-tab__count">{{ tab.totals.total }}</span>
+      </button>
+      {% endfor %}
+    </div>
+
+    <div class="aerd-tabpanes judge-eval-lists-phase-panes">
+      {% for tab in phase_tabs %}
+      <div
+        class="aerd-tabpane judge-eval-phase-pane{% if tab.phase_key == initial_phase %} is-active{% endif %}"
+        id="judge-eval-phase-pane-{{ tab.phase_key }}"
+        data-judge-eval-phase-pane="{{ tab.phase_key }}"
+        role="tabpanel"
+        {% if tab.phase_key != initial_phase %}hidden{% endif %}>
+        <p class="judge-eval-units-summary" dir="rtl" role="status">
+          <span class="judge-eval-units-summary__item">قوائم التقييم: <strong>{{ tab.totals.total }}</strong></span>
+          <span class="judge-eval-units-summary__sep" aria-hidden="true">|</span>
+          <span class="judge-eval-units-summary__item judge-eval-units-summary__item--not-done">غير منجزة: <strong>{{ tab.totals.not_done }}</strong></span>
+        </p>
+        <div class="table-wrap">
+          <table class="judge-eval-units-table" dir="rtl" aria-label="مستويات الوحدات — {{ tab.phase_label }}">
+            <thead>
+              <tr>
+                <th scope="col" class="eval-lists-table__seq">ت</th>
+                <th scope="col">مستوى الوحدة</th>
+                <th scope="col">عدد قوائم التقييم</th>
+                <th scope="col">غير منجزة</th>
+                <th scope="col">فتح</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in tab.unit_rows %}
+              <tr>
+                <td class="eval-lists-table__seq">{{ loop.index }}</td>
+                <td class="judge-eval-unit-label">{{ r.label }}</td>
+                <td{% if r.total_count > 0 %} class="judge-eval-unit-total-cell"{% endif %}>{{ r.total_count }}</td>
+                <td{% if r.not_done_count > 0 %} class="judge-eval-unit-not-done-cell"{% endif %}>{{ r.not_done_count }}</td>
+                <td><a href="{{ url_for(unit_list_endpoint | default('views.judge_evaluation_lists'), unit_key=r.key, phase=tab.phase_key) }}">فتح القوائم</a></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+<script>
+(function () {
+  var root = document.getElementById("judge-eval-lists-phase-tabs");
+  if (!root) return;
+
+  function activatePhase(phaseId) {
+    root.querySelectorAll("[data-judge-eval-phase-tab]").forEach(function (b) {
+      var on = b.getAttribute("data-judge-eval-phase-tab") === phaseId;
+      b.classList.toggle("is-active", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    root.querySelectorAll("[data-judge-eval-phase-pane]").forEach(function (p) {
+      var on = p.getAttribute("data-judge-eval-phase-pane") === phaseId;
+      p.classList.toggle("is-active", on);
+      if (on) p.removeAttribute("hidden");
+      else p.setAttribute("hidden", "");
+    });
+  }
+
+  root.querySelectorAll("[data-judge-eval-phase-tab]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      activatePhase(b.getAttribute("data-judge-eval-phase-tab"));
+    });
+  });
+
+  var initial = (root.getAttribute("data-initial-phase") || "").trim();
+  if (initial) activatePhase(initial);
+})();
+</script>
 {% else %}
 <section class="card judge-eval-lists-fill-card">
-  <p class="judge-eval-units-summary" dir="rtl" role="status">
-    <span class="judge-eval-units-summary__item">قوائم التقييم: <strong>{{ unit_totals.total }}</strong></span>
-    <span class="judge-eval-units-summary__sep" aria-hidden="true">|</span>
-    <span class="judge-eval-units-summary__item judge-eval-units-summary__item--not-done">غير منجزة: <strong>{{ unit_totals.not_done }}</strong></span>
-  </p>
-  <div class="table-wrap">
-    <table class="judge-eval-units-table" dir="rtl" aria-label="مستويات الوحدات">
-      <thead>
-        <tr>
-          <th scope="col" class="eval-lists-table__seq">ت</th>
-          <th scope="col">مستوى الوحدة</th>
-          <th scope="col">عدد قوائم التقييم</th>
-          <th scope="col">غير منجزة</th>
-          <th scope="col">فتح</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in unit_rows %}
-        <tr>
-          <td class="eval-lists-table__seq">{{ loop.index }}</td>
-          <td class="judge-eval-unit-label">{{ r.label }}</td>
-          <td{% if r.total_count > 0 %} class="judge-eval-unit-total-cell"{% endif %}>{{ r.total_count }}</td>
-          <td{% if r.not_done_count > 0 %} class="judge-eval-unit-not-done-cell"{% endif %}>{{ r.not_done_count }}</td>
-          <td><a href="{{ url_for(unit_list_endpoint | default('views.judge_evaluation_lists'), unit_key=r.key) }}">فتح القوائم</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <p class="muted" dir="rtl" style="margin:0;">لا توجد مراحل تمرين مُعرّفة في النظام.</p>
 </section>
 {% endif %}
 {% endblock %}

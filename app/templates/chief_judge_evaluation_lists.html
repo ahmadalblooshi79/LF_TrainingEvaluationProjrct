@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}قوائم التقييم — {{ unit.label }}{% endblock %}
+{% block title %}قوائم التقييم — {{ unit.label }}{% if phase_label %} — {{ phase_label }}{% endif %}{% endblock %}
 {% block body_class %}judge-eval-lists-page-layout{% endblock %}
 {% block content %}
 <div class="page-header page-header--judge-eval-lists">
-  <h1><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> قوائم التقييم — {{ unit.label }}</h1>
+  <h1><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> قوائم التقييم — {{ unit.label }}{% if phase_label %} — {{ phase_label }}{% endif %}</h1>
   <p class="muted">الموقف (ينجز/لم ينجز) يعتمد على اعتماد المحكم فقط.</p>
   <div class="page-header__nav">
     {% include 'partials/subpage_close.html' %}

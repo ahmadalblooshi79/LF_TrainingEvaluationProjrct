@@ -93,7 +93,10 @@ from app.evaluation_workflow import (
     build_evaluation_list_row,
     build_planner_flow_eval_row,
     evaluation_unit_home_rows,
+    evaluation_unit_home_phase_tabs,
     evaluation_unit_home_totals,
+    filter_evaluation_items_by_phase,
+    parse_evaluation_list_phase_key,
     eval_status_done,
     eval_chief_approved,
     eval_chief_can_approve,
@@ -493,6 +496,55 @@ def _normalized_exercise_phase(val: str | None) -> str:
     return normalize_exercise_phase(val)
 
 
+def _evaluation_list_phase_from_request() -> str | None:
+    raw = request.args.get("phase") or request.form.get("phase")
+    return parse_evaluation_list_phase_key(raw)
+
+
+def _evaluation_list_resolved_phase(item=None) -> str | None:
+    pk = _evaluation_list_phase_from_request()
+    if pk:
+        return pk
+    if item is not None:
+        return normalize_exercise_phase(getattr(item, "exercise_phase", None)) or None
+    return None
+
+
+def _evaluation_list_phase_url_kwargs(phase_key: str | None) -> dict:
+    if phase_key:
+        return {"phase": phase_key}
+    return {}
+
+
+def _evaluation_list_viewer_redirect(endpoint: str, unit_key: str, item_id: int, item, **query_extra):
+    phase_key = _evaluation_list_resolved_phase(item)
+    return redirect(
+        url_for(
+            endpoint,
+            unit_key=unit_key,
+            item_id=item_id,
+            **_evaluation_list_phase_url_kwargs(phase_key),
+            **query_extra,
+        )
+    )
+
+
+def _evaluation_list_home_active_phase(phase_tabs: list[dict]) -> str:
+    requested = parse_evaluation_list_phase_key(request.args.get("phase"))
+    keys = {str(t.get("phase_key") or "") for t in phase_tabs}
+    if requested and requested in keys:
+        return requested
+    if phase_tabs:
+        return str(phase_tabs[0].get("phase_key") or "")
+    return ""
+
+
+def _evaluation_list_unit_href(endpoint: str, unit_key: str, phase_key: str | None = None) -> str:
+    if phase_key:
+        return url_for(endpoint, unit_key=unit_key, phase=phase_key)
+    return url_for(endpoint, unit_key=unit_key)
+
+
 def _exercise_phase_order_expr(column):
     """ترتيب SQL حسب كتالوج المراحل؛ عند فراغ الكتالوج يُرتب بالقيمة الخام."""
     keys = exercise_phase_keys()
@@ -705,6 +757,51 @@ def _judge_assignment_for_current_exercise(db, user: User, ex: Exercise | None) 
     )
 
 
+def _is_individual_judge_user(user: User | None) -> bool:
+    """محكم فردي (وليس إدارة النظام ولا كبير المحكمين)."""
+    if user is None:
+        return False
+    return is_judge(user) and not is_system_admin(user) and not is_chief_judge(user)
+
+
+def _judge_assigned_unit_key(db, user: User, ex: Exercise | None) -> str:
+    """مفتاح مستوى الوحدة المخصص للمحكم في التمرين الحالي."""
+    a = _judge_assignment_for_current_exercise(db, user, ex)
+    uk = (getattr(a, "unit_level_key", "") or "").strip() if a else ""
+    if uk or ex is None or user is None:
+        return uk
+    mil = (getattr(user, "username", "") or "").strip()
+    if not mil:
+        return ""
+    jr = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == ex.id,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+            ExerciseRosterRow.military_number == mil,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .first()
+    )
+    if jr is None:
+        return ""
+    return (jr.unit_level_key or "").strip()
+
+
+def _judge_evaluation_list_unit_levels(db, user: User, ex: Exercise | None) -> list[dict]:
+    """مستويات الوحدة المعروضة في صفحة قوائم التقييم حسب دور المستخدم."""
+    if not _is_individual_judge_user(user):
+        return list(UNIT_LEVELS)
+    uk = _judge_assigned_unit_key(db, user, ex)
+    if not uk:
+        return []
+    row = unit_level_row(uk)
+    if row:
+        return [row]
+    label = (label_for_unit_level_key(uk) or uk).strip()
+    return [{"key": uk, "label": label or uk}]
+
+
 def _enforce_judge_unit_scope(db, user: User, ex: Exercise | None, unit_key: str) -> None:
     """للمحكمين (غير إدارة النظام): السماح فقط بوحدة المتدرب المخصصة لهم."""
     if ex is None:
@@ -713,8 +810,7 @@ def _enforce_judge_unit_scope(db, user: User, ex: Exercise | None, unit_key: str
         return
     if not is_judge(user):
         return
-    a = _judge_assignment_for_current_exercise(db, user, ex)
-    assigned = (getattr(a, "unit_level_key", "") or "").strip() if a else ""
+    assigned = _judge_assigned_unit_key(db, user, ex)
     if assigned and assigned != (unit_key or "").strip():
         abort(403)
 
@@ -726,7 +822,7 @@ def _enforce_judge_has_assignment_for_unit(db, user: User, ex: Exercise | None, 
     if is_system_admin(user) or not is_judge(user):
         return
     a = _judge_assignment_for_current_exercise(db, user, ex)
-    assigned = (getattr(a, "unit_level_key", "") or "").strip() if a else ""
+    assigned = _judge_assigned_unit_key(db, user, ex)
     if not assigned:
         abort(403)
     if assigned != (unit_key or "").strip():
@@ -7383,7 +7479,7 @@ def planner_evaluation_lists_home():
     db = g.db
     ex = _admin_current_workspace_exercise(db, user)
     units = list(UNIT_LEVELS)
-    unit_rows = evaluation_unit_home_rows(db, ex, units)
+    phase_tabs = evaluation_unit_home_phase_tabs(db, ex, units)
     return render_template(
         "judge_evaluation_lists_home.html",
         **_ctx(
@@ -7391,8 +7487,8 @@ def planner_evaluation_lists_home():
             has_exercise=ex is not None,
             exercise=ex,
             unit_levels=units,
-            unit_rows=unit_rows,
-            unit_totals=evaluation_unit_home_totals(unit_rows),
+            phase_tabs=phase_tabs,
+            active_phase_key=_evaluation_list_home_active_phase(phase_tabs),
             unit_list_endpoint="views.planner_evaluation_lists",
             **_hub_back_ctx_for_request_path(),
         ),
@@ -7413,6 +7509,7 @@ def planner_evaluation_lists(unit_key: str):
     ex = _admin_current_workspace_exercise(db, user)
     if ex is None:
         return redirect("/planner/evaluation-lists")
+    phase_key = _evaluation_list_phase_from_request()
     items = (
         db.query(EvaluationListPdfItem)
         .filter(EvaluationListPdfItem.exercise_id == ex.id, EvaluationListPdfItem.unit_level_key == unit_key)
@@ -7423,6 +7520,7 @@ def planner_evaluation_lists(unit_key: str):
         )
         .all()
     )
+    items = filter_evaluation_items_by_phase(items, phase_key)
     item_ids = [int(it.id) for it in items]
     canonical_by_item = _evaluation_canonical_map_for_items(db, ex.id, item_ids)
 
@@ -7438,9 +7536,15 @@ def planner_evaluation_lists(unit_key: str):
                     "views.planner_evaluation_list_file_viewer",
                     unit_key=unit_key,
                     item_id=it.id,
+                    **_evaluation_list_phase_url_kwargs(phase_key),
                 ),
             )
         )
+    list_close_href = (
+        url_for("views.planner_evaluation_lists_home", **_evaluation_list_phase_url_kwargs(phase_key))
+        if phase_key
+        else url_for("views.planner_evaluation_lists_home")
+    )
     return render_template(
         "judge_evaluation_lists.html",
         **_ctx(
@@ -7450,8 +7554,10 @@ def planner_evaluation_lists(unit_key: str):
             unit_key=unit_key,
             items=items,
             evaluation_lists_rows=evaluation_lists_rows,
-            eval_lists_parent_href=url_for("views.planner_evaluation_lists_home"),
-            subpage_close_fallback=url_for("views.planner_evaluation_lists_home"),
+            eval_lists_parent_href=list_close_href,
+            subpage_close_fallback=list_close_href,
+            phase_key=phase_key,
+            phase_label=_phase_label_ar(phase_key) if phase_key else "",
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -7472,7 +7578,9 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
     current_exercise = _admin_current_workspace_exercise(db, user)
     if not row or row.unit_level_key != unit_key or current_exercise is None or row.exercise_id != current_exercise.id:
         abort(404)
-    list_url = url_for("views.planner_evaluation_lists", unit_key=unit_key)
+    list_url = _evaluation_list_unit_href(
+        "views.planner_evaluation_lists", unit_key, _evaluation_list_resolved_phase(row)
+    )
     if not (row.pdf_relpath or "").strip():
         return redirect(list_url)
     fspath = _evaluation_list_file_abspath(row.pdf_relpath)
@@ -7535,8 +7643,19 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
     if judge_row is not None:
         judge_name = (judge_row.full_name or "").strip() or judge_name
 
-    eval_save_url = url_for("views.planner_evaluation_list_save_results", unit_key=unit_key, item_id=item_id)
-    eval_approve_url = url_for("views.planner_evaluation_list_approve", unit_key=unit_key, item_id=item_id)
+    phase_key = _evaluation_list_resolved_phase(row)
+    eval_save_url = url_for(
+        "views.planner_evaluation_list_save_results",
+        unit_key=unit_key,
+        item_id=item_id,
+        **_evaluation_list_phase_url_kwargs(phase_key),
+    )
+    eval_approve_url = url_for(
+        "views.planner_evaluation_list_approve",
+        unit_key=unit_key,
+        item_id=item_id,
+        **_evaluation_list_phase_url_kwargs(phase_key),
+    )
     wf = _eval_list_viewer_ctx(user, canon)
     crit_edit = bool(
         not saved_is_approved and can_save_evaluation_results(user)
@@ -7572,7 +7691,9 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
             eval_save_url=eval_save_url,
             eval_approve_url=eval_approve_url,
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
-            subpage_close_fallback=url_for("views.planner_evaluation_lists", unit_key=unit_key),
+            subpage_close_fallback=_evaluation_list_unit_href(
+                "views.planner_evaluation_lists", unit_key, phase_key
+            ),
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -7604,17 +7725,14 @@ def planner_evaluation_list_save_results(unit_key: str, item_id: int):
 
     raw = (request.form.get("payload_json") or "").strip()
     if not raw:
-        return redirect(url_for("views.planner_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id))
+        return _evaluation_list_viewer_redirect(
+            "views.planner_evaluation_list_file_viewer", unit_key, item_id, item
+        )
     if len(raw) > 250_000:
         abort(400)
     _evaluation_commit_payload_save(db, user=user, item=item, current_exercise=current_exercise, raw=raw)
-    return redirect(
-        url_for(
-            "views.planner_evaluation_list_file_viewer",
-            unit_key=unit_key,
-            item_id=item_id,
-            eval_saved=1,
-        )
+    return _evaluation_list_viewer_redirect(
+        "views.planner_evaluation_list_file_viewer", unit_key, item_id, item, eval_saved=1
     )
 
 
@@ -7648,31 +7766,33 @@ def planner_evaluation_list_approve(unit_key: str, item_id: int):
     if saved is None or not (saved.payload_json or "").strip():
         abort(400)
     if bool(getattr(saved, "is_approved", False)):
-        return redirect(url_for("views.planner_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id))
+        return _evaluation_list_viewer_redirect(
+            "views.planner_evaluation_list_file_viewer", unit_key, item_id, item
+        )
     rows = _parse_saved_eval_rows(saved.payload_json)
     if _evaluation_payload_has_empty_acquired_for_approve(rows):
-        return redirect(
-            url_for(
-                "views.planner_evaluation_list_file_viewer",
-                unit_key=unit_key,
-                item_id=item_id,
-                eval_approve_incomplete=1,
-            )
+        return _evaluation_list_viewer_redirect(
+            "views.planner_evaluation_list_file_viewer",
+            unit_key,
+            item_id,
+            item,
+            eval_approve_incomplete=1,
         )
     if not _evaluation_saved_allows_judge_approve(saved):
-        return redirect(
-            url_for(
-                "views.planner_evaluation_list_file_viewer",
-                unit_key=unit_key,
-                item_id=item_id,
-                eval_approve_grade_blocked=1,
-            )
+        return _evaluation_list_viewer_redirect(
+            "views.planner_evaluation_list_file_viewer",
+            unit_key,
+            item_id,
+            item,
+            eval_approve_grade_blocked=1,
         )
     saved.is_approved = True
     saved.approved_by_id = getattr(user, "id", None)
     saved.approved_at = datetime.utcnow()
     db.commit()
-    return redirect(url_for("views.planner_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id))
+    return _evaluation_list_viewer_redirect(
+        "views.planner_evaluation_list_file_viewer", unit_key, item_id, item
+    )
 
 
 # مساحة المحكمين — عناصر الشريط (المعرّف، العنوان، أيقونة Font Awesome)
@@ -8015,39 +8135,16 @@ def api_system_heartbeat():
                 EvaluationListSavedResult.exercise_id == ex_id
             )
         )
-        _add_max(
-            db.query(func.max(EvaluationListSavedResult.approved_at)).filter(
-                EvaluationListSavedResult.exercise_id == ex_id
-            )
+        eval_saved_n = (
+            db.query(func.count(EvaluationListSavedResult.id))
+            .filter(EvaluationListSavedResult.exercise_id == ex_id)
+            .scalar()
+            or 0
         )
-        _add_max(
-            db.query(func.max(EvaluationListSavedResult.chief_approved_at)).filter(
-                EvaluationListSavedResult.exercise_id == ex_id
-            )
-        )
-        _add_max(
-            db.query(func.max(EvaluationListSavedResult.control_approved_at)).filter(
-                EvaluationListSavedResult.exercise_id == ex_id
-            )
-        )
+        parts.append(f"eval_saved={int(eval_saved_n)}")
         # نتائج تقييم إجراءات حزمة المجرى (تقييم المجرى/الإجراءات).
         _add_max(
             db.query(func.max(PlannerFlowBundleEvalSavedResult.updated_at)).filter(
-                PlannerFlowBundleEvalSavedResult.exercise_id == ex_id
-            )
-        )
-        _add_max(
-            db.query(func.max(PlannerFlowBundleEvalSavedResult.approved_at)).filter(
-                PlannerFlowBundleEvalSavedResult.exercise_id == ex_id
-            )
-        )
-        _add_max(
-            db.query(func.max(PlannerFlowBundleEvalSavedResult.chief_approved_at)).filter(
-                PlannerFlowBundleEvalSavedResult.exercise_id == ex_id
-            )
-        )
-        _add_max(
-            db.query(func.max(PlannerFlowBundleEvalSavedResult.control_approved_at)).filter(
                 PlannerFlowBundleEvalSavedResult.exercise_id == ex_id
             )
         )
@@ -9221,8 +9318,11 @@ def _build_control_positives_negatives(
     user: User,
     *,
     list_viewer: str = "views.control_evaluation_list_file_viewer",
+    force_ai_refresh: bool = False,
 ) -> dict:
-    """إيجابيات وسلبيات من الملاحظات الكتابية في قوائم التقييم بعد حفظ واعتماد المحكم."""
+    """إيجابيات وسلبيات — تحليل ذكاء اصطناعي لكل مستوى وحدة + ملاحظات كتابية."""
+    from app.positives_negatives_ai import build_ai_unit_summaries, collect_unit_criteria
+
     ex0 = _current_workspace_exercise(db, user)
     if ex0 is None:
         return {"has_exercise": False}
@@ -9311,6 +9411,25 @@ def _build_control_positives_negatives(
         )
     )
 
+    by_unit = collect_unit_criteria(items, canonical_by_item, phase_label_fn=_phase_label_ar)
+    ai_ctx = build_ai_unit_summaries(
+        int(ex.id),
+        by_unit,
+        force_refresh=force_ai_refresh,
+    )
+    unit_order = {row.get("key"): idx for idx, row in enumerate(UNIT_LEVELS)}
+    ai_summaries = list(ai_ctx.get("ai_unit_summaries") or [])
+    ai_summaries.sort(
+        key=lambda u: (
+            unit_order.get((u.get("unit_key") or "").strip(), len(unit_order)),
+            u.get("unit_label") or "",
+        )
+    )
+    ai_ctx["ai_unit_summaries"] = ai_summaries
+    ai_ctx["n_ai_units"] = len(ai_summaries)
+    ai_ctx["n_ai_positives"] = sum(len(u.get("positives") or []) for u in ai_summaries)
+    ai_ctx["n_ai_negatives"] = sum(len(u.get("negatives") or []) for u in ai_summaries)
+
     return {
         "has_exercise": True,
         "exercise": ex,
@@ -9321,6 +9440,7 @@ def _build_control_positives_negatives(
         "n_lists_with_notes": len(lists_with_notes),
         "n_eval_lists": len(items),
         "n_approved_eval_lists": n_approved,
+        **ai_ctx,
     }
 
 
@@ -10030,6 +10150,37 @@ def control_planner_flow_action_view(unit_key: str, action_eval_id: int):
     )
 
 
+@bp.route("/control/top-positives-negatives/refresh-ai", methods=["POST"])
+def control_top_positives_negatives_refresh_ai():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/control/top-positives-negatives")
+    if not can_access_control_hub(user):
+        abort(403)
+    from flask import g
+
+    _build_control_positives_negatives(g.db, user, force_ai_refresh=True)
+    return redirect(url_for("views.control_hub_section", slug="top-positives-negatives", ai_refreshed=1))
+
+
+@bp.route("/analyst/positives-negatives/refresh-ai", methods=["POST"])
+def analyst_positives_negatives_refresh_ai():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/analyst/positives-negatives")
+    if not can_access_analyst_hub(user):
+        abort(403)
+    from flask import g
+
+    _build_control_positives_negatives(
+        g.db,
+        user,
+        list_viewer="views.analyst_evaluation_list_file_viewer",
+        force_ai_refresh=True,
+    )
+    return redirect(url_for("views.analyst_hub_section", slug="positives-negatives", ai_refreshed=1))
+
+
 @bp.route("/control")
 def control_hub():
     user = get_current_user_optional()
@@ -10499,7 +10650,7 @@ def _sync_judges_from_roster(db, ex: Exercise) -> None:
 
     from app.planning_catalog_sync import sync_planning_catalogs_from_db
 
-    sync_planning_catalogs_from_db(db)
+    sync_planning_catalogs_from_db(db, force=True)
     trainees = (
         db.query(ExerciseRosterRow)
         .filter(
@@ -10715,7 +10866,7 @@ def _exercise_roster_page(roster_kind: str):
 
     from app.planning_catalog_sync import sync_planning_catalogs_from_db
 
-    sync_planning_catalogs_from_db(db)
+    sync_planning_catalogs_from_db(db, force=True)
 
     meta = {
         ExerciseRosterKind.TRAINEE.value: {
@@ -11398,13 +11549,8 @@ def judge_evaluation_lists_home():
     db = g.db
     ex = _current_workspace_exercise(db, user)
     _ensure_judge_roster_synced(db, user, ex)
-    # إن كان المحكم مخصصاً لوحدة واحدة، افتحها مباشرة
-    a = _judge_assignment_for_current_exercise(db, user, ex)
-    assigned_uk = (getattr(a, "unit_level_key", "") or "").strip() if a else ""
-    if assigned_uk and unit_level_row(assigned_uk) and not is_system_admin(user):
-        return redirect(url_for("views.judge_evaluation_lists", unit_key=assigned_uk))
-    units = [u for u in UNIT_LEVELS if not assigned_uk or u.get("key") == assigned_uk]
-    unit_rows = evaluation_unit_home_rows(db, ex, units)
+    units = _judge_evaluation_list_unit_levels(db, user, ex)
+    phase_tabs = evaluation_unit_home_phase_tabs(db, ex, units)
     return render_template(
         "judge_evaluation_lists_home.html",
         **_ctx(
@@ -11412,9 +11558,10 @@ def judge_evaluation_lists_home():
             has_exercise=ex is not None,
             exercise=ex,
             unit_levels=units,
-            unit_rows=unit_rows,
-            unit_totals=evaluation_unit_home_totals(unit_rows),
+            phase_tabs=phase_tabs,
+            active_phase_key=_evaluation_list_home_active_phase(phase_tabs),
             unit_list_endpoint="views.judge_evaluation_lists",
+            judge_no_unit_assignment=_is_individual_judge_user(user) and not units,
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -11563,6 +11710,7 @@ def judge_evaluation_lists(unit_key: str):
     if ex is None:
         return redirect("/judge/evaluation-lists")
     _enforce_judge_unit_scope(db, user, ex, unit_key)
+    phase_key = _evaluation_list_phase_from_request()
     items = (
         db.query(EvaluationListPdfItem)
         .filter(EvaluationListPdfItem.exercise_id == ex.id, EvaluationListPdfItem.unit_level_key == unit_key)
@@ -11573,16 +11721,23 @@ def judge_evaluation_lists(unit_key: str):
         )
         .all()
     )
+    items = filter_evaluation_items_by_phase(items, phase_key)
 
     item_ids = [int(it.id) for it in items]
     canonical_by_item = _evaluation_canonical_map_for_items(db, ex.id, item_ids)
 
-    a = _judge_assignment_for_current_exercise(db, user, ex)
-    assigned_uk = (getattr(a, "unit_level_key", "") or "").strip() if a else ""
-    if assigned_uk and not is_system_admin(user):
+    assigned_uk = _judge_assigned_unit_key(db, user, ex)
+    if _is_individual_judge_user(user):
+        eval_lists_parent_href = url_for("views.judge_evaluation_lists_home")
+    elif assigned_uk:
         eval_lists_parent_href = url_for("views.judge_hub")
     else:
         eval_lists_parent_href = url_for("views.judge_evaluation_lists_home")
+    list_close_href = (
+        url_for("views.judge_evaluation_lists_home", **_evaluation_list_phase_url_kwargs(phase_key))
+        if phase_key
+        else eval_lists_parent_href
+    )
 
     evaluation_lists_rows: list[dict] = []
     for it in items:
@@ -11596,6 +11751,7 @@ def judge_evaluation_lists(unit_key: str):
                     "views.judge_evaluation_list_file_viewer",
                     unit_key=unit_key,
                     item_id=it.id,
+                    **_evaluation_list_phase_url_kwargs(phase_key),
                 ),
             )
         )
@@ -11608,8 +11764,10 @@ def judge_evaluation_lists(unit_key: str):
             unit_key=unit_key,
             items=items,
             evaluation_lists_rows=evaluation_lists_rows,
-            eval_lists_parent_href=eval_lists_parent_href,
-            subpage_close_fallback=eval_lists_parent_href,
+            eval_lists_parent_href=list_close_href,
+            subpage_close_fallback=list_close_href,
+            phase_key=phase_key,
+            phase_label=_phase_label_ar(phase_key) if phase_key else "",
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -11631,7 +11789,9 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
     if not row or row.unit_level_key != unit_key or current_exercise is None or row.exercise_id != current_exercise.id:
         abort(404)
     _enforce_judge_unit_scope(db, user, current_exercise, unit_key)
-    list_url = url_for("views.judge_evaluation_lists", unit_key=unit_key)
+    list_url = _evaluation_list_unit_href(
+        "views.judge_evaluation_lists", unit_key, _evaluation_list_resolved_phase(row)
+    )
     if not (row.pdf_relpath or "").strip():
         return redirect(list_url)
     fspath = _evaluation_list_file_abspath(row.pdf_relpath)
@@ -11659,8 +11819,19 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
         saved_row_id = canon.id
     saved_payload = _saved_payload_aligned_with_eval_rows(saved_payload, ev.get("eval_rows"))
 
-    eval_save_url = url_for("views.judge_evaluation_list_save_results", unit_key=unit_key, item_id=item_id)
-    eval_approve_url = url_for("views.judge_evaluation_list_approve", unit_key=unit_key, item_id=item_id)
+    phase_key = _evaluation_list_resolved_phase(row)
+    eval_save_url = url_for(
+        "views.judge_evaluation_list_save_results",
+        unit_key=unit_key,
+        item_id=item_id,
+        **_evaluation_list_phase_url_kwargs(phase_key),
+    )
+    eval_approve_url = url_for(
+        "views.judge_evaluation_list_approve",
+        unit_key=unit_key,
+        item_id=item_id,
+        **_evaluation_list_phase_url_kwargs(phase_key),
+    )
     wf = _eval_list_viewer_ctx(user, canon)
 
     # معلومات إضافية أعلى مربع قائمة التقييم
@@ -11764,17 +11935,14 @@ def judge_evaluation_list_save_results(unit_key: str, item_id: int):
 
     raw = (request.form.get("payload_json") or "").strip()
     if not raw:
-        return redirect(url_for("views.judge_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id))
+        return _evaluation_list_viewer_redirect(
+            "views.judge_evaluation_list_file_viewer", unit_key, item_id, item
+        )
     if len(raw) > 250_000:
         abort(400)
     _evaluation_commit_payload_save(db, user=user, item=item, current_exercise=current_exercise, raw=raw)
-    return redirect(
-        url_for(
-            "views.judge_evaluation_list_file_viewer",
-            unit_key=unit_key,
-            item_id=item_id,
-            eval_saved=1,
-        )
+    return _evaluation_list_viewer_redirect(
+        "views.judge_evaluation_list_file_viewer", unit_key, item_id, item, eval_saved=1
     )
 
 
@@ -11809,29 +11977,31 @@ def judge_evaluation_list_approve(unit_key: str, item_id: int):
     if saved is None or not (saved.payload_json or "").strip():
         abort(400)
     if not eval_judge_can_approve(saved):
-        return redirect(url_for("views.judge_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id))
+        return _evaluation_list_viewer_redirect(
+            "views.judge_evaluation_list_file_viewer", unit_key, item_id, item
+        )
     rows = _parse_saved_eval_rows(saved.payload_json)
     if _evaluation_payload_has_empty_acquired_for_approve(rows):
-        return redirect(
-            url_for(
-                "views.judge_evaluation_list_file_viewer",
-                unit_key=unit_key,
-                item_id=item_id,
-                eval_approve_incomplete=1,
-            )
+        return _evaluation_list_viewer_redirect(
+            "views.judge_evaluation_list_file_viewer",
+            unit_key,
+            item_id,
+            item,
+            eval_approve_incomplete=1,
         )
     if not _evaluation_saved_allows_judge_approve(saved):
-        return redirect(
-            url_for(
-                "views.judge_evaluation_list_file_viewer",
-                unit_key=unit_key,
-                item_id=item_id,
-                eval_approve_grade_blocked=1,
-            )
+        return _evaluation_list_viewer_redirect(
+            "views.judge_evaluation_list_file_viewer",
+            unit_key,
+            item_id,
+            item,
+            eval_approve_grade_blocked=1,
         )
     apply_judge_approve(saved, getattr(user, "id", None))
     db.commit()
-    return redirect(url_for("views.judge_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id))
+    return _evaluation_list_viewer_redirect(
+        "views.judge_evaluation_list_file_viewer", unit_key, item_id, item
+    )
 
 
 @bp.route("/eval-criterion-media/<int:media_id>/stream", methods=["GET"])
@@ -12057,7 +12227,7 @@ def chief_judge_evaluation_lists_home():
     db = g.db
     ex = _current_workspace_exercise(db, user)
     units = list(UNIT_LEVELS)
-    unit_rows = evaluation_unit_home_rows(db, ex, units)
+    phase_tabs = evaluation_unit_home_phase_tabs(db, ex, units)
     return render_template(
         "judge_evaluation_lists_home.html",
         **_ctx(
@@ -12065,8 +12235,8 @@ def chief_judge_evaluation_lists_home():
             has_exercise=ex is not None,
             exercise=ex,
             unit_levels=units,
-            unit_rows=unit_rows,
-            unit_totals=evaluation_unit_home_totals(unit_rows),
+            phase_tabs=phase_tabs,
+            active_phase_key=_evaluation_list_home_active_phase(phase_tabs),
             unit_list_endpoint="views.chief_judge_evaluation_lists",
             page_title="قوائم التقييم — اعتماد كبير المحكمين",
             **_hub_back_ctx_for_request_path(),
@@ -12088,6 +12258,7 @@ def chief_judge_evaluation_lists(unit_key: str):
     ex = _current_workspace_exercise(db, user)
     if ex is None:
         return redirect(url_for("views.chief_judge_evaluation_lists_home"))
+    phase_key = _evaluation_list_phase_from_request()
     items = (
         db.query(EvaluationListPdfItem)
         .filter(
@@ -12101,6 +12272,7 @@ def chief_judge_evaluation_lists(unit_key: str):
         )
         .all()
     )
+    items = filter_evaluation_items_by_phase(items, phase_key)
     item_ids = [int(it.id) for it in items]
     canonical_by_item = _evaluation_canonical_map_for_items(db, ex.id, item_ids)
     evaluation_lists_rows: list[dict] = []
@@ -12115,10 +12287,16 @@ def chief_judge_evaluation_lists(unit_key: str):
                     "views.chief_judge_evaluation_list_file_viewer",
                     unit_key=unit_key,
                     item_id=it.id,
+                    **_evaluation_list_phase_url_kwargs(phase_key),
                 ),
                 chief_workflow_label=eval_workflow_label_ar(s),
             )
         )
+    list_close_href = (
+        url_for("views.chief_judge_evaluation_lists_home", **_evaluation_list_phase_url_kwargs(phase_key))
+        if phase_key
+        else url_for("views.chief_judge_evaluation_lists_home")
+    )
     return render_template(
         "chief_judge_evaluation_lists.html",
         **_ctx(
@@ -12127,8 +12305,10 @@ def chief_judge_evaluation_lists(unit_key: str):
             unit=unit,
             unit_key=unit_key,
             evaluation_lists_rows=evaluation_lists_rows,
-            eval_lists_parent_href=url_for("views.chief_judge_evaluation_lists_home"),
-            subpage_close_fallback=url_for("views.chief_judge_evaluation_lists_home"),
+            eval_lists_parent_href=list_close_href,
+            subpage_close_fallback=list_close_href,
+            phase_key=phase_key,
+            phase_label=_phase_label_ar(phase_key) if phase_key else "",
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -12149,7 +12329,9 @@ def chief_judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
     current_exercise = _current_workspace_exercise(db, user)
     if not row or row.unit_level_key != unit_key or current_exercise is None or row.exercise_id != current_exercise.id:
         abort(404)
-    list_url = url_for("views.chief_judge_evaluation_lists", unit_key=unit_key)
+    list_url = _evaluation_list_unit_href(
+        "views.chief_judge_evaluation_lists", unit_key, _evaluation_list_resolved_phase(row)
+    )
     if not (row.pdf_relpath or "").strip():
         return redirect(list_url)
     fspath = _evaluation_list_file_abspath(row.pdf_relpath)
@@ -12205,6 +12387,7 @@ def chief_judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
     if judge_row is not None:
         judge_name = (judge_row.full_name or "").strip() or judge_name
 
+    phase_key = _evaluation_list_resolved_phase(row)
     return render_template(
         "judge_evaluation_list_viewer.html",
         **_ctx(
@@ -12237,11 +12420,13 @@ def chief_judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
                 "views.chief_judge_evaluation_list_chief_approve",
                 unit_key=unit_key,
                 item_id=item_id,
+                **_evaluation_list_phase_url_kwargs(phase_key),
             ),
             eval_chief_reopen_url=url_for(
                 "views.chief_judge_evaluation_list_chief_reopen",
                 unit_key=unit_key,
                 item_id=item_id,
+                **_evaluation_list_phase_url_kwargs(phase_key),
             ),
             eval_close_href=list_url,
             subpage_close_fallback=list_url,
@@ -12282,8 +12467,8 @@ def chief_judge_evaluation_list_chief_approve(unit_key: str, item_id: int):
         abort(400)
     apply_chief_approve(saved, getattr(user, "id", None))
     db.commit()
-    return redirect(
-        url_for("views.chief_judge_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id)
+    return _evaluation_list_viewer_redirect(
+        "views.chief_judge_evaluation_list_file_viewer", unit_key, item_id, item
     )
 
 
@@ -12331,8 +12516,8 @@ def chief_judge_evaluation_list_chief_reopen(unit_key: str, item_id: int):
         exclude_user_id=getattr(user, "id", None),
     )
     db.commit()
-    return redirect(
-        url_for("views.chief_judge_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id)
+    return _evaluation_list_viewer_redirect(
+        "views.chief_judge_evaluation_list_file_viewer", unit_key, item_id, item
     )
 
 
@@ -12412,7 +12597,7 @@ def _render_admin_evaluation_lists(
     )
     from app.planning_catalog_sync import sync_planning_catalogs_from_db
 
-    sync_planning_catalogs_from_db(db)
+    sync_planning_catalogs_from_db(db, force=True)
 
     current_exercise = _admin_current_workspace_exercise(db, user)
     error = (request.args.get("err") or "").strip()
@@ -13445,7 +13630,7 @@ def admin_information_bank_phases_included_save():
         db.commit()
         from app.planning_catalog_sync import sync_planning_catalogs_from_db
 
-        sync_planning_catalogs_from_db(db)
+        sync_planning_catalogs_from_db(db, force=True)
         return _ibank_included_save_http_response(
             tab="phases",
             ok_msg="تم حفظ تحديدات وإلغاءات مراحل التمرين — تُطبَّق على قوائم التخطيط والمحكمين.",
@@ -13500,7 +13685,7 @@ def admin_information_bank_units_included_save():
         db.commit()
         from app.planning_catalog_sync import sync_planning_catalogs_from_db
 
-        sync_planning_catalogs_from_db(db)
+        sync_planning_catalogs_from_db(db, force=True)
         return _ibank_included_save_http_response(
             tab=return_tab,
             ok_msg="تم حفظ تحديدات وإلغاءات مستويات الوحدات — تُطبَّق على قوائم التخطيط والمحكمين.",

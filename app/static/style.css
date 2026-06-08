@@ -5223,6 +5223,52 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .judge-eval-lists-page-layout .judge-eval-lists-fill-card .judge-eval-units-summary {
   flex-shrink: 0;
 }
+.judge-eval-lists-page-layout .judge-eval-lists-phase-tabs {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.judge-eval-lists-page-layout .judge-eval-lists-phase-tabs > .aerd-tabs {
+  flex-shrink: 0;
+}
+.judge-eval-lists-page-layout .judge-eval-lists-phase-panes {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 0.65rem;
+}
+.judge-eval-lists-page-layout .judge-eval-phase-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+}
+.judge-eval-lists-page-layout .judge-eval-phase-pane.is-active {
+  display: flex;
+}
+.judge-eval-lists-page-layout .judge-eval-phase-pane > .table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+}
+.judge-eval-lists-page-layout .judge-eval-phase-tab__count {
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+}
+.judge-eval-lists-page-layout .aerd-tab.is-active .judge-eval-phase-tab__count {
+  background: rgba(255, 255, 255, 0.35);
+}
 .judge-eval-lists-page-layout .judge-eval-lists-fill-card > .table-wrap {
   flex: 1 1 auto;
   min-height: 0;
@@ -10351,3 +10397,99 @@ html {
   header, footer, .header-bar, .nav-hub-link, .btn { display: none !important; }
   main { padding: 0; }
 }
+
+/* أبرز الإيجابيات والسلبيات — تحليل ذكاء اصطناعي لكل وحدة */
+.control-pn-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin: 0 0 1rem;
+}
+.control-pn-summary__chip {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.85rem;
+  background: var(--white);
+  font-weight: 600;
+}
+.control-pn-summary__chip--pos { background: #ecfdf5; border-color: #86efac; color: #065f46; }
+.control-pn-summary__chip--neg { background: #fef2f2; border-color: #fca5a5; color: #991b1b; }
+.control-pn-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+.control-pn-panel {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 0.85rem;
+  background: var(--white);
+  min-height: 10rem;
+}
+.control-pn-panel--positive { background: #f0fdf4; border-color: #86efac; }
+.control-pn-panel--negative { background: #fef2f2; border-color: #fca5a5; }
+.control-pn-note-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.control-pn-note {
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border-light);
+}
+.control-pn-note--positive { background: #dcfce7; border-color: #86efac; color: #14532d; }
+.control-pn-note--negative { background: #fee2e2; border-color: #f87171; color: #7f1d1d; }
+.control-pn-ai-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  margin: 0 0 1rem;
+}
+.control-pn-ai-meta { font-size: 0.86rem; }
+.control-pn-ai-notice {
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: #ecfdf5;
+  border: 1px solid #86efac;
+  color: #065f46;
+  font-weight: 600;
+}
+.control-pn-units-stack { display: grid; gap: 1.15rem; }
+.control-pn-unit-block {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 0.85rem;
+  background: linear-gradient(165deg, #fefdfb 0%, #f8f3ec 100%);
+}
+.control-pn-unit-block__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--border-light);
+}
+.control-pn-unit-block__title {
+  margin: 0;
+  font-size: 1.08rem;
+  color: var(--brown-900);
+}
+.control-pn-unit-block__meta {
+  font-size: 0.84rem;
+  color: var(--brown-700);
+  font-weight: 600;
+}
+.control-pn-unit-block .control-pn-panel h3 {
+  margin: 0 0 0.65rem;
+  font-size: 0.98rem;
+}
+.control-pn-ai-bullets { gap: 0.45rem; }
+.control-pn-ai-bullet { font-weight: 600; line-height: 1.5; }

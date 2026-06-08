@@ -1,7 +1,0 @@
-WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
- * Running on all addresses (0.0.0.0)
- * Running on http://127.0.0.1:8005
- * Running on http://192.168.0.114:8005
-Press CTRL+C to quit
-Created TensorFlow Lite XNNPACK delegate for CPU.
-[11032:37664:0607/182145.947:ERROR:google_apis\gcm\engine\registration_request.cc:291] Registration response error message: DEPRECATED_ENDPOINT
