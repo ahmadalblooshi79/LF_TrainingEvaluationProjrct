@@ -1,5 +1,5 @@
 <script>
-/* planner-flow-table v28 */
+/* planner-flow-table v31 */
 (function () {
   'use strict';
 
@@ -39,8 +39,16 @@
     var saving = false;
     var saveQueued = false;
 
+    function readFlowDaysJsonRaw() {
+      var scriptEl = document.getElementById('pf-flow-days-json');
+      if (scriptEl && (scriptEl.textContent || '').trim()) {
+        return scriptEl.textContent;
+      }
+      return section.getAttribute('data-flow-days') || '[]';
+    }
+
     function parseDaysPayload() {
-      var raw = section.getAttribute('data-flow-days') || '[]';
+      var raw = readFlowDaysJsonRaw();
       try {
         var parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length) {
@@ -455,10 +463,26 @@
 
     function syncFlowDaysDataset() {
       try {
-        section.setAttribute('data-flow-days', JSON.stringify(daysState));
+        var scriptEl = document.getElementById('pf-flow-days-json');
+        if (scriptEl) {
+          scriptEl.textContent = JSON.stringify(daysState);
+        }
         section.setAttribute('data-active-day-id', activeDayId);
       } catch (e) {
         /* ignore */
+      }
+    }
+
+    function hydrateActiveDayFromDomIfEmpty() {
+      var idx = findDayIndex(activeDayId);
+      if (idx < 0) return;
+      var bucket = daysState[idx];
+      if (!bucket || (bucket.rows && bucket.rows.length)) return;
+      var domRows = collectRows();
+      if (!domRows.length) return;
+      bucket.rows = domRows;
+      if (dayNoteEl && !(bucket.note || '').trim() && (dayNoteEl.value || '').trim()) {
+        bucket.note = String(dayNoteEl.value || '').slice(0, 4000);
       }
     }
 
@@ -772,10 +796,12 @@
       if (hostLine) deleteAssigneeSubRow(hostLine);
     }
 
+    hydrateActiveDayFromDomIfEmpty();
     var activeIdx = findDayIndex(activeDayId);
     renderRows(activeIdx >= 0 ? daysState[activeIdx].rows : []);
     renderDayTabs();
     applyDayNote();
+    syncFlowDaysDataset();
 
     if (dayNoteEl && !readOnly) {
       dayNoteEl.addEventListener('input', function () {
@@ -1023,7 +1049,7 @@
   }
 
   function boot() {
-    document.querySelectorAll('#pf-flow-table-section[data-flow-days]').forEach(initPlannerFlowTable);
+    document.querySelectorAll('#pf-flow-table-section').forEach(initPlannerFlowTable);
   }
 
   if (document.readyState === 'loading') {

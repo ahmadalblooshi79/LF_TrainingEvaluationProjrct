@@ -19,8 +19,8 @@
 </td>
 {% endmacro %}
 
-<section class="card planner-flow-action-table-section" id="pf-flow-table-section" dir="rtl" data-pf-script-ver="27"
-  data-flow-days="{{ flow_table_days | tojson }}"
+<script type="application/json" id="pf-flow-days-json">{{ flow_table_days | tojson }}</script>
+<section class="card planner-flow-action-table-section" id="pf-flow-table-section" dir="rtl" data-pf-script-ver="31"
   data-active-day-id="{{ flow_table_active_day_id }}"
   {% if readonly_mode %}data-readonly="1"{% endif %}
   {% if not readonly_mode %}

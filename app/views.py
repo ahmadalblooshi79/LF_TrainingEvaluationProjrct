@@ -6432,6 +6432,13 @@ def planner_flow_bundle_save_flow_table(bundle_id: int):
     doc = _normalize_planner_flow_table_document(payload)
     bundle.flow_table_json = json.dumps(doc, ensure_ascii=False)
     bundle.updated_at = datetime.utcnow()
+    from app.action_eval_ibank_sync import withdraw_action_eval_for_units_removed_from_flow
+
+    withdraw_action_eval_for_units_removed_from_flow(
+        db,
+        exercise_id=int(ex.id),
+        phase_key=bundle.exercise_phase,
+    )
     db.commit()
     active_rows = next(
         (d["rows"] for d in doc["days"] if d["id"] == doc["active_day_id"]),
@@ -6507,6 +6514,13 @@ def planner_flow_bundle_import_flow_docx(bundle_id: int):
     doc = {"version": 2, "active_day_id": target_id, "days": days}
     bundle.flow_table_json = json.dumps(doc, ensure_ascii=False)
     bundle.updated_at = datetime.utcnow()
+    from app.action_eval_ibank_sync import withdraw_action_eval_for_units_removed_from_flow
+
+    withdraw_action_eval_for_units_removed_from_flow(
+        db,
+        exercise_id=int(ex.id),
+        phase_key=bundle.exercise_phase,
+    )
     db.commit()
 
     return jsonify(
@@ -7403,7 +7417,8 @@ def judge_planner_flow_materials_action_chief_reopen(slot: int):
 
 # مساحة التخطيط — عناصر الشريط (المعرّف، العنوان، أيقونة Font Awesome)
 PLANNER_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
-    ("new-flow", "المجرى وتقييم الإجراءات", "fa-diagram-project"),
+    ("new-flow", "مجرى الأحداث والمعاضل", "fa-diagram-project"),
+    ("new-action-eval-lists", "إنشاء قوائم تقييم الإجراءات", "fa-file-excel"),
     ("new-evaluation-list", "إنشاء قائمة تقييم", "fa-file-circle-plus"),
     ("evaluation-lists", "قوائم التقييم — إدخال النتائج", "fa-file-excel"),
     ("incomplete-tasks", "موقف المهام غير المكتملة", "fa-hourglass-half"),
@@ -7411,6 +7426,269 @@ PLANNER_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("assign-task", "إسناد مهمة جديدة", "fa-user-plus"),
 )
 PLANNER_HUB_SLUGS: dict[str, str] = {s: t for s, t, _ in PLANNER_HUB_ITEMS}
+
+
+def _action_eval_lists_redirect(*, phase_key: str = "", ok: str = "", err: str = ""):
+    kwargs: dict[str, str] = {}
+    if phase_key:
+        kwargs["phase"] = phase_key
+    if ok:
+        kwargs["ok"] = ok
+    if err:
+        kwargs["err"] = err
+    return redirect(url_for("views.planner_action_eval_lists_workspace", **kwargs))
+
+
+def _render_planner_action_eval_lists(db, user: User):
+    from app.action_eval_ibank_sync import build_action_eval_display_groups
+    from app.evaluation_list_ibank_sync import (
+        roster_eval_display_unit_keys,
+        roster_judge_unit_keys,
+        summarize_judge_roster_for_eval_lists,
+    )
+    from app.planning_catalog_sync import sync_planning_catalogs_from_db
+
+    sync_planning_catalogs_from_db(db, force=True)
+    current_exercise = _current_workspace_exercise(db, user)
+    error = (request.args.get("err") or "").strip()
+    ok_msg = (request.args.get("ok") or "").strip()
+    page_note = ""
+    judge_roster = {"total": 0, "with_unit": 0, "without_names": []}
+    eval_groups: list[dict] = []
+    roster_unit_count = 0
+    judge_unit_count = 0
+    published_count = 0
+    flow_unit_count = 0
+    selected_phase = (request.args.get("phase") or "").strip()
+    phase_options: list[tuple[str, str]] = list(EXERCISE_PHASE_OPTIONS)
+
+    if current_exercise is not None:
+        ex_id = int(current_exercise.id)
+        judge_roster = summarize_judge_roster_for_eval_lists(db, ex_id)
+        judge_unit_count = len(roster_judge_unit_keys(db, ex_id))
+        roster_unit_count = len(roster_eval_display_unit_keys(db, ex_id))
+        if not phase_options:
+            from app.evaluation_list_ibank_sync import effective_eval_list_phase_keys
+
+            roster_units = roster_eval_display_unit_keys(db, ex_id)
+            for pk in effective_eval_list_phase_keys(db, roster_units=roster_units):
+                phase_options.append((pk, exercise_phase_label(pk) or pk))
+        if not selected_phase and phase_options:
+            selected_phase = phase_options[0][0]
+        eval_groups, meta = build_action_eval_display_groups(
+            db,
+            exercise_id=ex_id,
+            phase_key=selected_phase or None,
+        )
+        flow_unit_count = int(meta.get("flow_units") or 0)
+        published_count = sum(
+            1
+            for g in eval_groups
+            for fg in g.get("list_folder_groups") or []
+            for r in fg.get("rows") or []
+            if r.get("published")
+        )
+        if flow_unit_count:
+            page_note = (
+                f"تُستخرج مستويات الوحدة من أصناف المحكمين في عمود «المكلف بالإجراء والمتابعة» "
+                f"بجدول المجرى ({flow_unit_count} مستوى). استخدم «سحب من المجرى» بعد تعديل المجرى، "
+                f"ثم حدّد القوائم و«نشر القوائم» يدوياً — {published_count} منشورة في هذه المرحلة."
+            )
+        else:
+            page_note = (
+                "أدخل أصناف المحكمين في عمود «المكلف بالإجراء والمتابعة» "
+                "بجدول مجرى الأحداث والمعاضل ثم ارجع لهذه الصفحة."
+            )
+
+    return render_template(
+        "planner_action_eval_lists.html",
+        **_ctx(
+            user,
+            eval_groups=eval_groups,
+            page_note=page_note,
+            roster_unit_count=roster_unit_count,
+            judge_unit_count=judge_unit_count,
+            judge_roster=judge_roster,
+            published_count=published_count,
+            selected_phase=selected_phase,
+            phase_options=phase_options,
+            current_exercise=current_exercise,
+            error=error,
+            ok_msg=ok_msg,
+            phases_catalog_empty=not EXERCISE_PHASE_OPTIONS and not phase_options,
+            flow_unit_count=flow_unit_count if current_exercise is not None else 0,
+            **_hub_back_ctx_for_request_path(),
+        ),
+    )
+
+
+@bp.route("/planner/action-eval-lists", methods=["GET"])
+def planner_action_eval_lists_workspace():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/planner/action-eval-lists")
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    return _render_planner_action_eval_lists(g.db, user)
+
+
+@bp.route("/planner/action-eval-lists/publish-phase", methods=["POST"])
+def planner_action_eval_lists_publish_phase():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/planner/action-eval-lists")
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    from app.action_eval_ibank_sync import publish_phase_action_eval_lists_from_ibank
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    phase_key = (request.form.get("phase_key") or "").strip()
+    if ex is None:
+        return _action_eval_lists_redirect(err="لا يوجد تمرين حالي.")
+    if not phase_key:
+        return _action_eval_lists_redirect(err="اختر مرحلة التمرين.")
+    selections = _parse_eval_list_publish_selections(request.form)
+    stats = publish_phase_action_eval_lists_from_ibank(
+        db,
+        exercise_id=int(ex.id),
+        phase_key=phase_key,
+        selections_by_unit=selections,
+    )
+    db.commit()
+    n = int(stats.get("added", 0)) + int(stats.get("updated", 0))
+    return _action_eval_lists_redirect(
+        phase_key=phase_key,
+        ok=f"تم نشر {n} قائمة للمحكمين.",
+    )
+
+
+@bp.route(
+    "/planner/action-eval-lists/<unit_key>/ibank/<int:node_id>/publish",
+    methods=["POST"],
+)
+def planner_action_eval_lists_publish_one(unit_key: str, node_id: int):
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/planner/action-eval-lists")
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    from app.action_eval_ibank_sync import publish_single_action_eval_from_ibank
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    phase_key = (request.form.get("phase_key") or "").strip()
+    if ex is None:
+        return _action_eval_lists_redirect(err="لا يوجد تمرين حالي.")
+    if not phase_key:
+        return _action_eval_lists_redirect(err="اختر مرحلة التمرين.")
+    publish_single_action_eval_from_ibank(
+        db,
+        exercise_id=int(ex.id),
+        phase_key=phase_key,
+        unit_key=unit_key,
+        node_id=int(node_id),
+    )
+    db.commit()
+    return _action_eval_lists_redirect(phase_key=phase_key, ok="تم نشر القائمة.")
+
+
+@bp.route(
+    "/planner/action-eval-lists/<unit_key>/ibank/<int:node_id>/withdraw",
+    methods=["POST"],
+)
+def planner_action_eval_lists_withdraw_one(unit_key: str, node_id: int):
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/planner/action-eval-lists")
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    from app.action_eval_ibank_sync import withdraw_single_action_eval_from_ibank
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    phase_key = (request.form.get("phase_key") or "").strip()
+    if ex is None:
+        return _action_eval_lists_redirect(err="لا يوجد تمرين حالي.")
+    withdraw_single_action_eval_from_ibank(
+        db,
+        exercise_id=int(ex.id),
+        phase_key=phase_key or default_exercise_phase_key(),
+        unit_key=unit_key,
+        node_id=int(node_id),
+    )
+    db.commit()
+    return _action_eval_lists_redirect(phase_key=phase_key, ok="تم سحب النشر.")
+
+
+@bp.route("/planner/action-eval-lists/pull-from-flow", methods=["POST"])
+def planner_action_eval_lists_pull_from_flow():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/planner/action-eval-lists")
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    from app.action_eval_ibank_sync import sync_action_eval_units_from_flow
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    phase_key = (request.form.get("phase_key") or "").strip()
+    if ex is None:
+        return _action_eval_lists_redirect(err="لا يوجد تمرين حالي.")
+    if not phase_key:
+        return _action_eval_lists_redirect(err="اختر مرحلة التمرين.")
+    stats = sync_action_eval_units_from_flow(
+        db,
+        exercise_id=int(ex.id),
+        phase_key=phase_key,
+    )
+    db.commit()
+    unit_n = int(stats.get("units") or 0)
+    label_n = int(stats.get("labels") or 0)
+    if unit_n == 0:
+        return _action_eval_lists_redirect(
+            phase_key=phase_key,
+            err="لم تُعثر على أصناف محكمين في عمود المكلف بجدول المجرى.",
+        )
+    msg = f"تم سحب {unit_n} مستوى وحدة ({label_n} صنف محكم) من المجرى — حدّد القوائم ثم انشر يدوياً."
+    withdrawn = int(stats.get("withdrawn_units") or 0)
+    if withdrawn:
+        msg += f" أُلغي نشر {withdrawn} مستوى لم يعد في المجرى."
+    return _action_eval_lists_redirect(phase_key=phase_key, ok=msg)
+
+
+@bp.route("/planner/action-eval-lists/sync-all", methods=["POST"])
+def planner_action_eval_lists_sync_all():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/planner/action-eval-lists")
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    from app.action_eval_ibank_sync import sync_all_action_eval_from_ibank
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    phase_key = (request.form.get("phase_key") or "").strip()
+    if ex is None:
+        return _action_eval_lists_redirect(err="لا يوجد تمرين حالي.")
+    sync_all_action_eval_from_ibank(db, exercise_id=int(ex.id))
+    db.commit()
+    return _action_eval_lists_redirect(
+        phase_key=phase_key,
+        ok="تم تحديث الفهرس من البنك وإلغاء نشر الكل — حدّد القوائم ثم انشر.",
+    )
 
 
 @bp.route("/planner")
@@ -7440,6 +7718,8 @@ def planner_hub_section(slug: str):
     slug_norm = (slug or "").strip().lower()
     if slug_norm == "new-flow":
         return redirect(url_for("views.planner_flow_bundle_workspace"))
+    if slug_norm == "new-action-eval-lists":
+        return redirect(url_for("views.planner_action_eval_lists_workspace"))
     if slug_norm == "new-evaluation-list":
         return redirect(url_for("views.admin_evaluation_lists"))
     if slug_norm == "evaluation-lists":

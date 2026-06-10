@@ -3870,6 +3870,16 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   gap: 0.18rem 0.32rem;
   font-size: 0.86rem;
 }
+.eval-lists-unit-group__seq {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--brown-600);
+  flex-shrink: 0;
+}
 .eval-lists-unit-group__body {
   margin-top: 0.14rem;
   padding-top: 0.12rem;
@@ -8977,6 +8987,45 @@ main:has(#pf-flow-table-section) > p.muted {
 }
 .planner-flow-slot-table .planner-flow-slot-idx {
   margin-inline-end: 0.35rem;
+}
+.eval-lists-flow-assignee-meta {
+  font-size: 0.85rem;
+  margin: 0.25rem 0 0.65rem;
+  line-height: 1.45;
+}
+.eval-lists-assignee-chip {
+  display: inline;
+}
+.pf-action-eval-dilemmas-ref {
+  margin: 0.5rem 0 0.75rem;
+  padding: 0.5rem 0.65rem;
+}
+.pf-action-eval-dilemmas-ref__summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.pf-action-eval-dilemmas-ref__list {
+  margin: 0.5rem 0 0;
+  padding-inline-start: 1.25rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+.pf-action-eval-dilemmas-empty {
+  font-size: 0.85rem;
+  margin: 0.35rem 0 0.65rem;
+}
+.pf-action-eval-dilemma-pick {
+  flex: 0 0 auto;
+  margin-inline: 0.35rem;
+}
+.pf-action-eval-dilemma-select {
+  max-width: 11rem;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.35rem;
+}
+.eval-lists-row {
+  flex-wrap: wrap;
 }
 .planner-flow-action-table-section {
   margin-top: 0.15rem;
