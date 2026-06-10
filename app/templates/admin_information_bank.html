@@ -201,6 +201,11 @@
       if (unitsGlobalBar) {
         unitsGlobalBar.style.display = (id && id.indexOf('units-bg-') === 0) ? '' : 'none';
       }
+      try {
+        var u = new URL(window.location.href);
+        u.searchParams.set('tab', id);
+        history.replaceState(null, '', u.pathname + '?' + u.searchParams.toString());
+      } catch (urlErr) {}
     }
     var ibankSubmitting = false;
     btns.forEach(function (b) {

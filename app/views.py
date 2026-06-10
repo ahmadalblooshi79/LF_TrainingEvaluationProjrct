@@ -14009,7 +14009,7 @@ def admin_information_bank():
     unit_notes = {r.unit_level_key: r.notes for r in db.query(InformationBankUnitNote).all()}
     from app.info_bank_tree import (
         build_tree_payload,
-        ensure_all_information_bank_trees,
+        ensure_information_bank_kind,
         exercise_judge_names_by_unit,
     )
 
@@ -14025,8 +14025,24 @@ def admin_information_bank():
     ibank_judge_names_by_unit = exercise_judge_names_by_unit(
         db, int(current_exercise.id) if current_exercise else None
     )
+    from app.ibank_ui import ibank_brigade_groups_for_page, is_removed_brigade_tab
+
+    ui_brigade_groups = ibank_brigade_groups_for_page()
+    brigade_tabs = {bg["tab"] for bg in ui_brigade_groups}
+    active_tab = (request.args.get("tab") or "phases").strip()
+    if is_removed_brigade_tab(active_tab):
+        active_tab = "units-bg-1"
+    allowed_tabs = {"phases", "event-flow", "action-eval", "dilemma-eval"} | brigade_tabs
+    if active_tab not in allowed_tabs:
+        active_tab = "phases"
+    _ibank_active_tree_kind = {
+        "event-flow": "event_flow",
+        "action-eval": "action_eval",
+        "dilemma-eval": "dilemma_eval",
+    }.get(active_tab)
     try:
-        ensure_all_information_bank_trees(db)
+        if _ibank_active_tree_kind:
+            ensure_information_bank_kind(db, _ibank_active_tree_kind)
         tree_event_flow = build_tree_payload(db, "event_flow", unit_label_by_key=ibank_unit_labels)
         tree_action_eval = build_tree_payload(
             db,
@@ -14045,16 +14061,6 @@ def admin_information_bank():
         current_app.logger.exception("information bank tree build failed: %s", exc)
     err = (request.args.get("err") or "").strip()[:2000]
     ok = (request.args.get("ok") or "").strip()[:500]
-    from app.ibank_ui import ibank_brigade_groups_for_page, is_removed_brigade_tab
-
-    ui_brigade_groups = ibank_brigade_groups_for_page()
-    brigade_tabs = {bg["tab"] for bg in ui_brigade_groups}
-    active_tab = (request.args.get("tab") or "phases").strip()
-    if is_removed_brigade_tab(active_tab):
-        active_tab = "units-bg-1"
-    allowed_tabs = {"phases", "event-flow", "action-eval", "dilemma-eval"} | brigade_tabs
-    if active_tab not in allowed_tabs:
-        active_tab = "phases"
     from flask import make_response
 
     resp = make_response(
@@ -14085,7 +14091,7 @@ def admin_information_bank():
     )
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
-    resp.headers["X-Ibank-Ui-Build"] = "action-eval-unit-v9"
+    resp.headers["X-Ibank-Ui-Build"] = "eval-tabs-isolated-v1"
     return resp
 
 
@@ -14155,10 +14161,12 @@ def admin_information_bank_phase_add():
         )
     )
     db.commit()
-    from app.info_bank_tree import INFO_BANK_TREE_KINDS, _unit_rows, ensure_information_bank_tree, get_or_create_folder
+    from app.info_bank_tree import INFO_BANK_TREE_KINDS, _unit_rows, ensure_information_bank_kind, get_or_create_folder, is_unit_eval_tree_kind
 
     for k in INFO_BANK_TREE_KINDS:
-        ensure_information_bank_tree(db, k)
+        if is_unit_eval_tree_kind(k):
+            continue
+        ensure_information_bank_kind(db, k)
         phase_node = get_or_create_folder(
             db,
             kind=k,
@@ -14232,12 +14240,12 @@ def admin_information_bank_unit_add():
         )
     )
     db.commit()
-    from app.info_bank_tree import INFO_BANK_TREE_KINDS, ensure_information_bank_tree, get_or_create_folder
+    from app.info_bank_tree import INFO_BANK_TREE_KINDS, ensure_information_bank_kind, get_or_create_folder, is_unit_eval_tree_kind
 
     for k in INFO_BANK_TREE_KINDS:
-        if k == "action_eval":
+        if is_unit_eval_tree_kind(k):
             continue
-        ensure_information_bank_tree(db, k)
+        ensure_information_bank_kind(db, k)
         phase_nodes = (
             db.query(InformationBankTreeNode)
             .filter(
@@ -14336,7 +14344,7 @@ def admin_information_bank_tree_folder_add():
         abort(403)
     from flask import g
 
-    from app.info_bank_tree import add_custom_folder, ensure_information_bank_tree, kind_tab
+    from app.info_bank_tree import add_custom_folder, ensure_information_bank_kind, kind_tab
 
     db = g.db
     kind = (request.form.get("kind") or "").strip()
@@ -14348,7 +14356,7 @@ def admin_information_bank_tree_folder_add():
     tab = kind_tab(kind)
     if not name:
         return redirect(url_for("views.admin_information_bank", tab=tab, err="أدخل اسم المجلد."))
-    ensure_information_bank_tree(db, kind)
+    ensure_information_bank_kind(db, kind)
     try:
         add_custom_folder(db, kind=kind, parent_id=parent_id, name=name)
         db.commit()
@@ -14368,7 +14376,7 @@ def admin_information_bank_tree_upload():
     from app.info_bank_tree import (
         _is_phase_root_folder,
         _unit_key_for_node,
-        ensure_information_bank_tree,
+        ensure_information_bank_kind,
         get_node,
         is_unit_eval_tree_kind,
         kind_tab,
@@ -14387,7 +14395,7 @@ def admin_information_bank_tree_upload():
             url_for("views.admin_information_bank", tab=tab, err="حدّد مجلداً مستهدفاً في الشجرة (زر تحديد).")
         )
     parent_id = int(parent_raw)
-    ensure_information_bank_tree(db, kind)
+    ensure_information_bank_kind(db, kind)
     parent = get_node(db, parent_id, kind)
     if parent is None or not parent.is_folder:
         return redirect(url_for("views.admin_information_bank", tab=tab, err="المجلد المستهدف غير صالح."))
@@ -14791,7 +14799,7 @@ def admin_information_bank_dilemma_eval_delete(item_id: int):
 
 @bp.route("/admin/information-bank/eval-list/purge-all", methods=["POST"])
 def admin_information_bank_eval_list_purge_all():
-    """مسح جميع محتويات تبويب «قوائم التقييم» (شجرة dilemma_eval)."""
+    """مسح جميع محتويات تبويب قوائم تقييم الإجراءات أو قوائم التقييم (شجرة واحدة فقط)."""
     user = get_current_user_optional()
     if not user or not can_manage_information_bank(user):
         abort(403)
@@ -14801,17 +14809,22 @@ def admin_information_bank_eval_list_purge_all():
 
     db = g.db
     kind = (request.form.get("kind") or "dilemma_eval").strip()
-    if kind != "dilemma_eval":
+    if kind not in ("action_eval", "dilemma_eval"):
         abort(400)
     tab = kind_tab(kind)
     stats = purge_information_bank_tree(db, kind)
     db.commit()
+    tab_label = (
+        "قوائم تقييم الإجراءات"
+        if kind == "action_eval"
+        else "قوائم التقييم"
+    )
     parts = [f"{stats.get('tree_nodes', 0)} عنصر شجرة"]
     if stats.get("legacy_rows"):
         parts.append(f"{stats['legacy_rows']} ملف قديم")
     if stats.get("suppressions"):
         parts.append(f"{stats['suppressions']} تثبيت حذف")
-    msg = f"تم مسح تبويب قوائم التقييم بالكامل ({'، '.join(parts)})"
+    msg = f"تم مسح تبويب {tab_label} بالكامل ({'، '.join(parts)})"
     return redirect(url_for("views.admin_information_bank", tab=tab, ok=msg))
 
 

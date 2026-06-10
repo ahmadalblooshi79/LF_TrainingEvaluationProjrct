@@ -16,11 +16,14 @@ from app.exercise_phase_catalog import (
     normalize_exercise_phase,
 )
 from app.info_bank_tree import (
+    _backfill_unit_eval_folder_catalog,
     _is_phase_root_folder,
     _match_phase_key_by_folder_name,
     _normalize_tree_label,
     _phase_key_for_node,
     _unit_key_for_node,
+    ensure_information_bank_tree,
+    migrate_legacy_flat_files,
     node_file_abspath,
 )
 from app.models import (
@@ -180,18 +183,6 @@ def _match_unit_key_by_folder_name(db: Session, folder_name: str) -> str:
             return key
         if norm_label and (norm_label in norm_nm or norm_nm in norm_label):
             return key
-    cm = re.match(r"^(?:ال)?سر(?:ية|يه)\s*(\d+)\s*$", norm_nm)
-    if cm:
-        from app.information_bank_catalog import INFO_BANK_UNIT_LEVEL_TEMPLATES
-
-        num = cm.group(1)
-        for u in INFO_BANK_UNIT_LEVEL_TEMPLATES:
-            key = (u.get("key") or "").strip()
-            label = _normalize_tree_label(u.get("label") or "")
-            if not key or not label:
-                continue
-            if re.search(rf"سر(?:ية|يه)[/\s]*{num}(?:\s|$)", label):
-                return key
     return ""
 
 
@@ -294,118 +285,6 @@ def _file_node_to_source(db: Session, row: InformationBankTreeNode) -> dict | No
     }
 
 
-def _file_belongs_to_phase_unit(
-    db: Session,
-    file_node: InformationBankTreeNode,
-    *,
-    phase_key: str,
-    unit_key: str,
-) -> bool:
-    """هل ينتمي ملف Excel فعلياً إلى مرحلة × مستوى وحدة (وليس لوحدة فرعية أخرى)؟"""
-    f_pk, f_uk = _ibank_context_for_file_node(db, file_node)
-    if not f_uk or f_uk != unit_key:
-        return False
-    phase_match = _phase_match_keys(phase_key) or {phase_key}
-    return bool(f_pk and f_pk in phase_match)
-
-
-def resolve_ibank_eval_publish_unit_key(
-    db: Session,
-    *,
-    node_id: int,
-    fallback_unit_key: str,
-) -> str:
-    """مستوى الوحدة الصحيح للنشر حسب سياق ملف البنك."""
-    node = db.get(InformationBankTreeNode, int(node_id))
-    if node is not None:
-        _, uk = _ibank_context_for_file_node(db, node)
-        resolved = _resolve_unit_key(uk, db)
-        if resolved:
-            return resolved
-    return _resolve_unit_key(fallback_unit_key, db) or fallback_unit_key
-
-
-def remap_publish_selections_by_ibank_context(
-    db: Session,
-    *,
-    phase_key: str,
-    selections_by_unit: dict[str, set[int]],
-) -> dict[str, set[int]]:
-    """إعادة توزيع الاختيارات على مستوى الوحدة الفعلي لكل ملف."""
-    from collections import defaultdict
-
-    pk = _resolve_phase_key(phase_key, db) or normalize_exercise_phase(phase_key)
-    out: dict[str, set[int]] = defaultdict(set)
-    for form_uk, node_ids in selections_by_unit.items():
-        for nid in node_ids:
-            resolved_uk = resolve_ibank_eval_publish_unit_key(
-                db, node_id=int(nid), fallback_unit_key=form_uk
-            )
-            if resolved_uk:
-                out[resolved_uk].add(int(nid))
-    if pk:
-        return dict(out)
-    return dict(selections_by_unit)
-
-
-def _published_ibank_items_by_node_for_phase(
-    db: Session,
-    *,
-    exercise_id: int,
-    phase_db_keys: set[str],
-) -> dict[int, object]:
-    """كل القوائم المنشورة في المرحلة مفهرسة بمعرّف عقدة البنك."""
-    out: dict[int, object] = {}
-    rows = (
-        db.query(EvaluationListPdfItem)
-        .filter(
-            EvaluationListPdfItem.exercise_id == int(exercise_id),
-            EvaluationListPdfItem.exercise_phase.in_(phase_db_keys),
-        )
-        .all()
-    )
-    for item in rows:
-        nid = parse_ibank_eval_storage_relpath(getattr(item, "pdf_relpath", None))
-        if nid is not None and nid not in out:
-            out[int(nid)] = item
-    return out
-
-
-def _published_ibank_items_by_node_for_unit_group(
-    db: Session,
-    *,
-    exercise_id: int,
-    phase_key: str,
-    phase_db_keys: set[str],
-    unit_key: str,
-    eval_items: list,
-) -> dict[int, object]:
-    """قوائم منشورة لمجموعة عرض واحدة (مرحلة × مستوى وحدة) دون تسرب من وحدات أخرى."""
-    uk = _resolve_unit_key(unit_key, db) or unit_key
-    out: dict[int, object] = {}
-    for item in eval_items:
-        nid = parse_ibank_eval_storage_relpath(getattr(item, "pdf_relpath", None))
-        if nid is not None:
-            out[int(nid)] = item
-    for item in (
-        db.query(EvaluationListPdfItem)
-        .filter(
-            EvaluationListPdfItem.exercise_id == int(exercise_id),
-            EvaluationListPdfItem.exercise_phase.in_(phase_db_keys),
-        )
-        .all()
-    ):
-        nid = parse_ibank_eval_storage_relpath(getattr(item, "pdf_relpath", None))
-        if nid is None or int(nid) in out:
-            continue
-        node = db.get(InformationBankTreeNode, int(nid))
-        if node is None:
-            continue
-        if _file_belongs_to_phase_unit(db, node, phase_key=phase_key, unit_key=uk):
-            out[int(nid)] = item
-    return out
-
-
 def collect_ibank_eval_files_for_phase_unit(
     db: Session,
     *,
@@ -455,78 +334,50 @@ def collect_ibank_eval_files_for_phase_unit(
                 continue
             if child.is_folder:
                 for f in _collect_subtree_xlsx_nodes(db, int(child.id)):
-                    if _file_belongs_to_phase_unit(db, f, phase_key=pk, unit_key=uk):
-                        _add_node(f)
-            elif _is_xlsx_tree_file(child) and _file_belongs_to_phase_unit(
-                db, child, phase_key=pk, unit_key=uk
-            ):
+                    _add_node(f)
+            elif _is_xlsx_tree_file(child):
                 _add_node(child)
 
         # 2) أي ملف Excel تحت مرحلة التمرين يحمل سياق (مرحلة، وحدة) مطابقاً
         for f in _collect_subtree_xlsx_nodes(db, int(phase_root.id)):
-            if _file_belongs_to_phase_unit(db, f, phase_key=pk, unit_key=uk):
+            f_pk, f_uk = _ibank_context_for_file_node(db, f)
+            if f_uk == uk and f_pk in (_phase_match_keys(pk) or {pk}):
                 _add_node(f)
 
     sources.sort(key=lambda s: (int(s.get("sort_order", 0)), int(s["node_id"])))
     return sources
 
 
-def _node_ancestor_chain(
-    db: Session, node: InformationBankTreeNode
-) -> list[InformationBankTreeNode]:
-    """سلسلة العقد من الملف/المجلد إلى الجذر (الأقرب أولاً)."""
-    chain: list[InformationBankTreeNode] = []
-    cur: InformationBankTreeNode | None = node
-    hops = 0
-    while cur is not None and hops < 50:
-        chain.append(cur)
-        if cur.parent_id is None:
-            break
-        cur = db.get(InformationBankTreeNode, int(cur.parent_id))
-        hops += 1
-    return chain
-
-
-def _deepest_unit_key_for_file_node(db: Session, node: InformationBankTreeNode) -> str:
-    """أقرب مستوى وحدة للملف — كتالوج أو اسم مجلد قبل مستوى أعلى."""
-    for cur in _node_ancestor_chain(db, node):
-        uk = (cur.catalog_unit_key or "").strip()
-        if uk:
-            resolved = _resolve_unit_key(uk, db)
-            if resolved:
-                return resolved
-        if cur.is_folder:
-            guessed = _match_unit_key_by_folder_name(db, cur.name)
-            if guessed:
-                resolved = _resolve_unit_key(guessed, db)
-                if resolved:
-                    return resolved
-    return ""
-
-
-def _deepest_phase_key_for_file_node(db: Session, node: InformationBankTreeNode) -> str:
-    """أقرب مرحلة تمرين لملف Excel في الشجرة."""
-    for cur in _node_ancestor_chain(db, node):
-        pk = (cur.catalog_phase_key or "").strip()
-        if pk:
-            resolved = _resolve_phase_key(pk, db)
-            if resolved:
-                return resolved
-        if cur.parent_id is None and cur.is_folder:
-            guessed = _match_phase_key_by_folder_name(db, cur.name)
-            if guessed:
-                resolved = _resolve_phase_key(guessed, db)
-                if resolved:
-                    return resolved
-    return ""
-
-
 def _ibank_context_for_file_node(
     db: Session, node: InformationBankTreeNode
 ) -> tuple[str, str]:
-    """استنتاج (مرحلة، وحدة) لملف Excel — من أقرب مجلد سياق في الشجرة."""
-    pk = _deepest_phase_key_for_file_node(db, node)
-    uk = _deepest_unit_key_for_file_node(db, node)
+    """استنتاج (مرحلة، وحدة) لملف Excel — من سياق الشجرة بما فيها المجلدات المتداخلة."""
+    raw_pk = _phase_key_for_node(db, node)
+    raw_uk = _unit_key_for_node(db, node)
+
+    if not raw_uk or not raw_pk:
+        cur: InformationBankTreeNode | None = node
+        hops = 0
+        while cur is not None and hops < 50:
+            if not raw_uk and cur.is_folder:
+                guessed_uk = _match_unit_key_by_folder_name(db, cur.name)
+                if guessed_uk:
+                    raw_uk = guessed_uk
+            if not raw_pk:
+                pk_on = (cur.catalog_phase_key or "").strip()
+                if pk_on:
+                    raw_pk = pk_on
+                elif cur.parent_id is None and cur.is_folder:
+                    raw_pk = _match_phase_key_by_folder_name(db, cur.name)
+            if raw_uk and raw_pk:
+                break
+            if cur.parent_id is None:
+                break
+            cur = db.get(InformationBankTreeNode, int(cur.parent_id))
+            hops += 1
+
+    pk = _resolve_phase_key(raw_pk, db)
+    uk = _resolve_unit_key(raw_uk, db)
     return pk, uk
 
 
@@ -573,9 +424,10 @@ def _phase_match_keys(phase_key: str) -> set[str]:
 
 def prepare_dilemma_eval_ibank_tree(db: Session) -> None:
     """تهيئة شجرة تبويب «قوائم التقييم» وترحيل أي ملفات مسطحة قديمة."""
-    from app.info_bank_tree import ensure_information_bank_kind
-
-    ensure_information_bank_kind(db, INFO_BANK_EVAL_LIST_KIND)
+    ensure_information_bank_tree(db, INFO_BANK_EVAL_LIST_KIND)
+    migrate_legacy_flat_files(db, INFO_BANK_EVAL_LIST_KIND)
+    if _backfill_unit_eval_folder_catalog(db, INFO_BANK_EVAL_LIST_KIND):
+        db.flush()
 
 
 def _legacy_dilemma_eval_xlsx_count(db: Session) -> int:
@@ -1152,21 +1004,18 @@ def publish_single_eval_list_from_ibank(
     node_id: int,
 ) -> dict[str, int]:
     """نشر قائمة واحدة مع الإبقاء على المنشور سابقاً."""
-    uk = resolve_ibank_eval_publish_unit_key(
-        db, node_id=int(node_id), fallback_unit_key=unit_key
-    )
     selected = published_ibank_node_ids_for_unit_phase(
         db,
         exercise_id=int(exercise_id),
         phase_key=phase_key,
-        unit_key=uk,
+        unit_key=unit_key,
     )
     selected.add(int(node_id))
     return publish_evaluation_lists_from_ibank(
         db,
         exercise_id=int(exercise_id),
         phase_key=phase_key,
-        unit_key=uk,
+        unit_key=unit_key,
         selected_node_ids=selected,
     )
 
@@ -1180,21 +1029,18 @@ def withdraw_single_eval_list_from_ibank(
     node_id: int,
 ) -> dict[str, int]:
     """سحب نشر قائمة واحدة (إزالتها من التمرين)."""
-    uk = resolve_ibank_eval_publish_unit_key(
-        db, node_id=int(node_id), fallback_unit_key=unit_key
-    )
     selected = published_ibank_node_ids_for_unit_phase(
         db,
         exercise_id=int(exercise_id),
         phase_key=phase_key,
-        unit_key=uk,
+        unit_key=unit_key,
     )
     selected.discard(int(node_id))
     return publish_evaluation_lists_from_ibank(
         db,
         exercise_id=int(exercise_id),
         phase_key=phase_key,
-        unit_key=uk,
+        unit_key=unit_key,
         selected_node_ids=selected,
     )
 
@@ -1219,18 +1065,13 @@ def publish_phase_evaluation_lists_from_ibank(
         "sources_available": 0,
         "units": 0,
     }
-    remapped = remap_publish_selections_by_ibank_context(
-        db,
-        phase_key=pk,
-        selections_by_unit=selections_by_unit,
-    )
-    for uk in sorted(remapped.keys()):
+    for uk in sorted(selections_by_unit.keys()):
         stats = publish_evaluation_lists_from_ibank(
             db,
             exercise_id=int(exercise_id),
             phase_key=pk,
             unit_key=uk,
-            selected_node_ids=remapped.get(uk, set()),
+            selected_node_ids=selections_by_unit.get(uk, set()),
         )
         totals["units"] += 1
         for k in ("added", "updated", "removed", "sources", "sources_available"):
@@ -1243,11 +1084,7 @@ def publish_all_evaluation_lists_from_ibank(
     *,
     exercise_id: int,
 ) -> dict[str, int]:
-    """نسخ الكل من البنك: تحديث الفهرس وإلغاء نشر جميع القوائم (بدون نسخ للتمرين).
-
-    النشر الفعلي يتم لاحقاً عبر «نشر القوائم» بعد تحديد الـ checkbox.
-    """
-    prepare_dilemma_eval_ibank_tree(db)
+    """نشر الكل: كل ملفات البنك لجميع المراحل × مستويات الوحدة."""
     active_units = roster_eval_display_unit_keys(db, int(exercise_id))
     phases = effective_eval_list_phase_keys(db, roster_units=active_units)
     totals = {
@@ -1265,7 +1102,6 @@ def publish_all_evaluation_lists_from_ibank(
                 exercise_id=int(exercise_id),
                 phase_key=pk,
                 unit_key=uk,
-                selected_node_ids=set(),
             )
             totals["groups"] += 1
             for k in ("added", "updated", "removed", "sources", "sources_available"):
@@ -1279,7 +1115,7 @@ def publish_all_evaluation_lists_from_ibank(
 def _unit_folder_ids_for_phase_unit(
     db: Session, *, phase_key: str, unit_key: str
 ) -> set[int]:
-    """معرّفات مجلدات مستوى الوحدة تحت مرحلة التمرين (بأي عمق)."""
+    """معرّفات مجلدات مستوى الوحدة تحت مرحلة التمرين في بنك قوائم التقييم."""
     prepare_dilemma_eval_ibank_tree(db)
     uk = _resolve_unit_key(unit_key, db)
     pk = _resolve_phase_key(phase_key, db)
@@ -1287,26 +1123,17 @@ def _unit_folder_ids_for_phase_unit(
         return set()
     out: set[int] = set()
     for phase_root in _phase_root_nodes_for_key(db, pk):
-        queue = [int(phase_root.id)]
-        seen: set[int] = set()
-        while queue:
-            nid = queue.pop(0)
-            if nid in seen:
+        direct_children = (
+            db.query(InformationBankTreeNode)
+            .filter(InformationBankTreeNode.parent_id == int(phase_root.id))
+            .all()
+        )
+        for child in direct_children:
+            child_uk = _effective_unit_key_for_node(db, child)
+            if child_uk != uk:
                 continue
-            seen.add(nid)
-            children = (
-                db.query(InformationBankTreeNode)
-                .filter(InformationBankTreeNode.parent_id == nid)
-                .all()
-            )
-            for child in children:
-                cid = int(child.id)
-                queue.append(cid)
-                if not child.is_folder:
-                    continue
-                child_uk = _effective_unit_key_for_node(db, child)
-                if child_uk == uk:
-                    out.add(cid)
+            if child.is_folder:
+                out.add(int(child.id))
     return out
 
 
@@ -1348,14 +1175,13 @@ def build_eval_list_rows_for_group(
     *,
     ibank_sources: list[dict],
     eval_items: list,
-    published_by_node: dict[int, object] | None = None,
 ) -> list[dict]:
     """صفوف العرض: ملفات البنك + المنشورة (للاختيار بالـ checkbox)."""
-    published_by_nid: dict[int, object] = dict(published_by_node or {})
+    published_by_nid: dict[int, object] = {}
     for item in eval_items:
         nid = parse_ibank_eval_storage_relpath(getattr(item, "pdf_relpath", None))
         if nid is not None:
-            published_by_nid[int(nid)] = item
+            published_by_nid[nid] = item
 
     rows: list[dict] = []
     seen: set[int] = set()
@@ -1368,11 +1194,8 @@ def build_eval_list_rows_for_group(
                 "node_id": nid,
                 "title": str(src.get("title") or "قائمة تقييم"),
                 "published": item is not None,
-                "selected": False,
+                "selected": item is not None,
                 "item_id": int(item.id) if item is not None else None,
-                "item_unit_key": (getattr(item, "unit_level_key", None) or "").strip()
-                if item is not None
-                else None,
                 "pdf_relpath": getattr(item, "pdf_relpath", None) if item else None,
             }
         )
@@ -1384,9 +1207,8 @@ def build_eval_list_rows_for_group(
                 "node_id": nid,
                 "title": (getattr(item, "text", None) or "قائمة تقييم").strip(),
                 "published": True,
-                "selected": False,
+                "selected": True,
                 "item_id": int(item.id),
-                "item_unit_key": (getattr(item, "unit_level_key", None) or "").strip(),
                 "pdf_relpath": getattr(item, "pdf_relpath", None),
             }
         )
@@ -1400,26 +1222,19 @@ def build_eval_list_folder_groups(
     unit_key: str,
     ibank_sources: list[dict],
     eval_items: list,
-    published_by_node: dict[int, object] | None = None,
 ) -> list[dict]:
     """تجميع صفوف القوائم حسب مجلدات بنك المعلومات (قابلة للطي في الواجهة)."""
     rows = build_eval_list_rows_for_group(
         ibank_sources=ibank_sources,
         eval_items=eval_items,
-        published_by_node=published_by_node,
     )
     unit_folder_ids = _unit_folder_ids_for_phase_unit(
         db, phase_key=phase_key, unit_key=unit_key
     )
-    uk = _resolve_unit_key(unit_key, db) or unit_key
     grouped: dict[str, dict] = {}
     for row in rows:
         node = db.get(InformationBankTreeNode, int(row["node_id"]))
         if node is not None:
-            if not _file_belongs_to_phase_unit(
-                db, node, phase_key=phase_key, unit_key=uk
-            ):
-                continue
             fk, fn, fs = _folder_group_for_file_node(db, node, unit_folder_ids)
         else:
             fk, fn, fs = ("orphan", "منشور سابقاً", 99998)
@@ -1439,22 +1254,13 @@ def build_eval_list_folder_groups(
     )
 
 
-def unit_eval_group_visible_for_phase(
-    *,
-    ibank_sources: list[dict],
-    eval_items: list,
-) -> bool:
-    """هل يُعرض مستوى الوحدة في هذه المرحلة؟ (مدرج في البنك أو منشور سابقاً فقط)."""
-    return bool(ibank_sources or eval_items)
-
-
 def build_eval_list_display_groups(
     db: Session,
     *,
     exercise_id: int,
     phase_key: str | None = None,
 ) -> tuple[list[dict], dict[str, int]]:
-    """مجموعات العرض: مرحلة × مستوى وحدة المدرجين في بنك المعلومات لتلك المرحلة."""
+    """مجموعات العرض: مرحلة × مستوى وحدة (محكمين) مع القوائم المستوردة."""
     roster_units = roster_eval_display_unit_keys(db, int(exercise_id))
     judge_units = roster_judge_unit_keys(db, int(exercise_id))
     raw_ibank_files = count_dilemma_eval_ibank_xlsx_nodes(db)
@@ -1503,19 +1309,6 @@ def build_eval_list_display_groups(
                 .order_by(EvaluationListPdfItem.sort_order, EvaluationListPdfItem.id)
                 .all()
             )
-            if not unit_eval_group_visible_for_phase(
-                ibank_sources=ibank_sources,
-                eval_items=eval_items,
-            ):
-                continue
-            unit_published_by_node = _published_ibank_items_by_node_for_unit_group(
-                db,
-                exercise_id=int(exercise_id),
-                phase_key=pk,
-                phase_db_keys=phase_db_keys,
-                unit_key=uk,
-                eval_items=eval_items,
-            )
             groups.append(
                 {
                     "phase_key": pk,
@@ -1530,7 +1323,6 @@ def build_eval_list_display_groups(
                     "list_rows": build_eval_list_rows_for_group(
                         ibank_sources=ibank_sources,
                         eval_items=eval_items,
-                        published_by_node=unit_published_by_node,
                     ),
                     "list_folder_groups": build_eval_list_folder_groups(
                         db,
@@ -1538,7 +1330,6 @@ def build_eval_list_display_groups(
                         unit_key=uk,
                         ibank_sources=ibank_sources,
                         eval_items=eval_items,
-                        published_by_node=unit_published_by_node,
                     ),
                 }
             )
