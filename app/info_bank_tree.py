@@ -877,12 +877,20 @@ def ensure_information_bank_tree(db: Session, kind: str) -> None:
             db.commit()
 
 
+def ensure_information_bank_kind(db: Session, kind: str) -> None:
+    """تهيئة/ترحيل/إصلاح شجرة نوع واحد فقط — دون لمس تبويبات أخرى."""
+    if kind not in INFO_BANK_TREE_KINDS:
+        return
+    ensure_information_bank_tree(db, kind)
+    migrate_legacy_flat_files(db, kind)
+    if is_unit_eval_tree_kind(kind):
+        repair_unit_eval_tree(db, kind)
+
+
 def ensure_all_information_bank_trees(db: Session) -> None:
+    """تهيئة كل الأنواع — للاستيراد/الصيانة فقط، وليس عند فتح تبويب واحد."""
     for k in INFO_BANK_TREE_KINDS:
-        ensure_information_bank_tree(db, k)
-        migrate_legacy_flat_files(db, k)
-    for k in INFO_BANK_UNIT_EVAL_TREE_KINDS:
-        repair_unit_eval_tree(db, k)
+        ensure_information_bank_kind(db, k)
 
 
 def get_node(db: Session, node_id: int, kind: str | None = None) -> InformationBankTreeNode | None:

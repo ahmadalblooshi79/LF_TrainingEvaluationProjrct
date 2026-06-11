@@ -55,9 +55,9 @@
 
         <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-clear-select"><i class="fa-solid fa-xmark" aria-hidden="true"></i> إلغاء التحديد</button>
 
-        {% if kind == 'dilemma_eval' %}
-        <form method="post" action="/admin/information-bank/eval-list/purge-all" class="ibank-tree-purge-form" onsubmit="return confirm('مسح جميع محتويات تبويب قوائم التقييم (المراحل، الوحدات، والملفات)؟ لا يمكن التراجع.');">
-          <input type="hidden" name="kind" value="dilemma_eval">
+        {% if kind in ['action_eval', 'dilemma_eval'] %}
+        <form method="post" action="/admin/information-bank/eval-list/purge-all" class="ibank-tree-purge-form" onsubmit="return confirm('مسح جميع محتويات هذا التبويب (المراحل، الوحدات، والملفات)؟ لا يمكن التراجع.');">
+          <input type="hidden" name="kind" value="{{ kind }}">
           <button type="submit" class="btn btn-danger btn-sm-compact"><i class="fa-solid fa-trash-can" aria-hidden="true"></i> مسح كل المحتويات</button>
         </form>
         {% endif %}

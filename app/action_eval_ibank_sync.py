@@ -28,14 +28,11 @@ from app.evaluation_list_ibank_sync import (
 )
 from app.exercise_phase_catalog import exercise_phase_label, normalize_exercise_phase
 from app.info_bank_tree import (
-    _backfill_unit_eval_folder_catalog,
     _is_phase_root_folder,
     _match_phase_key_by_folder_name,
     _normalize_tree_label,
     _phase_key_for_node,
     _unit_key_for_node,
-    ensure_information_bank_tree,
-    migrate_legacy_flat_files,
     node_file_abspath,
 )
 from app.models import (
@@ -66,10 +63,9 @@ def parse_action_eval_storage_relpath(relpath: str | None) -> int | None:
 
 
 def prepare_action_eval_ibank_tree(db: Session) -> None:
-    ensure_information_bank_tree(db, INFO_BANK_ACTION_EVAL_KIND)
-    migrate_legacy_flat_files(db, INFO_BANK_ACTION_EVAL_KIND)
-    if _backfill_unit_eval_folder_catalog(db, INFO_BANK_ACTION_EVAL_KIND):
-        db.commit()
+    from app.info_bank_tree import ensure_information_bank_kind
+
+    ensure_information_bank_kind(db, INFO_BANK_ACTION_EVAL_KIND)
 
 
 def _effective_unit_key_for_node(db: Session, node: InformationBankTreeNode) -> str:
