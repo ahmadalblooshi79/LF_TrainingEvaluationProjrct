@@ -20,10 +20,9 @@ from app.evaluation_list_ibank_sync import (
     _phase_match_keys,
     _resolve_phase_key,
     _resolve_unit_key,
-    effective_eval_list_phase_keys,
     exercise_roster_labels_by_unit,
     remap_publish_selections_by_ibank_context,
-    resolve_ibank_eval_publish_unit_key,
+    resolve_ibank_publish_unit_key,
     roster_eval_display_unit_keys,
     roster_judge_unit_keys,
 )
@@ -47,6 +46,7 @@ from app.models import (
 from app.unit_levels_catalog import label_for_unit_level_key, normalize_unit_level_key
 
 INFO_BANK_ACTION_EVAL_KIND = "action_eval"
+PRIMARY_FLOW_UNIT_KEY = "ul_brigade_grp_cmd"
 _IBANK_REL_RE = re.compile(r"^(\d+)/ibn_(\d+)\.xlsx$", re.IGNORECASE)
 
 
@@ -73,13 +73,14 @@ def prepare_action_eval_ibank_tree(db: Session) -> None:
 
 
 def _effective_unit_key_for_node(db: Session, node: InformationBankTreeNode) -> str:
+    from app.evaluation_list_ibank_sync import _match_unit_key_by_folder_name
+    from app.info_bank_tree import _is_nested_unit_folder
+
     raw = _unit_key_for_node(db, node)
     uk = _resolve_unit_key(raw, db)
     if uk:
         return uk
-    if node.is_folder:
-        from app.evaluation_list_ibank_sync import _match_unit_key_by_folder_name
-
+    if node.is_folder and not _is_nested_unit_folder(db, node):
         return _match_unit_key_by_folder_name(db, node.name)
     return ""
 
@@ -145,6 +146,47 @@ def _collect_subtree_xlsx_nodes(db: Session, root_id: int) -> list[InformationBa
     return out
 
 
+def _collect_unit_scoped_xlsx_nodes(
+    db: Session, root_id: int, unit_key: str
+) -> list[InformationBankTreeNode]:
+    """ملفات Excel تحت مجلد الوحدة دون تجاوز مجلدات مستوى وحدة آخر (سرايا تحت كتيبة)."""
+    uk = _resolve_unit_key(unit_key, db) or normalize_unit_level_key(unit_key)
+    if not uk:
+        return []
+    root = db.get(InformationBankTreeNode, int(root_id))
+    if root is None:
+        return []
+    out: list[InformationBankTreeNode] = []
+    queue = [int(root.id)]
+    seen: set[int] = set()
+    while queue:
+        nid = queue.pop(0)
+        if nid in seen:
+            continue
+        seen.add(nid)
+        node = db.get(InformationBankTreeNode, nid)
+        if node is None or node.kind != INFO_BANK_ACTION_EVAL_KIND:
+            continue
+        if not node.is_folder and _is_xlsx_tree_file(node):
+            out.append(node)
+            continue
+        children = (
+            db.query(InformationBankTreeNode)
+            .filter(InformationBankTreeNode.parent_id == nid)
+            .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
+            .all()
+        )
+        for ch in children:
+            if ch.is_folder:
+                from app.info_bank_tree import folder_resolved_unit_key
+
+                child_uk = folder_resolved_unit_key(db, ch)
+                if child_uk and child_uk != uk:
+                    continue
+            queue.append(int(ch.id))
+    return out
+
+
 def _file_node_to_source(db: Session, row: InformationBankTreeNode) -> dict | None:
     src_rel = (row.file_relpath or "").strip()
     if not src_rel:
@@ -162,6 +204,21 @@ def _file_node_to_source(db: Session, row: InformationBankTreeNode) -> dict | No
     }
 
 
+def resolve_ibank_action_eval_publish_unit_key(
+    db: Session,
+    *,
+    node_id: int,
+    fallback_unit_key: str,
+) -> str:
+    """مستوى الوحدة للنشر — تبويب قوائم تقييم الإجراءات (action_eval) فقط."""
+    return resolve_ibank_publish_unit_key(
+        db,
+        kind=INFO_BANK_ACTION_EVAL_KIND,
+        node_id=int(node_id),
+        fallback_unit_key=fallback_unit_key,
+    )
+
+
 def _file_belongs_to_phase_unit(
     db: Session,
     file_node: InformationBankTreeNode,
@@ -169,6 +226,8 @@ def _file_belongs_to_phase_unit(
     phase_key: str,
     unit_key: str,
 ) -> bool:
+    if file_node.kind != INFO_BANK_ACTION_EVAL_KIND:
+        return False
     f_pk, f_uk = _ibank_context_for_file_node(db, file_node)
     if not f_uk or f_uk != unit_key:
         return False
@@ -182,6 +241,7 @@ def collect_ibank_action_eval_files_for_phase_unit(
     phase_key: str,
     unit_key: str,
 ) -> list[dict]:
+    """كل ملفات Excel لمستوى الوحدة — بما فيها المجلدات المتداخلة (سرايا تحت كتيبة)."""
     prepare_action_eval_ibank_tree(db)
     uk = _resolve_unit_key(unit_key, db)
     pk = _resolve_phase_key(phase_key, db)
@@ -189,36 +249,66 @@ def collect_ibank_action_eval_files_for_phase_unit(
         return []
     seen: set[int] = set()
     sources: list[dict] = []
+    unit_folder_ids = _unit_folder_ids_for_phase_unit(
+        db, phase_key=pk, unit_key=uk
+    )
+    for fid in sorted(unit_folder_ids):
+        folder = db.get(InformationBankTreeNode, int(fid))
+        if folder is None or folder.kind != INFO_BANK_ACTION_EVAL_KIND:
+            continue
+        from app.info_bank_tree import folder_resolved_unit_key
 
-    def _add_node(row: InformationBankTreeNode) -> None:
-        nid = int(row.id)
-        if nid in seen:
-            return
-        src = _file_node_to_source(db, row)
-        if src is None:
-            return
-        seen.add(nid)
-        sources.append(src)
+        if folder_resolved_unit_key(db, folder) != uk:
+            continue
+        for xn in _collect_unit_scoped_xlsx_nodes(db, int(fid), uk):
+            nid = int(xn.id)
+            if nid in seen:
+                continue
+            src = _file_node_to_source(db, xn)
+            if src is None:
+                continue
+            seen.add(nid)
+            sources.append(src)
 
-    for phase_root in _phase_root_nodes_for_key(db, pk):
-        direct_children = (
-            db.query(InformationBankTreeNode)
-            .filter(InformationBankTreeNode.parent_id == int(phase_root.id))
-            .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
-            .all()
-        )
-        for child in direct_children:
-            if child.is_folder:
-                child_uk = _effective_unit_key_for_node(db, child)
-                if child_uk == uk:
-                    for xn in _collect_subtree_xlsx_nodes(db, int(child.id)):
-                        _add_node(xn)
-            elif _is_xlsx_tree_file(child):
-                ctx_uk = _deepest_unit_key_for_file_node(db, child) or _effective_unit_key_for_node(
-                    db, child
+    if not sources:
+        for phase_root in _phase_root_nodes_for_key(db, pk):
+            direct_children = (
+                db.query(InformationBankTreeNode)
+                .filter(InformationBankTreeNode.parent_id == int(phase_root.id))
+                .order_by(
+                    InformationBankTreeNode.sort_order, InformationBankTreeNode.id
                 )
-                if ctx_uk == uk:
-                    _add_node(child)
+                .all()
+            )
+            for child in direct_children:
+                from app.info_bank_tree import folder_resolved_unit_key
+
+                if folder_resolved_unit_key(db, child) != uk:
+                    continue
+                if child.is_folder:
+                    for xn in _collect_unit_scoped_xlsx_nodes(db, int(child.id), uk):
+                        nid = int(xn.id)
+                        if nid in seen:
+                            continue
+                        src = _file_node_to_source(db, xn)
+                        if src is None:
+                            continue
+                        seen.add(nid)
+                        sources.append(src)
+                elif _is_xlsx_tree_file(child):
+                    nid = int(child.id)
+                    if nid in seen:
+                        continue
+                    file_uk = _deepest_unit_key_for_file_node(
+                        db, child
+                    ) or _effective_unit_key_for_node(db, child)
+                    if file_uk and file_uk != uk:
+                        continue
+                    src = _file_node_to_source(db, child)
+                    if src is None:
+                        continue
+                    seen.add(nid)
+                    sources.append(src)
 
     sources.sort(key=lambda s: (int(s.get("sort_order", 0)), int(s["node_id"])))
     return sources
@@ -324,8 +414,59 @@ def _parse_flow_table_days(raw: str) -> list[dict]:
     return []
 
 
+def primary_flow_bundle_for_exercise(
+    db: Session,
+    *,
+    exercise_id: int,
+    phase_key: str,
+) -> ExercisePlannerFlowBundle | None:
+    """حزمة جدول المجرى الرئيسية (قيادة مجموعة اللواء) للتمرين والمرحلة."""
+    pk = normalize_exercise_phase(phase_key)
+    phase_db_keys = _phase_match_keys(pk)
+    bundle = (
+        db.query(ExercisePlannerFlowBundle)
+        .filter(
+            ExercisePlannerFlowBundle.exercise_id == int(exercise_id),
+            ExercisePlannerFlowBundle.exercise_phase.in_(phase_db_keys),
+            ExercisePlannerFlowBundle.unit_level_key == PRIMARY_FLOW_UNIT_KEY,
+        )
+        .first()
+    )
+    if bundle is not None and (getattr(bundle, "flow_table_json", None) or "").strip():
+        return bundle
+    fallback = (
+        db.query(ExercisePlannerFlowBundle)
+        .filter(ExercisePlannerFlowBundle.exercise_id == int(exercise_id))
+        .order_by(ExercisePlannerFlowBundle.id)
+        .all()
+    )
+    for row in fallback:
+        if (getattr(row, "flow_table_json", None) or "").strip():
+            return row
+    return bundle
+
+
+def collect_flow_day_tabs_for_exercise(
+    db: Session,
+    *,
+    exercise_id: int,
+    phase_key: str,
+) -> list[dict[str, str]]:
+    """تبويبات الأيام من جدول مجرى الأحداث والمعاضل."""
+    bundle = primary_flow_bundle_for_exercise(
+        db, exercise_id=int(exercise_id), phase_key=phase_key
+    )
+    raw = (getattr(bundle, "flow_table_json", None) or "").strip() if bundle else ""
+    days = _parse_flow_table_days(raw)
+    if not days:
+        return [{"id": "day-1", "label": "اليوم/1"}]
+    return [{"id": str(d.get("id") or ""), "label": str(d.get("label") or "")} for d in days]
+
+
 def extract_assignee_judge_labels_from_bundle(
     bundle: ExercisePlannerFlowBundle | None,
+    *,
+    day_id: str | None = None,
 ) -> list[str]:
     """أصناف المحكمين من عمود المكلف بالإجراء والمتابعة في جدول المجرى."""
     from app.planner_flow_judge_labels import parse_assignee_cell_lines
@@ -337,7 +478,10 @@ def extract_assignee_judge_labels_from_bundle(
         return []
     labels: list[str] = []
     seen: set[str] = set()
+    want_day = (day_id or "").strip()
     for day in _parse_flow_table_days(raw):
+        if want_day and str(day.get("id") or "") != want_day:
+            continue
         for row in day.get("rows") or []:
             if (row.get("kind") or "row").strip().lower() != "row":
                 continue
@@ -354,32 +498,27 @@ def collect_flow_assignee_units_for_phase(
     *,
     exercise_id: int,
     phase_key: str,
+    flow_day_id: str | None = None,
 ) -> dict[str, list[str]]:
     """مستوى الوحدة ← أصناف المحكمين المستخرجة من عمود المكلف في المجرى."""
     from app.planner_flow_judge_labels import unit_key_for_assignee_label
 
-    pk = normalize_exercise_phase(phase_key)
-    phase_db_keys = _phase_match_keys(pk)
-    bundles = (
-        db.query(ExercisePlannerFlowBundle)
-        .filter(
-            ExercisePlannerFlowBundle.exercise_id == int(exercise_id),
-            ExercisePlannerFlowBundle.exercise_phase.in_(phase_db_keys),
-        )
-        .all()
+    bundle = primary_flow_bundle_for_exercise(
+        db, exercise_id=int(exercise_id), phase_key=phase_key
     )
+    if bundle is None:
+        return {}
     out: dict[str, list[str]] = defaultdict(list)
     seen_per_unit: dict[str, set[str]] = defaultdict(set)
-    for bundle in bundles:
-        for lbl in extract_assignee_judge_labels_from_bundle(bundle):
-            uk = unit_key_for_assignee_label(lbl, db=db)
-            if not uk:
-                continue
-            norm_lbl = _normalize_tree_label(lbl)
-            if norm_lbl in seen_per_unit[uk]:
-                continue
-            seen_per_unit[uk].add(norm_lbl)
-            out[uk].append(lbl)
+    for lbl in extract_assignee_judge_labels_from_bundle(bundle, day_id=flow_day_id):
+        uk = unit_key_for_assignee_label(lbl, db=db)
+        if not uk:
+            continue
+        norm_lbl = _normalize_tree_label(lbl)
+        if norm_lbl in seen_per_unit[uk]:
+            continue
+        seen_per_unit[uk].add(norm_lbl)
+        out[uk].append(lbl)
     return dict(out)
 
 
@@ -592,7 +731,7 @@ def publish_single_action_eval_from_ibank(
     node_id: int,
     dilemma_index: int = 0,
 ) -> dict[str, int]:
-    uk = resolve_ibank_eval_publish_unit_key(
+    uk = resolve_ibank_action_eval_publish_unit_key(
         db, node_id=int(node_id), fallback_unit_key=unit_key
     )
     bundle = _get_or_create_bundle(
@@ -623,7 +762,7 @@ def withdraw_single_action_eval_from_ibank(
     unit_key: str,
     node_id: int,
 ) -> dict[str, int]:
-    uk = resolve_ibank_eval_publish_unit_key(
+    uk = resolve_ibank_action_eval_publish_unit_key(
         db, node_id=int(node_id), fallback_unit_key=unit_key
     )
     bundle = (
@@ -662,7 +801,10 @@ def publish_phase_action_eval_lists_from_ibank(
         return {"added": 0, "updated": 0, "removed": 0, "sources": 0, "units": 0}
     totals = {"added": 0, "updated": 0, "removed": 0, "sources": 0, "units": 0}
     remapped = remap_publish_selections_by_ibank_context(
-        db, phase_key=pk, selections_by_unit=selections_by_unit
+        db,
+        kind=INFO_BANK_ACTION_EVAL_KIND,
+        phase_key=pk,
+        selections_by_unit=selections_by_unit,
     )
     dmap_all = dilemma_by_unit_node or {}
     for uk in sorted(remapped.keys()):
@@ -684,11 +826,76 @@ def publish_phase_action_eval_lists_from_ibank(
     return totals
 
 
+def index_action_eval_ibank_files(
+    db: Session,
+) -> dict[tuple[str, str], list[dict]]:
+    """فهرس (مرحلة، وحدة) → ملفات Excel — تبويب action_eval فقط."""
+    prepare_action_eval_ibank_tree(db)
+    out: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    unit_keys: set[str] = set()
+    phase_roots = (
+        db.query(InformationBankTreeNode)
+        .filter(
+            InformationBankTreeNode.kind == INFO_BANK_ACTION_EVAL_KIND,
+            InformationBankTreeNode.parent_id.is_(None),
+            InformationBankTreeNode.is_folder.is_(True),
+        )
+        .all()
+    )
+    for pr in phase_roots:
+        pk = _effective_phase_key_for_node(db, pr)
+        if not pk:
+            continue
+        for child in (
+            db.query(InformationBankTreeNode)
+            .filter(InformationBankTreeNode.parent_id == int(pr.id))
+            .all()
+        ):
+            from app.info_bank_tree import folder_resolved_unit_key
+
+            uk = folder_resolved_unit_key(db, child)
+            if uk:
+                unit_keys.add(uk)
+        for f in _collect_subtree_xlsx_nodes(db, int(pr.id)):
+            _, fuk = _ibank_context_for_file_node(db, f)
+            if fuk:
+                unit_keys.add(fuk)
+    for pr in phase_roots:
+        pk = _effective_phase_key_for_node(db, pr)
+        if not pk:
+            continue
+        for uk in sorted(unit_keys):
+            files = collect_ibank_action_eval_files_for_phase_unit(
+                db, phase_key=pk, unit_key=uk
+            )
+            if files:
+                out[(pk, uk)] = files
+    return dict(out)
+
+
+def effective_action_eval_phase_keys(
+    db: Session, *, roster_units: set[str]
+) -> list[str]:
+    """مراحل التمرين لقوائم تقييم الإجراءات — من الكتالوج أو تبويب action_eval فقط."""
+    from app.exercise_phase_catalog import exercise_phase_keys
+
+    catalog = list(exercise_phase_keys())
+    if catalog:
+        return catalog
+    index = index_action_eval_ibank_files(db)
+    ibank_phases = sorted({pk for (pk, uk) in index.keys() if uk in roster_units})
+    if ibank_phases:
+        return ibank_phases
+    from app.info_bank_tree import PRIMARY_PHASE_KEYS
+
+    return list(PRIMARY_PHASE_KEYS)
+
+
 def sync_all_action_eval_from_ibank(db: Session, *, exercise_id: int) -> dict[str, int]:
     """تحديث الفهرس من البنك وسحب كل المنشور (بدون نسخ)."""
     prepare_action_eval_ibank_tree(db)
     active_units = roster_eval_display_unit_keys(db, int(exercise_id))
-    phases = effective_eval_list_phase_keys(db, roster_units=active_units)
+    phases = effective_action_eval_phase_keys(db, roster_units=active_units)
     totals = {"added": 0, "updated": 0, "removed": 0, "units": 0}
     for pk in phases:
         for uk in sorted(active_units):
@@ -729,8 +936,9 @@ def _unit_folder_ids_for_phase_unit(db: Session, *, phase_key: str, unit_key: st
                 queue.append(cid)
                 if not child.is_folder:
                     continue
-                child_uk = _effective_unit_key_for_node(db, child)
-                if child_uk == uk:
+                from app.info_bank_tree import folder_resolved_unit_key
+
+                if folder_resolved_unit_key(db, child) == uk:
                     out.add(cid)
     return out
 
@@ -801,6 +1009,140 @@ def build_action_eval_rows_for_group(
     return rows
 
 
+def _unit_branch_parent_map() -> dict[str, str]:
+    """مفتاح السرية/التفرع → مفتاح قيادة الكتيبة الأم."""
+    from app.information_bank_catalog import INFO_BANK_UNIT_LEVEL_TEMPLATES
+
+    keys = {(t.get("key") or "").strip() for t in INFO_BANK_UNIT_LEVEL_TEMPLATES}
+    parents: dict[str, str] = {}
+    for t in INFO_BANK_UNIT_LEVEL_TEMPLATES:
+        k = (t.get("key") or "").strip()
+        if not k:
+            continue
+        parent = ""
+        if re.search(r"_bn_c[123]$", k):
+            parent = re.sub(r"_c[123]$", "_cmd", k)
+        elif re.search(r"_cmd_c[123]$", k):
+            parent = re.sub(r"_c[123]$", "", k)
+        if parent and parent in keys:
+            parents[k] = parent
+    return parents
+
+
+def _battalion_family_key(unit_key: str, parents: dict[str, str]) -> str:
+    uk = (unit_key or "").strip()
+    return parents.get(uk, uk)
+
+
+def _family_display_label(unit_key: str, *, db: Session) -> str:
+    lbl = (label_for_unit_level_key(unit_key, db=db) or unit_key).strip()
+    if lbl.startswith("قيادة "):
+        return lbl[len("قيادة ") :].strip()
+    return lbl
+
+
+def _sort_branch_unit_keys(
+    family_key: str, unit_keys: list[str], unit_order: dict[str, int]
+) -> list[str]:
+    """قيادة الكتيبة أولاً ثم السرايا بالترتيب."""
+    unique = list(dict.fromkeys(unit_keys))
+
+    def _key(uk: str) -> tuple[int, int]:
+        is_company = 0 if uk == family_key else 1
+        return (is_company, unit_order.get(uk, 9999))
+
+    return sorted(unique, key=_key)
+
+
+def _build_action_eval_branch_group(
+    db: Session,
+    *,
+    exercise_id: int,
+    phase_key: str,
+    unit_key: str,
+    assignee_labels: list[str],
+    judge_by_unit: dict[str, str],
+    trainee_by_unit: dict[str, str],
+) -> dict:
+    uk = (unit_key or "").strip()
+    ul = label_for_unit_level_key(uk, db=db) or uk
+    ibank_sources = collect_ibank_action_eval_files_for_phase_unit(
+        db, phase_key=phase_key, unit_key=uk
+    )
+    bundle = (
+        db.query(ExercisePlannerFlowBundle)
+        .filter(
+            ExercisePlannerFlowBundle.exercise_id == int(exercise_id),
+            ExercisePlannerFlowBundle.exercise_phase == normalize_exercise_phase(phase_key),
+            ExercisePlannerFlowBundle.unit_level_key == uk,
+        )
+        .first()
+    )
+    published_by_node = _published_slots_by_node(db, bundle) if bundle is not None else {}
+    pk = normalize_exercise_phase(phase_key)
+    pl = exercise_phase_label(pk) or pk
+    return {
+        "phase_key": pk,
+        "phase_label": pl,
+        "unit_key": uk,
+        "unit_label": ul,
+        "judge_name": judge_by_unit.get(uk, "—"),
+        "trainee_name": trainee_by_unit.get(uk, "—"),
+        "assignee_labels": assignee_labels,
+        "ibank_sources": ibank_sources,
+        "ibank_source_count": len(ibank_sources),
+        "bundle_id": int(bundle.id) if bundle is not None else None,
+        "list_folder_groups": build_action_eval_folder_groups(
+            db,
+            phase_key=phase_key,
+            unit_key=uk,
+            ibank_sources=ibank_sources,
+            published_by_node=published_by_node,
+        ),
+    }
+
+
+def _flow_display_label(
+    unit_key: str, assignee_labels: list[str], *, db: Session
+) -> str:
+    """تسمية العرض — قيادة الكتيبة من الكتالوج، السرية من صنف المحكم."""
+    from app.planner_flow_judge_labels import unit_label_for_assignee_label
+
+    uk = (unit_key or "").strip()
+    branch_parents = _unit_branch_parent_map()
+    if assignee_labels:
+        raw = (assignee_labels[0] or "").strip()
+        if uk in branch_parents:
+            if raw.startswith("محكم "):
+                return raw[len("محكم ") :].strip()
+            return raw
+        mapped = unit_label_for_assignee_label(raw)
+        if mapped:
+            return mapped
+        if raw.startswith("محكم "):
+            return raw[len("محكم ") :].strip()
+        return raw
+    return label_for_unit_level_key(uk, db=db) or uk
+
+
+def _ordered_flat_flow_unit_keys(
+    flow_units: dict[str, list[str]],
+    unit_order: dict[str, int],
+    branch_parents: dict[str, str],
+) -> list[str]:
+    """ترتيب مسطح: كتيبة (قيادة) ثم سرايا التابعة لها بالتسلسل."""
+    families: dict[str, list[str]] = defaultdict(list)
+    for uk in flow_units:
+        fk = _battalion_family_key(uk, branch_parents)
+        families[fk].append(uk)
+    out: list[str] = []
+    for family_key in sorted(families.keys(), key=lambda k: unit_order.get(k, 9999)):
+        out.extend(
+            _sort_branch_unit_keys(family_key, families[family_key], unit_order)
+        )
+    return out
+
+
 def build_action_eval_folder_groups(
     db: Session,
     *,
@@ -837,17 +1179,159 @@ def build_action_eval_folder_groups(
     )
 
 
+def build_judge_action_eval_display_groups(
+    db: Session,
+    *,
+    exercise_id: int,
+    phase_key: str | None = None,
+    flow_day_id: str | None = None,
+    restrict_unit_key: str | None = None,
+) -> tuple[list[dict], dict[str, int]]:
+    """مجموعات مستويات الوحدة (مثل التخطيط) — صفوف منشورة فقط."""
+    groups, meta = build_action_eval_display_groups(
+        db,
+        exercise_id=int(exercise_id),
+        phase_key=phase_key,
+        flow_day_id=flow_day_id,
+    )
+    restrict = ""
+    if restrict_unit_key:
+        restrict = _resolve_unit_key(restrict_unit_key, db) or normalize_unit_level_key(
+            restrict_unit_key
+        )
+    out: list[dict] = []
+    published_total = 0
+    for g in groups:
+        uk = (g.get("unit_key") or "").strip()
+        guk = _resolve_unit_key(uk, db) or normalize_unit_level_key(uk)
+        if restrict and guk != restrict:
+            continue
+        bundle = None
+        bundle_id = g.get("bundle_id")
+        if bundle_id:
+            bundle = db.get(ExercisePlannerFlowBundle, int(bundle_id))
+        published_by_node = _published_slots_by_node(db, bundle) if bundle is not None else {}
+        folders: list[dict] = []
+        pub_count = 0
+        for folder in g.get("list_folder_groups") or []:
+            rows: list[dict] = []
+            for row in folder.get("rows") or []:
+                if not row.get("published"):
+                    continue
+                nid = int(row["node_id"])
+                slot = published_by_node.get(nid)
+                if slot is None:
+                    continue
+                rows.append(
+                    {
+                        **row,
+                        "slot_index": int(slot.slot_index),
+                        "slot_id": int(slot.id),
+                        "title": (
+                            slot.title or row.get("title") or "قائمة تقييم إجراءات"
+                        ).strip(),
+                    }
+                )
+            if rows:
+                folders.append({**folder, "rows": rows})
+                pub_count += len(rows)
+        published_total += pub_count
+        out.append(
+            {
+                **g,
+                "list_folder_groups": folders,
+                "published_count": pub_count,
+            }
+        )
+    meta = dict(meta)
+    meta["published_count"] = published_total
+    return out, meta
+
+
+def build_judge_published_action_eval_lists(
+    db: Session,
+    *,
+    exercise_id: int,
+    unit_key: str,
+    phase_key: str,
+    flow_day_id: str | None = None,
+) -> tuple[list[dict], dict[str, object]]:
+    """مجلدات القوائم المنشورة فقط — لصفحة المحكم (مستوى وحدة واحد)."""
+    uk = _resolve_unit_key(unit_key, db) or normalize_unit_level_key(unit_key)
+    pk = _resolve_phase_key(phase_key, db) or normalize_exercise_phase(phase_key)
+    if not uk or not pk:
+        return [], {"in_flow": False, "published_count": 0}
+
+    flow_units = collect_flow_assignee_units_for_phase(
+        db,
+        exercise_id=int(exercise_id),
+        phase_key=pk,
+        flow_day_id=flow_day_id,
+    )
+    in_flow = uk in flow_units
+
+    bundle = (
+        db.query(ExercisePlannerFlowBundle)
+        .filter(
+            ExercisePlannerFlowBundle.exercise_id == int(exercise_id),
+            ExercisePlannerFlowBundle.exercise_phase == pk,
+            ExercisePlannerFlowBundle.unit_level_key == uk,
+        )
+        .first()
+    )
+    published_by_node = _published_slots_by_node(db, bundle) if bundle is not None else {}
+    if flow_day_id and not in_flow:
+        return [], {"in_flow": False, "published_count": len(published_by_node)}
+    if not published_by_node:
+        return [], {"in_flow": in_flow, "published_count": 0}
+
+    ibank_sources = collect_ibank_action_eval_files_for_phase_unit(
+        db, phase_key=pk, unit_key=uk
+    )
+    folder_groups = build_action_eval_folder_groups(
+        db,
+        phase_key=pk,
+        unit_key=uk,
+        ibank_sources=ibank_sources,
+        published_by_node=published_by_node,
+    )
+    out_folders: list[dict] = []
+    for folder in folder_groups:
+        pub_rows: list[dict] = []
+        for row in folder.get("rows") or []:
+            if not row.get("published"):
+                continue
+            nid = int(row["node_id"])
+            slot = published_by_node.get(nid)
+            if slot is None:
+                continue
+            pub_rows.append(
+                {
+                    **row,
+                    "slot_index": int(slot.slot_index),
+                    "slot_id": int(slot.id),
+                    "title": (
+                        slot.title or row.get("title") or "قائمة تقييم إجراءات"
+                    ).strip(),
+                }
+            )
+        if pub_rows:
+            out_folders.append({**folder, "rows": pub_rows})
+    return out_folders, {"in_flow": in_flow, "published_count": len(published_by_node)}
+
+
 def build_action_eval_display_groups(
     db: Session,
     *,
     exercise_id: int,
     phase_key: str | None = None,
+    flow_day_id: str | None = None,
 ) -> tuple[list[dict], dict[str, int]]:
     roster_units = roster_eval_display_unit_keys(db, int(exercise_id))
     judge_units = roster_judge_unit_keys(db, int(exercise_id))
     judge_by_unit, trainee_by_unit = exercise_roster_labels_by_unit(db, int(exercise_id))
     phase_keys = (
-        effective_eval_list_phase_keys(db, roster_units=roster_units)
+        effective_action_eval_phase_keys(db, roster_units=roster_units)
         if roster_units
         else []
     )
@@ -885,47 +1369,29 @@ def build_action_eval_display_groups(
     for pk in phase_keys:
         pl = exercise_phase_label(pk) or pk
         flow_units = collect_flow_assignee_units_for_phase(
-            db, exercise_id=int(exercise_id), phase_key=pk
+            db,
+            exercise_id=int(exercise_id),
+            phase_key=pk,
+            flow_day_id=flow_day_id,
         )
         flow_unit_total += len(flow_units)
-        for uk in sorted(flow_units.keys(), key=lambda k: unit_order.get(k, 9999)):
-            ul = label_for_unit_level_key(uk, db=db) or uk
-            ibank_sources = collect_ibank_action_eval_files_for_phase_unit(
-                db, phase_key=pk, unit_key=uk
+        branch_parents = _unit_branch_parent_map()
+        ordered_keys = _ordered_flat_flow_unit_keys(
+            flow_units, unit_order, branch_parents
+        )
+        for uk in ordered_keys:
+            assignees = flow_units.get(uk, [])
+            row = _build_action_eval_branch_group(
+                db,
+                exercise_id=int(exercise_id),
+                phase_key=pk,
+                unit_key=uk,
+                assignee_labels=assignees,
+                judge_by_unit=judge_by_unit,
+                trainee_by_unit=trainee_by_unit,
             )
-            bundle = (
-                db.query(ExercisePlannerFlowBundle)
-                .filter(
-                    ExercisePlannerFlowBundle.exercise_id == int(exercise_id),
-                    ExercisePlannerFlowBundle.exercise_phase == normalize_exercise_phase(pk),
-                    ExercisePlannerFlowBundle.unit_level_key == uk,
-                )
-                .first()
-            )
-            published_by_node = (
-                _published_slots_by_node(db, bundle) if bundle is not None else {}
-            )
-            groups.append(
-                {
-                    "phase_key": pk,
-                    "phase_label": pl,
-                    "unit_key": uk,
-                    "unit_label": ul,
-                    "judge_name": judge_by_unit.get(uk, "—"),
-                    "trainee_name": trainee_by_unit.get(uk, "—"),
-                    "assignee_labels": flow_units.get(uk, []),
-                    "ibank_sources": ibank_sources,
-                    "ibank_source_count": len(ibank_sources),
-                    "bundle_id": int(bundle.id) if bundle is not None else None,
-                    "list_folder_groups": build_action_eval_folder_groups(
-                        db,
-                        phase_key=pk,
-                        unit_key=uk,
-                        ibank_sources=ibank_sources,
-                        published_by_node=published_by_node,
-                    ),
-                }
-            )
+            row["unit_label"] = _flow_display_label(uk, assignees, db=db)
+            groups.append(row)
 
     meta = {
         "roster_units": len(roster_units),
@@ -941,10 +1407,14 @@ def withdraw_action_eval_for_units_removed_from_flow(
     *,
     exercise_id: int,
     phase_key: str,
+    flow_day_id: str | None = None,
 ) -> int:
     """سحب نشر القوائم لمستويات لم تعد موجودة في عمود المكلف بالمجرى."""
     flow_units = collect_flow_assignee_units_for_phase(
-        db, exercise_id=int(exercise_id), phase_key=phase_key
+        db,
+        exercise_id=int(exercise_id),
+        phase_key=phase_key,
+        flow_day_id=flow_day_id,
     )
     active_uk = set(flow_units.keys())
     pk = normalize_exercise_phase(phase_key)
@@ -980,14 +1450,22 @@ def sync_action_eval_units_from_flow(
     *,
     exercise_id: int,
     phase_key: str,
+    flow_day_id: str | None = None,
 ) -> dict[str, int]:
     """مزامنة أصناف المحكمين من عمود المكلف — دون نشر (النشر يدوي من المستخدم)."""
     flow_units = collect_flow_assignee_units_for_phase(
-        db, exercise_id=int(exercise_id), phase_key=phase_key
+        db,
+        exercise_id=int(exercise_id),
+        phase_key=phase_key,
+        flow_day_id=flow_day_id,
     )
-    withdrawn = withdraw_action_eval_for_units_removed_from_flow(
-        db, exercise_id=int(exercise_id), phase_key=phase_key
-    )
+    withdrawn = 0
+    if not (flow_day_id or "").strip():
+        withdrawn = withdraw_action_eval_for_units_removed_from_flow(
+            db,
+            exercise_id=int(exercise_id),
+            phase_key=phase_key,
+        )
     label_count = sum(len(labels) for labels in flow_units.values())
     return {
         "units": len(flow_units),

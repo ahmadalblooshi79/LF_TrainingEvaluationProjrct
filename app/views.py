@@ -94,6 +94,8 @@ from app.evaluation_workflow import (
     build_planner_flow_eval_row,
     evaluation_unit_home_rows,
     evaluation_unit_home_phase_tabs,
+    judge_action_eval_flow_day_tabs,
+    judge_action_eval_unit_home_rows,
     evaluation_unit_home_totals,
     filter_evaluation_items_by_phase,
     parse_evaluation_list_phase_key,
@@ -2386,6 +2388,45 @@ def _planner_bundle_eval_commit_payload_save(
     db.commit()
 
 
+def _planner_flow_bundle_for_unit(
+    db,
+    exercise_id: int,
+    unit_key: str,
+    *,
+    phase_key: str | None = None,
+) -> ExercisePlannerFlowBundle | None:
+    """حزمة المجرى لمستوى وحدة — مرحلة افتراضية ثم أي حزمة للوحدة."""
+    from app.evaluation_list_ibank_sync import _resolve_unit_key
+
+    uk = _resolve_unit_key(unit_key, db) or normalize_unit_level_key(unit_key)
+    if not uk:
+        return None
+    pk = normalize_exercise_phase(phase_key or default_exercise_phase_key())
+    row = (
+        db.query(ExercisePlannerFlowBundle)
+        .filter(
+            ExercisePlannerFlowBundle.exercise_id == int(exercise_id),
+            ExercisePlannerFlowBundle.exercise_phase == pk,
+            ExercisePlannerFlowBundle.unit_level_key == uk,
+        )
+        .first()
+    )
+    if row is not None:
+        return row
+    return (
+        db.query(ExercisePlannerFlowBundle)
+        .filter(
+            ExercisePlannerFlowBundle.exercise_id == int(exercise_id),
+            ExercisePlannerFlowBundle.unit_level_key == uk,
+        )
+        .order_by(
+            ExercisePlannerFlowBundle.updated_at.desc(),
+            ExercisePlannerFlowBundle.id.desc(),
+        )
+        .first()
+    )
+
+
 def _judge_planner_flow_action_bundle_row(
     db, user: User, ex: Exercise | None, slot: int
 ) -> tuple[ExercisePlannerFlowBundle, ExercisePlannerFlowBundleActionEval] | None:
@@ -2397,9 +2438,34 @@ def _judge_planner_flow_action_bundle_row(
         if can_oversee_judge_planner_flow_materials(user)
         else None
     )
+    unit_key_q = (request.args.get("unit_key") or "").strip()
+    action_eval_id = request.args.get("action_eval_id", type=int)
+
+    if action_eval_id:
+        row = db.get(ExercisePlannerFlowBundleActionEval, int(action_eval_id))
+        if row is not None:
+            bundle = db.get(ExercisePlannerFlowBundle, int(row.bundle_id))
+            if (
+                bundle is not None
+                and bundle.exercise_id == ex.id
+                and (row.file_relpath or "").strip()
+            ):
+                if not can_oversee_judge_planner_flow_materials(user):
+                    _enforce_judge_unit_scope(db, user, ex, bundle.unit_level_key)
+                    _enforce_judge_has_assignment_for_unit(
+                        db, user, ex, bundle.unit_level_key
+                    )
+                return bundle, row
+
     bundle = _judge_assigned_planner_bundle(
         db, user, ex, judge_user_id=oversee_jid
     )
+    if bundle is None and unit_key_q:
+        bundle = _planner_flow_bundle_for_unit(db, int(ex.id), unit_key_q)
+    if bundle is None:
+        assigned_uk = _judge_assigned_unit_key(db, user, ex)
+        if assigned_uk:
+            bundle = _planner_flow_bundle_for_unit(db, int(ex.id), assigned_uk)
     if bundle is None:
         return None
     if not can_oversee_judge_planner_flow_materials(user):
@@ -2413,6 +2479,10 @@ def _judge_planner_flow_action_bundle_row(
         )
         .first()
     )
+    if row is None and action_eval_id:
+        row = db.get(ExercisePlannerFlowBundleActionEval, int(action_eval_id))
+        if row is not None and int(row.bundle_id) != int(bundle.id):
+            row = None
     if row is None or not (row.file_relpath or "").strip():
         return None
     return bundle, row
@@ -6608,31 +6678,29 @@ def _planner_flow_action_lists_editable(user: User) -> bool:
     return bool(can_save_evaluation_results(user))
 
 
+def _planner_flow_action_eval_mutations_blocked(user: User) -> bool:
+    """هل يُمنع الحفظ/الاعتماد؟ مسار قوائم تقييم الإجراءات في مساحة المحكمين دائماً تفاعلي."""
+    if _from_judge_action_eval_lists_request():
+        return not can_save_evaluation_results(user)
+    return _planner_flow_is_readonly_oversee(user)
+
+
 def _planner_flow_eval_list_viewer_ctx(user: User, saved) -> dict:
     """سياق واجهة تقييم قائمة إجراءات الحزمة — محكم أو كبير محكمين (اعتماد/إعادة)."""
     wf = dict(_eval_list_viewer_ctx(user, saved))
     wf["eval_chief_next_step_hint"] = True
+    if _from_judge_action_eval_lists_request():
+        if can_save_evaluation_results(user):
+            wf["eval_can_edit"] = bool(eval_judge_can_edit(saved))
+        return wf
     if _planner_flow_is_readonly_oversee(user):
         wf["eval_can_edit"] = False
         wf["show_eval_approve"] = False
+        wf["show_eval_approve_form"] = False
         return wf
-    if not _planner_flow_action_lists_editable(user):
-        return wf
-    return {
-        **wf,
-        "eval_can_edit": True,
-        "show_eval_approve": bool(
-            can_approve_evaluation_results(user)
-            and eval_judge_can_approve(saved)
-            and _evaluation_saved_allows_judge_approve(saved)
-        ),
-        "show_chief_approve": bool(
-            can_chief_approve_evaluation_results(user) and eval_chief_can_approve(saved)
-        ),
-        "show_chief_reopen": bool(
-            can_chief_reopen_evaluation_for_judge(user) and eval_chief_can_reopen(saved)
-        ),
-    }
+    if _planner_flow_action_lists_editable(user):
+        wf["eval_can_edit"] = bool(eval_judge_can_edit(saved))
+    return wf
 
 
 def _planner_flow_materials_query_kwargs(viewer: User) -> dict[str, int]:
@@ -6654,6 +6722,245 @@ def _judge_planner_flow_materials_active_tab() -> str:
     if tab in (_JUDGE_PF_TAB_EVENT, _JUDGE_PF_TAB_EVAL_LISTS):
         return tab
     return _JUDGE_PF_TAB_EVENT
+
+
+def _from_judge_action_eval_lists_request() -> bool:
+    return request.args.get("from_action_eval_lists", type=int) == 1
+
+
+def _judge_action_eval_lists_url_kwargs() -> dict[str, str]:
+    day = (request.args.get("day") or "").strip()
+    return {"day": day} if day else {}
+
+
+def _judge_action_eval_lists_query_kwargs() -> dict[str, int | str]:
+    kw: dict[str, int | str] = dict(_judge_action_eval_lists_url_kwargs())
+    if _from_judge_action_eval_lists_request():
+        kw["from_action_eval_lists"] = 1
+    unit_key = (request.args.get("unit_key") or "").strip()
+    if unit_key:
+        kw["unit_key"] = unit_key
+    action_eval_id = request.args.get("action_eval_id", type=int)
+    if action_eval_id:
+        kw["action_eval_id"] = int(action_eval_id)
+    return kw
+
+
+def _judge_action_eval_flow_query_kwargs(user: User) -> dict[str, int | str]:
+    return {**_planner_flow_materials_query_kwargs(user), **_judge_action_eval_lists_query_kwargs()}
+
+
+def _judge_action_eval_close_href(user: User, *, unit_key: str) -> str:
+    if _from_judge_action_eval_lists_request():
+        return url_for(
+            "views.judge_dilemmas",
+            unit_key=unit_key,
+            **_judge_action_eval_lists_url_kwargs(),
+        )
+    return url_for(
+        "views.judge_planner_flow_materials",
+        tab=_JUDGE_PF_TAB_EVAL_LISTS,
+        **_planner_flow_materials_query_kwargs(user),
+    )
+
+
+def _enrich_judge_action_eval_groups(
+    db,
+    ex: Exercise,
+    groups: list[dict],
+    *,
+    flow_qs: dict[str, int | str],
+) -> list[dict]:
+    out: list[dict] = []
+    for group in groups:
+        folders: list[dict] = []
+        for folder in group.get("list_folder_groups") or []:
+            rows: list[dict] = []
+            for row in folder.get("rows") or []:
+                slot_ix = int(row.get("slot_index") or 0)
+                slot_id = int(row.get("slot_id") or 0)
+                if slot_ix <= 0:
+                    continue
+                title_s = str(row.get("title") or "قائمة تقييم إجراءات").strip()
+                s_canon = (
+                    _planner_bundle_eval_canonical_saved(db, ex.id, slot_id)
+                    if slot_id
+                    else None
+                )
+                eval_row = build_planner_flow_eval_row(
+                    slot_index=slot_ix,
+                    item_title=title_s,
+                    saved=s_canon,
+                    exercise=ex,
+                    open_href=url_for(
+                        "views.judge_planner_flow_materials_action_evaluate",
+                        slot=slot_ix,
+                        from_action_eval_lists=1,
+                        unit_key=group.get("unit_key") or "",
+                        action_eval_id=slot_id,
+                        **flow_qs,
+                    ),
+                )
+                rows.append({**row, **eval_row})
+            if rows:
+                folders.append({**folder, "rows": rows})
+        out.append({**group, "list_folder_groups": folders})
+    return out
+
+
+def _judge_action_eval_groups_for_all_flow_days(
+    db,
+    ex: Exercise,
+    *,
+    phase_key: str,
+    restrict_unit_key: str | None = None,
+) -> tuple[list[dict[str, str]], list[list[dict]]]:
+    from app.action_eval_ibank_sync import (
+        build_judge_action_eval_display_groups,
+        collect_flow_day_tabs_for_exercise,
+    )
+
+    day_options = collect_flow_day_tabs_for_exercise(
+        db, exercise_id=int(ex.id), phase_key=phase_key
+    )
+    flow_qs = _judge_action_eval_lists_query_kwargs()
+    groups_per_day: list[list[dict]] = []
+    for day in day_options:
+        groups, _meta = build_judge_action_eval_display_groups(
+            db,
+            exercise_id=int(ex.id),
+            phase_key=phase_key or None,
+            flow_day_id=str(day.get("id") or "") or None,
+            restrict_unit_key=restrict_unit_key,
+        )
+        groups_per_day.append(
+            _enrich_judge_action_eval_groups(db, ex, groups, flow_qs=flow_qs)
+        )
+    return day_options, groups_per_day
+
+
+def _judge_action_eval_flat_rows(groups: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for g in groups:
+        for folder in g.get("list_folder_groups") or []:
+            for row in folder.get("rows") or []:
+                rows.append(row)
+    return rows
+
+
+def _render_judge_action_eval_lists_workspace(
+    db, user: User, *, unit_key: str | None = None
+):
+    from app.exercise_phase_catalog import default_exercise_phase_key
+
+    ex = _current_workspace_exercise(db, user)
+    assigned_uk = _judge_assigned_unit_key(db, user, ex)
+    judge_no_unit = _is_individual_judge_user(user) and not assigned_uk
+    parent_hub = url_for("views.judge_hub")
+    parent_home = url_for("views.judge_dilemmas_home")
+
+    if ex is None:
+        return render_template(
+            "judge_action_eval_lists_home.html",
+            **_ctx(
+                user,
+                has_exercise=False,
+                exercise=None,
+                day_tabs=[],
+                active_day_id="",
+                judge_no_unit_assignment=judge_no_unit,
+                unit_list_endpoint="views.judge_dilemmas",
+                subpage_close_fallback=parent_hub,
+                **_hub_back_ctx_for_request_path(),
+            ),
+        )
+
+    if unit_key:
+        _require_unit_level_row(unit_key)
+        _enforce_judge_unit_scope(db, user, ex, unit_key)
+
+    restrict_uk = unit_key or (
+        assigned_uk if assigned_uk and not is_system_admin(user) else None
+    )
+    selected_phase = normalize_exercise_phase(
+        (request.args.get("phase") or "").strip() or default_exercise_phase_key()
+    )
+    day_options, groups_per_day = _judge_action_eval_groups_for_all_flow_days(
+        db,
+        ex,
+        phase_key=selected_phase,
+        restrict_unit_key=restrict_uk,
+    )
+    day_tabs = judge_action_eval_flow_day_tabs(
+        db, ex, list(zip(day_options, groups_per_day))
+    )
+
+    selected_day_id = (request.args.get("day") or "").strip()
+    if not selected_day_id and day_options:
+        selected_day_id = str(day_options[0].get("id") or "")
+    selected_day_label = ""
+    for day in day_options:
+        if str(day.get("id") or "") == selected_day_id:
+            selected_day_label = str(day.get("label") or "")
+            break
+    if selected_day_id and not selected_day_label:
+        selected_day_label = selected_day_id
+
+    if assigned_uk and not is_system_admin(user):
+        parent_href = parent_hub
+    else:
+        parent_href = parent_home
+
+    if unit_key is None:
+        return render_template(
+            "judge_action_eval_lists_home.html",
+            **_ctx(
+                user,
+                has_exercise=True,
+                exercise=ex,
+                day_tabs=day_tabs,
+                active_day_id=selected_day_id,
+                judge_no_unit_assignment=judge_no_unit,
+                unit_list_endpoint="views.judge_dilemmas",
+                subpage_close_fallback=parent_href,
+                page_title="قوائم تقييم الإجراءات",
+                **_hub_back_ctx_for_request_path(),
+            ),
+        )
+
+    unit = _require_unit_level_row(unit_key)
+    active_groups: list[dict] = []
+    for day, groups in zip(day_options, groups_per_day):
+        if str(day.get("id") or "") == selected_day_id:
+            active_groups = groups
+            break
+    if not active_groups and groups_per_day:
+        active_groups = groups_per_day[0]
+
+    list_close_href = url_for(
+        "views.judge_dilemmas_home",
+        **_judge_action_eval_lists_url_kwargs(),
+    )
+    if assigned_uk and not is_system_admin(user):
+        list_close_href = parent_hub
+
+    return render_template(
+        "judge_action_eval_lists_unit.html",
+        **_ctx(
+            user,
+            exercise=ex,
+            unit=unit,
+            unit_key=unit_key,
+            day_tabs=day_tabs,
+            active_day_id=selected_day_id,
+            day_label=selected_day_label,
+            action_eval_rows=_judge_action_eval_flat_rows(active_groups),
+            eval_lists_parent_href=list_close_href,
+            subpage_close_fallback=list_close_href,
+            pf_reopened=request.args.get("pf_reopened", type=int) == 1,
+            **_hub_back_ctx_for_request_path(),
+        ),
+    )
 
 
 def _planner_flow_oversee_assignment_rows(db, ex: Exercise) -> list[dict]:
@@ -6735,12 +7042,16 @@ def _judge_assigned_planner_bundle(
         )
     else:
         ja = _judge_assignment_for_current_exercise(db, user, ex)
-    if ja is None or not ja.planner_flow_bundle_id:
+    if ja is None:
         return None
-    b = db.get(ExercisePlannerFlowBundle, ja.planner_flow_bundle_id)
-    if b is None or b.exercise_id != ex.id:
-        return None
-    return b
+    if ja.planner_flow_bundle_id:
+        b = db.get(ExercisePlannerFlowBundle, ja.planner_flow_bundle_id)
+        if b is not None and b.exercise_id == ex.id:
+            return b
+    uk = (ja.unit_level_key or "").strip()
+    if uk:
+        return _planner_flow_bundle_for_unit(db, int(ex.id), uk)
+    return None
 
 
 @bp.route("/judge/planner-flow-materials", methods=["GET"])
@@ -7015,8 +7326,12 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
         else (bundle.unit_level_label or "").strip() or unit_key
     )
     path = _planner_bundle_file_abspath(action_row.file_relpath)
-    pf_qs = _planner_flow_materials_query_kwargs(user)
+    pf_qs = _judge_action_eval_flow_query_kwargs(user)
     if path is None:
+        if _from_judge_action_eval_lists_request():
+            return redirect(
+                url_for("views.judge_dilemmas", unit_key=unit_key, **_judge_action_eval_lists_url_kwargs())
+            )
         return redirect(url_for("views.judge_planner_flow_materials", **pf_qs))
     ev = _evaluation_sheet_view_context(path)
 
@@ -7040,6 +7355,7 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
         saved_row_id = canon.id
     saved_payload = _saved_payload_aligned_with_eval_rows(saved_payload, ev.get("eval_rows"))
     wf = _planner_flow_eval_list_viewer_ctx(user, canon)
+    eval_can_edit = bool(wf.get("eval_can_edit"))
 
     item_title = _planner_blob_display_filename(
         stored_title=action_row.title or "",
@@ -7066,11 +7382,7 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
         slot=int(slot),
         **pf_qs,
     )
-    eval_close_href = url_for(
-        "views.judge_planner_flow_materials",
-        tab=_JUDGE_PF_TAB_EVAL_LISTS,
-        **pf_qs,
-    )
+    eval_close_href = _judge_action_eval_close_href(user, unit_key=unit_key)
 
     shown_date = getattr(ex, "planned_start", None) or getattr(ex, "created_at", None)
     commander_name = "—"
@@ -7126,7 +7438,7 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
                 exercise=ex,
                 list_item_id=None,
                 bundle_action_eval_id=int(action_row.id),
-                eval_can_edit=bool(wf.get("eval_can_edit")),
+                eval_can_edit=eval_can_edit,
             ),
             unit_label=unit_label_pf or "—",
             shown_date=shown_date,
@@ -7152,7 +7464,7 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
 )
 def judge_planner_flow_materials_action_save_results(slot: int):
     user = get_current_user_optional()
-    pf_qs = _planner_flow_materials_query_kwargs(user)
+    pf_qs = _judge_action_eval_flow_query_kwargs(user)
     eval_url = url_for(
         "views.judge_planner_flow_materials_action_evaluate",
         slot=int(slot),
@@ -7176,10 +7488,11 @@ def judge_planner_flow_materials_action_save_results(slot: int):
     if pair is None or ex is None:
         abort(404)
     bundle, action_row = pair
-    if _planner_flow_is_readonly_oversee(user):
+    if _planner_flow_action_eval_mutations_blocked(user):
         saved_ro = _planner_bundle_eval_canonical_saved(db, ex.id, action_row.id)
         if (
-            saved_ro is not None
+            not _from_judge_action_eval_lists_request()
+            and saved_ro is not None
             and can_chief_reopen_evaluation_for_judge(user)
             and eval_chief_can_reopen(saved_ro)
         ):
@@ -7253,7 +7566,7 @@ def judge_planner_flow_materials_action_approve(slot: int):
     user = get_current_user_optional()
     if not user:
         abort(403)
-    if _planner_flow_is_readonly_oversee(user):
+    if _planner_flow_action_eval_mutations_blocked(user):
         abort(403)
     if not can_approve_evaluation_results(user):
         abort(403)
@@ -7268,7 +7581,7 @@ def judge_planner_flow_materials_action_approve(slot: int):
         abort(404)
     _bundle, action_row = pair
 
-    pf_qs = _planner_flow_materials_query_kwargs(user)
+    pf_qs = _judge_action_eval_flow_query_kwargs(user)
     saved = _planner_bundle_eval_canonical_saved(db, ex.id, action_row.id)
     if saved is None or not (saved.payload_json or "").strip():
         abort(400)
@@ -7330,7 +7643,7 @@ def judge_planner_flow_materials_action_chief_approve(slot: int):
     if pair is None or ex is None:
         abort(404)
     _bundle, action_row = pair
-    pf_qs = _planner_flow_materials_query_kwargs(user)
+    pf_qs = _judge_action_eval_flow_query_kwargs(user)
     saved = _planner_bundle_eval_canonical_saved(db, ex.id, action_row.id)
     if saved is None or not eval_chief_can_approve(saved):
         return redirect(
@@ -7343,6 +7656,14 @@ def judge_planner_flow_materials_action_chief_approve(slot: int):
         )
     apply_chief_approve(saved, getattr(user, "id", None))
     db.commit()
+    if _from_judge_action_eval_lists_request():
+        return redirect(
+            url_for(
+                "views.judge_planner_flow_materials_action_evaluate",
+                slot=int(slot),
+                **pf_qs,
+            )
+        )
     return redirect(
         url_for(
             "views.judge_planner_flow_materials",
@@ -7373,7 +7694,7 @@ def judge_planner_flow_materials_action_chief_reopen(slot: int):
     if pair is None or ex is None:
         abort(404)
     bundle, action_row = pair
-    pf_qs = _planner_flow_materials_query_kwargs(user)
+    pf_qs = _judge_action_eval_flow_query_kwargs(user)
     saved = _planner_bundle_eval_canonical_saved(db, ex.id, action_row.id)
     if saved is None or not eval_chief_can_reopen(saved):
         return redirect(
@@ -7405,6 +7726,15 @@ def judge_planner_flow_materials_action_chief_reopen(slot: int):
         exclude_user_id=getattr(user, "id", None),
     )
     db.commit()
+    if _from_judge_action_eval_lists_request():
+        return redirect(
+            url_for(
+                "views.judge_dilemmas",
+                unit_key=unit_key,
+                pf_reopened=1,
+                **_judge_action_eval_lists_url_kwargs(),
+            )
+        )
     return redirect(
         url_for(
             "views.judge_planner_flow_materials",
@@ -7428,9 +7758,13 @@ PLANNER_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
 PLANNER_HUB_SLUGS: dict[str, str] = {s: t for s, t, _ in PLANNER_HUB_ITEMS}
 
 
-def _action_eval_lists_redirect(*, phase_key: str = "", ok: str = "", err: str = ""):
+def _action_eval_lists_redirect(
+    *, flow_day_id: str = "", phase_key: str = "", ok: str = "", err: str = ""
+):
     kwargs: dict[str, str] = {}
-    if phase_key:
+    if flow_day_id:
+        kwargs["day"] = flow_day_id
+    elif phase_key:
         kwargs["phase"] = phase_key
     if ok:
         kwargs["ok"] = ok
@@ -7440,12 +7774,16 @@ def _action_eval_lists_redirect(*, phase_key: str = "", ok: str = "", err: str =
 
 
 def _render_planner_action_eval_lists(db, user: User):
-    from app.action_eval_ibank_sync import build_action_eval_display_groups
+    from app.action_eval_ibank_sync import (
+        build_action_eval_display_groups,
+        collect_flow_day_tabs_for_exercise,
+    )
     from app.evaluation_list_ibank_sync import (
         roster_eval_display_unit_keys,
         roster_judge_unit_keys,
         summarize_judge_roster_for_eval_lists,
     )
+    from app.exercise_phase_catalog import default_exercise_phase_key
     from app.planning_catalog_sync import sync_planning_catalogs_from_db
 
     sync_planning_catalogs_from_db(db, force=True)
@@ -7459,26 +7797,34 @@ def _render_planner_action_eval_lists(db, user: User):
     judge_unit_count = 0
     published_count = 0
     flow_unit_count = 0
-    selected_phase = (request.args.get("phase") or "").strip()
-    phase_options: list[tuple[str, str]] = list(EXERCISE_PHASE_OPTIONS)
+    selected_phase = normalize_exercise_phase(
+        (request.args.get("phase") or "").strip() or default_exercise_phase_key()
+    )
+    selected_day_id = (request.args.get("day") or "").strip()
+    selected_day_label = ""
+    day_options: list[dict[str, str]] = []
 
     if current_exercise is not None:
         ex_id = int(current_exercise.id)
         judge_roster = summarize_judge_roster_for_eval_lists(db, ex_id)
         judge_unit_count = len(roster_judge_unit_keys(db, ex_id))
         roster_unit_count = len(roster_eval_display_unit_keys(db, ex_id))
-        if not phase_options:
-            from app.evaluation_list_ibank_sync import effective_eval_list_phase_keys
-
-            roster_units = roster_eval_display_unit_keys(db, ex_id)
-            for pk in effective_eval_list_phase_keys(db, roster_units=roster_units):
-                phase_options.append((pk, exercise_phase_label(pk) or pk))
-        if not selected_phase and phase_options:
-            selected_phase = phase_options[0][0]
+        day_options = collect_flow_day_tabs_for_exercise(
+            db, exercise_id=ex_id, phase_key=selected_phase
+        )
+        if not selected_day_id and day_options:
+            selected_day_id = day_options[0]["id"]
+        for day in day_options:
+            if day.get("id") == selected_day_id:
+                selected_day_label = str(day.get("label") or "")
+                break
+        if selected_day_id and not selected_day_label:
+            selected_day_label = selected_day_id
         eval_groups, meta = build_action_eval_display_groups(
             db,
             exercise_id=ex_id,
             phase_key=selected_phase or None,
+            flow_day_id=selected_day_id or None,
         )
         flow_unit_count = int(meta.get("flow_units") or 0)
         published_count = sum(
@@ -7488,16 +7834,18 @@ def _render_planner_action_eval_lists(db, user: User):
             for r in fg.get("rows") or []
             if r.get("published")
         )
+        day_label = selected_day_label or "اليوم/1"
         if flow_unit_count:
             page_note = (
                 f"تُستخرج مستويات الوحدة من أصناف المحكمين في عمود «المكلف بالإجراء والمتابعة» "
-                f"بجدول المجرى ({flow_unit_count} مستوى). استخدم «سحب من المجرى» بعد تعديل المجرى، "
-                f"ثم حدّد القوائم و«نشر القوائم» يدوياً — {published_count} منشورة في هذه المرحلة."
+                f"بجدول المجرى لـ{day_label} ({flow_unit_count} مستوى). استخدم «سحب من المجرى» "
+                f"بعد تعديل المجرى، ثم حدّد القوائم و«نشر القوائم» يدوياً — "
+                f"{published_count} منشورة في هذا اليوم."
             )
         else:
             page_note = (
-                "أدخل أصناف المحكمين في عمود «المكلف بالإجراء والمتابعة» "
-                "بجدول مجرى الأحداث والمعاضل ثم ارجع لهذه الصفحة."
+                f"أدخل أصناف المحكمين في عمود «المكلف بالإجراء والمتابعة» "
+                f"لـ{day_label} في جدول مجرى الأحداث والمعاضل ثم ارجع لهذه الصفحة."
             )
 
     return render_template(
@@ -7511,11 +7859,13 @@ def _render_planner_action_eval_lists(db, user: User):
             judge_roster=judge_roster,
             published_count=published_count,
             selected_phase=selected_phase,
-            phase_options=phase_options,
+            selected_day_id=selected_day_id,
+            selected_day_label=selected_day_label,
+            day_options=day_options,
             current_exercise=current_exercise,
             error=error,
             ok_msg=ok_msg,
-            phases_catalog_empty=not EXERCISE_PHASE_OPTIONS and not phase_options,
+            flow_days_empty=current_exercise is not None and not day_options,
             flow_unit_count=flow_unit_count if current_exercise is not None else 0,
             **_hub_back_ctx_for_request_path(),
         ),
@@ -7548,10 +7898,11 @@ def planner_action_eval_lists_publish_phase():
     db = g.db
     ex = _current_workspace_exercise(db, user)
     phase_key = (request.form.get("phase_key") or "").strip()
+    flow_day_id = (request.form.get("flow_day_id") or "").strip()
     if ex is None:
         return _action_eval_lists_redirect(err="لا يوجد تمرين حالي.")
     if not phase_key:
-        return _action_eval_lists_redirect(err="اختر مرحلة التمرين.")
+        return _action_eval_lists_redirect(err="لا توجد مرحلة تمرين مرتبطة بالمجرى.")
     selections = _parse_eval_list_publish_selections(request.form)
     stats = publish_phase_action_eval_lists_from_ibank(
         db,
@@ -7562,7 +7913,7 @@ def planner_action_eval_lists_publish_phase():
     db.commit()
     n = int(stats.get("added", 0)) + int(stats.get("updated", 0))
     return _action_eval_lists_redirect(
-        phase_key=phase_key,
+        flow_day_id=flow_day_id,
         ok=f"تم نشر {n} قائمة للمحكمين.",
     )
 
@@ -7584,10 +7935,11 @@ def planner_action_eval_lists_publish_one(unit_key: str, node_id: int):
     db = g.db
     ex = _current_workspace_exercise(db, user)
     phase_key = (request.form.get("phase_key") or "").strip()
+    flow_day_id = (request.form.get("flow_day_id") or "").strip()
     if ex is None:
         return _action_eval_lists_redirect(err="لا يوجد تمرين حالي.")
     if not phase_key:
-        return _action_eval_lists_redirect(err="اختر مرحلة التمرين.")
+        return _action_eval_lists_redirect(err="لا توجد مرحلة تمرين مرتبطة بالمجرى.")
     publish_single_action_eval_from_ibank(
         db,
         exercise_id=int(ex.id),
@@ -7596,7 +7948,7 @@ def planner_action_eval_lists_publish_one(unit_key: str, node_id: int):
         node_id=int(node_id),
     )
     db.commit()
-    return _action_eval_lists_redirect(phase_key=phase_key, ok="تم نشر القائمة.")
+    return _action_eval_lists_redirect(flow_day_id=flow_day_id, ok="تم نشر القائمة.")
 
 
 @bp.route(
@@ -7616,6 +7968,7 @@ def planner_action_eval_lists_withdraw_one(unit_key: str, node_id: int):
     db = g.db
     ex = _current_workspace_exercise(db, user)
     phase_key = (request.form.get("phase_key") or "").strip()
+    flow_day_id = (request.form.get("flow_day_id") or "").strip()
     if ex is None:
         return _action_eval_lists_redirect(err="لا يوجد تمرين حالي.")
     withdraw_single_action_eval_from_ibank(
@@ -7626,7 +7979,7 @@ def planner_action_eval_lists_withdraw_one(unit_key: str, node_id: int):
         node_id=int(node_id),
     )
     db.commit()
-    return _action_eval_lists_redirect(phase_key=phase_key, ok="تم سحب النشر.")
+    return _action_eval_lists_redirect(flow_day_id=flow_day_id, ok="تم سحب النشر.")
 
 
 @bp.route("/planner/action-eval-lists/pull-from-flow", methods=["POST"])
@@ -7643,28 +7996,30 @@ def planner_action_eval_lists_pull_from_flow():
     db = g.db
     ex = _current_workspace_exercise(db, user)
     phase_key = (request.form.get("phase_key") or "").strip()
+    flow_day_id = (request.form.get("flow_day_id") or "").strip()
     if ex is None:
         return _action_eval_lists_redirect(err="لا يوجد تمرين حالي.")
     if not phase_key:
-        return _action_eval_lists_redirect(err="اختر مرحلة التمرين.")
+        return _action_eval_lists_redirect(err="لا توجد مرحلة تمرين مرتبطة بالمجرى.")
     stats = sync_action_eval_units_from_flow(
         db,
         exercise_id=int(ex.id),
         phase_key=phase_key,
+        flow_day_id=flow_day_id or None,
     )
     db.commit()
     unit_n = int(stats.get("units") or 0)
     label_n = int(stats.get("labels") or 0)
     if unit_n == 0:
         return _action_eval_lists_redirect(
-            phase_key=phase_key,
-            err="لم تُعثر على أصناف محكمين في عمود المكلف بجدول المجرى.",
+            flow_day_id=flow_day_id,
+            err="لم تُعثر على أصناف محكمين في عمود المكلف بجدول المجرى لهذا اليوم.",
         )
     msg = f"تم سحب {unit_n} مستوى وحدة ({label_n} صنف محكم) من المجرى — حدّد القوائم ثم انشر يدوياً."
     withdrawn = int(stats.get("withdrawn_units") or 0)
     if withdrawn:
         msg += f" أُلغي نشر {withdrawn} مستوى لم يعد في المجرى."
-    return _action_eval_lists_redirect(phase_key=phase_key, ok=msg)
+    return _action_eval_lists_redirect(flow_day_id=flow_day_id, ok=msg)
 
 
 @bp.route("/planner/action-eval-lists/sync-all", methods=["POST"])
@@ -7681,12 +8036,13 @@ def planner_action_eval_lists_sync_all():
     db = g.db
     ex = _current_workspace_exercise(db, user)
     phase_key = (request.form.get("phase_key") or "").strip()
+    flow_day_id = (request.form.get("flow_day_id") or "").strip()
     if ex is None:
         return _action_eval_lists_redirect(err="لا يوجد تمرين حالي.")
     sync_all_action_eval_from_ibank(db, exercise_id=int(ex.id))
     db.commit()
     return _action_eval_lists_redirect(
-        phase_key=phase_key,
+        flow_day_id=flow_day_id,
         ok="تم تحديث الفهرس من البنك وإلغاء نشر الكل — حدّد القوائم ثم انشر.",
     )
 
@@ -8077,7 +8433,7 @@ def planner_evaluation_list_approve(unit_key: str, item_id: int):
 
 # مساحة المحكمين — عناصر الشريط (المعرّف، العنوان، أيقونة Font Awesome)
 JUDGE_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
-    ("dilemmas", "قوائم تقييم الإجراءات", "fa-file-pdf"),
+    ("dilemmas", "قوائم تقييم الإجراءات", "fa-file-excel"),
     ("evaluation-lists", "قوائم التقييم", "fa-file-excel"),
     ("planner-flow-materials", "المجرى وتقييم الإجراءات", "fa-diagram-project"),
     ("visual-documentation", "التوثيق المرئي", "fa-photo-film"),
@@ -8095,6 +8451,7 @@ def _judge_hub_menu_items(user: User) -> tuple[tuple[str, str, str], ...]:
     """عناصر أوامر مساحة المحكمين حسب الدور."""
     _hub_by_slug = {x[0]: x for x in JUDGE_HUB_ITEMS}
     _judge_individual_slugs = (
+        "dilemmas",
         "evaluation-lists",
         "planner-flow-materials",
         "incomplete-tasks",
@@ -11857,22 +12214,17 @@ def judge_dilemmas_home():
     from flask import g
 
     db = g.db
-    ex = _current_workspace_exercise(db, user)
-    _ensure_judge_roster_synced(db, user, ex)
-    a = _judge_assignment_for_current_exercise(db, user, ex)
-    assigned_uk = (getattr(a, "unit_level_key", "") or "").strip() if a else ""
+    _ensure_judge_roster_synced(db, user, _current_workspace_exercise(db, user))
+    assigned_uk = _judge_assigned_unit_key(db, user, _current_workspace_exercise(db, user))
     if assigned_uk and unit_level_row(assigned_uk) and not is_system_admin(user):
-        return redirect(url_for("views.judge_dilemmas", unit_key=assigned_uk))
-    return render_template(
-        "judge_dilemmas_home.html",
-        **_ctx(
-            user,
-            has_exercise=ex is not None,
-            exercise=ex,
-            unit_levels=[u for u in UNIT_LEVELS if not assigned_uk or u.get("key") == assigned_uk],
-            **_hub_back_ctx_for_request_path(),
-        ),
-    )
+        return redirect(
+            url_for(
+                "views.judge_dilemmas",
+                unit_key=assigned_uk,
+                **_judge_action_eval_lists_url_kwargs(),
+            )
+        )
+    return _render_judge_action_eval_lists_workspace(g.db, user)
 
 
 @bp.route("/judge/dilemmas/<unit_key>", methods=["GET"])
@@ -11882,74 +12234,24 @@ def judge_dilemmas(unit_key: str):
         return redirect(f"/login?next=/judge/dilemmas/{unit_key}")
     if not can_access_judge_hub(user):
         abort(403)
-    unit = _require_unit_level_row(unit_key)
     from flask import g
 
-    db = g.db
-    ex = _current_workspace_exercise(db, user)
-    if ex is None:
-        return redirect("/judge/dilemmas")
-    _enforce_judge_unit_scope(db, user, ex, unit_key)
-    items = (
-        db.query(DilemmaItem)
-        .filter(DilemmaItem.exercise_id == ex.id, DilemmaItem.unit_level_key == unit_key)
-        .order_by(
-            _exercise_phase_order_expr(DilemmaItem.exercise_phase),
-            DilemmaItem.sort_order,
-            DilemmaItem.id,
-        )
-        .all()
-    )
-    a = _judge_assignment_for_current_exercise(db, user, ex)
-    assigned_uk = (getattr(a, "unit_level_key", "") or "").strip() if a else ""
-    if assigned_uk and not is_system_admin(user):
-        dilemmas_parent_href = url_for("views.judge_hub")
-    else:
-        dilemmas_parent_href = url_for("views.judge_dilemmas_home")
-    return render_template(
-        "judge_dilemmas.html",
-        **_ctx(
-            user,
-            exercise=ex,
-            unit=unit,
-            unit_key=unit_key,
-            items=items,
-            subpage_close_fallback=dilemmas_parent_href,
-            **_hub_back_ctx_for_request_path(),
-        ),
-    )
+    return _render_judge_action_eval_lists_workspace(g.db, user, unit_key=unit_key)
 
 
 @bp.route("/judge/dilemmas/<unit_key>/view/<int:item_id>", methods=["GET"])
 def judge_dilemma_viewer(unit_key: str, item_id: int):
     user = get_current_user_optional()
     if not user:
-        return redirect(f"/login?next=/judge/dilemmas/{unit_key}/view/{item_id}")
+        return redirect(f"/login?next=/judge/dilemmas/{unit_key}")
     if not can_access_judge_hub(user):
         abort(403)
-    unit = _require_unit_level_row(unit_key)
-    from flask import g
-
-    db = g.db
-    row = db.get(DilemmaItem, item_id)
-    current_exercise = _current_workspace_exercise(db, user)
-    if not row or row.unit_level_key != unit_key or current_exercise is None or row.exercise_id != current_exercise.id:
-        abort(404)
-    _enforce_judge_unit_scope(db, user, current_exercise, unit_key)
-    if _dilemma_pdf_abspath(row.pdf_relpath) is None:
-        return redirect(url_for("views.judge_dilemmas", unit_key=unit_key))
-    pdf_url = url_for("views.judge_dilemma_pdf_file", unit_key=unit_key, item_id=item_id)
-    return render_template(
-        "judge_dilemma_viewer.html",
-        **_ctx(
-            user,
+    return redirect(
+        url_for(
+            "views.judge_dilemmas",
             unit_key=unit_key,
-            item_id=item_id,
-            item_title=row.text or "معضلة",
-            pdf_url=pdf_url,
-            subpage_close_fallback=url_for("views.judge_dilemmas", unit_key=unit_key),
-            **_hub_back_ctx_for_request_path(),
-        ),
+            **_judge_action_eval_lists_url_kwargs(),
+        )
     )
 
 

@@ -293,6 +293,50 @@ def evaluation_unit_home_totals(unit_rows: list[dict]) -> dict[str, int]:
     }
 
 
+def judge_action_eval_unit_home_rows(groups: list[dict]) -> list[dict]:
+    """صفوف مستويات الوحدات — قوائم تقييم الإجراءات المنشورة فقط."""
+    rows: list[dict] = []
+    for g in groups:
+        uk = (g.get("unit_key") or "").strip()
+        if not uk:
+            continue
+        total = not_done = 0
+        for folder in g.get("list_folder_groups") or []:
+            for row in folder.get("rows") or []:
+                total += 1
+                if not row.get("status_done"):
+                    not_done += 1
+        rows.append(
+            {
+                "key": uk,
+                "label": (g.get("unit_label") or uk).strip(),
+                "total_count": total,
+                "not_done_count": not_done,
+            }
+        )
+    return rows
+
+
+def judge_action_eval_flow_day_tabs(
+    db,
+    exercise,
+    groups_by_day: list[tuple[dict[str, str], list[dict]]],
+) -> list[dict]:
+    """تبويبات أيام المجرى لصفحة قوائم تقييم الإجراءات (محكمين)."""
+    tabs: list[dict] = []
+    for day, groups in groups_by_day:
+        unit_rows = judge_action_eval_unit_home_rows(groups)
+        tabs.append(
+            {
+                "day_id": str(day.get("id") or ""),
+                "day_label": str(day.get("label") or ""),
+                "unit_rows": unit_rows,
+                "totals": evaluation_unit_home_totals(unit_rows),
+            }
+        )
+    return tabs
+
+
 def build_planner_flow_eval_row(
     *,
     slot_index: int,

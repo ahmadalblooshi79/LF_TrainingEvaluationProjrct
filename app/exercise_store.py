@@ -1224,18 +1224,9 @@ def purge_all_exercises_and_dilemmas(db: Session) -> None:
     """حذف جميع التمارين وملفاتها وملفات التصدير (دون commit). يبقى بنك المعلومات والمستخدمون."""
     exercise_ids = [int(row[0]) for row in db.query(Exercise.id).all()]
     for eid in exercise_ids:
-        _remove_exercise_upload_files(db, eid)
-
-    db.execute(delete(DilemmaItem))
-    db.execute(delete(EvaluationListPdfItem))
-    db.execute(delete(AnalystEvaluationCriteriaPhaseItem))
-    db.execute(delete(AnalystEvaluationCriteriaUnit))
-    db.execute(delete(AnalystEvaluationCriteriaResult))
-    db.execute(delete(Exercise))
-
+        wipe_exercise_from_system(db, eid)
     for root in FILE_BUCKET_ROOTS.values():
         _reset_upload_directory(root)
-
     purge_exercise_export_archives()
 
 

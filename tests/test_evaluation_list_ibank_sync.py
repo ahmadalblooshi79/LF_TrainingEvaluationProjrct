@@ -88,7 +88,7 @@ class EvalListNestedUnitDedupTests(unittest.TestCase):
         self.db.add(self.file_node)
         self.db.commit()
 
-    def test_deepest_unit_key_uses_company_folder_name_before_battalion_catalog(self):
+    def test_deepest_unit_key_nested_subfolder_without_assignment_stays_empty(self):
         company_no_catalog = InformationBankTreeNode(
             kind=INFO_BANK_EVAL_LIST_KIND,
             parent_id=self.battalion_id,
@@ -110,18 +110,23 @@ class EvalListNestedUnitDedupTests(unittest.TestCase):
         )
         self.db.add(nested_file)
         self.db.commit()
-        self.assertEqual(
-            _deepest_unit_key_for_file_node(self.db, nested_file),
-            self.CHILD_UK,
-        )
+        self.assertEqual(_deepest_unit_key_for_file_node(self.db, nested_file), "")
         f_pk, f_uk = _ibank_context_for_file_node(self.db, nested_file)
-        self.assertEqual(f_uk, self.CHILD_UK)
+        self.assertEqual(f_uk, "")
         self.assertFalse(
             _file_belongs_to_phase_unit(
                 self.db,
                 nested_file,
                 phase_key=self.PHASE,
                 unit_key=self.PARENT_UK,
+            )
+        )
+        self.assertFalse(
+            _file_belongs_to_phase_unit(
+                self.db,
+                nested_file,
+                phase_key=self.PHASE,
+                unit_key=self.CHILD_UK,
             )
         )
 
@@ -176,6 +181,7 @@ class EvalListNestedUnitDedupTests(unittest.TestCase):
     def test_remap_publish_selections_moves_nodes_to_child_unit(self):
         remapped = remap_publish_selections_by_ibank_context(
             self.db,
+            kind=INFO_BANK_EVAL_LIST_KIND,
             phase_key=self.PHASE,
             selections_by_unit={self.PARENT_UK: {int(self.file_node.id)}},
         )

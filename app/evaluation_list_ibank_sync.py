@@ -17,6 +17,7 @@ from app.exercise_phase_catalog import (
 )
 from app.info_bank_tree import (
     _backfill_unit_eval_folder_catalog,
+    _is_nested_unit_folder,
     _is_phase_root_folder,
     _match_phase_key_by_folder_name,
     _normalize_tree_label,
@@ -203,7 +204,7 @@ def _effective_unit_key_for_node(db: Session, node: InformationBankTreeNode) -> 
     uk = _resolve_unit_key(raw, db)
     if uk:
         return uk
-    if node.is_folder:
+    if node.is_folder and not _is_nested_unit_folder(db, node):
         return _match_unit_key_by_folder_name(db, node.name)
     return ""
 
@@ -239,6 +240,49 @@ def _phase_root_nodes_for_key(db: Session, phase_key: str) -> list[InformationBa
         rpk = _effective_phase_key_for_node(db, root)
         if rpk in match_keys:
             out.append(root)
+    return out
+
+
+def _collect_unit_scoped_xlsx_nodes(
+    db: Session, root_id: int, unit_key: str
+) -> list[InformationBankTreeNode]:
+    """ملفات Excel تحت مجلد الوحدة دون تجاوز مجلدات مستوى وحدة آخر."""
+    uk = _resolve_unit_key(unit_key, db) or normalize_unit_level_key(unit_key)
+    if not uk:
+        return []
+    root = db.get(InformationBankTreeNode, int(root_id))
+    if root is None or root.kind != INFO_BANK_EVAL_LIST_KIND:
+        return []
+    out: list[InformationBankTreeNode] = []
+    queue = [int(root.id)]
+    seen: set[int] = set()
+    while queue:
+        nid = queue.pop(0)
+        if nid in seen:
+            continue
+        seen.add(nid)
+        node = db.get(InformationBankTreeNode, nid)
+        if node is None or node.kind != INFO_BANK_EVAL_LIST_KIND:
+            continue
+        if not node.is_folder and _is_xlsx_tree_file(node):
+            out.append(node)
+            continue
+        for ch in (
+            db.query(InformationBankTreeNode)
+            .filter(InformationBankTreeNode.parent_id == nid)
+            .order_by(
+                InformationBankTreeNode.sort_order,
+                InformationBankTreeNode.id,
+            )
+            .all()
+        ):
+            if ch.is_folder:
+                from app.info_bank_tree import folder_resolved_unit_key
+
+                child_uk = folder_resolved_unit_key(db, ch)
+                if child_uk and child_uk != uk:
+                    continue
+            queue.append(int(ch.id))
     return out
 
 
@@ -305,11 +349,30 @@ def _file_belongs_to_phase_unit(
     unit_key: str,
 ) -> bool:
     """هل ينتمي ملف Excel فعلياً إلى مرحلة × مستوى وحدة (وليس لوحدة فرعية أخرى)؟"""
+    if file_node.kind != INFO_BANK_EVAL_LIST_KIND:
+        return False
     f_pk, f_uk = _ibank_context_for_file_node(db, file_node)
     if not f_uk or f_uk != unit_key:
         return False
     phase_match = _phase_match_keys(phase_key) or {phase_key}
     return bool(f_pk and f_pk in phase_match)
+
+
+def resolve_ibank_publish_unit_key(
+    db: Session,
+    *,
+    kind: str,
+    node_id: int,
+    fallback_unit_key: str,
+) -> str:
+    """مستوى الوحدة الصحيح للنشر — من عقدة تبويب بنك المعلومات المحدد فقط."""
+    node = db.get(InformationBankTreeNode, int(node_id))
+    if node is not None and node.kind == kind:
+        _, uk = _ibank_context_for_file_node(db, node)
+        resolved = _resolve_unit_key(uk, db)
+        if resolved:
+            return resolved
+    return _resolve_unit_key(fallback_unit_key, db) or fallback_unit_key
 
 
 def resolve_ibank_eval_publish_unit_key(
@@ -318,19 +381,19 @@ def resolve_ibank_eval_publish_unit_key(
     node_id: int,
     fallback_unit_key: str,
 ) -> str:
-    """مستوى الوحدة الصحيح للنشر حسب سياق ملف البنك."""
-    node = db.get(InformationBankTreeNode, int(node_id))
-    if node is not None:
-        _, uk = _ibank_context_for_file_node(db, node)
-        resolved = _resolve_unit_key(uk, db)
-        if resolved:
-            return resolved
-    return _resolve_unit_key(fallback_unit_key, db) or fallback_unit_key
+    """مستوى الوحدة للنشر — تبويب قوائم التقييم (dilemma_eval) فقط."""
+    return resolve_ibank_publish_unit_key(
+        db,
+        kind=INFO_BANK_EVAL_LIST_KIND,
+        node_id=int(node_id),
+        fallback_unit_key=fallback_unit_key,
+    )
 
 
 def remap_publish_selections_by_ibank_context(
     db: Session,
     *,
+    kind: str,
     phase_key: str,
     selections_by_unit: dict[str, set[int]],
 ) -> dict[str, set[int]]:
@@ -341,8 +404,11 @@ def remap_publish_selections_by_ibank_context(
     out: dict[str, set[int]] = defaultdict(set)
     for form_uk, node_ids in selections_by_unit.items():
         for nid in node_ids:
-            resolved_uk = resolve_ibank_eval_publish_unit_key(
-                db, node_id=int(nid), fallback_unit_key=form_uk
+            resolved_uk = resolve_ibank_publish_unit_key(
+                db,
+                kind=kind,
+                node_id=int(nid),
+                fallback_unit_key=form_uk,
             )
             if resolved_uk:
                 out[resolved_uk].add(int(nid))
@@ -415,12 +481,12 @@ def collect_ibank_eval_files_for_phase_unit(
     phase_key: str,
     unit_key: str,
 ) -> list[dict]:
-    """جمع ملفات Excel من بنك المعلومات: مجلد المرحلة × مستوى الوحدة (مع المجلدات الفرعية).
+    """جمع ملفات Excel من تبويب «قوائم التقييم» فقط (dilemma_eval).
 
     القاعدة:
     - مرحلة التمرين في البنك = مرحلة التمرين في التخطيط
-    - مستوى الوحدة (مجلد أو تعيين) = مستوى وحدة المحكم في قائمة المحكمين
-    - تُنسخ كل الملفات تحت المجلدات المطابقة بأي عمق
+    - مستوى الوحدة (تعيين يدوي على المجلد) = مستوى وحدة المحكم
+    - لا قراءة من تبويب قوائم تقييم الإجراءات (action_eval)
     """
     prepare_dilemma_eval_ibank_tree(db)
     uk = _resolve_unit_key(unit_key, db)
@@ -432,8 +498,12 @@ def collect_ibank_eval_files_for_phase_unit(
     sources: list[dict] = []
 
     def _add_node(row: InformationBankTreeNode) -> None:
+        if row.kind != INFO_BANK_EVAL_LIST_KIND:
+            return
         nid = int(row.id)
         if nid in seen:
+            return
+        if not _file_belongs_to_phase_unit(db, row, phase_key=pk, unit_key=uk):
             return
         src = _file_node_to_source(db, row)
         if src is None:
@@ -441,34 +511,41 @@ def collect_ibank_eval_files_for_phase_unit(
         seen.add(nid)
         sources.append(src)
 
-    for phase_root in _phase_root_nodes_for_key(db, pk):
-        # 1) مجلدات مستوى الوحدة مباشرة تحت مرحلة التمرين → نسخ الشجرة كاملة
-        direct_children = (
-            db.query(InformationBankTreeNode)
-            .filter(InformationBankTreeNode.parent_id == int(phase_root.id))
-            .order_by(
-                InformationBankTreeNode.sort_order,
-                InformationBankTreeNode.id,
-            )
-            .all()
-        )
-        for child in direct_children:
-            child_uk = _effective_unit_key_for_node(db, child)
-            if child_uk != uk:
-                continue
-            if child.is_folder:
-                for f in _collect_subtree_xlsx_nodes(db, int(child.id)):
-                    if _file_belongs_to_phase_unit(db, f, phase_key=pk, unit_key=uk):
-                        _add_node(f)
-            elif _is_xlsx_tree_file(child) and _file_belongs_to_phase_unit(
-                db, child, phase_key=pk, unit_key=uk
-            ):
-                _add_node(child)
+    unit_folder_ids = _unit_folder_ids_for_phase_unit(
+        db, phase_key=pk, unit_key=uk
+    )
+    for fid in sorted(unit_folder_ids):
+        folder = db.get(InformationBankTreeNode, int(fid))
+        if folder is None or folder.kind != INFO_BANK_EVAL_LIST_KIND:
+            continue
+        from app.info_bank_tree import folder_resolved_unit_key
 
-        # 2) أي ملف Excel تحت مرحلة التمرين يحمل سياق (مرحلة، وحدة) مطابقاً
-        for f in _collect_subtree_xlsx_nodes(db, int(phase_root.id)):
-            if _file_belongs_to_phase_unit(db, f, phase_key=pk, unit_key=uk):
-                _add_node(f)
+        if folder_resolved_unit_key(db, folder) != uk:
+            continue
+        for xn in _collect_unit_scoped_xlsx_nodes(db, int(fid), uk):
+            _add_node(xn)
+
+    if not sources:
+        for phase_root in _phase_root_nodes_for_key(db, pk):
+            direct_children = (
+                db.query(InformationBankTreeNode)
+                .filter(InformationBankTreeNode.parent_id == int(phase_root.id))
+                .order_by(
+                    InformationBankTreeNode.sort_order,
+                    InformationBankTreeNode.id,
+                )
+                .all()
+            )
+            for child in direct_children:
+                from app.info_bank_tree import folder_resolved_unit_key
+
+                if folder_resolved_unit_key(db, child) != uk:
+                    continue
+                if child.is_folder:
+                    for xn in _collect_unit_scoped_xlsx_nodes(db, int(child.id), uk):
+                        _add_node(xn)
+                elif _is_xlsx_tree_file(child):
+                    _add_node(child)
 
     sources.sort(key=lambda s: (int(s.get("sort_order", 0)), int(s["node_id"])))
     return sources
@@ -491,15 +568,25 @@ def _node_ancestor_chain(
 
 
 def _deepest_unit_key_for_file_node(db: Session, node: InformationBankTreeNode) -> str:
-    """أقرب مستوى وحدة للملف — كتالوج أو اسم مجلد قبل مستوى أعلى."""
-    for cur in _node_ancestor_chain(db, node):
-        uk = (cur.catalog_unit_key or "").strip()
-        if uk:
-            resolved = _resolve_unit_key(uk, db)
+    """مستوى وحدة الملف — صريح أو من المجلد الأب المباشر فقط (دون تجاوز مجلد فرعي فارغ)."""
+    own = (node.catalog_unit_key or "").strip()
+    if own:
+        resolved = _resolve_unit_key(own, db)
+        if resolved:
+            return resolved
+    if node.parent_id is None:
+        return ""
+    parent = db.get(InformationBankTreeNode, int(node.parent_id))
+    if parent is None:
+        return ""
+    if parent.is_folder:
+        puk = (parent.catalog_unit_key or "").strip()
+        if puk:
+            resolved = _resolve_unit_key(puk, db)
             if resolved:
                 return resolved
-        if cur.is_folder:
-            guessed = _match_unit_key_by_folder_name(db, cur.name)
+        if not _is_nested_unit_folder(db, parent):
+            guessed = _match_unit_key_by_folder_name(db, parent.name)
             if guessed:
                 resolved = _resolve_unit_key(guessed, db)
                 if resolved:
@@ -1225,6 +1312,7 @@ def publish_phase_evaluation_lists_from_ibank(
     }
     remapped = remap_publish_selections_by_ibank_context(
         db,
+        kind=INFO_BANK_EVAL_LIST_KIND,
         phase_key=pk,
         selections_by_unit=selections_by_unit,
     )
@@ -1308,8 +1396,9 @@ def _unit_folder_ids_for_phase_unit(
                 queue.append(cid)
                 if not child.is_folder:
                     continue
-                child_uk = _effective_unit_key_for_node(db, child)
-                if child_uk == uk:
+                from app.info_bank_tree import folder_resolved_unit_key
+
+                if folder_resolved_unit_key(db, child) == uk:
                     out.add(cid)
     return out
 

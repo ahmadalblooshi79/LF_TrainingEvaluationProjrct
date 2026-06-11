@@ -344,6 +344,30 @@ def _is_folder_directly_under_phase(
     return parent is not None and _is_phase_root_folder(parent)
 
 
+def _is_nested_unit_folder(db: Session, node: InformationBankTreeNode) -> bool:
+    """مجلد فرعي تحت مجلد وحدة (وليس مباشرة تحت جذر المرحلة)."""
+    if not node.is_folder or _is_phase_root_folder(node) or node.parent_id is None:
+        return False
+    parent = db.get(InformationBankTreeNode, int(node.parent_id))
+    return parent is not None and parent.is_folder and not _is_phase_root_folder(parent)
+
+
+def folder_resolved_unit_key(db: Session, node: InformationBankTreeNode) -> str:
+    """مستوى الوحدة لمجلد — صريح فقط للمجلدات الفرعية المتداخلة."""
+    from app.evaluation_list_ibank_sync import (
+        _effective_unit_key_for_node,
+        _resolve_unit_key,
+    )
+
+    uk = _resolve_unit_key((node.catalog_unit_key or "").strip(), db)
+    if uk:
+        return uk
+    if _is_nested_unit_folder(db, node):
+        return ""
+    eff = _effective_unit_key_for_node(db, node)
+    return _resolve_unit_key(eff, db) or ""
+
+
 def upload_includes_subdirectory_paths(file_storages: list) -> bool:
     """هل الرفع يتضمن مسارات فرعية (إرفاق مجلد وليس ملفات جذرية فقط)."""
     for f in file_storages:
@@ -355,17 +379,38 @@ def upload_includes_subdirectory_paths(file_storages: list) -> bool:
 
 
 def _unit_key_for_node(db: Session, node: InformationBankTreeNode) -> str:
-    cur: InformationBankTreeNode | None = node
-    hops = 0
-    while cur is not None and hops < 50:
-        uk = (cur.catalog_unit_key or "").strip()
-        if uk:
-            return uk
-        if cur.parent_id is None:
-            break
-        cur = db.get(InformationBankTreeNode, int(cur.parent_id))
-        hops += 1
-    return ""
+    """مفتاح مستوى الوحدة الصريح — للملفات: من العقدة أو المجلد الأب المباشر فقط."""
+    uk = (node.catalog_unit_key or "").strip()
+    if uk:
+        return uk
+    if node.is_folder or node.parent_id is None:
+        return ""
+    parent = db.get(InformationBankTreeNode, int(node.parent_id))
+    if parent is None or not parent.is_folder:
+        return ""
+    return (parent.catalog_unit_key or "").strip()
+
+
+def _sync_folder_unit_key_from_name(db: Session, node: InformationBankTreeNode) -> bool:
+    """تصحيح catalog_unit_key من اسم المجلد (مثل السرية/2 → ul_mech2_bn_c2)."""
+    if not node.is_folder or _is_phase_root_folder(node):
+        return False
+    if _is_nested_unit_folder(db, node):
+        return False
+    from app.evaluation_list_ibank_sync import (
+        _match_unit_key_by_folder_name,
+        _resolve_unit_key,
+    )
+
+    guessed = _match_unit_key_by_folder_name(db, node.name)
+    resolved = _resolve_unit_key(guessed, db) if guessed else ""
+    if not resolved:
+        return False
+    cur = (node.catalog_unit_key or "").strip()
+    if cur == resolved:
+        return False
+    node.catalog_unit_key = resolved[:128]
+    return True
 
 
 def _apply_catalog_keys_from_parent(
@@ -380,8 +425,8 @@ def _apply_catalog_keys_from_parent(
             row.catalog_phase_key = pk[:64]
         return
     pk = _phase_key_for_node(db, parent)
-    uk = _unit_key_for_node(db, parent)
-    if uk and not (row.catalog_unit_key or "").strip():
+    uk = (parent.catalog_unit_key or "").strip()
+    if uk and not row.is_folder and not (row.catalog_unit_key or "").strip():
         row.catalog_unit_key = uk[:128]
     if pk and not row.is_folder and not (row.catalog_phase_key or "").strip():
         row.catalog_phase_key = pk[:64]
@@ -390,55 +435,22 @@ def _apply_catalog_keys_from_parent(
 def _propagate_catalog_to_subtree(
     db: Session, root_id: int, *, phase_key: str, unit_key: str
 ) -> None:
-    """تطبيق مستوى الوحدة على المحتوى التابع — مع احترام تعيينات المجلدات الفرعية."""
+    """تطبيق مستوى الوحدة على الملفات المباشرة تحت المجلد فقط — دون المجلدات الفرعية."""
     pk = (phase_key or "").strip()
     uk = (unit_key or "").strip()
-    queue: list[tuple[int, str]] = []
     for ch in (
         db.query(InformationBankTreeNode)
         .filter(InformationBankTreeNode.parent_id == int(root_id))
         .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
         .all()
     ):
-        if ch.is_folder and not _is_phase_root_folder(ch):
-            own_uk = (ch.catalog_unit_key or "").strip()
-            eff_uk = own_uk or uk
-            if not own_uk and uk:
-                ch.catalog_unit_key = uk[:128]
+        if ch.is_folder:
             ch.catalog_phase_key = ""
-            queue.append((int(ch.id), eff_uk))
-        elif not ch.is_folder:
-            if uk:
-                ch.catalog_unit_key = uk[:128]
-            if pk:
-                ch.catalog_phase_key = pk[:64]
-        else:
-            queue.append((int(ch.id), uk))
-
-    seen: set[int] = {int(root_id)}
-    while queue:
-        nid, eff_uk = queue.pop(0)
-        if nid in seen:
             continue
-        seen.add(nid)
-        for ch in (
-            db.query(InformationBankTreeNode)
-            .filter(InformationBankTreeNode.parent_id == nid)
-            .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
-            .all()
-        ):
-            if ch.is_folder and not _is_phase_root_folder(ch):
-                own_uk = (ch.catalog_unit_key or "").strip()
-                child_eff = own_uk or eff_uk
-                if not own_uk and eff_uk:
-                    ch.catalog_unit_key = eff_uk[:128]
-                ch.catalog_phase_key = ""
-                queue.append((int(ch.id), child_eff))
-            elif not ch.is_folder:
-                if eff_uk:
-                    ch.catalog_unit_key = eff_uk[:128]
-                if pk:
-                    ch.catalog_phase_key = pk[:64]
+        if uk:
+            ch.catalog_unit_key = uk[:128]
+        if pk:
+            ch.catalog_phase_key = pk[:64]
 
 
 def _unit_eval_show_unit_select(db: Session, node: InformationBankTreeNode) -> bool:
@@ -668,7 +680,8 @@ def _backfill_unit_eval_folder_catalog(db: Session, kind: str) -> bool:
         if parent is not None and not _is_phase_root_folder(node):
             before_pk = (node.catalog_phase_key or "").strip()
             before_uk = (node.catalog_unit_key or "").strip()
-            _apply_catalog_keys_from_parent(db, node, parent)
+            if not _sync_folder_unit_key_from_name(db, node):
+                _apply_catalog_keys_from_parent(db, node, parent)
             if (node.catalog_phase_key or "").strip() != before_pk or (
                 node.catalog_unit_key or ""
             ).strip() != before_uk:

@@ -7,6 +7,7 @@ from app.database import Base
 from app.info_bank_tree import (
     _apply_catalog_keys_from_parent,
     _backfill_unit_eval_folder_catalog,
+    _unit_key_for_node,
     set_folder_unit_level,
 )
 
@@ -83,6 +84,52 @@ class InfoBankTreeUnitLevelTests(unittest.TestCase):
         self.db.commit()
         company = self.db.get(InformationBankTreeNode, int(self.company.id))
         self.assertEqual((company.catalog_unit_key or "").strip(), "ul_company_3")
+
+    def test_set_parent_leaves_empty_subfolder_without_unit_key(self):
+        empty_co = InformationBankTreeNode(
+            kind=KIND,
+            name="السرية/1",
+            is_folder=True,
+            parent_id=int(self.battalion.id),
+        )
+        self.db.add(empty_co)
+        self.db.commit()
+        set_folder_unit_level(
+            self.db,
+            kind=KIND,
+            node_id=int(self.battalion.id),
+            unit_key="ul_battalion_cmd",
+        )
+        self.db.commit()
+        sub = self.db.get(InformationBankTreeNode, int(empty_co.id))
+        self.assertEqual((sub.catalog_unit_key or "").strip(), "")
+
+    def test_file_under_empty_subfolder_does_not_inherit_battalion_key(self):
+        empty_co = InformationBankTreeNode(
+            kind=KIND,
+            name="السرية/2",
+            is_folder=True,
+            parent_id=int(self.battalion.id),
+        )
+        self.db.add(empty_co)
+        self.db.flush()
+        xlsx = InformationBankTreeNode(
+            kind=KIND,
+            name="قائمة.xlsx",
+            is_folder=False,
+            parent_id=int(empty_co.id),
+        )
+        self.db.add(xlsx)
+        self.db.commit()
+        set_folder_unit_level(
+            self.db,
+            kind=KIND,
+            node_id=int(self.battalion.id),
+            unit_key="ul_battalion_cmd",
+        )
+        self.db.commit()
+        leaf = self.db.get(InformationBankTreeNode, int(xlsx.id))
+        self.assertEqual(_unit_key_for_node(self.db, leaf), "")
 
 
 if __name__ == "__main__":
