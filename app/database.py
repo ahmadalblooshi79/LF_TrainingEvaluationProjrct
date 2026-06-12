@@ -50,6 +50,13 @@ def ensure_exercise_extended_columns() -> None:
         ("mission_label", "VARCHAR(400)"),
         ("trained_unit", "VARCHAR(400)"),
         ("location_label", "VARCHAR(400)"),
+        ("exercise_purpose", "TEXT"),
+        ("exercise_type_level_text", "TEXT"),
+        ("exercise_participants", "TEXT"),
+        ("general_idea_text", "TEXT"),
+        ("specific_idea_text", "TEXT"),
+        ("program_text", "TEXT"),
+        ("map_text", "TEXT"),
     ]
     stmts = [
         f"ALTER TABLE exercises ADD COLUMN {name} {typ} DEFAULT ''"

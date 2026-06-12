@@ -3269,6 +3269,9 @@ def _build_analyst_saved_results_charts(db, user: User) -> dict:
 
 def _build_analyst_evaluation_criteria_distribution(db, user: User) -> dict:
     """توزيع نتائج مراحل التقييم اليدوية، مستقل عن قوائم التقييم."""
+    from app.planning_catalog_sync import sync_planning_catalogs_from_db
+
+    sync_planning_catalogs_from_db(db, force=True)
     ex0 = _current_workspace_exercise(db, user)
     if ex0 is None:
         return {"has_exercise": False}
@@ -3945,57 +3948,84 @@ def _analyst_criteria_phase_db_keys(canonical_key: str) -> list[str]:
 
 
 def _planner_unit_keys_for_exercise(db, ex: Exercise) -> list[str]:
-    """مفاتيح مستويات الوحدة التي لها قوائم تقييم في التمرين (كما في التخطيط)."""
-    raw_keys = [
-        (row[0] or "").strip()
-        for row in (
-            db.query(EvaluationListPdfItem.unit_level_key)
-            .filter(EvaluationListPdfItem.exercise_id == int(ex.id))
-            .distinct()
-            .all()
-        )
-        if (row[0] or "").strip()
-    ]
+    """مستويات الوحدة كما في مساحة التخطيط: محكمين، قوائم منشورة، ثم بنك قوائم التقييم."""
+    from app.evaluation_list_ibank_sync import (
+        index_dilemma_eval_ibank_files,
+        roster_eval_display_unit_keys,
+    )
+
+    keys: set[str] = set()
+    roster = roster_eval_display_unit_keys(db, int(ex.id))
+    keys |= roster
+
+    for row in (
+        db.query(EvaluationListPdfItem.unit_level_key)
+        .filter(EvaluationListPdfItem.exercise_id == int(ex.id))
+        .distinct()
+        .all()
+    ):
+        uk = normalize_unit_level_key((row[0] or "").strip())
+        if uk:
+            keys.add(uk)
+
+    if not keys:
+        ibank_index = index_dilemma_eval_ibank_files(db)
+        keys |= {uk for (_pk, uk) in ibank_index.keys() if uk}
+
+    included = planning_included_unit_keys()
+    if included:
+        keys = {k for k in keys if k in included}
+
+    if not keys:
+        for label in DEFAULT_ANALYST_EVALUATION_CRITERIA_UNITS:
+            uk = _resolve_unit_level_key_for_criteria_label(label)
+            if uk:
+                keys.add(uk)
+
     order = {u["key"]: idx for idx, u in enumerate(UNIT_LEVELS)}
-    return sorted(set(raw_keys), key=lambda k: order.get(k, len(order)))
+    return sorted(keys, key=lambda k: order.get(k, len(order)))
 
 
 def _sync_analyst_criteria_units_from_planner(
     db,
     ex: Exercise,
 ) -> list[AnalystEvaluationCriteriaUnit]:
-    """تحديث تسميات الوحدات من كتالوج مستوى الوحدة في التخطيط (إنشاء قائمة التقييم)."""
+    """مزامنة وحدات معايير التقييم مع مستويات الوحدة في التخطيط (إضافة الجديد وتحديث التسميات)."""
+    planner_keys = _planner_unit_keys_for_exercise(db, ex)
     existing = (
         db.query(AnalystEvaluationCriteriaUnit)
         .filter(AnalystEvaluationCriteriaUnit.exercise_id == ex.id)
         .order_by(AnalystEvaluationCriteriaUnit.sort_order, AnalystEvaluationCriteriaUnit.id)
         .all()
     )
-    if not existing:
-        seed_keys = _planner_unit_keys_for_exercise(db, ex)
-        if not seed_keys:
-            for label in DEFAULT_ANALYST_EVALUATION_CRITERIA_UNITS:
-                key = _resolve_unit_level_key_for_criteria_label(label)
-                if key and key not in seed_keys:
-                    seed_keys.append(key)
-        for idx, key in enumerate(seed_keys):
-            label = label_for_unit_level_key(key) or key
+    by_key: dict[str, AnalystEvaluationCriteriaUnit] = {}
+    for row in existing:
+        uk = _resolve_unit_level_key_for_criteria_label(row.label or "")
+        if uk:
+            by_key[uk] = row
+
+    max_sort = max((int(r.sort_order or 0) for r in existing), default=-1)
+    dirty = False
+    for key in planner_keys:
+        catalog_label = (label_for_unit_level_key(key, db=db) or key)[:300]
+        row = by_key.get(key)
+        if row is None:
+            max_sort += 1
             db.add(
                 AnalystEvaluationCriteriaUnit(
                     exercise_id=ex.id,
-                    sort_order=idx,
-                    label=label[:300],
+                    sort_order=max_sort,
+                    label=catalog_label,
                 )
             )
+            dirty = True
+        elif catalog_label and row.label != catalog_label:
+            row.label = catalog_label
+            dirty = True
+
+    if dirty:
         db.commit()
-    else:
-        for row in existing:
-            key = _resolve_unit_level_key_for_criteria_label(row.label or "")
-            if key:
-                catalog_label = label_for_unit_level_key(key)
-                if catalog_label:
-                    row.label = catalog_label[:300]
-        db.commit()
+
     return (
         db.query(AnalystEvaluationCriteriaUnit)
         .filter(AnalystEvaluationCriteriaUnit.exercise_id == ex.id)
@@ -15256,12 +15286,52 @@ def admin_information_bank_manifest_json():
     return jsonify({"version": 1, "items": items})
 
 
-@bp.route("/exercises/<int:eid>")
+_EXERCISE_WORKSPACE_TABS: tuple[tuple[str, str], ...] = (
+    ("info", "معلومات التمرين"),
+    ("general", "الفكرة العامة"),
+    ("specific", "الفكرة الخاصة"),
+    ("program", "البرنامج"),
+    ("map", "الخريطة"),
+)
+
+
+def _exercise_workspace_tab_from_request() -> str:
+    tab = (request.args.get("tab") or "info").strip()
+    valid = {k for k, _ in _EXERCISE_WORKSPACE_TABS}
+    return tab if tab in valid else "info"
+
+
+def _exercise_type_level_display_text(ex: Exercise) -> str:
+    stored = (getattr(ex, "exercise_type_level_text", None) or "").strip()
+    if stored:
+        return stored
+    parts: list[str] = []
+    if (ex.exercise_type or "").strip():
+        parts.append(f"نوع التمرين: {(ex.exercise_type or '').strip()}")
+    if (ex.exercise_level or "").strip():
+        parts.append(f"مستوى التمرين: {(ex.exercise_level or '').strip()}")
+    return "\n".join(parts)
+
+
+def _apply_exercise_workspace_form(ex: Exercise) -> None:
+    ex.exercise_purpose = (request.form.get("exercise_purpose") or "").strip()
+    ex.exercise_type_level_text = (
+        request.form.get("exercise_type_level_text") or ""
+    ).strip()
+    ex.exercise_participants = (request.form.get("exercise_participants") or "").strip()
+    ex.general_idea_text = (request.form.get("general_idea_text") or "").strip()
+    ex.specific_idea_text = (request.form.get("specific_idea_text") or "").strip()
+    ex.program_text = (request.form.get("program_text") or "").strip()
+    ex.map_text = (request.form.get("map_text") or "").strip()
+
+
+@bp.route("/exercises/<int:eid>", methods=["GET", "POST"])
 def exercise_detail(eid):
     user = get_current_user_optional()
     if not user:
         return redirect(f"/login?next=/exercises/{eid}")
     from flask import g
+
     db = g.db
     ex = (
         db.query(Exercise)
@@ -15273,13 +15343,31 @@ def exercise_detail(eid):
     )
     if not ex:
         abort(404)
+    can_edit = bool(can_plan_exercises(user))
+    active_tab = _exercise_workspace_tab_from_request()
+    ok_msg = ""
+    if request.method == "POST":
+        if not can_edit:
+            abort(403)
+        _apply_exercise_workspace_form(ex)
+        db.commit()
+        active_tab = _exercise_workspace_tab_from_request()
+        return redirect(
+            url_for("views.exercise_detail", eid=int(eid), tab=active_tab, ok=1)
+        )
+    if request.args.get("ok"):
+        ok_msg = "تم حفظ البيانات."
     return render_template(
         "exercise_detail.html",
         **_ctx(
             user,
             ex=ex,
-            can_plan=can_plan_exercises(user),
+            can_plan=can_edit,
             can_ref=can_edit_references(user),
+            exercise_workspace_tabs=_EXERCISE_WORKSPACE_TABS,
+            active_workspace_tab=active_tab,
+            exercise_type_level_display=_exercise_type_level_display_text(ex),
+            ok_msg=ok_msg,
             **_subpage_close_ctx("/dashboard"),
         ),
     )

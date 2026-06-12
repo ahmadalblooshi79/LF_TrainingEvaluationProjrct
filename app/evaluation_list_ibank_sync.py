@@ -1,6 +1,13 @@
 """مزامنة قوائم التقييم في التخطيط من تبويب «قوائم التقييم» في بنك المعلومات (dilemma_eval)."""
 from __future__ import annotations
 
+# تشغيل مباشر: python app/evaluation_list_ibank_sync.py
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import hashlib
 import re
 import shutil
@@ -1640,3 +1647,19 @@ def build_eval_list_display_groups(
         "phases": len(phase_keys),
     }
     return groups, meta
+
+
+if __name__ == "__main__":
+    from app.database import SessionLocal
+    from app.models import Exercise
+
+    db = SessionLocal()
+    try:
+        ex = db.query(Exercise).order_by(Exercise.id.desc()).first()
+        if ex is None:
+            raise SystemExit("No exercise in database.")
+        stats = sync_evaluation_lists_for_exercise_roster(db, exercise_id=int(ex.id))
+        db.commit()
+        print(stats)
+    finally:
+        db.close()

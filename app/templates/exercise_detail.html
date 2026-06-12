@@ -1,39 +1,193 @@
 {% extends "base.html" %}
-{% block title %}{{ ex.title }}{% endblock %}
+{% block title %}{{ ex.title }} — التمرين الحالي{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1><i class="fa-solid fa-clipboard-list fa-icon-title" aria-hidden="true"></i> {{ ex.title }} <span class="badge">{{ ex.code }}</span></h1>
-  {% if ex.exercise_type or ex.exercise_level or ex.mission_label or ex.trained_unit or ex.location_label or ex.planned_start or ex.planned_end %}
-  <dl class="exercise-meta-dl">
-    {% if ex.exercise_type %}<dt>نوع التمرين</dt><dd>{{ ex.exercise_type }}</dd>{% endif %}
-    {% if ex.exercise_level %}<dt>مستوى التمرين</dt><dd>{{ ex.exercise_level }}</dd>{% endif %}
-    {% if ex.mission_label %}<dt>المهمة</dt><dd>{{ ex.mission_label }}</dd>{% endif %}
-    {% if ex.trained_unit %}<dt>الوحدة المتدربة</dt><dd>{{ ex.trained_unit }}</dd>{% endif %}
-    {% if ex.location_label %}<dt>مكان التمرين</dt><dd>{{ ex.location_label }}</dd>{% endif %}
-    {% if ex.planned_start or ex.planned_end %}
-    <dt>تاريخ التمرين</dt>
-    <dd>
-      <span class="exercise-meta-dates">
-        <span>من {% if ex.planned_start %}{{ ex.planned_start.strftime('%d-%m-%Y') }}{% else %}—{% endif %}</span>
-        <span>إلى {% if ex.planned_end %}{{ ex.planned_end.strftime('%d-%m-%Y') }}{% else %}—{% endif %}</span>
-      </span>
-    </dd>
-    {% endif %}
-  </dl>
-  {% endif %}
   <div class="page-header__nav">
     {% include 'partials/subpage_close.html' %}
   </div>
 </div>
 
-{% if ex.objectives %}
-<section class="card anchor" id="objectives">
-  <h2><i class="fa-solid fa-bullseye fa-icon-title" aria-hidden="true"></i> الأهداف التدريبية</h2>
-  <ol>
-  {% for o in ex.objectives %}
-    <li><i class="fa-solid fa-chevron-left chev-li" aria-hidden="true"></i> {{ o.text }}</li>
-  {% endfor %}
-  </ol>
-</section>
+{% if ok_msg %}
+<p class="form-ok-banner" role="status"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> {{ ok_msg }}</p>
 {% endif %}
+
+<section class="card exercise-workspace-card">
+  <nav class="exercise-workspace-tabs pf-flow-days-tabs" role="tablist" aria-label="أقسام التمرين الحالي">
+    {% for tab_key, tab_label in exercise_workspace_tabs %}
+    <a href="{{ url_for('views.exercise_detail', eid=ex.id, tab=tab_key) }}"
+       class="pf-flow-day-tab exercise-workspace-tab{% if tab_key == active_workspace_tab %} is-active{% endif %}"
+       role="tab"
+       aria-selected="{{ 'true' if tab_key == active_workspace_tab else 'false' }}"
+       id="exercise-tab-{{ tab_key }}"
+       aria-controls="exercise-pane-{{ tab_key }}">{{ tab_label }}</a>
+    {% endfor %}
+  </nav>
+
+  <form method="post" action="{{ url_for('views.exercise_detail', eid=ex.id, tab=active_workspace_tab) }}" class="exercise-workspace-form" id="exercise-workspace-form">
+    <div class="exercise-workspace-panes">
+      <div class="exercise-workspace-pane{% if active_workspace_tab == 'info' %} is-active{% endif %}"
+           id="exercise-pane-info"
+           role="tabpanel"
+           aria-labelledby="exercise-tab-info"
+           {% if active_workspace_tab != 'info' %}hidden{% endif %}>
+        <div class="exercise-info-compact" aria-label="جدول معلومات التمرين">
+          <h2 class="exercise-info-compact__title"><i class="fa-solid fa-table-list" aria-hidden="true"></i> معلومات التمرين</h2>
+          <div class="exercise-info-compact__grid exercise-info-compact__grid--3">
+            <div class="exercise-info-cell">
+              <span class="exercise-info-cell__label">اسم التمرين</span>
+              <span class="exercise-info-cell__value">{{ ex.title or '—' }}</span>
+            </div>
+            <div class="exercise-info-cell">
+              <span class="exercise-info-cell__label">الوحدة المتدربة</span>
+              <span class="exercise-info-cell__value">{{ ex.trained_unit or '—' }}</span>
+            </div>
+            <div class="exercise-info-cell">
+              <span class="exercise-info-cell__label">مكان التمرين</span>
+              <span class="exercise-info-cell__value">{{ ex.location_label or '—' }}</span>
+            </div>
+          </div>
+          <div class="exercise-info-compact__grid exercise-info-compact__grid--2">
+            <div class="exercise-info-cell">
+              <span class="exercise-info-cell__label">تاريخ التمرين</span>
+              <span class="exercise-info-cell__value exercise-info-cell__value--dates">
+                <span>من {% if ex.planned_start %}{{ ex.planned_start.strftime('%d-%m-%Y') }}{% else %}—{% endif %}</span>
+                <span>إلى {% if ex.planned_end %}{{ ex.planned_end.strftime('%d-%m-%Y') }}{% else %}—{% endif %}</span>
+              </span>
+            </div>
+            <div class="exercise-info-cell">
+              <span class="exercise-info-cell__label">نوع التمرين</span>
+              <span class="exercise-info-cell__value">{{ ex.exercise_type or '—' }}</span>
+            </div>
+          </div>
+          <div class="exercise-info-compact__grid exercise-info-compact__grid--1">
+            <div class="exercise-info-cell">
+              <span class="exercise-info-cell__label">مستوى التمرين</span>
+              <span class="exercise-info-cell__value">{{ ex.exercise_level or '—' }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="exercise-workspace-fields">
+          <div class="exercise-workspace-fields__row exercise-workspace-fields__row--3">
+            <div class="form-group exercise-workspace-box">
+              <label for="exercise_purpose">1. القصد</label>
+              {% if can_plan %}
+              <textarea id="exercise_purpose" name="exercise_purpose" rows="5" class="exercise-workspace-textarea" placeholder="القصد من التمرين">{{ ex.exercise_purpose or '' }}</textarea>
+              {% else %}
+              <div class="exercise-workspace-readonly">{{ ex.exercise_purpose or '—' }}</div>
+              {% endif %}
+            </div>
+            <div class="form-group exercise-workspace-box">
+              <label for="exercise_type_level_text">2. نوع ومستوى التمرين</label>
+              {% if can_plan %}
+              <textarea id="exercise_type_level_text" name="exercise_type_level_text" rows="5" class="exercise-workspace-textarea" placeholder="نوع ومستوى التمرين">{{ exercise_type_level_display }}</textarea>
+              {% else %}
+              <div class="exercise-workspace-readonly">{{ exercise_type_level_display or '—' }}</div>
+              {% endif %}
+            </div>
+            <div class="form-group exercise-workspace-box">
+              <label for="exercise_participants">3. المشاركون في التمرين</label>
+              {% if can_plan %}
+              <textarea id="exercise_participants" name="exercise_participants" rows="5" class="exercise-workspace-textarea" placeholder="المشاركون في التمرين">{{ ex.exercise_participants or '' }}</textarea>
+              {% else %}
+              <div class="exercise-workspace-readonly">{{ ex.exercise_participants or '—' }}</div>
+              {% endif %}
+            </div>
+          </div>
+          <div class="exercise-workspace-fields__row exercise-workspace-fields__row--2">
+            <div class="form-group exercise-workspace-box">
+              <span class="exercise-workspace-field-label">4. الأهداف التدريبية</span>
+              <div class="exercise-workspace-box__body">
+                {% if ex.objectives %}
+                <ol class="exercise-workspace-objectives">
+                  {% for o in ex.objectives %}
+                  <li>{{ o.text }}</li>
+                  {% endfor %}
+                </ol>
+                {% else %}
+                <p class="muted exercise-workspace-empty">لا توجد أهداف مسجّلة بعد.</p>
+                {% endif %}
+                {% if can_plan %}
+                <p class="muted exercise-workspace-hint"><a href="{{ url_for('views.admin_exercise_objectives') }}">تعديل الأهداف التدريبية</a> من مساحة إدارة النظام.</p>
+                {% endif %}
+              </div>
+            </div>
+            <div class="form-group exercise-workspace-box">
+              <span class="exercise-workspace-field-label">5. المهمة</span>
+              <div class="exercise-workspace-box__body">
+                <p class="exercise-workspace-mission">{{ ex.mission_label or '—' }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="exercise-workspace-pane{% if active_workspace_tab == 'general' %} is-active{% endif %}"
+           id="exercise-pane-general"
+           role="tabpanel"
+           aria-labelledby="exercise-tab-general"
+           {% if active_workspace_tab != 'general' %}hidden{% endif %}>
+        <div class="form-group">
+          <label for="general_idea_text" class="sr-only">الفكرة العامة</label>
+          {% if can_plan %}
+          <textarea id="general_idea_text" name="general_idea_text" rows="14" class="exercise-workspace-textarea exercise-workspace-textarea--tall" placeholder="الفكرة العامة للتمرين">{{ ex.general_idea_text or '' }}</textarea>
+          {% else %}
+          <div class="exercise-workspace-readonly exercise-workspace-readonly--tall">{{ ex.general_idea_text or '—' }}</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="exercise-workspace-pane{% if active_workspace_tab == 'specific' %} is-active{% endif %}"
+           id="exercise-pane-specific"
+           role="tabpanel"
+           aria-labelledby="exercise-tab-specific"
+           {% if active_workspace_tab != 'specific' %}hidden{% endif %}>
+        <div class="form-group">
+          <label for="specific_idea_text" class="sr-only">الفكرة الخاصة</label>
+          {% if can_plan %}
+          <textarea id="specific_idea_text" name="specific_idea_text" rows="14" class="exercise-workspace-textarea exercise-workspace-textarea--tall" placeholder="الفكرة الخاصة للتمرين">{{ ex.specific_idea_text or '' }}</textarea>
+          {% else %}
+          <div class="exercise-workspace-readonly exercise-workspace-readonly--tall">{{ ex.specific_idea_text or '—' }}</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="exercise-workspace-pane{% if active_workspace_tab == 'program' %} is-active{% endif %}"
+           id="exercise-pane-program"
+           role="tabpanel"
+           aria-labelledby="exercise-tab-program"
+           {% if active_workspace_tab != 'program' %}hidden{% endif %}>
+        <div class="form-group">
+          <label for="program_text" class="sr-only">البرنامج</label>
+          {% if can_plan %}
+          <textarea id="program_text" name="program_text" rows="14" class="exercise-workspace-textarea exercise-workspace-textarea--tall" placeholder="برنامج التمرين">{{ ex.program_text or '' }}</textarea>
+          {% else %}
+          <div class="exercise-workspace-readonly exercise-workspace-readonly--tall">{{ ex.program_text or '—' }}</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="exercise-workspace-pane{% if active_workspace_tab == 'map' %} is-active{% endif %}"
+           id="exercise-pane-map"
+           role="tabpanel"
+           aria-labelledby="exercise-tab-map"
+           {% if active_workspace_tab != 'map' %}hidden{% endif %}>
+        <div class="form-group">
+          <label for="map_text" class="sr-only">الخريطة</label>
+          {% if can_plan %}
+          <textarea id="map_text" name="map_text" rows="14" class="exercise-workspace-textarea exercise-workspace-textarea--tall" placeholder="وصف الخريطة أو ملاحظاتها">{{ ex.map_text or '' }}</textarea>
+          {% else %}
+          <div class="exercise-workspace-readonly exercise-workspace-readonly--tall">{{ ex.map_text or '—' }}</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% if can_plan %}
+    <div class="exercise-workspace-actions">
+      <button type="submit" class="btn"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ</button>
+    </div>
+    {% endif %}
+  </form>
+</section>
 {% endblock %}
