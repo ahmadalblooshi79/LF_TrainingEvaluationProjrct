@@ -11,9 +11,9 @@ TRAINING_PHASES: list[dict[str, str]] = [
     {"key": "reorganization", "label": "مرحلة مسارات التقييم"},
 ]
 
-# مجموعات الألوية في بنك المعلومات (تبويب مستويات الوحدات — الإمارات /1 فقط)
+# مجموعات الألوية في بنك المعلومات (تبويب مستويات الوحدات — التنظيم)
 INFO_BANK_BRIGADE_GROUPS: list[dict[str, str]] = [
-    {"key": "1", "tab": "units-bg-1", "label": "مجموعة لواء الإمارات / 1"},
+    {"key": "1", "tab": "units-bg-1", "label": "التنظيم"},
 ]
 
 INFO_BANK_BRIGADE_GROUPS_REMOVED_KEYS: frozenset[str] = frozenset({"3", "4", "5"})
@@ -61,6 +61,61 @@ INFO_BANK_UNIT_LEVEL_TEMPLATES: list[dict[str, str]] = [
     {"key": "ul_ew", "label": "سرية الحرب الإلكترونية"},
     {"key": "ul_nco", "label": "ضباط الصف"},
 ]
+
+# تسميات قديمة تُستبدل تلقائياً بالتسمية الحالية في القالب (مفتاح القالب → تسميات قديمة)
+INFO_BANK_UNIT_OBSOLETE_LABELS: dict[str, frozenset[str]] = {
+    "ul_mech2_bn_cmd": frozenset(
+        {
+            "قيادة كتيبة المشاة الآلية/2",
+        }
+    ),
+}
+
+
+def template_label_for_unit_template_key(template_key: str) -> str:
+    tk = (template_key or "").strip()
+    for row in INFO_BANK_UNIT_LEVEL_TEMPLATES:
+        if row["key"] == tk:
+            return row["label"]
+    return ""
+
+
+def apply_information_bank_unit_label_migrations(db) -> bool:
+    """تحديث تسميات مستويات الوحدات النظامية عند تغيّر الكتالوج البرمجي."""
+    from app.ibank_ui import ibank_brigade_groups_for_page
+    from app.models import InformationBankTreeNode, InformationBankUnitLevel
+
+    changed = False
+    for template_key, obsolete_labels in INFO_BANK_UNIT_OBSOLETE_LABELS.items():
+        new_label = template_label_for_unit_template_key(template_key)
+        if not new_label:
+            continue
+        for bg in ibank_brigade_groups_for_page():
+            catalog_key = unit_catalog_key_for_brigade(bg["key"], template_key)
+            if not catalog_key:
+                continue
+            row = db.get(InformationBankUnitLevel, catalog_key)
+            if row is None:
+                continue
+            current = (row.label or "").strip()
+            if current not in obsolete_labels:
+                continue
+            row.label = new_label
+            for node in (
+                db.query(InformationBankTreeNode)
+                .filter(
+                    InformationBankTreeNode.catalog_unit_key == catalog_key,
+                    InformationBankTreeNode.is_folder.is_(True),
+                )
+                .all()
+            ):
+                node.name = new_label[:500]
+            changed = True
+    if changed:
+        from app.planning_catalog_sync import invalidate_planning_catalog_cache
+
+        invalidate_planning_catalog_cache()
+    return changed
 
 # توافق خلفي مع الاستيرادات القديمة
 INFO_BANK_UNIT_LEVELS: list[dict[str, str]] = INFO_BANK_UNIT_LEVEL_TEMPLATES

@@ -100,6 +100,7 @@ def inject_header_exercise():
         "judge_roster": req_path.startswith("/admin/exercises/judge-unit-roster"),
         "battle_org": req_path.startswith("/admin/battle-organization"),
         "users": req_path.startswith("/admin/users"),
+        "server_management": req_path.startswith("/admin/server-management"),
     }
     db = getattr(g, "db", None)
     if db is None:

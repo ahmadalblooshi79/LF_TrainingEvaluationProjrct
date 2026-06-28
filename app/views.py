@@ -73,6 +73,7 @@ from app.models import (
     InfoBankEventFlowPdf,
     InfoBankActionEvalXlsx,
     InfoBankDilemmaEvalXlsx,
+    InformationBankEventFlowTable,
     JudgeTraineeAssignment,
     Reference,
     RefType,
@@ -159,6 +160,7 @@ from app.unit_levels_catalog import (
 from app.information_bank_catalog import (
     INFO_BANK_UNIT_LEVEL_TEMPLATES,
     INFO_BANK_UNIT_LEVELS,
+    apply_information_bank_unit_label_migrations,
     brigade_group_for_tab,
     brigade_tab_for_group,
     unit_catalog_key_for_brigade,
@@ -172,6 +174,7 @@ from app.evaluation_list_columns import (
     grade_allows_judge_approve,
     grade_label_from_percent,
     parse_max_cell,
+    payload_rows_missing_required_notes,
 )
 from app.evaluation_sheet_parser import read_evaluation_list_sheet
 from app.roster_import import parse_roster_rows_from_upload
@@ -531,6 +534,20 @@ def _evaluation_list_viewer_redirect(endpoint: str, unit_key: str, item_id: int,
     )
 
 
+def _evaluation_save_payload_missing_row_notes(raw: str) -> bool:
+    """هل الحمولة تحتوي صفاً نتيجته مقبول/راسب دون ملاحظات؟"""
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    rows = payload.get("rows") or []
+    if not isinstance(rows, list):
+        return False
+    return bool(payload_rows_missing_required_notes(rows))
+
+
 def _evaluation_list_home_active_phase(phase_tabs: list[dict]) -> str:
     requested = parse_evaluation_list_phase_key(request.args.get("phase"))
     keys = {str(t.get("phase_key") or "") for t in phase_tabs}
@@ -788,6 +805,43 @@ def _judge_assigned_unit_key(db, user: User, ex: Exercise | None) -> str:
     if jr is None:
         return ""
     return (jr.unit_level_key or "").strip()
+
+
+def _judge_effective_unit_key(
+    db,
+    user: User | None,
+    ex: Exercise | None,
+    ja: JudgeTraineeAssignment | None = None,
+) -> str:
+    """مستوى وحدة المحكم — من الإسناد أو من قائمة المحكمين."""
+    if ja is not None:
+        uk = (ja.unit_level_key or "").strip()
+        if uk:
+            return uk
+    if user is not None and ex is not None:
+        return _judge_assigned_unit_key(db, user, ex)
+    return ""
+
+
+def _exercise_flow_bundle_with_content(
+    db, exercise_id: int
+) -> ExercisePlannerFlowBundle | None:
+    """أحدث حزمة في التمرين تحتوي جدول مجرى موزّعاً."""
+    from app.planner_flow_table_sync import bundle_has_flow_table
+
+    rows = (
+        db.query(ExercisePlannerFlowBundle)
+        .filter(ExercisePlannerFlowBundle.exercise_id == int(exercise_id))
+        .order_by(
+            ExercisePlannerFlowBundle.updated_at.desc(),
+            ExercisePlannerFlowBundle.id.desc(),
+        )
+        .all()
+    )
+    for row in rows:
+        if bundle_has_flow_table(row):
+            return row
+    return None
 
 
 def _judge_evaluation_list_unit_levels(db, user: User, ex: Exercise | None) -> list[dict]:
@@ -2457,7 +2511,7 @@ def _judge_planner_flow_action_bundle_row(
                     )
                 return bundle, row
 
-    bundle = _judge_assigned_planner_bundle(
+    bundle = _judge_flow_bundle_for_view(
         db, user, ex, judge_user_id=oversee_jid
     )
     if bundle is None and unit_key_q:
@@ -5728,6 +5782,88 @@ def _ensure_day_one_tab(days: list[dict]) -> list[dict]:
     return [day_one, *out]
 
 
+def _get_or_create_ibank_event_flow_table(db):
+    row = (
+        db.query(InformationBankEventFlowTable)
+        .order_by(InformationBankEventFlowTable.id)
+        .first()
+    )
+    if row is None:
+        row = InformationBankEventFlowTable(flow_table_json="")
+        db.add(row)
+        db.flush()
+    return row
+
+
+def _build_ibank_event_flow_table_context(db) -> dict:
+    row = _get_or_create_ibank_event_flow_table(db)
+    flow_table_days, flow_table_active_day_id = _parse_planner_flow_table_days(
+        getattr(row, "flow_table_json", None)
+    )
+    flow_table_rows = next(
+        (d["rows"] for d in flow_table_days if d["id"] == flow_table_active_day_id),
+        flow_table_days[0]["rows"] if flow_table_days else [],
+    )
+    flow_table_active_day_note = next(
+        (
+            (d.get("note") or "")
+            for d in flow_table_days
+            if d["id"] == flow_table_active_day_id
+        ),
+        (flow_table_days[0].get("note") or "") if flow_table_days else "",
+    )
+    return {
+        "flow_table_days": flow_table_days,
+        "flow_table_active_day_id": flow_table_active_day_id,
+        "flow_table_rows": flow_table_rows,
+        "flow_table_active_day_note": flow_table_active_day_note,
+    }
+
+
+def _flow_table_fields_from_bundle(bundle: ExercisePlannerFlowBundle | None) -> dict:
+    if bundle is None:
+        return {
+            "flow_table_days": [],
+            "flow_table_active_day_id": "",
+            "flow_table_rows": [],
+            "flow_table_active_day_note": "",
+            "flow_table_has_content": False,
+        }
+    flow_table_days, flow_table_active_day_id = _parse_planner_flow_table_days(
+        getattr(bundle, "flow_table_json", None)
+    )
+    flow_table_rows = next(
+        (
+            d["rows"]
+            for d in flow_table_days
+            if d["id"] == flow_table_active_day_id
+        ),
+        flow_table_days[0]["rows"] if flow_table_days else [],
+    )
+    flow_table_active_day_note = next(
+        (
+            (d.get("note") or "")
+            for d in flow_table_days
+            if d["id"] == flow_table_active_day_id
+        ),
+        (flow_table_days[0].get("note") or "") if flow_table_days else "",
+    )
+    return {
+        "flow_table_days": flow_table_days,
+        "flow_table_active_day_id": flow_table_active_day_id,
+        "flow_table_rows": flow_table_rows,
+        "flow_table_active_day_note": flow_table_active_day_note,
+        "flow_table_has_content": bool(
+            (flow_table_active_day_note or "").strip()
+            or any(
+                (d.get("rows") and len(d.get("rows") or []) > 0)
+                or (str(d.get("note") or "").strip())
+                for d in flow_table_days
+            )
+        ),
+    }
+
+
 def _parse_planner_flow_table_days(
     payload_json: str | None,
 ) -> tuple[list[dict], str]:
@@ -6080,14 +6216,14 @@ def admin_planner_flow_bundle_overview():
 
 @bp.route("/chief-judge/planner-flow-bundle-overview", methods=["GET"])
 def chief_judge_planner_flow_bundle_overview():
-    """اعتماد المجرى وقوائم الإجراءات — نفس واجهة المحكم مع اختيار المحكم."""
+    """اعتماد تقييم الإجراءات — صفحة مستقبلية."""
     user = get_current_user_optional()
     if not user:
         return redirect("/login?next=/chief-judge/planner-flow-bundle-overview")
     if not can_access_chief_judge_hub(user):
         abort(403)
     return redirect(
-        url_for("views.judge_planner_flow_materials", from_chief_judge=1)
+        url_for("views.judge_planner_flow_action_approval", from_chief_judge=1)
     )
 
 
@@ -6635,6 +6771,111 @@ def planner_flow_bundle_import_flow_docx(bundle_id: int):
     )
 
 
+@bp.route("/planner/create-flow/<int:bundle_id>/pull-flow-from-ibank", methods=["POST"])
+def planner_flow_bundle_pull_flow_from_ibank(bundle_id: int):
+    user = get_current_user_optional()
+    if not user:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    if not can_access_planner_hub(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    from flask import g
+
+    from app.planner_flow_table_sync import ibank_flow_table_document
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    bundle = db.get(ExercisePlannerFlowBundle, bundle_id)
+    if ex is None or bundle is None or bundle.exercise_id != ex.id:
+        return jsonify({"ok": False, "error": "not_found"}), 404
+
+    doc = ibank_flow_table_document(
+        db,
+        get_or_create_ibank_row=_get_or_create_ibank_event_flow_table,
+        normalize_document=_normalize_planner_flow_table_document,
+    )
+    if doc is None:
+        return jsonify({"ok": False, "error": "empty_ibank"}), 400
+
+    bundle.flow_table_json = json.dumps(doc, ensure_ascii=False)
+    bundle.updated_at = datetime.utcnow()
+    from app.action_eval_ibank_sync import withdraw_action_eval_for_units_removed_from_flow
+
+    withdraw_action_eval_for_units_removed_from_flow(
+        db,
+        exercise_id=int(ex.id),
+        phase_key=bundle.exercise_phase,
+    )
+    db.commit()
+
+    active_rows = next(
+        (d["rows"] for d in doc["days"] if d["id"] == doc["active_day_id"]),
+        [],
+    )
+    active_note = next(
+        (
+            (d.get("note") or "")
+            for d in doc["days"]
+            if d["id"] == doc["active_day_id"]
+        ),
+        "",
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "active_day_id": doc["active_day_id"],
+            "days": doc["days"],
+            "note": active_note,
+            "row_count": len(active_rows),
+        }
+    )
+
+
+@bp.route("/planner/create-flow/<int:bundle_id>/distribute-flow-to-judges", methods=["POST"])
+def planner_flow_bundle_distribute_flow_to_judges(bundle_id: int):
+    user = get_current_user_optional()
+    if not user:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    if not can_access_planner_hub(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    from flask import g
+
+    from app.planner_flow_table_sync import distribute_flow_document_to_judge_bundles
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    bundle = db.get(ExercisePlannerFlowBundle, bundle_id)
+    if ex is None or bundle is None or bundle.exercise_id != ex.id:
+        return jsonify({"ok": False, "error": "not_found"}), 404
+
+    payload = request.get_json(silent=True)
+    if payload:
+        doc = _normalize_planner_flow_table_document(payload)
+        bundle.flow_table_json = json.dumps(doc, ensure_ascii=False)
+        bundle.updated_at = datetime.utcnow()
+    else:
+        try:
+            raw = json.loads(getattr(bundle, "flow_table_json", None) or "{}")
+        except json.JSONDecodeError:
+            raw = {}
+        doc = _normalize_planner_flow_table_document(raw)
+
+    stats = distribute_flow_document_to_judge_bundles(
+        db,
+        exercise_id=int(ex.id),
+        doc=doc,
+        source_bundle=bundle,
+        get_or_create_bundle=_get_or_create_planner_bundle,
+        label_for_unit_key=label_for_unit_level_key,
+        normalize_phase=normalize_exercise_phase,
+        default_phase_key=default_exercise_phase_key,
+        resolve_unit_key_for_assignment=lambda ja: _resolve_and_persist_judge_unit_key(
+            db, ex, ja
+        ),
+    )
+    db.commit()
+    return jsonify({"ok": True, **stats})
+
+
 @bp.route("/planner/create-flow/<int:bundle_id>/assign-judge", methods=["POST"])
 def planner_flow_bundle_assign_judge(bundle_id: int):
     user = get_current_user_optional()
@@ -6788,8 +7029,7 @@ def _judge_action_eval_close_href(user: User, *, unit_key: str) -> str:
             **_judge_action_eval_lists_url_kwargs(),
         )
     return url_for(
-        "views.judge_planner_flow_materials",
-        tab=_JUDGE_PF_TAB_EVAL_LISTS,
+        "views.judge_planner_flow_action_approval",
         **_planner_flow_materials_query_kwargs(user),
     )
 
@@ -6993,14 +7233,24 @@ def _render_judge_action_eval_lists_workspace(
     )
 
 
+def _resolve_and_persist_judge_unit_key(
+    db, ex: Exercise, ja: JudgeTraineeAssignment
+) -> str:
+    """مستوى وحدة المحكم من الإسناد أو القائمة — مع حفظه في الإسناد إن كان فارغاً."""
+    judge_user = db.get(User, int(ja.judge_user_id))
+    uk = _judge_effective_unit_key(db, judge_user, ex, ja)
+    if uk and not (ja.unit_level_key or "").strip():
+        ja.unit_level_key = uk
+    return uk
+
+
 def _planner_flow_oversee_assignment_rows(db, ex: Exercise) -> list[dict]:
-    """محكمون لديهم حزمة مجرى مربوطة — لاختيار الإطلاع."""
+    """محكمون لديهم جدول مجرى قابل للعرض — لاختيار الإطلاع."""
+    from app.planner_flow_table_sync import bundle_has_flow_table
+
     rows = (
         db.query(JudgeTraineeAssignment)
-        .filter(
-            JudgeTraineeAssignment.exercise_id == ex.id,
-            JudgeTraineeAssignment.planner_flow_bundle_id.isnot(None),
-        )
+        .filter(JudgeTraineeAssignment.exercise_id == ex.id)
         .options(joinedload(JudgeTraineeAssignment.judge_user))
         .options(joinedload(JudgeTraineeAssignment.planner_flow_bundle))
         .order_by(JudgeTraineeAssignment.unit_level_key, JudgeTraineeAssignment.id)
@@ -7010,12 +7260,18 @@ def _planner_flow_oversee_assignment_rows(db, ex: Exercise) -> list[dict]:
     for ja in rows:
         ju = ja.judge_user
         bundle = ja.planner_flow_bundle
+        if bundle is not None and bundle.exercise_id != ex.id:
+            bundle = None
+        uk = _judge_effective_unit_key(db, ju, ex, ja)
+        if bundle is None and uk:
+            bundle = _planner_flow_bundle_for_unit(db, int(ex.id), uk)
+        if not bundle_has_flow_table(bundle):
+            continue
         jlabel = (
             (getattr(ju, "full_name", None) or "").strip()
             or (getattr(ju, "username", None) or "").strip()
             or f"محكم #{ja.judge_user_id}"
         )
-        uk = (ja.unit_level_key or "").strip()
         link_kw: dict = {"judge_user_id": int(ja.judge_user_id)}
         if _request_from_chief_judge_hub():
             link_kw["from_chief_judge"] = 1
@@ -7074,18 +7330,45 @@ def _judge_assigned_planner_bundle(
         ja = _judge_assignment_for_current_exercise(db, user, ex)
     if ja is None:
         return None
+    judge_user = db.get(User, int(ja.judge_user_id))
     if ja.planner_flow_bundle_id:
         b = db.get(ExercisePlannerFlowBundle, ja.planner_flow_bundle_id)
         if b is not None and b.exercise_id == ex.id:
             return b
-    uk = (ja.unit_level_key or "").strip()
+    uk = _judge_effective_unit_key(db, judge_user, ex, ja)
     if uk:
-        return _planner_flow_bundle_for_unit(db, int(ex.id), uk)
+        linked = _planner_flow_bundle_for_unit(db, int(ex.id), uk)
+        if linked is not None:
+            return linked
     return None
+
+
+def _judge_flow_bundle_for_view(
+    db,
+    user: User,
+    ex: Exercise | None,
+    *,
+    judge_user_id: int | None = None,
+) -> ExercisePlannerFlowBundle | None:
+    """حزمة المجرى المعروضة للمحكم — مع تفضيل الحزمة التي تحتوي جدولاً موزّعاً."""
+    from app.planner_flow_table_sync import bundle_has_flow_table
+
+    bundle = _judge_assigned_planner_bundle(
+        db, user, ex, judge_user_id=judge_user_id
+    )
+    if bundle is not None and bundle_has_flow_table(bundle):
+        return bundle
+    if ex is None:
+        return bundle
+    shared = _exercise_flow_bundle_with_content(db, int(ex.id))
+    if shared is not None:
+        return shared
+    return bundle
 
 
 @bp.route("/judge/planner-flow-materials", methods=["GET"])
 def judge_planner_flow_materials():
+    """جدول مجرى الأحداث والمعاضل — قراءة فقط لجميع المحكمين بعد التوزيع من التخطيط."""
     user = get_current_user_optional()
     if not user:
         return redirect("/login?next=/judge/planner-flow-materials")
@@ -7095,133 +7378,13 @@ def judge_planner_flow_materials():
 
     db = g.db
     ex = _current_workspace_exercise(db, user)
-    oversee = can_oversee_judge_planner_flow_materials(user)
-    oversee_jid = _planner_flow_oversee_judge_id_from_request() if oversee else None
-    if oversee and ex is not None and oversee_jid is None:
-        return render_template(
-            "judge_planner_flow_materials.html",
-            **_ctx(
-                user,
-                has_exercise=True,
-                exercise=ex,
-                bundle=None,
-                slots=[],
-                planner_eval_rows=[],
-                planner_flow_unit_label="",
-                planner_event_flow_file_ok=False,
-                planner_event_flow_display_name="",
-                planner_flow_oversee_picker=True,
-                planner_flow_oversee_rows=_planner_flow_oversee_assignment_rows(db, ex),
-                planner_flow_view_only=True,
-                planner_flow_viewing_judge_label="",
-                **_hub_back_ctx_for_request_path(),
-            ),
-        )
-    bundle = _judge_assigned_planner_bundle(
-        db, user, ex, judge_user_id=oversee_jid
-    )
-    viewing_judge_label = ""
-    if oversee and oversee_jid is not None:
-        ja_view = (
-            db.query(JudgeTraineeAssignment)
-            .filter(
-                JudgeTraineeAssignment.exercise_id == ex.id,
-                JudgeTraineeAssignment.judge_user_id == int(oversee_jid),
-            )
-            .options(joinedload(JudgeTraineeAssignment.judge_user))
-            .first()
-            if ex is not None
-            else None
-        )
-        if ja_view and ja_view.judge_user:
-            ju = ja_view.judge_user
-            viewing_judge_label = (
-                (getattr(ju, "full_name", None) or "").strip()
-                or (getattr(ju, "username", None) or "").strip()
-                or f"محكم #{oversee_jid}"
-            )
-        else:
-            viewing_judge_label = f"محكم #{oversee_jid}"
-    pf_qs = _planner_flow_materials_query_kwargs(user)
-    _sanitize_planner_bundle_orphan_event_flow(db, bundle)
-    _sanitize_planner_bundle_orphan_event_flow_items(db, bundle)
-    slots = []
-    planner_eval_rows: list[dict] = []
+    bundle = _judge_flow_bundle_for_view(db, user, ex)
     unit_label_pf = ""
-    planner_event_flow_file_ok = False
-    planner_event_flow_display_name = ""
     if bundle:
-        _migrate_legacy_bundle_event_flow(db, bundle)
-        event_db_rows = _planner_bundle_event_flow_rows(db, bundle)
-        _sync_bundle_legacy_event_flow_columns(bundle, event_db_rows)
-        db.commit()
-        primary_ef = next((r for r in event_db_rows if (r.file_relpath or "").strip()), None)
-        if primary_ef is None:
-            ev_rel_j = (bundle.event_flow_file_relpath or "").strip()
-        else:
-            ev_rel_j = (primary_ef.file_relpath or "").strip()
-        planner_event_flow_file_ok = bool(
-            ev_rel_j and _planner_bundle_file_abspath(ev_rel_j) is not None
-        )
-        if primary_ef is not None:
-            planner_event_flow_display_name = _planner_blob_display_filename(
-                stored_title=primary_ef.title or "",
-                relpath=ev_rel_j,
-                fallback="ملف المجرى",
-            )
-        else:
-            planner_event_flow_display_name = _planner_blob_display_filename(
-                stored_title=bundle.event_flow_title or "",
-                relpath=ev_rel_j,
-                fallback="ملف المجرى",
-            )
-        slots = (
-            db.query(ExercisePlannerFlowBundleActionEval)
-            .filter(ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id)
-            .order_by(ExercisePlannerFlowBundleActionEval.slot_index)
-            .all()
-        )
         unit_label_pf = label_for_unit_level_key(bundle.unit_level_key) or (
             bundle.unit_level_label or ""
         ).strip() or bundle.unit_level_key
-        if ex is not None:
-            for slot_row in slots:
-                s_canon = _planner_bundle_eval_canonical_saved(db, ex.id, slot_row.id)
-                has_xlsx = bool((slot_row.file_relpath or "").strip())
-                title_s = _planner_blob_display_filename(
-                    stored_title=slot_row.title or "",
-                    relpath=slot_row.file_relpath or "",
-                    fallback=f"قائمة {slot_row.slot_index}",
-                )
-                planner_eval_rows.append(
-                    build_planner_flow_eval_row(
-                        slot_index=int(slot_row.slot_index),
-                        item_title=title_s,
-                        saved=s_canon,
-                        exercise=ex,
-                        open_href=(
-                            url_for(
-                                "views.judge_planner_flow_materials_action_evaluate",
-                                slot=slot_row.slot_index,
-                                **pf_qs,
-                            )
-                            if has_xlsx
-                            else ""
-                        ),
-                        dt_fallback=getattr(slot_row, "created_at", None),
-                    )
-                )
-    if oversee and ex is not None and oversee_jid is not None and bundle is None:
-        abort(404)
-    from flask import session
-
-    if oversee and oversee_jid is not None:
-        session["planner_flow_oversee_judge_id"] = int(oversee_jid)
-    else:
-        session.pop("planner_flow_oversee_judge_id", None)
-    hub_nav_href = url_for("views.judge_planner_flow_materials", **_role_hub_preserve_link_kwargs())
-    if not oversee:
-        hub_nav_href = ""
+    flow_table_ctx = _flow_table_fields_from_bundle(bundle)
     return render_template(
         "judge_planner_flow_materials.html",
         **_ctx(
@@ -7229,21 +7392,24 @@ def judge_planner_flow_materials():
             has_exercise=ex is not None,
             exercise=ex,
             bundle=bundle,
-            slots=slots,
-            planner_eval_rows=planner_eval_rows,
             planner_flow_unit_label=unit_label_pf,
-            planner_event_flow_file_ok=planner_event_flow_file_ok,
-            planner_event_flow_display_name=planner_event_flow_display_name,
-            planner_event_flow_relpath=ev_rel_j if bundle else "",
-            planner_flow_oversee_picker=False,
-            planner_flow_oversee_rows=[],
-            planner_flow_view_only=_planner_flow_is_readonly_oversee(user, oversee_judge_id=oversee_jid),
-            planner_flow_viewing_judge_label=viewing_judge_label,
-            planner_flow_url_kwargs=pf_qs,
-            active_pf_tab=_judge_planner_flow_materials_active_tab(),
-            hub_nav_href=hub_nav_href,
+            **flow_table_ctx,
             **_hub_back_ctx_for_request_path(),
         ),
+    )
+
+
+@bp.route("/judge/planner-flow-action-approval", methods=["GET"])
+def judge_planner_flow_action_approval():
+    """اعتماد تقييم الإجراءات — قيد الإعداد."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/judge/planner-flow-action-approval")
+    if not can_access_chief_judge_hub(user) and not is_system_admin(user):
+        abort(403)
+    return render_template(
+        "judge_planner_flow_action_approval.html",
+        **_ctx(user, **_hub_back_ctx_for_request_path()),
     )
 
 
@@ -7263,7 +7429,7 @@ def judge_planner_flow_materials_event_flow():
         if can_oversee_judge_planner_flow_materials(user)
         else None
     )
-    bundle = _judge_assigned_planner_bundle(
+    bundle = _judge_flow_bundle_for_view(
         db, user, ex, judge_user_id=oversee_jid
     )
     if bundle is None:
@@ -7301,7 +7467,7 @@ def judge_planner_flow_materials_action(slot: int):
         if can_oversee_judge_planner_flow_materials(user)
         else None
     )
-    bundle = _judge_assigned_planner_bundle(
+    bundle = _judge_flow_bundle_for_view(
         db, user, ex, judge_user_id=oversee_jid
     )
     if bundle is None:
@@ -7484,6 +7650,7 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
             eval_readonly_notice=request.args.get("eval_readonly", type=int) == 1,
             eval_action_failed=request.args.get("eval_action_failed", type=int) == 1,
             eval_saved_notice=request.args.get("eval_saved", type=int) == 1,
+            eval_save_notes_required=request.args.get("eval_save_notes_required", type=int) == 1,
         ),
     )
 
@@ -7551,8 +7718,7 @@ def judge_planner_flow_materials_action_save_results(slot: int):
             db.commit()
             return redirect(
                 url_for(
-                    "views.judge_planner_flow_materials",
-                    tab=_JUDGE_PF_TAB_EVAL_LISTS,
+                    "views.judge_planner_flow_action_approval",
                     pf_reopened=1,
                     **pf_qs,
                 )
@@ -7696,8 +7862,7 @@ def judge_planner_flow_materials_action_chief_approve(slot: int):
         )
     return redirect(
         url_for(
-            "views.judge_planner_flow_materials",
-            tab=_JUDGE_PF_TAB_EVAL_LISTS,
+            "views.judge_planner_flow_action_approval",
             pf_chief_approved=1,
             **pf_qs,
         )
@@ -7767,8 +7932,7 @@ def judge_planner_flow_materials_action_chief_reopen(slot: int):
         )
     return redirect(
         url_for(
-            "views.judge_planner_flow_materials",
-            tab=_JUDGE_PF_TAB_EVAL_LISTS,
+            "views.judge_planner_flow_action_approval",
             pf_reopened=1,
             **pf_qs,
         )
@@ -8357,6 +8521,7 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
             eval_save_url=eval_save_url,
             eval_approve_url=eval_approve_url,
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
+            eval_save_notes_required=request.args.get("eval_save_notes_required", type=int) == 1,
             subpage_close_fallback=_evaluation_list_unit_href(
                 "views.planner_evaluation_lists", unit_key, phase_key
             ),
@@ -8396,6 +8561,14 @@ def planner_evaluation_list_save_results(unit_key: str, item_id: int):
         )
     if len(raw) > 250_000:
         abort(400)
+    if _evaluation_save_payload_missing_row_notes(raw):
+        return _evaluation_list_viewer_redirect(
+            "views.planner_evaluation_list_file_viewer",
+            unit_key,
+            item_id,
+            item,
+            eval_save_notes_required=1,
+        )
     _evaluation_commit_payload_save(db, user=user, item=item, current_exercise=current_exercise, raw=raw)
     return _evaluation_list_viewer_redirect(
         "views.planner_evaluation_list_file_viewer", unit_key, item_id, item, eval_saved=1
@@ -8465,16 +8638,12 @@ def planner_evaluation_list_approve(unit_key: str, item_id: int):
 JUDGE_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("dilemmas", "قوائم تقييم الإجراءات", "fa-file-excel"),
     ("evaluation-lists", "قوائم التقييم", "fa-file-excel"),
-    ("planner-flow-materials", "المجرى وتقييم الإجراءات", "fa-diagram-project"),
+    ("planner-flow-materials", "مجرى الأحداث والمعاضل", "fa-table-list"),
     ("visual-documentation", "التوثيق المرئي", "fa-photo-film"),
     ("incomplete-tasks", "مهام غير مكتملة", "fa-clipboard-list"),
     ("battle-overview", "الصورة العامة للمعركة", "fa-map"),
 )
 JUDGE_HUB_SLUGS: dict[str, str] = {s: t for s, t, _ in JUDGE_HUB_ITEMS}
-
-_JUDGE_HUB_ITEMS_NO_PLANNER_FLOW_MATERIALS: tuple[tuple[str, str, str], ...] = tuple(
-    x for x in JUDGE_HUB_ITEMS if x[0] != "planner-flow-materials"
-)
 
 
 def _judge_hub_menu_items(user: User) -> tuple[tuple[str, str, str], ...]:
@@ -8486,10 +8655,8 @@ def _judge_hub_menu_items(user: User) -> tuple[tuple[str, str, str], ...]:
         "planner-flow-materials",
         "incomplete-tasks",
     )
-    if is_system_admin(user):
-        return CHIEF_JUDGE_ONLY_HUB_ITEMS + _JUDGE_HUB_ITEMS_NO_PLANNER_FLOW_MATERIALS
-    if can_access_chief_judge_hub(user):
-        return _chief_judge_hub_items()
+    if is_system_admin(user) or can_access_chief_judge_hub(user):
+        return CHIEF_JUDGE_ONLY_HUB_ITEMS + JUDGE_HUB_ITEMS
     return tuple(_hub_by_slug[s] for s in _judge_individual_slugs if s in _hub_by_slug)
 
 
@@ -8540,7 +8707,7 @@ def judge_hub_section(slug: str):
         if not can_access_chief_judge_hub(user):
             abort(403)
         return redirect(
-            url_for("views.judge_planner_flow_materials", from_chief_judge=1)
+            url_for("views.judge_planner_flow_action_approval", from_chief_judge=1)
         )
     title = JUDGE_HUB_SLUGS.get(slug_norm)
     if not title:
@@ -11891,6 +12058,7 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
             judge_name=judge_name or "—",
             has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
+            eval_save_notes_required=request.args.get("eval_save_notes_required", type=int) == 1,
         ),
     )
 
@@ -12145,6 +12313,15 @@ def admin_evaluation_list_save_results(unit_key: str, item_id: int):
         return redirect(url_for("views.admin_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id))
     if len(raw) > 250_000:
         abort(400)
+    if _evaluation_save_payload_missing_row_notes(raw):
+        return redirect(
+            url_for(
+                "views.admin_evaluation_list_file_viewer",
+                unit_key=unit_key,
+                item_id=item_id,
+                eval_save_notes_required=1,
+            )
+        )
     _evaluation_commit_payload_save(db, user=user, item=item, current_exercise=current_exercise, raw=raw)
     return redirect(url_for("views.admin_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id))
 
@@ -12514,6 +12691,7 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
             eval_chief_reopen_url="",
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
             eval_saved_notice=request.args.get("eval_saved", type=int) == 1,
+            eval_save_notes_required=request.args.get("eval_save_notes_required", type=int) == 1,
             subpage_close_fallback=list_url,
             **_hub_back_ctx_for_request_path(),
         ),
@@ -12552,6 +12730,14 @@ def judge_evaluation_list_save_results(unit_key: str, item_id: int):
         )
     if len(raw) > 250_000:
         abort(400)
+    if _evaluation_save_payload_missing_row_notes(raw):
+        return _evaluation_list_viewer_redirect(
+            "views.judge_evaluation_list_file_viewer",
+            unit_key,
+            item_id,
+            item,
+            eval_save_notes_required=1,
+        )
     _evaluation_commit_payload_save(db, user=user, item=item, current_exercise=current_exercise, raw=raw)
     return _evaluation_list_viewer_redirect(
         "views.judge_evaluation_list_file_viewer", unit_key, item_id, item, eval_saved=1
@@ -13507,6 +13693,24 @@ def admin_evaluation_lists_unit_redirect(unit_key: str):
     return redirect(url_for("views.admin_evaluation_lists"))
 
 
+@bp.route("/admin/server-management", methods=["GET"])
+def admin_server_management():
+    user = get_current_user_optional()
+    if not user or not is_system_admin(user):
+        abort(403)
+    from app.server_monitor.metrics import server_status_payload
+
+    status = server_status_payload()
+    return render_template(
+        "admin_server_management.html",
+        **_ctx(
+            user,
+            server_status=status,
+            page_title="إدارة الخادم",
+        ),
+    )
+
+
 @bp.route("/admin/battle-organization", methods=["GET"])
 def admin_battle_organization():
     user = get_current_user_optional()
@@ -13959,6 +14163,8 @@ def _ensure_information_bank_catalog_rows(db) -> None:
     مستويات الوحدات: تُحدَّث الترتيب ومجموعة اللواء فقط — تسمية المستخدم من زر «تعديل» لا تُستبدل.
     """
     changed = False
+    if apply_information_bank_unit_label_migrations(db):
+        changed = True
     for idx, row in enumerate(TRAINING_PHASES):
         r = db.get(InformationBankTrainingPhase, row["key"])
         if r is None:
@@ -14368,14 +14574,12 @@ def admin_information_bank():
     if active_tab not in allowed_tabs:
         active_tab = "phases"
     _ibank_active_tree_kind = {
-        "event-flow": "event_flow",
         "action-eval": "action_eval",
         "dilemma-eval": "dilemma_eval",
     }.get(active_tab)
     try:
         if _ibank_active_tree_kind:
             ensure_information_bank_kind(db, _ibank_active_tree_kind)
-        tree_event_flow = build_tree_payload(db, "event_flow", unit_label_by_key=ibank_unit_labels)
         tree_action_eval = build_tree_payload(
             db,
             "action_eval",
@@ -14391,6 +14595,7 @@ def admin_information_bank():
     except Exception as exc:
         db.rollback()
         current_app.logger.exception("information bank tree build failed: %s", exc)
+    ibank_event_flow_ctx = _build_ibank_event_flow_table_context(db)
     err = (request.args.get("err") or "").strip()[:2000]
     ok = (request.args.get("ok") or "").strip()[:500]
     from flask import make_response
@@ -14418,13 +14623,114 @@ def admin_information_bank():
                 information_bank_can_manage=can_manage_information_bank(user),
                 ibank_tree_unit_levels=list(UNIT_LEVELS),
                 ibank_judge_names_by_unit=ibank_judge_names_by_unit,
+                **ibank_event_flow_ctx,
             ),
         )
     )
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
-    resp.headers["X-Ibank-Ui-Build"] = "eval-tabs-isolated-v1"
+    resp.headers["X-Ibank-Ui-Build"] = "event-flow-table-v1"
     return resp
+
+
+@bp.route("/admin/information-bank/event-flow/save-flow-table", methods=["POST"])
+def admin_information_bank_event_flow_save():
+    user = get_current_user_optional()
+    if not user:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    if not can_manage_information_bank(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    from flask import g
+
+    db = g.db
+    payload = request.get_json(silent=True)
+    doc = _normalize_planner_flow_table_document(payload)
+    row = _get_or_create_ibank_event_flow_table(db)
+    row.flow_table_json = json.dumps(doc, ensure_ascii=False)
+    row.updated_at = datetime.utcnow()
+    db.commit()
+    active_rows = next(
+        (d["rows"] for d in doc["days"] if d["id"] == doc["active_day_id"]),
+        [],
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "day_count": len(doc["days"]),
+            "row_count": len(active_rows),
+        }
+    )
+
+
+@bp.route("/admin/information-bank/event-flow/import-flow-docx", methods=["POST"])
+def admin_information_bank_event_flow_import_docx():
+    user = get_current_user_optional()
+    if not user:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    if not can_manage_information_bank(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    from flask import g
+
+    from app.planner_flow_docx_import import parse_planner_flow_docx_bytes
+
+    db = g.db
+    up = request.files.get("file")
+    if up is None or not (up.filename or "").strip():
+        return jsonify({"ok": False, "error": "no_file"}), 400
+    raw = up.read()
+    if not raw:
+        return jsonify({"ok": False, "error": "no_file"}), 400
+    if not _is_docx_bytes(raw):
+        return jsonify({"ok": False, "error": "bad_docx"}), 400
+
+    parsed = parse_planner_flow_docx_bytes(raw)
+    if not parsed.get("ok"):
+        err = parsed.get("error") or "import_fail"
+        return jsonify({"ok": False, "error": err, "warnings": parsed.get("warnings") or []}), 400
+
+    row = _get_or_create_ibank_event_flow_table(db)
+    day_id = (request.form.get("day_id") or "").strip()
+    days, active_id = _parse_planner_flow_table_days(
+        getattr(row, "flow_table_json", None)
+    )
+    if day_id and any(d["id"] == day_id for d in days):
+        target_id = day_id
+    else:
+        target_id = active_id or (days[0]["id"] if days else "day-1")
+
+    updated = False
+    for d in days:
+        if d["id"] == target_id:
+            d["note"] = parsed.get("note") or ""
+            d["rows"] = parsed.get("rows") or []
+            updated = True
+            break
+    if not updated:
+        days.append(
+            {
+                "id": target_id,
+                "label": f"اليوم/{len(days) + 1}",
+                "note": parsed.get("note") or "",
+                "rows": parsed.get("rows") or [],
+            }
+        )
+
+    days = _ensure_day_one_tab(days)
+    doc = {"version": 2, "active_day_id": target_id, "days": days}
+    row.flow_table_json = json.dumps(doc, ensure_ascii=False)
+    row.updated_at = datetime.utcnow()
+    db.commit()
+
+    return jsonify(
+        {
+            "ok": True,
+            "active_day_id": target_id,
+            "days": days,
+            "note": parsed.get("note") or "",
+            "row_count": len(parsed.get("rows") or []),
+            "warnings": parsed.get("warnings") or [],
+        }
+    )
 
 
 @bp.route("/admin/information-bank/phase-notes", methods=["POST"])

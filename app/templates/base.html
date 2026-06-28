@@ -5,11 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#ffffff">
   <title>{% block title %}نظام إدارة التمارين{% endblock %}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/static/style.css?v=exercise-workspace-tabs-5">
+  <link rel="stylesheet" href="/static/fonts-local.css?v=fonts-local-1">
+  <link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css?v=fa-6.5.1">
+  <link rel="stylesheet" href="/static/style.css?v=pf-flow-ibank-distribute-v1">
+  <link rel="stylesheet" href="/static/tablet.css?v=tablet-webview-2">
 </head>
 <body class="{% block body_class %}{% endblock %}{% if hub_landing_preserve_buttons %} hub-landing-preserve-buttons{% endif %}">
 <header>
@@ -57,6 +56,7 @@
             <a role="menuitem" href="/admin/exercises/judge-unit-roster" class="{% if header_admin_menu_active.judge_roster %}is-active{% endif %}"><i class="fa-solid fa-gavel" aria-hidden="true"></i> قائمة المحكمين</a>
             <a role="menuitem" href="/admin/battle-organization" class="{% if header_admin_menu_active.battle_org %}is-active{% endif %}"><i class="fa-solid fa-sitemap" aria-hidden="true"></i> تنظيم المعركة</a>
             <a role="menuitem" href="/admin/users" class="{% if header_admin_menu_active.users %}is-active{% endif %}"><i class="fa-solid fa-users-gear" aria-hidden="true"></i> إدارة المستخدمين</a>
+            <a role="menuitem" href="/admin/server-management" class="{% if header_admin_menu_active.server_management %}is-active{% endif %}"><i class="fa-solid fa-server" aria-hidden="true"></i> إدارة الخادم</a>
           </div>
         </div>
         {% endif %}
@@ -341,6 +341,7 @@
 })();
 </script>
 {% endif %}
+<script src="/static/offline-sync.js?v=offline-sync-3"></script>
 {% if user %}
 <script>
 (function () {

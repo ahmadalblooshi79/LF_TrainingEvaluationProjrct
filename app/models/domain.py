@@ -1095,3 +1095,13 @@ class InfoBankDilemmaEvalXlsx(Base):
     file_relpath: Mapped[str] = mapped_column(String(500), default="")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class InformationBankEventFlowTable(Base):
+    """جدول مجرى الأحداث والمعاضل في بنك المعلومات — مرجع عام بلا exercise_id."""
+
+    __tablename__ = "information_bank_event_flow_table"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    flow_table_json: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -20,12 +20,18 @@
 {% endmacro %}
 
 <script type="application/json" id="pf-flow-days-json">{{ flow_table_days | tojson }}</script>
-<section class="card planner-flow-action-table-section" id="pf-flow-table-section" dir="rtl" data-pf-script-ver="31"
+<section class="card planner-flow-action-table-section" id="pf-flow-table-section" dir="rtl"   data-pf-script-ver="34"
   data-active-day-id="{{ flow_table_active_day_id }}"
   {% if readonly_mode %}data-readonly="1"{% endif %}
   {% if not readonly_mode %}
-  data-save-url="{{ url_for('views.planner_flow_bundle_save_flow_table', bundle_id=bundle.id) }}"
-  data-import-docx-url="{{ url_for('views.planner_flow_bundle_import_flow_docx', bundle_id=bundle.id) }}"
+  data-save-url="{{ pf_flow_save_url }}"
+  data-import-docx-url="{{ pf_flow_import_docx_url }}"
+  {% if pf_flow_pull_ibank_url is defined and pf_flow_pull_ibank_url %}
+  data-pull-ibank-url="{{ pf_flow_pull_ibank_url }}"
+  {% endif %}
+  {% if pf_flow_distribute_judges_url is defined and pf_flow_distribute_judges_url %}
+  data-distribute-judges-url="{{ pf_flow_distribute_judges_url }}"
+  {% endif %}
   {% endif %}>
 
   <div class="pf-flow-days-bar" id="pf-flow-days-bar" dir="rtl">
@@ -40,6 +46,12 @@
     <div class="pf-flow-days-tools">
       <button type="button" class="pf-flow-clear-day-btn btn btn-sm-compact btn-ghost" id="pf-flow-clear-day-btn" title="تفريغ محتوى الجدول في التبويب الحالي"><i class="fa-solid fa-eraser" aria-hidden="true"></i> تفريغ الجدول</button>
       <button type="button" class="pf-flow-import-docx-btn btn btn-sm-compact btn-ghost" id="pf-flow-import-docx-btn" title="استيراد من Word (.docx)"><i class="fa-solid fa-file-import" aria-hidden="true"></i> استيراد Word</button>
+      {% if pf_flow_pull_ibank_url is defined and pf_flow_pull_ibank_url %}
+      <button type="button" class="pf-flow-pull-ibank-btn btn btn-sm-compact btn-ghost" id="pf-flow-pull-ibank-btn" title="سحب الجدول من بنك المعلومات"><i class="fa-solid fa-database" aria-hidden="true"></i> بنك المعلومات</button>
+      {% endif %}
+      {% if pf_flow_distribute_judges_url is defined and pf_flow_distribute_judges_url %}
+      <button type="button" class="pf-flow-distribute-judges-btn btn btn-sm-compact btn-ghost" id="pf-flow-distribute-judges-btn" title="توزيع الجدول على صفحات المحكمين (قراءة فقط)"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i> توزيع للمحكمين</button>
+      {% endif %}
       <input type="file" id="pf-flow-import-docx-input" class="pf-flow-import-docx-input" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
     </div>
     {% endif %}
@@ -57,7 +69,7 @@
         class="pf-flow-day-note"
         id="pf-flow-day-note"
         name="pf_flow_day_note"
-        rows="3"
+        rows="1"
         dir="rtl"
         spellcheck="true"
         {% if readonly_mode %}readonly{% endif %}

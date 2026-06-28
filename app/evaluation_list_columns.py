@@ -430,6 +430,32 @@ def payload_has_any_notes(rows: list | None) -> bool:
     return False
 
 
+def payload_rows_missing_required_notes(rows: list | None) -> list[int]:
+    """
+    صفوف التقييم التي نتيجتها «مقبول» أو «راسب» دون ملاحظات —
+    يجب تعبئة الملاحظات قبل الحفظ.
+    """
+    missing: list[int] = []
+    for idx, r in enumerate(rows or []):
+        if not isinstance(r, dict):
+            continue
+        if str(r.get("row_kind") or "score").strip().lower() == "section":
+            continue
+        pct = payload_row_score_pct(r)
+        if pct is None:
+            continue
+        grade = display_grade_label(grade_label_from_percent(pct))
+        if grade not in _NON_APPROVABLE_GRADES:
+            continue
+        if not (r.get("notes") or "").strip():
+            missing.append(idx)
+    return missing
+
+
+def payload_valid_for_save(rows: list | None) -> bool:
+    return not payload_rows_missing_required_notes(rows)
+
+
 def display_grade_label(label: str | None) -> str:
     """عرض التقدير — يوحّد «متوسط» القديم إلى «مقبول»."""
     g = (label or "").strip()

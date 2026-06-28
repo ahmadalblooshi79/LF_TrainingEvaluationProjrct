@@ -415,6 +415,24 @@ def ensure_information_bank_unit_included_column() -> None:
         )
 
 
+def ensure_information_bank_unit_label_migrations() -> None:
+    """ترحيل تسميات مستويات الوحدات القديمة في بنك المعلومات."""
+    try:
+        insp = inspect(engine)
+        if "information_bank_unit_levels" not in insp.get_table_names():
+            return
+    except Exception:
+        return
+    from app.information_bank_catalog import apply_information_bank_unit_label_migrations
+
+    db = SessionLocal()
+    try:
+        if apply_information_bank_unit_label_migrations(db):
+            db.commit()
+    finally:
+        db.close()
+
+
 def ensure_analyst_final_eval_manual_tables() -> None:
     """جداول علامات القصوى اليدوية في التقييم النهائي (SQLite)."""
     if not DATABASE_URL.startswith("sqlite"):

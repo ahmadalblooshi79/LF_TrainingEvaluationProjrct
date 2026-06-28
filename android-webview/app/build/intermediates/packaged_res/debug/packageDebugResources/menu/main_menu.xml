@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/action_zoom_in"
+        android:title="@string/action_zoom_in"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_zoom_out"
+        android:title="@string/action_zoom_out"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_zoom_reset"
+        android:title="@string/action_zoom_reset"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_reload"
+        android:icon="@android:drawable/ic_menu_rotate"
+        android:title="@string/action_reload"
+        app:showAsAction="ifRoom" />
+    <item
+        android:id="@+id/action_settings"
+        android:icon="@android:drawable/ic_menu_preferences"
+        android:title="@string/action_settings"
+        app:showAsAction="always" />
+</menu>

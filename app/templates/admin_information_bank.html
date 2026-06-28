@@ -36,7 +36,9 @@
   <div class="ibank-tabbed">
     <div class="ibank-tabs-row ibank-tabs-row--brigades" dir="rtl" role="tablist" aria-label="تبويبات بنك المعلومات">
       <button type="button" class="ibank-tab{% if active_tab == 'phases' %} is-active{% endif %}" data-tab-btn="phases" role="tab" aria-selected="{{ 'true' if active_tab == 'phases' else 'false' }}">مراحل التمرين</button>
-      <button type="button" class="ibank-tab{% if active_tab == 'units-bg-1' %} is-active{% endif %}" data-tab-btn="units-bg-1" role="tab" aria-selected="{{ 'true' if active_tab == 'units-bg-1' else 'false' }}">مجموعة لواء الإمارات / 1</button>
+      {% for bg in info_bank_brigade_groups %}
+      <button type="button" class="ibank-tab{% if active_tab == bg.tab %} is-active{% endif %}" data-tab-btn="{{ bg.tab }}" role="tab" aria-selected="{{ 'true' if active_tab == bg.tab else 'false' }}">{{ bg.label }}</button>
+      {% endfor %}
       <button type="button" class="ibank-tab{% if active_tab == 'event-flow' %} is-active{% endif %}" data-tab-btn="event-flow" role="tab" aria-selected="{{ 'true' if active_tab == 'event-flow' else 'false' }}">مجرى الأحداث والمعاضل</button>
       <button type="button" class="ibank-tab{% if active_tab == 'action-eval' %} is-active{% endif %}" data-tab-btn="action-eval" role="tab" aria-selected="{{ 'true' if active_tab == 'action-eval' else 'false' }}">قوائم تقييم الإجراءات</button>
       <button type="button" class="ibank-tab{% if active_tab == 'dilemma-eval' %} is-active{% endif %}" data-tab-btn="dilemma-eval" role="tab" aria-selected="{{ 'true' if active_tab == 'dilemma-eval' else 'false' }}">قوائم التقييم</button>
@@ -112,10 +114,11 @@
         {% endif %}
       </div>
 
-      {% set ibank_bg1 = {'key': '1', 'tab': 'units-bg-1', 'label': 'مجموعة لواء الإمارات / 1'} %}
-      {% with units=info_bank_brigade_units.get('1', []), bg=ibank_bg1 %}
+      {% for bg in info_bank_brigade_groups %}
+      {% with units=info_bank_brigade_units.get(bg.key, []), bg=bg %}
       {% include 'partials/information_bank_brigade_units_panel.html' %}
       {% endwith %}
+      {% endfor %}
       {% if information_bank_can_manage %}
       <form method="post" action="{{ url_for('views.admin_information_bank_units_included_save') }}" id="ibank-units-included-form" class="ibank-units-included-form ibank-units-included-form--global">
         <input type="hidden" name="uncheck_password" id="ibank-uncheck-password" value="" autocomplete="off">
@@ -135,9 +138,22 @@
       {% endif %}
 
       <div class="ibank-tabpane{% if active_tab == 'event-flow' %} is-active{% endif %}" data-tab-pane="event-flow" role="tabpanel">
-        {% with kind='event_flow', tree_nodes=tree_event_flow %}
-        {% include 'admin_information_bank_tree_panel.html' %}
-        {% endwith %}
+        <div class="ibank-event-flow-panel" dir="rtl">
+          <div class="planner-flow-col-head planner-flow-col-head--page ibank-event-flow-panel__head">
+            <div class="planner-flow-col-head__title-row">
+              <h2 class="h2-in-card planner-flow-page-title"><i class="fa-solid fa-table-list fa-icon-title" aria-hidden="true"></i> جدول مجرى الأحداث والمعاضل</h2>
+            </div>
+            <div class="planner-flow-col-head__actions pf-flow-head-actions">
+              {% if information_bank_can_manage %}
+              <button type="button" class="btn btn-sm-compact pf-flow-save-btn" data-pf-save><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> الحفظ</button>
+              {% endif %}
+            </div>
+          </div>
+          <p class="muted ibank-event-flow-panel__note" role="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> مرجع عام في بنك المعلومات — غير مرتبط بأي تمرين.</p>
+          {% with readonly_mode=not information_bank_can_manage, pf_flow_save_url=url_for('views.admin_information_bank_event_flow_save'), pf_flow_import_docx_url=url_for('views.admin_information_bank_event_flow_import_docx') %}
+          {% include 'partials/planner_action_flow_table.html' %}
+          {% endwith %}
+        </div>
       </div>
 
       <div class="ibank-tabpane{% if active_tab == 'action-eval' %} is-active{% endif %}" data-tab-pane="action-eval" role="tabpanel">

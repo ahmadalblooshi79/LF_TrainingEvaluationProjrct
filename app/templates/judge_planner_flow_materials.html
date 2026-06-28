@@ -1,13 +1,10 @@
 {% extends "base.html" %}
-{% block title %}المجرى وتقييم الإجراءات{% endblock %}
+{% block title %}مجرى الأحداث والمعاضل{% endblock %}
 {% block content %}
-<div class="judge-pf-root">
+<div class="judge-pf-root judge-pf-flow-readonly">
 <div class="page-header judge-pf-page-header">
-  <h1><i class="fa-solid fa-diagram-project fa-icon-title" aria-hidden="true"></i> المجرى وتقييم الإجراءات</h1>
+  <h1><i class="fa-solid fa-table-list fa-icon-title" aria-hidden="true"></i> مجرى الأحداث والمعاضل</h1>
   <div class="judge-pf-page-header-meta">
-    {% if planner_flow_viewing_judge_label|default('')|trim %}
-    <p class="judge-pf-unit-line"><i class="fa-solid fa-user-tie" aria-hidden="true"></i> اعتماد تقييم المحكم: <strong>{{ planner_flow_viewing_judge_label }}</strong></p>
-    {% endif %}
     {% if bundle is not none and planner_flow_unit_label %}
     <p class="judge-pf-unit-line"><i class="fa-solid fa-layer-group" aria-hidden="true"></i> مستوى الوحدة المعروض: <strong>{{ planner_flow_unit_label }}</strong></p>
     {% endif %}
@@ -19,161 +16,16 @@
 
 {% if not has_exercise %}
 <p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يوجد تمرين حالي.</p>
-{% elif planner_flow_oversee_picker|default(false) and planner_flow_oversee_rows %}
-<section class="card">
-  <h2 class="h2-in-card"><i class="fa-solid fa-stamp fa-icon-title" aria-hidden="true"></i> اختيار المحكم للاعتماد</h2>
-  <p class="muted">اختر المحكم المرتبط بحزمة المجرى لفتح صفحة «المجرى وتقييم الإجراءات» واعتماد قوائم تقييم الإجراءات. بعد اعتماد كبير المحكمين يُرسل التقييم إلى <strong>اعتماد السيطرة</strong>.</p>
-  <div class="table-wrap">
-    <table class="ibank-table" dir="rtl" aria-label="محكمون مرتبطون بحزمة المجرى">
-      <thead>
-        <tr>
-          <th scope="col">المحكم</th>
-          <th scope="col">مستوى الوحدة</th>
-          <th scope="col">الحزمة</th>
-          <th scope="col">اعتماد</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in planner_flow_oversee_rows %}
-        <tr>
-          <td>{{ row.judge_label }}</td>
-          <td>{{ row.unit_label }}</td>
-          <td>{{ row.bundle_label }}</td>
-          <td><a class="btn btn-ghost btn-sm-compact" href="{{ row.view_href }}"><i class="fa-solid fa-stamp" aria-hidden="true"></i> اعتماد</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
 {% elif bundle is none %}
-<p class="muted">لم يتم بعد ربط حزمة «مجرى الأحداث وتقييم الإجراءات» بحسابك من قبل التخطيط. عند الإسناد ستظهر الملفات هنا.</p>
+<p class="muted">لم يُوزَّع جدول المجرى بعد من التخطيط. اطلب من التخطيط الضغط على «توزيع للمحكمين» بعد إعداد الجدول.</p>
+{% elif not flow_table_has_content|default(false) %}
+<p class="muted">الحزمة مرتبطة لكن الجدول فارغ — اطلب من التخطيط توزيع جدول المجرى عبر زر «توزيع للمحكمين».</p>
 {% else %}
-{% set pf_qs = planner_flow_url_kwargs or {} %}
-{% set ev_rel = planner_event_flow_relpath or bundle.event_flow_file_relpath or '' %}
-{% set _pf_tab = active_pf_tab|default('pf-event') %}
-<section class="card judge-pf-tabbed" data-initial-pf-tab="{{ _pf_tab }}">
-  <div class="ibank-tabbed" dir="rtl">
-    <div class="ibank-tabs-row" role="tablist" aria-label="مجرى الأحداث وقوائم التقييم">
-      <button type="button" class="ibank-tab{% if _pf_tab == 'pf-event' %} is-active{% endif %}" data-tab-btn="pf-event" role="tab" aria-selected="{{ 'true' if _pf_tab == 'pf-event' else 'false' }}">مجرى الأحداث</button>
-      <button type="button" class="ibank-tab{% if _pf_tab == 'pf-eval' %} is-active{% endif %}" data-tab-btn="pf-eval" role="tab" aria-selected="{{ 'true' if _pf_tab == 'pf-eval' else 'false' }}">قوائم تقييم الإجراءات</button>
-    </div>
-    <div class="ibank-tab-body">
-      <div class="ibank-tabpane{% if _pf_tab == 'pf-event' %} is-active{% endif %}" data-tab-pane="pf-event" role="tabpanel">
-        <div class="judge-pf-tab-pane-inner">
-          <h2 class="h2-in-card"><i class="fa-solid fa-file-pdf fa-icon-title" aria-hidden="true"></i> مجرى الأحداث والمعاضل</h2>
-          {% if ev_rel|trim %}
-          <p class="planner-flow-event-filename" title="{{ planner_event_flow_display_name | e }}"><i class="fa-solid fa-file-lines" aria-hidden="true"></i> <strong>{{ planner_event_flow_display_name or 'ملف المجرى' }}</strong></p>
-          <div class="planner-flow-master-actions-row">
-            {% if planner_event_flow_file_ok %}
-            <a class="btn btn-ghost btn-sm-compact" href="{{ url_for('views.judge_planner_flow_materials_event_flow', **pf_qs) }}" target="_blank" rel="noopener"><i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i> فتح في نافذة جديدة</a>
-            {% else %}
-            <span class="btn btn-ghost btn-sm-compact muted judge-pf-btn-disabled" title="الملف غير متاح على الخادم"><i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i> فتح في نافذة جديدة</span>
-            {% endif %}
-          </div>
-          {% if planner_event_flow_file_ok and ('.pdf' in ev_rel|lower) %}
-          <div class="planner-flow-pdf-embed-wrap">
-            <iframe class="planner-flow-pdf-iframe" src="{{ url_for('views.judge_planner_flow_materials_event_flow', **pf_qs) }}" title="معاينة مجرى الأحداث"></iframe>
-          </div>
-          {% elif planner_event_flow_file_ok and ('.doc' in ev_rel|lower) %}
-          <p class="muted judge-pf-hint"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> ملف Word: استخدم «فتح في نافذة جديدة» أعلاه.</p>
-          {% elif planner_event_flow_file_ok %}
-          <p class="muted judge-pf-hint"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> لفتح المعاينة استخدم زر «فتح في نافذة جديدة».</p>
-          {% endif %}
-          {% else %}
-          <p class="muted judge-pf-empty">لا يوجد ملف مجرى مرفوع ضمن هذه الحزمة.</p>
-          {% endif %}
-        </div>
-      </div>
-
-      <div class="ibank-tabpane{% if _pf_tab == 'pf-eval' %} is-active{% endif %}" data-tab-pane="pf-eval" role="tabpanel">
-        <div class="judge-pf-tab-pane-inner judge-pf-tab-pane-inner--eval">
-          <h2 class="h2-in-card"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> قوائم تقييم الإجراءات</h2>
-          {% if request.args.get('pf_reopened') %}
-          <p class="form-ok-banner" role="status"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> تم إعادة التقييم إلى المحكم — يظهر في عمود «إرسال للاعتماد» كـ <strong>معاد للتعديل</strong>.</p>
-          {% elif request.args.get('pf_chief_approved') %}
-          <p class="form-ok-banner" role="status"><i class="fa-solid fa-stamp" aria-hidden="true"></i> تم اعتماد كبير المحكمين — التقييم في مسار <strong>اعتماد السيطرة</strong>.</p>
-          {% endif %}
-          <p class="muted judge-pf-eval-hint">الموقف (ينجز/لم ينجز) يعتمد على اعتماد المحكم؛ يبقى «ينجز» بعد إعادة الفتح حتى يحفظ المحكم تعديلاته.</p>
-          {% if planner_eval_rows %}
-          <div class="table-wrap">
-            <table class="pf-judge-eval-table ibank-table" dir="rtl" aria-label="قوائم تقييم الإجراءات">
-              <thead>
-                <tr>
-                  <th scope="col">التاريخ والوقت</th>
-                  <th scope="col">نوع التمرين</th>
-                  <th scope="col">الوحدة المقيمة</th>
-                  <th scope="col">قائمة التقييم</th>
-                  <th scope="col">توقيت التسليم</th>
-                  <th scope="col">الموقف</th>
-                  <th scope="col">إرسال للاعتماد</th>
-                  <th scope="col">مسار الاعتماد</th>
-                  <th scope="col">التقدير العام</th>
-                  <th scope="col">فتح</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for r in planner_eval_rows %}
-                <tr class="{% if r.row_tone and r.row_tone != 'none' %}eval-row-tone--{{ r.row_tone }}{% endif %}">
-                  <td>{% if r.dt %}{{ r.dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
-                  <td>{{ r.exercise_type or "—" }}</td>
-                  <td>{{ r.trained_unit or "—" }}</td>
-                  <td>{{ r.item_title }}</td>
-                  <td>{% if r.delivery_dt %}{{ r.delivery_dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
-                  <td>{% if r.status_done %}<span class="badge badge--done">ينجز</span>{% else %}<span class="badge badge--not-done">لم ينجز</span>{% endif %}</td>
-                  <td>
-                    <span class="judge-eval-dispatch-badge judge-eval-dispatch-badge--{{ r.row_tone | default('none') }}">{{ r.dispatch_label or "—" }}</span>
-                  </td>
-                  <td>{{ r.workflow_label or "—" }}</td>
-                  <td>{{ r.grade_label or "—" }}</td>
-                  <td>
-                    {% if r.open_href %}
-                    <a href="{{ r.open_href }}">فتح التقييم</a>
-                    {% else %}
-                    <span class="muted">—</span>
-                    {% endif %}
-                  </td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-          {% else %}
-          <p class="muted judge-pf-empty">لا توجد قوائم في هذه الحزمة بعد أو لم يُرفع ملف Excel للقوائم.</p>
-          {% endif %}
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <script>
-  (function () {
-    var card = document.currentScript && document.currentScript.parentElement;
-    if (!card) return;
-    var btns = card.querySelectorAll("[data-tab-btn]");
-    var panes = card.querySelectorAll("[data-tab-pane]");
-    function activate(id) {
-      btns.forEach(function (b) {
-        var on = b.getAttribute("data-tab-btn") === id;
-        b.classList.toggle("is-active", on);
-        b.setAttribute("aria-selected", on ? "true" : "false");
-      });
-      panes.forEach(function (p) {
-        var on = p.getAttribute("data-tab-pane") === id;
-        p.classList.toggle("is-active", on);
-      });
-    }
-    btns.forEach(function (b) {
-      b.addEventListener("click", function () {
-        activate(b.getAttribute("data-tab-btn"));
-      });
-    });
-    var initialTab = card.getAttribute("data-initial-pf-tab") || "pf-event";
-    if (initialTab === "pf-event" || initialTab === "pf-eval") {
-      activate(initialTab);
-    }
-  })();
-  </script>
+<p class="form-ok-banner judge-pf-readonly-banner" role="status"><i class="fa-solid fa-eye" aria-hidden="true"></i> للقراءة فقط — لا يمكن التعديل أو الحفظ من هنا.</p>
+<section class="card judge-pf-flow-readonly-card">
+  {% with readonly_mode=true %}
+  {% include 'partials/planner_action_flow_table.html' %}
+  {% endwith %}
 </section>
 {% endif %}
 </div>

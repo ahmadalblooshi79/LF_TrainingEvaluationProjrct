@@ -84,8 +84,8 @@
               {% if eval_can_edit|default(false) and (eval_crit_upload_url|default('')) %}
               <button type="button" class="btn btn-icon btn-icon-crit eval-crit-cap-btn" title="التقاط صورة" data-eval-crit-trigger="photo" data-row-index="{{ loop.index0 }}" aria-label="التقاط صورة للصف {{ loop.index }}"><i class="fa-solid fa-camera" aria-hidden="true"></i></button>
               <button type="button" class="btn btn-icon btn-icon-crit eval-crit-cap-btn" title="تسجيل فيديو" data-eval-crit-trigger="video" data-row-index="{{ loop.index0 }}" aria-label="تسجيل فيديو للصف {{ loop.index }}"><i class="fa-solid fa-video" aria-hidden="true"></i></button>
-              <input type="file" class="eval-crit-file eval-crit-file--photo" accept="image/*" capture="environment" hidden data-row-index="{{ loop.index0 }}" data-kind="photo">
-              <input type="file" class="eval-crit-file eval-crit-file--video" accept="video/*" capture="environment" hidden data-row-index="{{ loop.index0 }}" data-kind="video">
+              <input type="file" class="eval-crit-file eval-crit-file--photo" accept="image/*" capture="environment" hidden data-row-index="{{ loop.index0 }}" data-kind="photo" data-capture-mode="camera">
+              <input type="file" class="eval-crit-file eval-crit-file--video" accept="video/*" capture="camcorder" hidden data-row-index="{{ loop.index0 }}" data-kind="video" data-capture-mode="camcorder">
               {% endif %}
               {% for m in row_crit %}
               <span class="eval-crit-slot-item">
@@ -455,6 +455,12 @@
   if (form && payloadEl) {
     form.addEventListener('submit', function (e) {
       e.preventDefault();
+      var blockedNoteRows = collectSaveBlockedNoteRows();
+      if (blockedNoteRows.length) {
+        showSaveNotesBlockMsg(blockedNoteRows);
+        return;
+      }
+      if (warnEl) warnEl.hidden = true;
       payloadEl.value = JSON.stringify(buildPayload());
       submitEvalSaveForm(form, hintEl);
     });
@@ -472,6 +478,34 @@
   function rowNotesText(tr) {
     var notes = tr.querySelector('.eval-notes-textarea');
     return notes ? String(notes.value || '').trim() : '';
+  }
+  function rowGradeText(tr) {
+    var grEl = tr.querySelector('[data-grade-out]');
+    return grEl ? String(grEl.textContent || '').trim() : '';
+  }
+  function collectSaveBlockedNoteRows() {
+    var out = [];
+    table.querySelectorAll('tr.eval-row--score').forEach(function (tr) {
+      var g = rowGradeText(tr);
+      if (NON_APPROVABLE_GRADES[g] && !rowNotesText(tr)) out.push(tr);
+    });
+    return out;
+  }
+  function showSaveNotesBlockMsg(missingRows) {
+    clearNotesRequiredHighlight();
+    if (warnEl) {
+      warnEl.textContent =
+        'لا يمكن الحفظ: يوجد بند نتيجته «مقبول» أو «راسب» — اكتب ملاحظات لهذا الصف في خانة الملاحظات.';
+      warnEl.hidden = false;
+    }
+    (missingRows || []).forEach(function (tr) {
+      var td = tr.querySelector('td.eval-col--notes');
+      if (td) td.classList.add('eval-notes--required');
+    });
+    if (missingRows && missingRows[0]) {
+      var firstTd = missingRows[0].querySelector('td.eval-col--notes');
+      if (firstTd && firstTd.scrollIntoView) firstTd.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
   }
   function hasAnyNotesFilled() {
     var found = false;
@@ -703,6 +737,7 @@
       var td = tr.querySelector('td.eval-col--notes');
       if (td && String(t.value || '').trim() !== '') td.classList.remove('eval-notes--required');
     }
+    if (warnEl && !collectSaveBlockedNoteRows().length) warnEl.hidden = true;
     syncApproveButtonVisibility();
   });
 })();
@@ -789,7 +824,16 @@
     var ridx = String(trg.getAttribute('data-row-index') || '');
     var cls = rk === 'video' ? '.eval-crit-file--video' : '.eval-crit-file--photo';
     var slot = root.querySelector(cls + '[data-row-index="' + ridx + '"]');
-    if (slot && !slot.disabled) slot.click();
+    if (slot && !slot.disabled) {
+      if (rk === 'video') {
+        slot.setAttribute('accept', 'video/*');
+        slot.setAttribute('capture', 'camcorder');
+      } else {
+        slot.setAttribute('accept', 'image/*');
+        slot.setAttribute('capture', 'environment');
+      }
+      slot.click();
+    }
   });
   function maybeCompressPhoto(file, done) {
     if (!file || !/^image\//.test(file.type || '')) {

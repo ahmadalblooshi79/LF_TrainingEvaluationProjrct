@@ -1,0 +1,14 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.LFTrainingEval" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/lf_brown_600</item>
+        <item name="colorPrimaryVariant">@color/lf_brown_800</item>
+        <item name="colorOnPrimary">@color/lf_white</item>
+        <item name="android:statusBarColor">@color/lf_brown_800</item>
+        <item name="android:navigationBarColor">@color/lf_brown_800</item>
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="o_mr1">shortEdges</item>
+    </style>
+
+    <style name="Theme.LFTrainingEval.Splash" parent="Theme.LFTrainingEval">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+    </style>
+</resources>

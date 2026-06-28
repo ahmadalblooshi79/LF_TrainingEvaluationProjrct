@@ -1,0 +1,218 @@
+{% extends "admin_shell.html" %}
+{% block title %}إدارة الخادم — Server Management Dashboard{% endblock %}
+{% block admin_workspace %}
+<h1 class="h1-page"><i class="fa-solid fa-server fa-icon-title" aria-hidden="true"></i> إدارة الخادم</h1>
+<p class="muted">Server Management Dashboard — مراقبة الخادم والشبكة والأجهزة المتصلة.</p>
+
+<div class="server-dash-grid" id="server-dash-root">
+  <section class="card server-dash-card">
+    <h2 class="h2-in-card">حالة السيرفر</h2>
+    <ul class="server-dash-kv" id="srv-status-kv">
+      <li><span>الحالة</span><strong id="srv-running">{{ 'يعمل' if server_status.running else 'متوقف' }}</strong></li>
+      <li><span>المنفذ</span><strong>{{ server_status.port }}</strong></li>
+      <li><span>IP محلي</span><strong dir="ltr" id="srv-local-ip">{{ server_status.local_ip }}</strong></li>
+      <li><span>Hostname</span><strong dir="ltr">{{ server_status.hostname }}</strong></li>
+      <li><span>نوع الاتصال</span><strong>{{ server_status.connection_type }}</strong></li>
+      <li><span>قاعدة البيانات</span><strong>{{ server_status.database.label }}</strong></li>
+      <li><span>الرابط</span><strong dir="ltr"><a id="srv-access-link" href="{{ server_status.access_url }}" target="_blank" rel="noopener">{{ server_status.access_url }}</a></strong></li>
+    </ul>
+    <div class="server-dash-qr">
+      <img src="/api/server/qr" width="200" height="200" alt="QR للرابط" loading="lazy">
+      <p class="muted">امسح من التابلت للوصول السريع (نفس شبكة Wi‑Fi)</p>
+    </div>
+  </section>
+
+  <section class="card server-dash-card">
+    <h2 class="h2-in-card">الشبكة</h2>
+    <ul class="server-dash-kv" id="srv-network-kv">
+      <li><span>Adapter Name</span><strong id="srv-adapter-name">{{ server_status.network.adapter_name or '—' }}</strong></li>
+      <li><span>IPv4 Address</span><strong dir="ltr" id="srv-ipv4">{{ server_status.network.ip_address }}</strong></li>
+      <li><span>Subnet Mask</span><strong dir="ltr" id="srv-subnet">{{ server_status.network.subnet_mask or '—' }}</strong></li>
+      <li><span>Gateway</span><strong dir="ltr" id="srv-gateway">{{ server_status.network.gateway or '—' }}</strong></li>
+      <li><span>DNS</span><strong dir="ltr" id="srv-dns">{% if server_status.network.dns %}{{ server_status.network.dns | join(', ') }}{% else %}—{% endif %}</strong></li>
+      <li><span>MAC Address</span><strong dir="ltr" id="srv-mac">{{ server_status.network.mac_address or '—' }}</strong></li>
+      <li><span>SSID</span><strong id="srv-ssid">{{ server_status.network.ssid or '—' }}</strong></li>
+      <li><span>نوع الاتصال</span><strong id="srv-conn-type">{{ server_status.network.connection_type or '—' }}</strong></li>
+    </ul>
+  </section>
+
+  <section class="card server-dash-card">
+    <h2 class="h2-in-card">النظام</h2>
+    <ul class="server-dash-kv" id="srv-system-kv">
+      <li><span>CPU</span><strong id="srv-cpu">{{ server_status.system.cpu_percent or '—' }}%</strong></li>
+      <li><span>RAM</span><strong id="srv-ram">{{ server_status.system.ram_percent or '—' }}%</strong></li>
+      <li><span>Disk</span><strong id="srv-disk">{{ server_status.system.disk_percent or '—' }}%</strong></li>
+      <li><span>Python</span><strong dir="ltr">{{ server_status.system.python }}</strong></li>
+    </ul>
+  </section>
+
+  <section class="card server-dash-card server-dash-card--wide">
+    <h2 class="h2-in-card">التابلتات المتصلة</h2>
+    <p class="muted" id="srv-devices-summary">جاري التحميل…</p>
+    <div class="table-wrap">
+      <table class="server-dash-table" id="srv-devices-table">
+        <thead>
+          <tr>
+            <th>الجهاز</th>
+            <th>IP</th>
+            <th>الرقم العسكري</th>
+            <th>اسم المحكم</th>
+            <th>دخول</th>
+            <th>آخر نشاط</th>
+            <th>الحالة</th>
+            <th>المزامنة</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card server-dash-card server-dash-card--wide">
+    <h2 class="h2-in-card">سجلات النشاط</h2>
+    <div class="server-dash-log-tools">
+      <select id="srv-log-kind" aria-label="نوع السجل">
+        <option value="activity">Activity</option>
+        <option value="sync">Synchronization</option>
+      </select>
+      <button type="button" class="btn btn-ghost" id="srv-log-export">تصدير CSV</button>
+    </div>
+    <div class="table-wrap">
+      <table class="server-dash-table" id="srv-logs-table">
+        <thead>
+          <tr>
+            <th>الوقت</th>
+            <th>النوع</th>
+            <th>الرسالة</th>
+            <th>الجهاز</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  var logRows = [];
+  function fmtTime(iso) {
+    if (!iso) return '—';
+    try { return new Date(iso).toLocaleString('ar-AE'); } catch (e) { return iso; }
+  }
+  function loadStatus() {
+    fetch('/api/server/status', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) return;
+        document.getElementById('srv-running').textContent = d.running ? 'يعمل' : 'متوقف';
+        if (d.local_ip) {
+          var ipEl = document.getElementById('srv-local-ip');
+          if (ipEl) ipEl.textContent = d.local_ip;
+        }
+        if (d.access_url) {
+          var link = document.getElementById('srv-access-link');
+          if (link) {
+            link.href = d.access_url;
+            link.textContent = d.access_url;
+          }
+          var qr = document.querySelector('.server-dash-qr img');
+          if (qr) qr.src = '/api/server/qr?t=' + Date.now();
+        }
+        if (d.network) {
+          var n = d.network;
+          var set = function (id, val) {
+            var el = document.getElementById(id);
+            if (el) el.textContent = val || '—';
+          };
+          set('srv-adapter-name', n.adapter_name);
+          set('srv-ipv4', n.ip_address || n.ipv4);
+          set('srv-subnet', n.subnet_mask);
+          set('srv-gateway', n.gateway);
+          set('srv-mac', n.mac_address);
+          set('srv-ssid', n.ssid);
+          set('srv-conn-type', n.connection_type);
+          var dnsEl = document.getElementById('srv-dns');
+          if (dnsEl) dnsEl.textContent = (n.dns && n.dns.length) ? n.dns.join(', ') : '—';
+        }
+        if (d.system) {
+          document.getElementById('srv-cpu').textContent = (d.system.cpu_percent != null ? d.system.cpu_percent : '—') + '%';
+          document.getElementById('srv-ram').textContent = (d.system.ram_percent != null ? d.system.ram_percent : '—') + '%';
+          document.getElementById('srv-disk').textContent = (d.system.disk_percent != null ? d.system.disk_percent : '—') + '%';
+        }
+      })
+      .catch(function () {});
+  }
+  function loadDevices() {
+    fetch('/api/server/devices', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) return;
+        var s = d.summary || {};
+        document.getElementById('srv-devices-summary').textContent =
+          'متصل: ' + (s.online_devices || 0) + ' | إجمالي: ' + (s.total_devices || 0) + ' | مزامنة: ' + (s.syncing_devices || 0);
+        var tb = document.querySelector('#srv-devices-table tbody');
+        tb.innerHTML = '';
+        (d.devices || []).forEach(function (row) {
+          var tr = document.createElement('tr');
+          tr.innerHTML =
+            '<td>' + (row.device_name || '—') + '</td>' +
+            '<td dir="ltr">' + (row.device_ip || '—') + '</td>' +
+            '<td dir="ltr">' + (row.military_number || '—') + '</td>' +
+            '<td>' + (row.judge_name || '—') + '</td>' +
+            '<td>' + fmtTime(row.login_time) + '</td>' +
+            '<td>' + fmtTime(row.last_activity) + '</td>' +
+            '<td>' + (row.status || '—') + '</td>' +
+            '<td>' + (row.sync_status || '—') + (row.pending_sync_count ? ' (' + row.pending_sync_count + ')' : '') + '</td>';
+          tb.appendChild(tr);
+        });
+      })
+      .catch(function () {});
+  }
+  function loadLogs() {
+    var kind = document.getElementById('srv-log-kind').value || 'activity';
+    fetch('/api/server/logs?kind=' + encodeURIComponent(kind) + '&limit=120', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) return;
+        logRows = d.items || [];
+        var tb = document.querySelector('#srv-logs-table tbody');
+        tb.innerHTML = '';
+        logRows.forEach(function (row) {
+          var tr = document.createElement('tr');
+          var msg = row.message || row.operation_type || row.status || '';
+          if (row.error_message) msg += ' — ' + row.error_message;
+          tr.innerHTML =
+            '<td>' + fmtTime(row.created_at) + '</td>' +
+            '<td>' + (row.category || row.operation_type || kind) + '</td>' +
+            '<td>' + msg + '</td>' +
+            '<td dir="ltr">' + (row.device_id || '—') + '</td>';
+          tb.appendChild(tr);
+        });
+      })
+      .catch(function () {});
+  }
+  document.getElementById('srv-log-kind').addEventListener('change', loadLogs);
+  document.getElementById('srv-log-export').addEventListener('click', function () {
+    var lines = ['time,type,message,device'];
+    logRows.forEach(function (r) {
+      lines.push([
+        r.created_at || '',
+        r.category || r.operation_type || '',
+        (r.message || r.status || '').replace(/,/g, ';'),
+        r.device_id || ''
+      ].join(','));
+    });
+    var blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'server-logs.csv';
+    a.click();
+  });
+  loadStatus();
+  loadDevices();
+  loadLogs();
+  setInterval(function () { loadStatus(); loadDevices(); loadLogs(); }, 8000);
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,9 @@
+<resources>
+    <color name="lf_brown_800">#4A4037</color>
+    <color name="lf_brown_600">#5A4D40</color>
+    <color name="lf_tint_100">#FBF8F4</color>
+    <color name="lf_tint_200">#F5EFE8</color>
+    <color name="lf_white">#FFFFFF</color>
+    <color name="lf_btn_from">#BCA998</color>
+    <color name="lf_btn_to">#9E8A79</color>
+</resources>

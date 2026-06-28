@@ -1,0 +1,14 @@
+[
+    {
+        "merged": "ae.lf.trainingeval.app-mergeDebugResources-43:/layout/activity_main.xml",
+        "source": "ae.lf.trainingeval.app-main-46:/layout/activity_main.xml"
+    },
+    {
+        "merged": "ae.lf.trainingeval.app-mergeDebugResources-43:/layout/activity_splash.xml",
+        "source": "ae.lf.trainingeval.app-main-46:/layout/activity_splash.xml"
+    },
+    {
+        "merged": "ae.lf.trainingeval.app-mergeDebugResources-43:/layout/activity_settings.xml",
+        "source": "ae.lf.trainingeval.app-main-46:/layout/activity_settings.xml"
+    }
+]

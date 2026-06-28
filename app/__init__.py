@@ -23,6 +23,7 @@ from app.database import (
     ensure_information_bank_phase_included_column,
     ensure_information_bank_unit_included_column,
     ensure_information_bank_unit_brigade_group_column,
+    ensure_information_bank_unit_label_migrations,
     ensure_analyst_final_eval_manual_tables,
 )
 
@@ -62,6 +63,7 @@ def create_app() -> Flask:
         ensure_information_bank_phase_included_column()
         ensure_information_bank_unit_included_column()
         ensure_information_bank_unit_brigade_group_column()
+        ensure_information_bank_unit_label_migrations()
         ensure_analyst_final_eval_manual_tables()
         from app.seed import seed_all
         db = SessionLocal()
@@ -139,6 +141,9 @@ def create_app() -> Flask:
 
     from app import views
     app.register_blueprint(views.bp)
+    from app.server_monitor.api import server_api_bp
+
+    app.register_blueprint(server_api_bp)
 
     @app.template_global()
     def report_phase_max_input_name(unit_key, phase_key):

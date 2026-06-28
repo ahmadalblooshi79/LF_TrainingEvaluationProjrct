@@ -51,6 +51,14 @@ from app.models.domain import (
     InfoBankEventFlowPdf,
     InfoBankActionEvalXlsx,
     InfoBankDilemmaEvalXlsx,
+    InformationBankEventFlowTable,
+)
+
+from app.models.server_monitor import (
+    ConnectedDevice,
+    ServerActivityLog,
+    ServerErrorLog,
+    SyncOperationLog,
 )
 
 __all__ = [
@@ -107,4 +115,9 @@ __all__ = [
     "InfoBankEventFlowPdf",
     "InfoBankActionEvalXlsx",
     "InfoBankDilemmaEvalXlsx",
+    "InformationBankEventFlowTable",
+    "ConnectedDevice",
+    "ServerActivityLog",
+    "ServerErrorLog",
+    "SyncOperationLog",
 ]

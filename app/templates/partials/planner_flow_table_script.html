@@ -21,8 +21,12 @@
 
     var saveUrl = section.getAttribute('data-save-url') || '';
     var importDocxUrl = section.getAttribute('data-import-docx-url') || '';
+    var pullIbankUrl = section.getAttribute('data-pull-ibank-url') || '';
+    var distributeJudgesUrl = section.getAttribute('data-distribute-judges-url') || '';
     var importDocxBtn = section.querySelector('#pf-flow-import-docx-btn');
     var importDocxInput = section.querySelector('#pf-flow-import-docx-input');
+    var pullIbankBtn = section.querySelector('#pf-flow-pull-ibank-btn');
+    var distributeJudgesBtn = section.querySelector('#pf-flow-distribute-judges-btn');
     var readOnly = section.getAttribute('data-readonly') === '1';
     var tabsEl = section.querySelector('#pf-flow-days-tabs');
     var dayAddBtn = section.querySelector('#pf-flow-day-add');
@@ -265,10 +269,41 @@
       return -1;
     }
 
+    function autoGrowDayNote() {
+      if (!dayNoteEl) return;
+      dayNoteEl.style.overflow = 'hidden';
+      dayNoteEl.style.height = '0px';
+      var minPx = 52;
+      var next = Math.max(dayNoteEl.scrollHeight, minPx);
+      dayNoteEl.style.height = next + 'px';
+    }
+
+    function scheduleAutoGrowDayNote() {
+      autoGrowDayNote();
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(autoGrowDayNote);
+      }
+      setTimeout(autoGrowDayNote, 60);
+    }
+
+    function wireDayNoteAutoGrow() {
+      if (!dayNoteEl) return;
+      scheduleAutoGrowDayNote();
+      dayNoteEl.addEventListener('input', autoGrowDayNote);
+      dayNoteEl.addEventListener('paste', function () {
+        setTimeout(autoGrowDayNote, 0);
+      });
+      dayNoteEl.addEventListener('cut', function () {
+        setTimeout(autoGrowDayNote, 0);
+      });
+      window.addEventListener('resize', autoGrowDayNote);
+    }
+
     function applyDayNote() {
       if (!dayNoteEl) return;
       var idx = findDayIndex(activeDayId);
       dayNoteEl.value = idx >= 0 ? daysState[idx].note || '' : '';
+      scheduleAutoGrowDayNote();
     }
 
     function persistCurrentDayRows() {
@@ -804,9 +839,12 @@
     syncFlowDaysDataset();
 
     if (dayNoteEl && !readOnly) {
+      wireDayNoteAutoGrow();
       dayNoteEl.addEventListener('input', function () {
         scheduleSave();
       });
+    } else if (dayNoteEl) {
+      wireDayNoteAutoGrow();
     }
 
     function applyImportedDays(payload) {
@@ -879,6 +917,86 @@
         });
     }
 
+    function buildFlowDocument() {
+      persistCurrentDayRows();
+      ensureDayOneTab();
+      return { version: 2, active_day_id: activeDayId, days: daysState };
+    }
+
+    function pullFromIbank() {
+      if (!pullIbankUrl || readOnly) return;
+      if (!window.confirm('سيتم استبدال جدول المجرى الحالي (جميع الأيام) بمحتوى بنك المعلومات. متابعة؟')) return;
+      setStatus('جاري السحب من بنك المعلومات…', false);
+      fetch(pullIbankUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' }
+      })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            return { ok: r.ok, j: j };
+          });
+        })
+        .then(function (res) {
+          if (res.ok && res.j && res.j.ok) {
+            applyImportedDays(res.j);
+            var msg = 'تم السحب من بنك المعلومات (' + (res.j.row_count || 0) + ' صف في اليوم النشط)';
+            setStatus(msg, false);
+            setTimeout(function () {
+              if (statusEl && statusEl.textContent.indexOf('تم السحب من بنك المعلومات') === 0) {
+                setStatus('', false);
+              }
+            }, 4000);
+          } else {
+            var errMap = {
+              empty_ibank: 'بنك المعلومات لا يحتوي جدول مجرى بعد.',
+              not_found: 'الحزمة غير موجودة.',
+              forbidden: 'لا صلاحية.',
+              unauthorized: 'يجب تسجيل الدخول.'
+            };
+            var code = (res.j && res.j.error) || '';
+            setStatus(errMap[code] || 'تعذّر السحب من بنك المعلومات', true);
+          }
+        })
+        .catch(function () {
+          setStatus('تعذّر السحب من بنك المعلومات', true);
+        });
+    }
+
+    function distributeToJudges() {
+      if (!distributeJudgesUrl || readOnly) return;
+      if (!window.confirm('سيتم نسخ الجدول الحالي وتوزيعه على صفحات جميع المحكمين (للقراءة فقط). متابعة؟')) return;
+      setStatus('جاري التوزيع على المحكمين…', false);
+      fetch(distributeJudgesUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(buildFlowDocument())
+      })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            return { ok: r.ok, j: j };
+          });
+        })
+        .then(function (res) {
+          if (res.ok && res.j && res.j.ok) {
+            var n = res.j.bundle_count || 0;
+            var jn = res.j.judge_assignment_count || 0;
+            setStatus('تم التوزيع — ' + n + ' حزمة، ' + jn + ' إسناد محكم', false);
+            setTimeout(function () {
+              if (statusEl && statusEl.textContent.indexOf('تم التوزيع') === 0) {
+                setStatus('', false);
+              }
+            }, 5000);
+          } else {
+            setStatus('تعذّر التوزيع على المحكمين', true);
+          }
+        })
+        .catch(function () {
+          setStatus('تعذّر التوزيع على المحكمين', true);
+        });
+    }
+
     if (importDocxBtn && importDocxInput && importDocxUrl && !readOnly) {
       importDocxBtn.addEventListener('click', function (e) {
         e.preventDefault();
@@ -888,6 +1006,20 @@
         var file = importDocxInput.files && importDocxInput.files[0];
         importDocxInput.value = '';
         if (file) importDocxFile(file);
+      });
+    }
+
+    if (pullIbankBtn && pullIbankUrl && !readOnly) {
+      pullIbankBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        pullFromIbank();
+      });
+    }
+
+    if (distributeJudgesBtn && distributeJudgesUrl && !readOnly) {
+      distributeJudgesBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        distributeToJudges();
       });
     }
 

@@ -174,6 +174,9 @@ def _ensure_port_free(port: int, host: str = "0.0.0.0") -> None:
 
 if __name__ == "__main__":
     PORT = _resolve_listen_port(_PREFERRED_PORT, HOST)
+    from app.server_runtime import set_listen_port
+
+    set_listen_port(PORT)
     from app import create_app
     from app.network_util import print_server_access_info
 

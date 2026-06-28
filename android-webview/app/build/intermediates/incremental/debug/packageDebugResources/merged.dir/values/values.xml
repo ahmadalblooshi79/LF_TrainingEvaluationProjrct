@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:ns1="http://schemas.android.com/tools">
+    <color name="lf_brown_600">#5A4D40</color>
+    <color name="lf_brown_800">#4A4037</color>
+    <color name="lf_btn_from">#BCA998</color>
+    <color name="lf_btn_to">#9E8A79</color>
+    <color name="lf_tint_100">#FBF8F4</color>
+    <color name="lf_tint_200">#F5EFE8</color>
+    <color name="lf_white">#FFFFFF</color>
+    <string name="action_reload">تحديث</string>
+    <string name="action_settings">إعدادات السيرفر</string>
+    <string name="action_zoom_in">تكبير</string>
+    <string name="action_zoom_out">تصغير</string>
+    <string name="action_zoom_reset">حجم افتراضي</string>
+    <string name="app_name">نظام التحليل الذكي</string>
+    <string name="connection_error">تعذّر الاتصال بالسيرفر:\n%1$s\n\nتأكد أن Flask يعمل على الكمبيوتر وأن التابلت على نفس شبكة Wi‑Fi.</string>
+    <string name="download_failed">تعذّر بدء التحميل</string>
+    <string name="download_started">جاري التحميل…</string>
+    <string name="file_picker_failed">تعذّر فتح منتقي الملفات</string>
+    <string name="link_open_failed">تعذّر فتح الرابط</string>
+    <string name="offline_cached_page">وضع أوفلاين — عرض النسخة المحفوظة</string>
+    <string name="offline_no_cache">لا توجد نسخة محفوظة لهذه الصفحة.\n\nافتح الصفحة مرة واحدة أثناء اتصال السيرفر لحفظها محلياً.\n\n%1$s</string>
+    <string name="open_settings">الإعدادات</string>
+    <string name="retry">إعادة المحاولة</string>
+    <string name="settings_current_url">الرابط الحالي:</string>
+    <string name="settings_hint">مثال: 192.168.1.100 و 4000</string>
+    <string name="settings_host">عنوان IP للكمبيوتر</string>
+    <string name="settings_invalid">أدخل IP والمنفذ</string>
+    <string name="settings_port">المنفذ Port</string>
+    <string name="settings_reset">استعادة الافتراضي</string>
+    <string name="settings_save">حفظ وفتح النظام</string>
+    <string name="settings_saved">تم حفظ الإعدادات</string>
+    <string name="settings_test">اختبار الاتصال</string>
+    <string name="settings_title">إعدادات السيرفر</string>
+    <string name="splash_subtitle">واجهة التابلت — اتصال محلي</string>
+    <string name="splash_title">نظام التحليل الذكي</string>
+    <string name="test_failed">فشل الاتصال — تحقق من Wi‑Fi و IP والمنفذ</string>
+    <string name="test_ok">الاتصال ناجح — السيرفر يستجيب</string>
+    <style name="Theme.LFTrainingEval" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/lf_brown_600</item>
+        <item name="colorPrimaryVariant">@color/lf_brown_800</item>
+        <item name="colorOnPrimary">@color/lf_white</item>
+        <item name="android:statusBarColor">@color/lf_brown_800</item>
+        <item name="android:navigationBarColor">@color/lf_brown_800</item>
+        <item name="android:windowLayoutInDisplayCutoutMode" ns1:targetApi="o_mr1">shortEdges</item>
+    </style>
+    <style name="Theme.LFTrainingEval.Splash" parent="Theme.LFTrainingEval">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+    </style>
+</resources>

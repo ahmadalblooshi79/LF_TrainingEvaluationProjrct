@@ -6,7 +6,7 @@ from __future__ import annotations
 IBANK_UNIT_BRIGADE_TAB: dict[str, str] = {
     "key": "1",
     "tab": "units-bg-1",
-    "label": "مجموعة لواء الإمارات / 1",
+    "label": "التنظيم",
 }
 
 IBANK_REMOVED_BRIGADE_KEYS: frozenset[str] = frozenset({"3", "4", "5"})

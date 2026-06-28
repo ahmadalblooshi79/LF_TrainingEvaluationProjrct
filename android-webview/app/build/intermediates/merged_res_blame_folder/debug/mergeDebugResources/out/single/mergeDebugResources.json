@@ -1,0 +1,46 @@
+[
+    {
+        "merged": "ae.lf.trainingeval.app-debug-44:/drawable_ic_launcher_image.png.flat",
+        "source": "ae.lf.trainingeval.app-main-46:/drawable/ic_launcher_image.png"
+    },
+    {
+        "merged": "ae.lf.trainingeval.app-debug-44:/layout_activity_main.xml.flat",
+        "source": "ae.lf.trainingeval.app-main-46:/layout/activity_main.xml"
+    },
+    {
+        "merged": "ae.lf.trainingeval.app-debug-44:/menu_main_menu.xml.flat",
+        "source": "ae.lf.trainingeval.app-main-46:/menu/main_menu.xml"
+    },
+    {
+        "merged": "ae.lf.trainingeval.app-debug-44:/drawable_splash_background.xml.flat",
+        "source": "ae.lf.trainingeval.app-main-46:/drawable/splash_background.xml"
+    },
+    {
+        "merged": "ae.lf.trainingeval.app-debug-44:/xml_network_security_config.xml.flat",
+        "source": "ae.lf.trainingeval.app-main-46:/xml/network_security_config.xml"
+    },
+    {
+        "merged": "ae.lf.trainingeval.app-debug-44:/xml_file_paths.xml.flat",
+        "source": "ae.lf.trainingeval.app-main-46:/xml/file_paths.xml"
+    },
+    {
+        "merged": "ae.lf.trainingeval.app-debug-44:/layout_activity_settings.xml.flat",
+        "source": "ae.lf.trainingeval.app-main-46:/layout/activity_settings.xml"
+    },
+    {
+        "merged": "ae.lf.trainingeval.app-debug-44:/drawable_ic_launcher_foreground.xml.flat",
+        "source": "ae.lf.trainingeval.app-main-46:/drawable/ic_launcher_foreground.xml"
+    },
+    {
+        "merged": "ae.lf.trainingeval.app-debug-44:/layout_activity_splash.xml.flat",
+        "source": "ae.lf.trainingeval.app-main-46:/layout/activity_splash.xml"
+    },
+    {
+        "merged": "ae.lf.trainingeval.app-debug-44:/mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "ae.lf.trainingeval.app-main-46:/mipmap-anydpi-v26/ic_launcher.xml"
+    },
+    {
+        "merged": "ae.lf.trainingeval.app-debug-44:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
+        "source": "ae.lf.trainingeval.app-main-46:/mipmap-anydpi-v26/ic_launcher_round.xml"
+    }
+]
