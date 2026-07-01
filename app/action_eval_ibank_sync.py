@@ -33,7 +33,10 @@ from app.info_bank_tree import (
     _normalize_tree_label,
     _phase_key_for_node,
     _unit_key_for_node,
+    flow_day_catalog_key,
+    ibank_event_flow_days,
     node_file_abspath,
+    parse_flow_day_catalog_key,
 )
 from app.models import (
     ExercisePlannerFlowBundle,
@@ -83,12 +86,62 @@ def _effective_unit_key_for_node(db: Session, node: InformationBankTreeNode) -> 
 
 def _effective_phase_key_for_node(db: Session, node: InformationBankTreeNode) -> str:
     raw = _phase_key_for_node(db, node)
+    if parse_flow_day_catalog_key(raw):
+        return raw
     pk = _resolve_phase_key(raw, db)
     if pk:
         return pk
     if node.is_folder and _is_phase_root_folder(node):
         return _resolve_phase_key(_match_phase_key_by_folder_name(db, node.name), db)
     return ""
+
+
+def _flow_day_id_for_node(db: Session, node: InformationBankTreeNode) -> str:
+    raw = _phase_key_for_node(db, node)
+    day_id = parse_flow_day_catalog_key(raw)
+    if day_id:
+        return day_id
+    if node.is_folder and _is_phase_root_folder(node):
+        return parse_flow_day_catalog_key(raw) or ""
+    for cur_id in _node_ancestor_ids(db, node):
+        cur = db.get(InformationBankTreeNode, int(cur_id))
+        if cur is None:
+            continue
+        day_id = parse_flow_day_catalog_key((cur.catalog_phase_key or "").strip())
+        if day_id:
+            return day_id
+    return ""
+
+
+def _node_ancestor_ids(db: Session, node: InformationBankTreeNode) -> list[int]:
+    from app.evaluation_list_ibank_sync import _node_ancestor_chain
+
+    return [int(n.id) for n in _node_ancestor_chain(db, node)]
+
+
+def _flow_day_root_nodes_for_id(db: Session, flow_day_id: str) -> list[InformationBankTreeNode]:
+    ck = flow_day_catalog_key(flow_day_id)
+    if not ck:
+        return []
+    return (
+        db.query(InformationBankTreeNode)
+        .filter(
+            InformationBankTreeNode.kind == INFO_BANK_ACTION_EVAL_KIND,
+            InformationBankTreeNode.parent_id.is_(None),
+            InformationBankTreeNode.is_folder.is_(True),
+            InformationBankTreeNode.catalog_phase_key == ck,
+        )
+        .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
+        .all()
+    )
+
+
+def _all_flow_day_root_nodes(db: Session) -> list[InformationBankTreeNode]:
+    prepare_action_eval_ibank_tree(db)
+    out: list[InformationBankTreeNode] = []
+    for day in ibank_event_flow_days(db):
+        out.extend(_flow_day_root_nodes_for_id(db, day["id"]))
+    return out
 
 
 def _phase_root_nodes_for_key(db: Session, phase_key: str) -> list[InformationBankTreeNode]:
@@ -221,14 +274,20 @@ def _file_belongs_to_phase_unit(
     *,
     phase_key: str,
     unit_key: str,
+    flow_day_id: str | None = None,
 ) -> bool:
     if file_node.kind != INFO_BANK_ACTION_EVAL_KIND:
         return False
     f_pk, f_uk = _ibank_context_for_file_node(db, file_node)
     if not f_uk or f_uk != unit_key:
         return False
+    file_day = parse_flow_day_catalog_key(f_pk)
+    want_day = (flow_day_id or "").strip()
+    if want_day or file_day:
+        return bool(file_day) and file_day == want_day
     phase_match = _phase_match_keys(phase_key) or {phase_key}
-    return bool(f_pk and f_pk in phase_match)
+    resolved = _resolve_phase_key(f_pk, db)
+    return bool(resolved and resolved in phase_match)
 
 
 def collect_ibank_action_eval_files_for_phase_unit(
@@ -236,17 +295,28 @@ def collect_ibank_action_eval_files_for_phase_unit(
     *,
     phase_key: str,
     unit_key: str,
+    flow_day_id: str | None = None,
 ) -> list[dict]:
     """كل ملفات Excel لمستوى الوحدة — بما فيها المجلدات المتداخلة (سرايا تحت كتيبة)."""
     prepare_action_eval_ibank_tree(db)
     uk = _resolve_unit_key(unit_key, db)
-    pk = _resolve_phase_key(phase_key, db)
-    if not uk or not pk:
+    if not uk:
+        return []
+    want_day = (flow_day_id or "").strip()
+    if want_day:
+        phase_roots = _flow_day_root_nodes_for_id(db, want_day)
+    else:
+        phase_roots = _all_flow_day_root_nodes(db)
+        if not phase_roots:
+            pk = _resolve_phase_key(phase_key, db)
+            if pk:
+                phase_roots = _phase_root_nodes_for_key(db, pk)
+    if not phase_roots:
         return []
     seen: set[int] = set()
     sources: list[dict] = []
     unit_folder_ids = _unit_folder_ids_for_phase_unit(
-        db, phase_key=pk, unit_key=uk
+        db, phase_key=phase_key, unit_key=uk, flow_day_id=want_day or None
     )
     for fid in sorted(unit_folder_ids):
         folder = db.get(InformationBankTreeNode, int(fid))
@@ -267,7 +337,7 @@ def collect_ibank_action_eval_files_for_phase_unit(
             sources.append(src)
 
     if not sources:
-        for phase_root in _phase_root_nodes_for_key(db, pk):
+        for phase_root in phase_roots:
             direct_children = (
                 db.query(InformationBankTreeNode)
                 .filter(InformationBankTreeNode.parent_id == int(phase_root.id))
@@ -605,6 +675,7 @@ def publish_action_eval_lists_from_ibank(
     unit_key: str,
     selected_node_ids: set[int],
     dilemma_by_node: dict[int, int] | None = None,
+    flow_day_id: str | None = None,
 ) -> dict[str, int]:
     """نشر قوائم مختارة إلى حزمة المجرى (مرحلة × مستوى وحدة)."""
     uk = _resolve_unit_key(unit_key, db) or normalize_unit_level_key(unit_key)
@@ -616,7 +687,9 @@ def publish_action_eval_lists_from_ibank(
     bundle = _get_or_create_bundle(
         db, exercise_id=int(exercise_id), phase_key=pk, unit_key=uk, unit_label=ul
     )
-    sources = collect_ibank_action_eval_files_for_phase_unit(db, phase_key=pk, unit_key=uk)
+    sources = collect_ibank_action_eval_files_for_phase_unit(
+        db, phase_key=pk, unit_key=uk, flow_day_id=flow_day_id
+    )
     source_by_id = {int(s["node_id"]): s for s in sources}
     dilemmas = extract_flow_dilemmas_from_bundle(bundle)
     dilemma_by_idx = {int(d["index"]): d for d in dilemmas}
@@ -625,14 +698,73 @@ def publish_action_eval_lists_from_ibank(
     root.mkdir(parents=True, exist_ok=True)
     added = updated = removed = 0
     dilemma_map = dilemma_by_node or {}
+    want_day = (flow_day_id or "").strip()
 
     for nid, slot in list(by_node.items()):
-        if int(nid) not in selected_node_ids:
-            _unlink_bundle_action_file(slot.file_relpath)
-            db.delete(slot)
-            removed += 1
+        if int(nid) in selected_node_ids:
+            continue
+        if want_day:
+            node = db.get(InformationBankTreeNode, int(nid))
+            if node is not None:
+                if _flow_day_id_for_node(db, node) != want_day:
+                    continue
+            else:
+                continue
+        _unlink_bundle_action_file(slot.file_relpath)
+        db.delete(slot)
+        removed += 1
     db.flush()
     by_node = _published_slots_by_node(db, bundle)
+    occupied_slot_indexes: set[int] = {
+        int(s.slot_index) for s in by_node.values() if s.slot_index is not None
+    }
+    next_new_slot_index: int | None = None
+
+    def _reserve_slot_index(preferred: int, node_id: int) -> int:
+        nonlocal next_new_slot_index
+        preferred = int(preferred)
+        existing_at = (
+            db.query(ExercisePlannerFlowBundleActionEval)
+            .filter(
+                ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id,
+                ExercisePlannerFlowBundleActionEval.slot_index == preferred,
+            )
+            .first()
+        )
+        if preferred not in occupied_slot_indexes and (
+            existing_at is None
+            or parse_action_eval_storage_relpath(existing_at.file_relpath) == int(node_id)
+        ):
+            occupied_slot_indexes.add(preferred)
+            return preferred
+        if next_new_slot_index is None:
+            mx_db = (
+                db.query(func.max(ExercisePlannerFlowBundleActionEval.slot_index))
+                .filter(ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id)
+                .scalar()
+            )
+            next_new_slot_index = max(
+                max(occupied_slot_indexes) if occupied_slot_indexes else 0,
+                int(mx_db or 0),
+            )
+        while True:
+            next_new_slot_index += 1
+            if next_new_slot_index in occupied_slot_indexes:
+                continue
+            clash = (
+                db.query(ExercisePlannerFlowBundleActionEval)
+                .filter(
+                    ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id,
+                    ExercisePlannerFlowBundleActionEval.slot_index == next_new_slot_index,
+                )
+                .first()
+            )
+            if clash is not None and parse_action_eval_storage_relpath(
+                clash.file_relpath
+            ) != int(node_id):
+                continue
+            occupied_slot_indexes.add(next_new_slot_index)
+            return next_new_slot_index
 
     for sort_i, nid in enumerate(sorted(selected_node_ids)):
         src = source_by_id.get(int(nid))
@@ -664,27 +796,11 @@ def publish_action_eval_lists_from_ibank(
         d_idx = int(dilemma_map.get(int(nid), 0) or 0)
         dilemma = dilemma_by_idx.get(d_idx) if d_idx > 0 else None
         title = _slot_title_with_dilemma(str(src["title"]), dilemma)
-        slot_index = d_idx if d_idx > 0 else (sort_i + 1)
+        preferred_index = d_idx if d_idx > 0 else (sort_i + 1)
 
         slot = by_node.get(int(nid))
         if slot is None:
-            existing_at = (
-                db.query(ExercisePlannerFlowBundleActionEval)
-                .filter(
-                    ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id,
-                    ExercisePlannerFlowBundleActionEval.slot_index == slot_index,
-                )
-                .first()
-            )
-            if existing_at is not None and parse_action_eval_storage_relpath(
-                existing_at.file_relpath
-            ) != int(nid):
-                mx = (
-                    db.query(func.max(ExercisePlannerFlowBundleActionEval.slot_index))
-                    .filter(ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id)
-                    .scalar()
-                )
-                slot_index = int(mx or 0) + 1
+            slot_index = _reserve_slot_index(preferred_index, int(nid))
             slot = ExercisePlannerFlowBundleActionEval(
                 bundle_id=int(bundle.id),
                 slot_index=int(slot_index),
@@ -692,15 +808,19 @@ def publish_action_eval_lists_from_ibank(
             )
             db.add(slot)
             added += 1
+            by_node[int(nid)] = slot
         else:
             updated += 1
+            if d_idx > 0:
+                new_idx = int(_reserve_slot_index(d_idx, int(nid)))
+                if int(slot.slot_index) != new_idx:
+                    occupied_slot_indexes.discard(int(slot.slot_index))
+                    slot.slot_index = new_idx
         old_rel = (slot.file_relpath or "").strip()
         if old_rel and old_rel.replace("\\", "/") != rel:
             _unlink_bundle_action_file(old_rel)
         slot.file_relpath = rel.replace("\\", "/")
         slot.title = title
-        if d_idx > 0:
-            slot.slot_index = int(d_idx)
 
     bundle.linked_at = None
     bundle.dilemma_count = (
@@ -726,6 +846,7 @@ def publish_single_action_eval_from_ibank(
     unit_key: str,
     node_id: int,
     dilemma_index: int = 0,
+    flow_day_id: str | None = None,
 ) -> dict[str, int]:
     uk = resolve_ibank_action_eval_publish_unit_key(
         db, node_id=int(node_id), fallback_unit_key=unit_key
@@ -747,6 +868,7 @@ def publish_single_action_eval_from_ibank(
         unit_key=uk,
         selected_node_ids=selected,
         dilemma_by_node=dmap,
+        flow_day_id=flow_day_id,
     )
 
 
@@ -791,6 +913,7 @@ def publish_phase_action_eval_lists_from_ibank(
     phase_key: str,
     selections_by_unit: dict[str, set[int]],
     dilemma_by_unit_node: dict[tuple[str, int], int] | None = None,
+    flow_day_id: str | None = None,
 ) -> dict[str, int]:
     pk = _resolve_phase_key(phase_key, db) or normalize_exercise_phase(phase_key)
     if not pk:
@@ -815,6 +938,7 @@ def publish_phase_action_eval_lists_from_ibank(
             unit_key=uk,
             selected_node_ids=remapped.get(uk, set()),
             dilemma_by_node=d_for_unit or None,
+            flow_day_id=flow_day_id,
         )
         totals["units"] += 1
         for k in ("added", "updated", "removed", "sources"):
@@ -825,22 +949,14 @@ def publish_phase_action_eval_lists_from_ibank(
 def index_action_eval_ibank_files(
     db: Session,
 ) -> dict[tuple[str, str], list[dict]]:
-    """فهرس (مرحلة، وحدة) → ملفات Excel — تبويب action_eval فقط."""
+    """فهرس (يوم المجرى، وحدة) → ملفات Excel — تبويب action_eval فقط."""
     prepare_action_eval_ibank_tree(db)
     out: dict[tuple[str, str], list[dict]] = defaultdict(list)
     unit_keys: set[str] = set()
-    phase_roots = (
-        db.query(InformationBankTreeNode)
-        .filter(
-            InformationBankTreeNode.kind == INFO_BANK_ACTION_EVAL_KIND,
-            InformationBankTreeNode.parent_id.is_(None),
-            InformationBankTreeNode.is_folder.is_(True),
-        )
-        .all()
-    )
+    phase_roots = _all_flow_day_root_nodes(db)
     for pr in phase_roots:
-        pk = _effective_phase_key_for_node(db, pr)
-        if not pk:
+        day_id = parse_flow_day_catalog_key((pr.catalog_phase_key or "").strip())
+        if not day_id:
             continue
         for child in (
             db.query(InformationBankTreeNode)
@@ -857,15 +973,18 @@ def index_action_eval_ibank_files(
             if fuk:
                 unit_keys.add(fuk)
     for pr in phase_roots:
-        pk = _effective_phase_key_for_node(db, pr)
-        if not pk:
+        day_id = parse_flow_day_catalog_key((pr.catalog_phase_key or "").strip())
+        if not day_id:
             continue
         for uk in sorted(unit_keys):
             files = collect_ibank_action_eval_files_for_phase_unit(
-                db, phase_key=pk, unit_key=uk
+                db,
+                phase_key="",
+                unit_key=uk,
+                flow_day_id=day_id,
             )
             if files:
-                out[(pk, uk)] = files
+                out[(day_id, uk)] = files
     return dict(out)
 
 
@@ -907,14 +1026,29 @@ def sync_all_action_eval_from_ibank(db: Session, *, exercise_id: int) -> dict[st
     return totals
 
 
-def _unit_folder_ids_for_phase_unit(db: Session, *, phase_key: str, unit_key: str) -> set[int]:
+def _unit_folder_ids_for_phase_unit(
+    db: Session,
+    *,
+    phase_key: str,
+    unit_key: str,
+    flow_day_id: str | None = None,
+) -> set[int]:
     prepare_action_eval_ibank_tree(db)
     uk = _resolve_unit_key(unit_key, db)
-    pk = _resolve_phase_key(phase_key, db)
-    if not uk or not pk:
+    if not uk:
         return set()
+    want_day = (flow_day_id or "").strip()
+    if want_day:
+        phase_roots = _flow_day_root_nodes_for_id(db, want_day)
+    else:
+        phase_roots = _all_flow_day_root_nodes(db)
+        if not phase_roots:
+            pk = _resolve_phase_key(phase_key, db)
+            if not pk:
+                return set()
+            phase_roots = _phase_root_nodes_for_key(db, pk)
     out: set[int] = set()
-    for phase_root in _phase_root_nodes_for_key(db, pk):
+    for phase_root in phase_roots:
         queue = [int(phase_root.id)]
         seen: set[int] = set()
         while queue:
@@ -1059,11 +1193,15 @@ def _build_action_eval_branch_group(
     assignee_labels: list[str],
     judge_by_unit: dict[str, str],
     trainee_by_unit: dict[str, str],
+    flow_day_id: str | None = None,
 ) -> dict:
     uk = (unit_key or "").strip()
     ul = label_for_unit_level_key(uk, db=db) or uk
     ibank_sources = collect_ibank_action_eval_files_for_phase_unit(
-        db, phase_key=phase_key, unit_key=uk
+        db,
+        phase_key=phase_key,
+        unit_key=uk,
+        flow_day_id=flow_day_id,
     )
     bundle = (
         db.query(ExercisePlannerFlowBundle)
@@ -1094,6 +1232,7 @@ def _build_action_eval_branch_group(
             unit_key=uk,
             ibank_sources=ibank_sources,
             published_by_node=published_by_node,
+            flow_day_id=flow_day_id,
         ),
     }
 
@@ -1146,20 +1285,27 @@ def build_action_eval_folder_groups(
     unit_key: str,
     ibank_sources: list[dict],
     published_by_node: dict[int, ExercisePlannerFlowBundleActionEval],
+    flow_day_id: str | None = None,
 ) -> list[dict]:
     rows = build_action_eval_rows_for_group(
         ibank_sources=ibank_sources,
         published_by_node=published_by_node,
     )
     unit_folder_ids = _unit_folder_ids_for_phase_unit(
-        db, phase_key=phase_key, unit_key=unit_key
+        db, phase_key=phase_key, unit_key=unit_key, flow_day_id=flow_day_id
     )
     uk = _resolve_unit_key(unit_key, db) or unit_key
     grouped: dict[str, dict] = {}
     for row in rows:
         node = db.get(InformationBankTreeNode, int(row["node_id"]))
         if node is not None:
-            if not _file_belongs_to_phase_unit(db, node, phase_key=phase_key, unit_key=uk):
+            if not _file_belongs_to_phase_unit(
+                db,
+                node,
+                phase_key=phase_key,
+                unit_key=uk,
+                flow_day_id=flow_day_id,
+            ):
                 continue
             fk, fn, fs = _folder_group_for_file_node(db, node, unit_folder_ids)
         else:
@@ -1282,7 +1428,7 @@ def build_judge_published_action_eval_lists(
         return [], {"in_flow": in_flow, "published_count": 0}
 
     ibank_sources = collect_ibank_action_eval_files_for_phase_unit(
-        db, phase_key=pk, unit_key=uk
+        db, phase_key=pk, unit_key=uk, flow_day_id=flow_day_id
     )
     folder_groups = build_action_eval_folder_groups(
         db,
@@ -1290,6 +1436,7 @@ def build_judge_published_action_eval_lists(
         unit_key=uk,
         ibank_sources=ibank_sources,
         published_by_node=published_by_node,
+        flow_day_id=flow_day_id,
     )
     out_folders: list[dict] = []
     for folder in folder_groups:
@@ -1385,6 +1532,7 @@ def build_action_eval_display_groups(
                 assignee_labels=assignees,
                 judge_by_unit=judge_by_unit,
                 trainee_by_unit=trainee_by_unit,
+                flow_day_id=flow_day_id,
             )
             row["unit_label"] = _flow_display_label(uk, assignees, db=db)
             groups.append(row)

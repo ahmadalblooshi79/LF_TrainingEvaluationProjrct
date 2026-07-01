@@ -1,6 +1,6 @@
 /**
- * مزامنة دون اتصال — طابور محلي + إرسال تلقائي عند عودة Wi‑Fi.
- * يعمل داخل WebView والمتصفح.
+ * مزامنة دون اتصال — طابور محلي؛ لا مزامنة تلقائية عند عودة الشبكة.
+ * الاستدعاء اليدوي: window.LFOfflineSync.flush()
  */
 (function () {
   var DB_NAME = "lf_offline_sync_v1";
@@ -150,7 +150,7 @@
       return;
     }
     el.hidden = false;
-    el.textContent = text || "وضع عدم الاتصال — سيتم حفظ التغييرات ومزامنتها تلقائياً عند عودة الشبكة.";
+    el.textContent = text || "وضع عدم الاتصال — سيتم حفظ التغييرات محلياً.";
   }
 
   function showOfflineBanner() {
@@ -377,7 +377,6 @@
   }
 
   window.addEventListener("online", function () {
-    flush();
     deviceHeartbeat();
   });
   window.addEventListener("offline", function () {
@@ -385,7 +384,6 @@
   });
   window.addEventListener("lf-server-online", function () {
     hideOfflineBanner();
-    flush();
     deviceHeartbeat();
   });
   window.addEventListener("lf-server-offline", function () {
@@ -394,13 +392,11 @@
 
   setInterval(function () {
     deviceHeartbeat();
-    if (!isOffline()) flush();
   }, 15000);
 
   document.addEventListener("DOMContentLoaded", function () {
     registerDevice(false);
     if (isOffline()) banner(true);
-    else flush();
     try {
       if (sessionStorage.getItem("lf_offline_sync_reload")) {
         sessionStorage.removeItem("lf_offline_sync_reload");

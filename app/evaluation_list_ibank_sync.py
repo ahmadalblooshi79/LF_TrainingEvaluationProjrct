@@ -603,6 +603,10 @@ def _deepest_phase_key_for_file_node(db: Session, node: InformationBankTreeNode)
     for cur in _node_ancestor_chain(db, node):
         pk = (cur.catalog_phase_key or "").strip()
         if pk:
+            from app.info_bank_tree import parse_flow_day_catalog_key
+
+            if parse_flow_day_catalog_key(pk):
+                return pk
             resolved = _resolve_phase_key(pk, db)
             if resolved:
                 return resolved
@@ -1464,7 +1468,7 @@ def build_eval_list_rows_for_group(
                 "node_id": nid,
                 "title": str(src.get("title") or "قائمة تقييم"),
                 "published": item is not None,
-                "selected": False,
+                "selected": item is not None,
                 "item_id": int(item.id) if item is not None else None,
                 "item_unit_key": (getattr(item, "unit_level_key", None) or "").strip()
                 if item is not None
@@ -1480,7 +1484,7 @@ def build_eval_list_rows_for_group(
                 "node_id": nid,
                 "title": (getattr(item, "text", None) or "قائمة تقييم").strip(),
                 "published": True,
-                "selected": False,
+                "selected": True,
                 "item_id": int(item.id),
                 "item_unit_key": (getattr(item, "unit_level_key", None) or "").strip(),
                 "pdf_relpath": getattr(item, "pdf_relpath", None),

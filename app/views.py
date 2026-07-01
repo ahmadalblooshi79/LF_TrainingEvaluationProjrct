@@ -1327,8 +1327,8 @@ def _sync_evaluation_list_item_phase(
 
 def _evaluation_grade_from_payload_rows(rows: list) -> tuple[float | None, str]:
     """
-    نسبة إجمالية واقعية: مجموع المكتسبة ÷ مجموع القصوى لكل بنود التقييم (عدا «لا ينطبق»)،
-    مع وزن 5 لكل بند بلا قصوى رقمية — يطابق حساب الواجهة عند وجود row_kind في الحمولة.
+    نسبة إجمالية: مجموع المكتسبة ÷ مجموع القصوى (البنود ذات قصوى > 0 فقط)،
+    يطابق «مجموع العلامات المكتسبة / مجموع علامات القصوى» في الواجهة.
     للحمولات القديمة دون row_kind يُحتفظ بمتوسط نسب الصفوف كسلوك سابق.
     """
     safe = [r for r in rows[:2000] if isinstance(r, dict)]
@@ -1346,23 +1346,23 @@ def _evaluation_grade_from_payload_rows(rows: list) -> tuple[float | None, str]:
         total_pct = sum(pcts) / len(pcts)
         return total_pct, grade_label_from_percent(total_pct)
     sum_acq = 0.0
-    sum_den = 0.0
+    sum_max = 0.0
+    any_acquired = False
     for r in safe:
         if str(r.get("row_kind") or "").strip().lower() == "section":
             continue
+        sum_max += _eval_row_positive_max(r)
         acq = r.get("acquired")
         acq_s = ("" if acq is None else str(acq)).strip().lower()
-        if acq_s == "na":
-            continue
-        sum_den += _eval_row_effective_max(r)
-        if acq_s:
+        if acq_s and acq_s != "na":
             try:
                 sum_acq += float(str(acq).replace(",", "."))
+                any_acquired = True
             except (TypeError, ValueError):
                 pass
-    if sum_den <= 0:
+    if sum_max <= 0 or not any_acquired:
         return None, ""
-    total_pct = (sum_acq / sum_den) * 100.0
+    total_pct = (sum_acq / sum_max) * 100.0
     return total_pct, grade_label_from_percent(total_pct)
 
 
@@ -1376,12 +1376,10 @@ def _evaluation_payload_mark_totals(rows: list) -> tuple[float, float]:
     for r in safe:
         if str(r.get("row_kind") or "").strip().lower() == "section":
             continue
+        sum_max += _eval_row_positive_max(r)
         acq = r.get("acquired")
         acq_s = ("" if acq is None else str(acq)).strip().lower()
-        if acq_s == "na":
-            continue
-        sum_max += _eval_row_effective_max(r)
-        if acq_s:
+        if acq_s and acq_s != "na":
             try:
                 sum_acquired += float(str(acq).replace(",", "."))
             except (TypeError, ValueError):
@@ -2764,7 +2762,7 @@ def _eval_row_canonical_saved_for_crit_upload(
 
 
 def _eval_row_effective_max(row: dict) -> float:
-    """قصوى الصف لحساب النسبة الإجمالية؛ يطابق effectiveMaxForRow في الواجهة (افتراض 5)."""
+    """قصوى الصف لحساب نسبة البند الفردية؛ يطابق effectiveMaxForRow في الواجهة (افتراض 5)."""
     mx_raw = row.get("max_val")
     if mx_raw not in (None, ""):
         try:
@@ -2774,6 +2772,19 @@ def _eval_row_effective_max(row: dict) -> float:
         except (TypeError, ValueError):
             pass
     return 5.0
+
+
+def _eval_row_positive_max(row: dict) -> float:
+    """قصوى الصف للمجاميع والنسبة الإجمالية — فقط القيم الرقمية > 0."""
+    mx_raw = row.get("max_val")
+    if mx_raw not in (None, ""):
+        try:
+            mx = float(str(mx_raw).replace(",", "."))
+            if mx > 0:
+                return mx
+        except (TypeError, ValueError):
+            pass
+    return 0.0
 
 
 def _eval_row_score_pct(row: dict) -> float | None:
@@ -8103,6 +8114,7 @@ def planner_action_eval_lists_publish_phase():
         exercise_id=int(ex.id),
         phase_key=phase_key,
         selections_by_unit=selections,
+        flow_day_id=flow_day_id or None,
     )
     db.commit()
     n = int(stats.get("added", 0)) + int(stats.get("updated", 0))
@@ -8140,6 +8152,7 @@ def planner_action_eval_lists_publish_one(unit_key: str, node_id: int):
         phase_key=phase_key,
         unit_key=unit_key,
         node_id=int(node_id),
+        flow_day_id=flow_day_id or None,
     )
     db.commit()
     return _action_eval_lists_redirect(flow_day_id=flow_day_id, ok="تم نشر القائمة.")
@@ -14332,6 +14345,20 @@ def _ibank_included_save_http_response(*, tab: str, ok_msg: str = "", err_msg: s
     return redirect(url_for("views.admin_information_bank", tab=tab, ok=ok_msg))
 
 
+def _admin_information_bank_tree_redirect(*, tab: str, ok: str = "", err: str = ""):
+    """إعادة توجيه لتبويب شجرة بنك المعلومات مع الحفاظ على يوم قوائم الإجراءات."""
+    kwargs: dict[str, str] = {"tab": tab}
+    if ok:
+        kwargs["ok"] = ok
+    if err:
+        kwargs["err"] = err
+    if tab == "action-eval":
+        day = (request.form.get("action_eval_day") or request.args.get("day") or "").strip()
+        if day:
+            kwargs["day"] = day
+    return redirect(url_for("views.admin_information_bank", **kwargs))
+
+
 def _ibank_included_save_auth_or_response(tab: str):
     """تحقق الجلسة والصلاحية؛ يُرجع استجابة JSON أو إعادة توجيه عند فشل حفظ AJAX."""
     user = get_current_user_optional()
@@ -14531,6 +14558,25 @@ def _ibank_ui_brigade_groups() -> list[dict[str, str]]:
     return ibc.info_bank_brigade_groups_for_ui()
 
 
+def _ibank_action_eval_day_tabs_payload(db) -> dict:
+    """أيام المجرى وجذور شجرة قوائم تقييم الإجراءات (للمزامنة دون إعادة تحميل)."""
+    from app.info_bank_tree import (
+        build_tree_payload,
+        ensure_information_bank_kind,
+        ibank_event_flow_days,
+    )
+
+    ensure_information_bank_kind(db, "action_eval")
+    flow_days = ibank_event_flow_days(db)
+    tree_action_eval = build_tree_payload(db, "action_eval")
+    day_root_ids: dict[str, int] = {}
+    for root in tree_action_eval:
+        day_id = (root.get("flow_day_id") or "").strip()
+        if day_id:
+            day_root_ids[day_id] = int(root["id"])
+    return {"days": flow_days, "day_root_ids": day_root_ids}
+
+
 @bp.route("/admin/information-bank", methods=["GET"])
 def admin_information_bank():
     user = get_current_user_optional()
@@ -14549,11 +14595,16 @@ def admin_information_bank():
         build_tree_payload,
         ensure_information_bank_kind,
         exercise_judge_names_by_unit,
+        ibank_event_flow_days,
     )
 
     tree_event_flow: list = []
     tree_action_eval: list = []
     tree_dilemma_eval: list = []
+    ibank_action_eval_flow_days: list[dict[str, str]] = []
+    active_action_eval_day = ""
+    action_eval_trees_by_day: dict[str, list] = {}
+    action_eval_day_root_ids: dict[str, int] = {}
     ibank_unit_labels = {
         (u.get("key") or "").strip(): (u.get("label") or "").strip()
         for u in UNIT_LEVELS
@@ -14578,8 +14629,8 @@ def admin_information_bank():
         "dilemma-eval": "dilemma_eval",
     }.get(active_tab)
     try:
-        if _ibank_active_tree_kind:
-            ensure_information_bank_kind(db, _ibank_active_tree_kind)
+        ensure_information_bank_kind(db, "action_eval")
+        ensure_information_bank_kind(db, "dilemma_eval")
         tree_action_eval = build_tree_payload(
             db,
             "action_eval",
@@ -14592,6 +14643,21 @@ def admin_information_bank():
             unit_label_by_key=ibank_unit_labels,
             judge_name_by_unit=ibank_judge_names_by_unit,
         )
+        ibank_action_eval_flow_days = ibank_event_flow_days(db)
+        valid_day_ids = {d["id"] for d in ibank_action_eval_flow_days}
+        active_action_eval_day = (request.args.get("day") or "").strip()
+        if active_action_eval_day not in valid_day_ids:
+            active_action_eval_day = (
+                ibank_action_eval_flow_days[0]["id"] if ibank_action_eval_flow_days else "day-1"
+            )
+        action_eval_trees_by_day = {d["id"]: [] for d in ibank_action_eval_flow_days}
+        action_eval_day_root_ids = {}
+        for root in tree_action_eval:
+            day_id = (root.get("flow_day_id") or "").strip()
+            if not day_id:
+                continue
+            action_eval_day_root_ids[day_id] = int(root["id"])
+            action_eval_trees_by_day[day_id] = list(root.get("children") or [])
     except Exception as exc:
         db.rollback()
         current_app.logger.exception("information bank tree build failed: %s", exc)
@@ -14613,6 +14679,10 @@ def admin_information_bank():
                 tree_event_flow=tree_event_flow,
                 tree_action_eval=tree_action_eval,
                 tree_dilemma_eval=tree_dilemma_eval,
+                ibank_action_eval_flow_days=ibank_action_eval_flow_days,
+                active_action_eval_day=active_action_eval_day,
+                action_eval_trees_by_day=action_eval_trees_by_day,
+                action_eval_day_root_ids=action_eval_day_root_ids,
                 training_phase_label=lambda key: _information_bank_training_phase_label(
                     db, key
                 ),
@@ -14633,6 +14703,25 @@ def admin_information_bank():
     return resp
 
 
+@bp.route("/admin/information-bank/action-eval/day-tabs", methods=["GET"])
+def admin_information_bank_action_eval_day_tabs():
+    user = get_current_user_optional()
+    if not user:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    if not can_view_information_bank(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    from flask import g
+
+    db = g.db
+    try:
+        payload = _ibank_action_eval_day_tabs_payload(db)
+    except Exception as exc:
+        db.rollback()
+        current_app.logger.exception("action eval day tabs sync failed: %s", exc)
+        return jsonify({"ok": False, "error": "sync_failed"}), 500
+    return jsonify({"ok": True, **payload})
+
+
 @bp.route("/admin/information-bank/event-flow/save-flow-table", methods=["POST"])
 def admin_information_bank_event_flow_save():
     user = get_current_user_optional()
@@ -14648,16 +14737,21 @@ def admin_information_bank_event_flow_save():
     row = _get_or_create_ibank_event_flow_table(db)
     row.flow_table_json = json.dumps(doc, ensure_ascii=False)
     row.updated_at = datetime.utcnow()
+    from app.info_bank_tree import ensure_information_bank_kind
+
+    ensure_information_bank_kind(db, "action_eval")
     db.commit()
     active_rows = next(
         (d["rows"] for d in doc["days"] if d["id"] == doc["active_day_id"]),
         [],
     )
+    action_eval = _ibank_action_eval_day_tabs_payload(db)
     return jsonify(
         {
             "ok": True,
             "day_count": len(doc["days"]),
             "row_count": len(active_rows),
+            "action_eval": action_eval,
         }
     )
 
@@ -14719,7 +14813,11 @@ def admin_information_bank_event_flow_import_docx():
     doc = {"version": 2, "active_day_id": target_id, "days": days}
     row.flow_table_json = json.dumps(doc, ensure_ascii=False)
     row.updated_at = datetime.utcnow()
+    from app.info_bank_tree import ensure_information_bank_kind
+
+    ensure_information_bank_kind(db, "action_eval")
     db.commit()
+    action_eval = _ibank_action_eval_day_tabs_payload(db)
 
     return jsonify(
         {
@@ -14729,6 +14827,7 @@ def admin_information_bank_event_flow_import_docx():
             "note": parsed.get("note") or "",
             "row_count": len(parsed.get("rows") or []),
             "warnings": parsed.get("warnings") or [],
+            "action_eval": action_eval,
         }
     )
 
@@ -14993,15 +15092,25 @@ def admin_information_bank_tree_folder_add():
     name = (request.form.get("folder_name") or "").strip()
     tab = kind_tab(kind)
     if not name:
-        return redirect(url_for("views.admin_information_bank", tab=tab, err="أدخل اسم المجلد."))
+        return _admin_information_bank_tree_redirect(tab=tab, err="أدخل اسم المجلد.")
     ensure_information_bank_kind(db, kind)
+    if kind == "action_eval" and parent_id is None:
+        day = (request.form.get("action_eval_day") or "").strip()
+        if day:
+            from app.info_bank_tree import _find_flow_day_folder
+
+            day_root = _find_flow_day_folder(db, day)
+            if day_root is not None:
+                parent_id = int(day_root.id)
     try:
         add_custom_folder(db, kind=kind, parent_id=parent_id, name=name)
         db.commit()
     except ValueError as exc:
         db.rollback()
-        return redirect(url_for("views.admin_information_bank", tab=tab, err=str(exc) or "تعذر إنشاء المجلد."))
-    return redirect(url_for("views.admin_information_bank", tab=tab, ok="تم إنشاء المجلد."))
+        return _admin_information_bank_tree_redirect(
+            tab=tab, err=str(exc) or "تعذر إنشاء المجلد."
+        )
+    return _admin_information_bank_tree_redirect(tab=tab, ok="تم إنشاء المجلد.")
 
 
 @bp.route("/admin/information-bank/tree/upload", methods=["POST"])
@@ -15012,8 +15121,9 @@ def admin_information_bank_tree_upload():
     from flask import g
 
     from app.info_bank_tree import (
+        _ensure_folder_unit_key_for_upload,
         _is_phase_root_folder,
-        _unit_key_for_node,
+        _unit_key_for_upload_target,
         ensure_information_bank_kind,
         get_node,
         is_unit_eval_tree_kind,
@@ -15029,36 +15139,35 @@ def admin_information_bank_tree_upload():
         abort(400)
     parent_raw = (request.form.get("parent_id") or "").strip()
     if not parent_raw.isdigit():
-        return redirect(
-            url_for("views.admin_information_bank", tab=tab, err="حدّد مجلداً مستهدفاً في الشجرة (زر تحديد).")
+        return _admin_information_bank_tree_redirect(
+            tab=tab, err="حدّد مجلداً مستهدفاً في الشجرة (زر تحديد)."
         )
     parent_id = int(parent_raw)
     ensure_information_bank_kind(db, kind)
     parent = get_node(db, parent_id, kind)
     if parent is None or not parent.is_folder:
-        return redirect(url_for("views.admin_information_bank", tab=tab, err="المجلد المستهدف غير صالح."))
+        return _admin_information_bank_tree_redirect(tab=tab, err="المجلد المستهدف غير صالح.")
     files = [x for x in request.files.getlist("files") if x and getattr(x, "filename", "").strip()]
     if is_unit_eval_tree_kind(kind):
         has_subdirs = upload_includes_subdirectory_paths(files)
         if _is_phase_root_folder(parent):
             if not has_subdirs:
-                return redirect(
-                    url_for(
-                        "views.admin_information_bank",
-                        tab=tab,
-                        err="حدّد مرحلة التمرين ثم «إرفاق مجلد» (مجلد كامل وليس ملفات متفرقة).",
-                    )
+                day_err = (
+                    "حدّد اليوم ثم «إرفاق مجلد» (مجلد كامل وليس ملفات متفرقة)."
+                    if kind == "action_eval"
+                    else "حدّد مرحلة التمرين ثم «إرفاق مجلد» (مجلد كامل وليس ملفات متفرقة)."
                 )
-        elif not _unit_key_for_node(db, parent) and not has_subdirs:
-            return redirect(
-                url_for(
-                    "views.admin_information_bank",
-                    tab=tab,
-                    err="اختر مستوى الوحدة من القائمة على المجلد المرفق، أو ارفق مجلداً فرعياً.",
-                )
+                return _admin_information_bank_tree_redirect(tab=tab, err=day_err)
+        elif not _unit_key_for_upload_target(db, parent) and not has_subdirs:
+            return _admin_information_bank_tree_redirect(
+                tab=tab,
+                err="اختر مستوى الوحدة من القائمة على المجلد المرفق، أو ارفق مجلداً فرعياً.",
             )
     if not files:
-        return redirect(url_for("views.admin_information_bank", tab=tab, err="اختر ملفاً أو مجلداً للإدراج."))
+        return _admin_information_bank_tree_redirect(
+            tab=tab, err="اختر ملفاً أو مجلداً للإدراج."
+        )
+    _ensure_folder_unit_key_for_upload(db, parent)
     added, errors = upload_files_to_parent(db, kind=kind, parent_id=parent_id, file_storages=files)
     if added:
         db.commit()
@@ -15066,13 +15175,13 @@ def admin_information_bank_tree_upload():
         db.rollback()
     err_q = " ".join(errors)[:2000] if errors else ""
     if not added:
-        return redirect(url_for("views.admin_information_bank", tab=tab, err=err_q or "لم تُضف أي ملف."))
+        return _admin_information_bank_tree_redirect(tab=tab, err=err_q or "لم تُضف أي ملف.")
     ok_msg = f"تم إدراج {added} ملف(ات)."
     if err_q:
-        return redirect(
-            url_for("views.admin_information_bank", tab=tab, ok=ok_msg, err=f"تجاهل بعض الملفات: {err_q}")
+        return _admin_information_bank_tree_redirect(
+            tab=tab, ok=ok_msg, err=f"تجاهل بعض الملفات: {err_q}"
         )
-    return redirect(url_for("views.admin_information_bank", tab=tab, ok=ok_msg))
+    return _admin_information_bank_tree_redirect(tab=tab, ok=ok_msg)
 
 
 @bp.route("/admin/information-bank/tree/<int:node_id>/delete", methods=["POST"])
@@ -15097,7 +15206,7 @@ def admin_information_bank_tree_delete(node_id: int):
         or (request.headers.get("X-Requested-With") or "").strip() == "XMLHttpRequest"
     ):
         return jsonify(ok=True, node_id=int(node_id), tab=tab)
-    return redirect(url_for("views.admin_information_bank", tab=tab, ok="تم الحذف."))
+    return _admin_information_bank_tree_redirect(tab=tab, ok="تم الحذف.")
 
 
 @bp.route("/admin/information-bank/tree/<int:node_id>/unit-level", methods=["POST"])
@@ -15122,15 +15231,15 @@ def admin_information_bank_tree_unit_level(node_id: int):
         db.commit()
     except ValueError as exc:
         db.rollback()
-        return redirect(
-            url_for("views.admin_information_bank", tab=tab, err=str(exc) or "تعذّر التعيين.")
+        return _admin_information_bank_tree_redirect(
+            tab=tab, err=str(exc) or "تعذّر التعيين."
         )
     ok_msg = (
         "تم تعيين مستوى الوحدة لهذا المجلد ومحتوياته (المجلدات الفرعية ذات التعيين الخاص تبقى كما هي)."
         if is_folder
         else "تم تعيين مستوى الوحدة للملف."
     )
-    return redirect(url_for("views.admin_information_bank", tab=tab, ok=ok_msg))
+    return _admin_information_bank_tree_redirect(tab=tab, ok=ok_msg)
 
 
 @bp.route("/admin/information-bank/tree/move", methods=["POST"])

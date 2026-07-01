@@ -40,6 +40,175 @@ def is_unit_eval_tree_kind(kind: str) -> bool:
 # المراحل الرئيسية الثلاث المطلوبة في الشجرة
 PRIMARY_PHASE_KEYS = ("preparation", "opening", "battle_exposure")
 
+# تبويب قوائم تقييم الإجراءات — جذور الشجرة = أيام مجرى الأحداث والمعاضل
+FLOW_DAY_CATALOG_PREFIX = "flow_day:"
+
+
+def flow_day_catalog_key(day_id: str) -> str:
+    day_id = (day_id or "").strip()[:48]
+    return f"{FLOW_DAY_CATALOG_PREFIX}{day_id}" if day_id else ""
+
+
+def parse_flow_day_catalog_key(catalog_key: str) -> str | None:
+    ck = (catalog_key or "").strip()
+    if ck.startswith(FLOW_DAY_CATALOG_PREFIX):
+        rest = ck[len(FLOW_DAY_CATALOG_PREFIX) :].strip()
+        return rest or None
+    return None
+
+
+def is_flow_day_catalog_key(catalog_key: str) -> bool:
+    return parse_flow_day_catalog_key(catalog_key) is not None
+
+
+def ibank_event_flow_days(db: Session) -> list[dict[str, str]]:
+    """أيام جدول مجرى الأحداث والمعاضل في بنك المعلومات."""
+    import json
+
+    from app.models.domain import InformationBankEventFlowTable
+
+    row = (
+        db.query(InformationBankEventFlowTable)
+        .order_by(InformationBankEventFlowTable.id)
+        .first()
+    )
+    raw = (getattr(row, "flow_table_json", None) or "").strip() if row else ""
+    if not raw:
+        return [{"id": "day-1", "label": "اليوم/1"}]
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return [{"id": "day-1", "label": "اليوم/1"}]
+    if isinstance(data, list):
+        return [{"id": "day-1", "label": "اليوم/1"}]
+    if isinstance(data, dict) and isinstance(data.get("days"), list):
+        out: list[dict[str, str]] = []
+        for idx, item in enumerate(data["days"]):
+            if not isinstance(item, dict):
+                continue
+            day_id = str(item.get("id") or "").strip() or f"day-{idx + 1}"
+            label = str(item.get("label") or "").strip() or f"اليوم/{idx + 1}"
+            out.append({"id": day_id[:64], "label": label[:200]})
+        if out:
+            return out
+    return [{"id": "day-1", "label": "اليوم/1"}]
+
+
+def _find_flow_day_folder(db: Session, day_id: str) -> InformationBankTreeNode | None:
+    ck = flow_day_catalog_key(day_id)
+    if not ck:
+        return None
+    return (
+        db.query(InformationBankTreeNode)
+        .filter(
+            InformationBankTreeNode.kind == "action_eval",
+            InformationBankTreeNode.parent_id.is_(None),
+            InformationBankTreeNode.is_folder.is_(True),
+            InformationBankTreeNode.catalog_phase_key == ck,
+        )
+        .first()
+    )
+
+
+def _migrate_legacy_action_eval_phase_roots(db: Session, days: list[dict[str, str]]) -> bool:
+    """ترحيل مجلدات مراحل التمرين القديمة إلى أول يوم في المجرى."""
+    if not days:
+        return False
+    target = _find_flow_day_folder(db, days[0]["id"])
+    if target is None:
+        return False
+    valid_keys = {flow_day_catalog_key(d["id"]) for d in days}
+    changed = False
+    legacy_roots = (
+        db.query(InformationBankTreeNode)
+        .filter(
+            InformationBankTreeNode.kind == "action_eval",
+            InformationBankTreeNode.parent_id.is_(None),
+            InformationBankTreeNode.is_folder.is_(True),
+        )
+        .all()
+    )
+    day_ck = flow_day_catalog_key(days[0]["id"])
+    for root in legacy_roots:
+        ck = (root.catalog_phase_key or "").strip()
+        if ck in valid_keys:
+            continue
+        children = (
+            db.query(InformationBankTreeNode)
+            .filter(InformationBankTreeNode.parent_id == int(root.id))
+            .all()
+        )
+        for ch in children:
+            ch.parent_id = int(target.id)
+            if ch.is_folder:
+                if not (ch.catalog_unit_key or "").strip():
+                    ch.catalog_phase_key = ""
+            else:
+                ch.catalog_phase_key = day_ck
+            changed = True
+        if int(root.id) != int(target.id):
+            db.delete(root)
+            changed = True
+    return changed
+
+
+def _ensure_action_eval_flow_day_roots(db: Session) -> bool:
+    """مزامنة جذور شجرة قوائم تقييم الإجراءات مع أيام مجرى الأحداث والمعاضل."""
+    days = ibank_event_flow_days(db)
+    changed = _migrate_legacy_action_eval_phase_roots(db, days)
+    valid_ids = {d["id"] for d in days}
+    for idx, day in enumerate(days):
+        ck = flow_day_catalog_key(day["id"])
+        label = (day.get("label") or day["id"])[:500]
+        node = _find_flow_day_folder(db, day["id"])
+        if node is None:
+            db.add(
+                InformationBankTreeNode(
+                    kind="action_eval",
+                    parent_id=None,
+                    name=label,
+                    is_folder=True,
+                    catalog_phase_key=ck,
+                    catalog_unit_key="",
+                    sort_order=idx,
+                    is_system=True,
+                )
+            )
+            changed = True
+        else:
+            if node.name != label:
+                node.name = label
+                changed = True
+            if int(node.sort_order or 0) != idx:
+                node.sort_order = idx
+                changed = True
+            if not node.is_system:
+                node.is_system = True
+                changed = True
+    fallback = _find_flow_day_folder(db, days[0]["id"]) if days else None
+    for root in (
+        db.query(InformationBankTreeNode)
+        .filter(
+            InformationBankTreeNode.kind == "action_eval",
+            InformationBankTreeNode.parent_id.is_(None),
+            InformationBankTreeNode.is_folder.is_(True),
+        )
+        .all()
+    ):
+        day_id = parse_flow_day_catalog_key((root.catalog_phase_key or "").strip())
+        if not day_id or day_id in valid_ids or fallback is None:
+            continue
+        for ch in (
+            db.query(InformationBankTreeNode)
+            .filter(InformationBankTreeNode.parent_id == int(root.id))
+            .all()
+        ):
+            ch.parent_id = int(fallback.id)
+            changed = True
+        db.delete(root)
+        changed = True
+    return changed
+
 ALLOWED_FILE_EXTENSIONS = (".pdf", ".doc", ".docx", ".xlsx")
 
 _LEGACY_MODEL_BY_KIND = {
@@ -147,6 +316,7 @@ def unlink_node_file(kind: str, relpath: str | None) -> None:
 
 
 def _next_sort(db: Session, kind: str, parent_id: int | None) -> int:
+    db.flush()
     mx = (
         db.query(func.max(InformationBankTreeNode.sort_order))
         .filter(
@@ -156,6 +326,98 @@ def _next_sort(db: Session, kind: str, parent_id: int | None) -> int:
         .scalar()
     )
     return (int(mx) if mx is not None else -1) + 1
+
+
+def _natural_sort_key(text: str) -> tuple:
+    """مفتاح ترتيب طبيعي (01، 02، … 10) للأسماء العربية والإنجليزية."""
+    s = (text or "").strip().casefold()
+    if not s:
+        return ((1, ""),)
+    parts = re.split(r"(\d+)", s)
+    key: list[tuple[int, int | str]] = []
+    for part in parts:
+        if not part:
+            continue
+        if part.isdigit():
+            key.append((0, int(part)))
+        else:
+            key.append((1, part))
+    return tuple(key) if key else ((1, ""),)
+
+
+def _natural_path_sort_key(raw_name: str) -> tuple:
+    rel = _sanitize_path_parts((raw_name or "").replace("\\", "/"))
+    if not rel:
+        return ((1, ""),)
+    return tuple(_natural_sort_key(p) for p in PurePosixPath(rel).parts)
+
+
+def _sort_file_storages_by_path(file_storages: list) -> list:
+    return sorted(
+        file_storages,
+        key=lambda f: _natural_path_sort_key(getattr(f, "filename", "") or ""),
+    )
+
+
+def _resort_siblings_by_natural_name(
+    db: Session, *, kind: str, parent_id: int | None
+) -> bool:
+    """إعادة ترقيم sort_order للأشقاء حسب الاسم — لا يُطبَّق على جذر الشجرة (مجلدات المراحل)."""
+    if parent_id is None:
+        return False
+    siblings = (
+        db.query(InformationBankTreeNode)
+        .filter(
+            InformationBankTreeNode.kind == kind,
+            InformationBankTreeNode.parent_id == parent_id,
+        )
+        .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
+        .all()
+    )
+    if len(siblings) < 2:
+        return False
+    ordered = sorted(
+        siblings,
+        key=lambda n: (_natural_sort_key(n.name or ""), int(n.id)),
+    )
+    changed = False
+    for idx, row in enumerate(ordered):
+        if int(row.sort_order or 0) != idx:
+            row.sort_order = idx
+            changed = True
+    if changed:
+        db.flush()
+    return changed
+
+
+def _resort_touched_parents(
+    db: Session, *, kind: str, parent_ids: set[int | None]
+) -> None:
+    for pid in parent_ids:
+        if pid is not None:
+            _resort_siblings_by_natural_name(db, kind=kind, parent_id=int(pid))
+
+
+def repair_tree_natural_sibling_order(db: Session, kind: str) -> bool:
+    """إصلاح ترتيب الملفات/المجلدات الفرعية — دون لمس جذر الشجرة (مجلدات المراحل)."""
+    if kind not in INFO_BANK_TREE_KINDS:
+        return False
+    parent_ids = {
+        int(row[0])
+        for row in db.query(InformationBankTreeNode.parent_id)
+        .filter(
+            InformationBankTreeNode.kind == kind,
+            InformationBankTreeNode.parent_id.isnot(None),
+        )
+        .distinct()
+        .all()
+        if row[0] is not None
+    }
+    changed = False
+    for pid in parent_ids:
+        if _resort_siblings_by_natural_name(db, kind=kind, parent_id=pid):
+            changed = True
+    return changed
 
 
 def _phase_rows(db: Session) -> list[InformationBankTrainingPhase]:
@@ -368,6 +630,48 @@ def folder_resolved_unit_key(db: Session, node: InformationBankTreeNode) -> str:
     return _resolve_unit_key(eff, db) or ""
 
 
+def _unit_key_for_upload_target(db: Session, folder: InformationBankTreeNode) -> str:
+    """مفتاح وحدة يُسمح بالرفع تحت هذا المجلد — صريح أو موروث من الأب المباشر."""
+    from app.evaluation_list_ibank_sync import _resolve_unit_key
+
+    if not folder.is_folder:
+        return ""
+    uk = folder_resolved_unit_key(db, folder)
+    if uk:
+        return uk
+    if folder.parent_id is None:
+        return ""
+    parent = db.get(InformationBankTreeNode, int(folder.parent_id))
+    if parent is None or not parent.is_folder or _is_phase_root_folder(parent):
+        return ""
+    puk = (parent.catalog_unit_key or "").strip()
+    if puk:
+        resolved = _resolve_unit_key(puk, db)
+        return resolved or puk
+    if not _is_nested_unit_folder(db, parent):
+        return folder_resolved_unit_key(db, parent)
+    return ""
+
+
+def _ensure_folder_unit_key_for_upload(
+    db: Session, folder: InformationBankTreeNode
+) -> None:
+    """تثبيت catalog_unit_key على المجلد عند الرفع إن وُجد استنتاج من الاسم."""
+    if (folder.catalog_unit_key or "").strip() or _is_phase_root_folder(folder):
+        return
+    if _is_nested_unit_folder(db, folder):
+        return
+    uk = folder_resolved_unit_key(db, folder)
+    if uk:
+        folder.catalog_unit_key = uk[:128]
+        folder.catalog_phase_key = ""
+        phase_key = _phase_key_for_node(db, folder)
+        if phase_key:
+            _propagate_catalog_to_subtree(
+                db, int(folder.id), phase_key=phase_key, unit_key=uk
+            )
+
+
 def upload_includes_subdirectory_paths(file_storages: list) -> bool:
     """هل الرفع يتضمن مسارات فرعية (إرفاق مجلد وليس ملفات جذرية فقط)."""
     for f in file_storages:
@@ -425,7 +729,9 @@ def _apply_catalog_keys_from_parent(
             row.catalog_phase_key = pk[:64]
         return
     pk = _phase_key_for_node(db, parent)
-    uk = (parent.catalog_unit_key or "").strip()
+    uk = _unit_key_for_upload_target(db, parent) if parent.is_folder else (
+        (parent.catalog_unit_key or "").strip()
+    )
     if uk and not row.is_folder and not (row.catalog_unit_key or "").strip():
         row.catalog_unit_key = uk[:128]
     if pk and not row.is_folder and not (row.catalog_phase_key or "").strip():
@@ -699,6 +1005,8 @@ def _backfill_unit_eval_folder_catalog(db: Session, kind: str) -> bool:
 
 def _link_orphan_phase_root_folders(db: Session, kind: str) -> bool:
     """ربط مجلدات مرحلة قديمة (parent_id=NULL وبدون catalog_phase_key) بالكتالوج."""
+    if kind == "action_eval":
+        return False
     changed = False
     orphans = (
         db.query(InformationBankTreeNode)
@@ -807,8 +1115,14 @@ def repair_unit_eval_tree(db: Session, kind: str) -> None:
 
 
 def ensure_information_bank_tree(db: Session, kind: str) -> None:
-    """تهيئة مجلدات المراحل والوحدات الفرعية لنوع مرفقات معيّن."""
+    """تهيئة مجلدات المراحل/الأيام والوحدات الفرعية لنوع مرفقات معيّن."""
     if kind not in INFO_BANK_TREE_KINDS:
+        return
+    if kind == "action_eval":
+        if _ensure_action_eval_flow_day_roots(db):
+            db.commit()
+        if repair_unit_eval_tree(db, kind):
+            db.commit()
         return
     changed = False
     phases = _phase_rows(db)
@@ -1092,12 +1406,12 @@ def reorder_tree_sibling_step(
     node_id: int,
     direction: str,
 ) -> None:
-    """تحريك مجلد خطوة واحدة لأعلى أو لأسفل بين أشقائه."""
+    """تحريك مجلد أو ملف خطوة واحدة لأعلى أو لأسفل بين أشقائه."""
     row = get_node(db, node_id, kind)
     if row is None:
         raise ValueError("العنصر غير موجود.")
-    if not row.is_folder:
-        raise ValueError("يُعاد ترتيب المجلدات فقط.")
+    if row.parent_id is None:
+        raise ValueError("لا يُعاد ترتيب مجلدات المراحل.")
     step = (direction or "").strip().lower()
     if step not in ("up", "down"):
         raise ValueError("اتجاه غير صالح.")
@@ -1129,8 +1443,8 @@ def reorder_tree_sibling(
     anchor = get_node(db, anchor_id, kind)
     if row is None or anchor is None:
         raise ValueError("العنصر غير موجود.")
-    if not row.is_folder:
-        raise ValueError("يُعاد ترتيب المجلدات فقط.")
+    if row.parent_id is None:
+        raise ValueError("لا يُعاد ترتيب مجلدات المراحل.")
     if int(row.id) == int(anchor.id):
         return
     if row.parent_id != anchor.parent_id:
@@ -1238,15 +1552,24 @@ def _write_file_bytes(
 
 
 def _ensure_folder_path(
-    db: Session, *, kind: str, root_parent_id: int, relative_dir: str
+    db: Session,
+    *,
+    kind: str,
+    root_parent_id: int,
+    relative_dir: str,
+    touched_parents: set[int | None] | None = None,
 ) -> int:
     parent_id = root_parent_id
+    if touched_parents is not None:
+        touched_parents.add(int(root_parent_id))
     rel = _sanitize_path_parts(relative_dir)
     if not rel:
         return parent_id
     for part in PurePosixPath(rel).parts:
         folder = get_or_create_folder(db, kind=kind, parent_id=parent_id, name=part)
         parent_id = int(folder.id)
+        if touched_parents is not None:
+            touched_parents.add(parent_id)
     return parent_id
 
 
@@ -1260,7 +1583,8 @@ def upload_files_to_parent(
     """يرفع ملفات و/أو شجرة مجلد (عبر webkitRelativePath) تحت parent."""
     added = 0
     errors: list[str] = []
-    for f in file_storages:
+    touched_parents: set[int] = {int(parent_id)}
+    for f in _sort_file_storages_by_path(file_storages):
         raw_name = (getattr(f, "filename", "") or "").strip()
         if not raw_name:
             continue
@@ -1292,6 +1616,7 @@ def upload_files_to_parent(
             kind=kind,
             root_parent_id=parent_id,
             relative_dir="/".join(dir_parts),
+            touched_parents=touched_parents,
         )
         _write_file_bytes(
             db,
@@ -1301,6 +1626,7 @@ def upload_files_to_parent(
             data=data,
             ext=ext,
         )
+        touched_parents.add(int(target_parent))
         added += 1
     return added, errors
 
@@ -1357,14 +1683,22 @@ def build_tree_payload(
 
     def node_dict(n: InformationBankTreeNode) -> dict:
         children = [node_dict(c) for c in by_parent.get(int(n.id), [])]
-        eff_uk = _unit_key_for_node(db, n)
+        eff_uk = (
+            _unit_key_for_upload_target(db, n)
+            if n.is_folder
+            else _unit_key_for_node(db, n)
+        )
         is_phase_root = _is_phase_root_folder(n)
+        flow_day_id = (
+            parse_flow_day_catalog_key((n.catalog_phase_key or "").strip()) or ""
+        )
         d: dict = {
             "id": int(n.id),
             "name": n.name,
             "is_folder": bool(n.is_folder),
             "is_system": bool(n.is_system),
             "is_phase_root": is_phase_root,
+            "flow_day_id": flow_day_id,
             "children": children,
             "catalog_unit_key": (n.catalog_unit_key or "").strip(),
             "effective_unit_key": eff_uk,

@@ -13,8 +13,12 @@ from app.info_bank_tree import (
     ALLOWED_FILE_EXTENSIONS,
     InformationBankTreeNode,
     _ensure_folder_path,
+    _natural_sort_key,
     _next_sort,
+    _resort_siblings_by_natural_name,
+    _resort_touched_parents,
     _sanitize_path_parts,
+    _sort_file_storages_by_path,
     _write_file_bytes,
     add_custom_folder,
     delete_node,
@@ -110,6 +114,9 @@ def build_tree_payload(db: Session, kind: str) -> list[dict]:
     by_parent: dict[int | None, list[_Node]] = defaultdict(list)
     for r in rows:
         by_parent[r.parent_id].append(r)
+    for pid, siblings in by_parent.items():
+        if pid is not None:
+            siblings.sort(key=lambda n: (_natural_sort_key(n.name or ""), int(n.id)))
 
     def node_dict(n: _Node) -> dict:
         children = [node_dict(c) for c in by_parent.get(int(n.id), [])]
@@ -176,7 +183,8 @@ def upload_files_to_tree(
         )
     added = 0
     errors: list[str] = []
-    for f in file_storages:
+    touched_parents: set[int | None] = {parent_id}
+    for f in _sort_file_storages_by_path(file_storages):
         raw_name = (getattr(f, "filename", "") or "").strip()
         if not raw_name:
             continue
@@ -209,10 +217,14 @@ def upload_files_to_tree(
                 kind=kind,
                 root_parent_id=int(parent_id),
                 relative_dir="/".join(dir_parts),
+                touched_parents=touched_parents,
             )
         elif dir_parts:
             target_parent = _ensure_folder_path_library_root(
-                db, kind=kind, relative_dir="/".join(dir_parts)
+                db,
+                kind=kind,
+                relative_dir="/".join(dir_parts),
+                touched_parents=touched_parents,
             )
         else:
             target_parent = None
@@ -225,6 +237,9 @@ def upload_files_to_tree(
                 data=data,
                 ext=ext,
             )
+            touched_parents.add(int(target_parent))
+            db.flush()
+            _resort_siblings_by_natural_name(db, kind=kind, parent_id=int(target_parent))
         else:
             _write_file_bytes_library(
                 db,
@@ -235,19 +250,29 @@ def upload_files_to_tree(
                 ext=ext,
             )
         added += 1
+    if added:
+        db.flush()
     return added, errors
 
 
 def _ensure_folder_path_library_root(
-    db: Session, *, kind: str, relative_dir: str
+    db: Session,
+    *,
+    kind: str,
+    relative_dir: str,
+    touched_parents: set[int | None] | None = None,
 ) -> int:
     parent_id: int | None = None
+    if touched_parents is not None:
+        touched_parents.add(None)
     rel = _sanitize_path_parts(relative_dir)
     if not rel:
         raise ValueError("empty path")
     for part in PurePosixPath(rel).parts:
         folder = get_or_create_folder(db, kind=kind, parent_id=parent_id, name=part)
         parent_id = int(folder.id)
+        if touched_parents is not None:
+            touched_parents.add(parent_id)
     if parent_id is None:
         raise ValueError("empty path")
     return parent_id

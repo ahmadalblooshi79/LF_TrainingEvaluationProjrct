@@ -565,6 +565,11 @@
         .then(function (res) {
           if (res.ok && res.j && res.j.ok) {
             syncFlowDaysDataset();
+            if (window.ibankApplyActionEvalDays && res.j.action_eval) {
+              window.ibankApplyActionEvalDays(res.j.action_eval);
+            } else if (window.ibankFetchActionEvalDays) {
+              window.ibankFetchActionEvalDays();
+            }
             setStatus('تم الحفظ', false);
             setTimeout(function () {
               if (statusEl && statusEl.textContent === 'تم الحفظ') setStatus('', false);
@@ -890,6 +895,11 @@
         .then(function (res) {
           if (res.ok && res.j && res.j.ok) {
             applyImportedDays(res.j);
+            if (window.ibankApplyActionEvalDays && res.j.action_eval) {
+              window.ibankApplyActionEvalDays(res.j.action_eval);
+            } else if (window.ibankFetchActionEvalDays) {
+              window.ibankFetchActionEvalDays();
+            }
             var msg = 'تم الاستيراد (' + (res.j.row_count || 0) + ' صف)';
             if (res.j.warnings && res.j.warnings.length) {
               msg += ' — ' + res.j.warnings.join(' ');

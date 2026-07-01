@@ -157,7 +157,7 @@
       </div>
 
       <div class="ibank-tabpane{% if active_tab == 'action-eval' %} is-active{% endif %}" data-tab-pane="action-eval" role="tabpanel">
-        {% with kind='action_eval', tree_nodes=tree_action_eval, ibank_tree_unit_levels=ibank_tree_unit_levels, ibank_judge_names_by_unit=ibank_judge_names_by_unit %}
+        {% with kind='action_eval', tree_nodes=tree_action_eval, ibank_tree_unit_levels=ibank_tree_unit_levels, ibank_judge_names_by_unit=ibank_judge_names_by_unit, ibank_action_eval_flow_days=ibank_action_eval_flow_days, active_action_eval_day=active_action_eval_day, action_eval_trees_by_day=action_eval_trees_by_day, action_eval_day_root_ids=action_eval_day_root_ids %}
         {% include 'admin_information_bank_tree_panel.html' %}
         {% endwith %}
       </div>
@@ -222,6 +222,9 @@
         u.searchParams.set('tab', id);
         history.replaceState(null, '', u.pathname + '?' + u.searchParams.toString());
       } catch (urlErr) {}
+      if (id === 'action-eval' && window.ibankFetchActionEvalDays) {
+        window.ibankFetchActionEvalDays();
+      }
     }
     var ibankSubmitting = false;
     btns.forEach(function (b) {
@@ -279,11 +282,71 @@
     card.querySelectorAll('.ibank-tree-page').forEach(function (page) {
       var kind = page.getAttribute('data-ibank-tree-kind') || '';
       var isUnitEvalTree = (kind === 'action_eval' || kind === 'dilemma_eval');
-      var treeRoot = page.querySelector('.js-ibank-tree');
+      var dayTabsMode = page.getAttribute('data-ibank-day-tabs') === '1';
+      var activeDayId = dayTabsMode ? (page.getAttribute('data-active-day-id') || '') : '';
+      var dayRootMap = {};
+      if (dayTabsMode) {
+        var dayRootsRaw = page.querySelector('.js-ibank-action-eval-day-roots');
+        try {
+          dayRootMap = dayRootsRaw && dayRootsRaw.textContent ? JSON.parse(dayRootsRaw.textContent) : {};
+        } catch (errDayRoots) {
+          dayRootMap = {};
+        }
+      }
+      var treeRoot = null;
+      var treeScrollEl = null;
       var targetId = '';
+      var uploadTargetId = '';
       var parentInputs = page.querySelectorAll('.js-ibank-tree-parent-id, .js-ibank-tree-upload-parent');
+      var dayInputs = page.querySelectorAll('.js-ibank-action-eval-day');
       var labelEl = page.querySelector('.js-ibank-tree-target-label');
       var folderNameInput = page.querySelector('.js-ibank-tree-folder-form input[name="folder_name"]');
+      var expStorageKey = 'ibank_tree_exp_' + kind;
+      var scrollStorageKey = 'ibank_tree_scroll_' + kind;
+
+      function getActivePane() {
+        if (!dayTabsMode) return page;
+        return page.querySelector('.ibank-action-eval-day-pane:not([hidden])');
+      }
+
+      function refreshTreeRefs() {
+        var pane = getActivePane() || page;
+        treeRoot = pane.querySelector('.js-ibank-tree');
+        treeScrollEl = pane.querySelector('.ibank-tree-scroll');
+      }
+
+      function updateStorageKeys() {
+        if (dayTabsMode && activeDayId) {
+          expStorageKey = 'ibank_tree_exp_' + kind + '_' + activeDayId;
+          scrollStorageKey = 'ibank_tree_scroll_' + kind + '_' + activeDayId;
+        } else {
+          expStorageKey = 'ibank_tree_exp_' + kind;
+          scrollStorageKey = 'ibank_tree_scroll_' + kind;
+        }
+      }
+
+      function syncDayHiddenInputs() {
+        dayInputs.forEach(function (inp) {
+          inp.value = activeDayId || '';
+        });
+      }
+
+      function activeDayRootId() {
+        if (!dayTabsMode || !activeDayId) return '';
+        var raw = dayRootMap[activeDayId];
+        return raw !== undefined && raw !== null ? String(raw) : '';
+      }
+
+      function isDayRootId(id) {
+        if (!dayTabsMode || !id) return false;
+        var want = String(id);
+        return Object.keys(dayRootMap).some(function (k) {
+          return String(dayRootMap[k]) === want;
+        });
+      }
+
+      refreshTreeRefs();
+      updateStorageKeys();
 
       function setFolderExpanded(li, open) {
         li.setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -296,18 +359,16 @@
       }
 
       function collapseAllFolders() {
-        page.querySelectorAll('.ibank-tree-has-children').forEach(function (li) {
+        var scope = getActivePane() || page;
+        scope.querySelectorAll('.ibank-tree-has-children').forEach(function (li) {
           setFolderExpanded(li, false);
         });
       }
 
-      var treeScrollEl = page.querySelector('.ibank-tree-scroll');
-      var expStorageKey = 'ibank_tree_exp_' + kind;
-      var scrollStorageKey = 'ibank_tree_scroll_' + kind;
-
       function saveTreeUiState() {
+        var scope = getActivePane() || page;
         var expanded = [];
-        page.querySelectorAll('.ibank-tree-has-children').forEach(function (li) {
+        scope.querySelectorAll('.ibank-tree-has-children').forEach(function (li) {
           if (li.getAttribute('aria-expanded') === 'true') {
             expanded.push(String(li.getAttribute('data-node-id') || ''));
           }
@@ -323,6 +384,8 @@
       }
 
       function restoreTreeUiState() {
+        refreshTreeRefs();
+        var scope = getActivePane() || page;
         var raw = null;
         try {
           raw = sessionStorage.getItem(expStorageKey);
@@ -333,7 +396,7 @@
             if (Array.isArray(ids)) {
               ids.forEach(function (id) {
                 if (!id) return;
-                var li = page.querySelector('[data-node-id="' + id + '"]');
+                var li = scope.querySelector('[data-node-id="' + id + '"]');
                 if (li && li.classList.contains('ibank-tree-has-children')) {
                   setFolderExpanded(li, true);
                 }
@@ -378,6 +441,12 @@
       }
 
       function defaultRootLabel() {
+        if (dayTabsMode) {
+          return 'اليوم الحالي — «إرفاق مجلد» لإدراج مستويات الوحدات، أو حدّد مجلداً ثم أرفق';
+        }
+        if (kind === 'action_eval') {
+          return 'الجذر — حدّد اليوم ثم «إرفاق مجلد» أو «إضافة مجلد» (اختياري)، واختر مستوى الوحدة من القائمة على المجلد';
+        }
         if (isUnitEvalTree) {
           return 'الجذر — حدّد مرحلة التمرين ثم «إرفاق مجلد» أو «إضافة مجلد» (اختياري)، واختر مستوى الوحدة من القائمة على المجلد';
         }
@@ -395,8 +464,22 @@
 
       function isPhaseRootLi(li) {
         if (!li) return false;
+        if (dayTabsMode) return false;
         var parentUl = li.parentElement;
         return !!(parentUl && parentUl.classList.contains('ibank-tree-root'));
+      }
+
+      function isPhaseRootTarget(id) {
+        if (!id) return false;
+        if (isDayRootId(id)) return true;
+        var li = (getActivePane() || page).querySelector('[data-node-id="' + id + '"]');
+        return isPhaseRootLi(li);
+      }
+
+      function effectiveUploadTargetId(isDirForm) {
+        if (uploadTargetId) return uploadTargetId;
+        if (dayTabsMode && isDirForm) return activeDayRootId();
+        return '';
       }
 
       function folderHasUnitLevel(li) {
@@ -404,33 +487,258 @@
         return Boolean((li.getAttribute('data-effective-unit-key') || '').trim());
       }
 
-      function setTarget(id, name) {
-        targetId = id || '';
-        parentInputs.forEach(function (inp) { inp.value = targetId; });
-        if (labelEl) {
-          if (!targetId) {
-            labelEl.textContent = 'المستهدف: ' + defaultRootLabel();
-          } else {
-            var tgtLi = page.querySelector('[data-node-id="' + targetId + '"]');
-            var hint = (isUnitEvalTree && tgtLi && !folderHasUnitLevel(tgtLi) && !isPhaseRootLi(tgtLi))
-              ? ' — اختر مستوى الوحدة من القائمة على المجلد المرفق'
-              : '';
-            labelEl.textContent = 'المستهدف: ' + (name || '') + hint;
-          }
+      function validateUnitEvalUpload(uploadId, isDirForm, files) {
+        if (!uploadId) {
+          window.alert(dayTabsMode && isDirForm
+            ? 'اختر يوماً ثم «إرفاق مجلد» (مجلد كامل لمستويات الوحدات).'
+            : 'حدّد مجلداً مستهدفاً في الشجرة (زر «تحديد»).');
+          return false;
         }
-        page.querySelectorAll('.ibank-tree-node--folder').forEach(function (li) {
+        var scope = getActivePane() || page;
+        var tgtLi = scope.querySelector('[data-node-id="' + uploadId + '"]');
+        if (isPhaseRootTarget(uploadId)) {
+          if (!isDirForm || !uploadHasSubdirs(files)) {
+            window.alert(kind === 'action_eval'
+              ? 'حدّد اليوم ثم «إرفاق مجلد» (مجلد كامل وليس ملفات متفرقة).'
+              : 'حدّد مرحلة التمرين ثم «إرفاق مجلد» (مجلد كامل وليس ملفات متفرقة).');
+            return false;
+          }
+          return true;
+        }
+        if (!folderHasUnitLevel(tgtLi)) {
+          if (isDirForm && uploadHasSubdirs(files)) return true;
+          window.alert('اختر مستوى الوحدة من القائمة على المجلد المرفق، أو ارفق مجلداً فرعياً.');
+          return false;
+        }
+        return true;
+      }
+
+      function submitUploadForm(form) {
+        if (typeof form.requestSubmit === 'function') {
+          form.requestSubmit();
+        } else {
+          form.submit();
+        }
+      }
+
+      function syncReorderControls() {
+        var scopeSel = getActivePane() || page;
+        scopeSel.querySelectorAll('.ibank-tree-node').forEach(function (li) {
           var lid = String(li.getAttribute('data-node-id') || '');
-          li.classList.toggle('ibank-tree-node--target-selected', Boolean(targetId) && lid === targetId);
+          var selected = Boolean(targetId) && lid === targetId;
+          li.classList.toggle('ibank-tree-node--target-selected', selected);
+          var reorder = li.querySelector('.js-ibank-tree-reorder');
+          if (reorder) {
+            var show = selected && li.getAttribute('data-is-phase-root') !== '1';
+            reorder.hidden = !show;
+            reorder.setAttribute('aria-hidden', show ? 'false' : 'true');
+          }
         });
         page.querySelectorAll('.js-ibank-tree-select-target').forEach(function (btn) {
           btn.classList.toggle('is-active', String(btn.getAttribute('data-node-id')) === targetId);
         });
       }
 
-      if (isUnitEvalTree) {
-        page.querySelectorAll('.ibank-tree-root > .ibank-tree-node--folder.ibank-tree-has-children').forEach(function (li) {
+      function setTarget(id, name) {
+        targetId = id || '';
+        var scopeSel = getActivePane() || page;
+        var tgtLi = targetId ? scopeSel.querySelector('[data-node-id="' + targetId + '"]') : null;
+        var isFolder = !!(tgtLi && tgtLi.classList.contains('ibank-tree-node--folder'));
+        if (!targetId) {
+          uploadTargetId = '';
+        } else if (isFolder) {
+          uploadTargetId = targetId;
+        }
+        parentInputs.forEach(function (inp) { inp.value = uploadTargetId; });
+        if (labelEl) {
+          if (!targetId) {
+            labelEl.textContent = 'المستهدف: ' + defaultRootLabel();
+          } else {
+            var hint = (isUnitEvalTree && tgtLi && isFolder && !folderHasUnitLevel(tgtLi) && !isPhaseRootTarget(targetId))
+              ? ' — اختر مستوى الوحدة من القائمة على المجلد المرفق'
+              : (!isFolder ? ' — للتحريك' : '');
+            labelEl.textContent = 'المستهدف: ' + (name || '') + hint;
+          }
+        }
+        syncReorderControls();
+      }
+
+      function moveTreeNode(li, direction) {
+        var moveUrl = page.getAttribute('data-tree-move-url') || '';
+        if (!moveUrl || !li) return;
+        var nid = li.getAttribute('data-node-id') || '';
+        if (!nid) return;
+        var dir = direction === 'up' ? 'up' : 'down';
+        saveTreeUiState();
+        fetch(moveUrl, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          body: JSON.stringify({ kind: kind, node_id: parseInt(nid, 10), direction: dir }),
+        })
+          .then(function (r) {
+            return r.json().then(function (j) {
+              if (!r.ok || !j || !j.ok) {
+                return { ok: false, error: (j && j.error) || ('HTTP ' + r.status) };
+              }
+              return { ok: true };
+            });
+          })
+          .then(function (res) {
+            if (!res.ok) {
+              window.alert(res.error || 'تعذّر التحريك.');
+              return;
+            }
+            var parentUl = li.parentElement;
+            if (!parentUl) return;
+            if (dir === 'up') {
+              var prev = li.previousElementSibling;
+              if (prev && prev.classList.contains('ibank-tree-node')) {
+                parentUl.insertBefore(li, prev);
+              }
+            } else {
+              var next = li.nextElementSibling;
+              if (next && next.classList.contains('ibank-tree-node')) {
+                parentUl.insertBefore(next, li);
+              }
+            }
+            saveTreeUiState();
+          })
+          .catch(function () {
+            window.alert('تعذّر التحريك.');
+          });
+      }
+
+      function expandTopLevelFolders() {
+        var scope = getActivePane() || page;
+        scope.querySelectorAll('.ibank-tree-root > .ibank-tree-node--folder.ibank-tree-has-children').forEach(function (li) {
           setFolderExpanded(li, true);
         });
+      }
+
+      function activateDayTab(dayId) {
+        if (!dayTabsMode || !dayId || dayId === activeDayId) return;
+        saveTreeUiState();
+        activeDayId = dayId;
+        page.setAttribute('data-active-day-id', dayId);
+        page.querySelectorAll('.ibank-action-eval-day-tab').forEach(function (btn) {
+          var on = (btn.getAttribute('data-day-id') === dayId);
+          btn.classList.toggle('is-active', on);
+          btn.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        page.querySelectorAll('.ibank-action-eval-day-pane').forEach(function (pane) {
+          var on = (pane.getAttribute('data-day-id') === dayId);
+          pane.hidden = !on;
+          pane.classList.toggle('is-active', on);
+        });
+        syncDayHiddenInputs();
+        updateStorageKeys();
+        refreshTreeRefs();
+        setTarget('', '');
+        restoreTreeUiState();
+        expandTopLevelFolders();
+        try {
+          var u = new URL(window.location.href);
+          u.searchParams.set('tab', 'action-eval');
+          u.searchParams.set('day', dayId);
+          history.replaceState(null, '', u.pathname + '?' + u.searchParams.toString());
+        } catch (urlErr) {}
+      }
+
+      if (dayTabsMode) {
+        page.querySelectorAll('.ibank-action-eval-day-tab').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            activateDayTab(btn.getAttribute('data-day-id') || '');
+          });
+        });
+        syncDayHiddenInputs();
+
+        function applyActionEvalDaysPayload(payload) {
+          if (!dayTabsMode || !payload) return;
+          var days = Array.isArray(payload.days) ? payload.days : [];
+          var roots = payload.day_root_ids || {};
+          dayRootMap = roots;
+          var rootsEl = page.querySelector('.js-ibank-action-eval-day-roots');
+          if (rootsEl) {
+            try { rootsEl.textContent = JSON.stringify(roots); } catch (eRoots) {}
+          }
+          var tabsNav = page.querySelector('.ibank-action-eval-day-tabs');
+          var treeCard = page.querySelector('.ibank-tree-card');
+          if (!tabsNav || !treeCard) return;
+
+          var validIds = {};
+          days.forEach(function (d) { if (d && d.id) validIds[d.id] = true; });
+
+          treeCard.querySelectorAll('.ibank-action-eval-day-pane').forEach(function (pane) {
+            var pid = pane.getAttribute('data-day-id') || '';
+            if (!validIds[pid]) pane.remove();
+          });
+          tabsNav.querySelectorAll('.ibank-action-eval-day-tab').forEach(function (btn) {
+            var bid = btn.getAttribute('data-day-id') || '';
+            if (!validIds[bid]) btn.remove();
+          });
+
+          days.forEach(function (d) {
+            if (!d || !d.id) return;
+            var dayId = d.id;
+            var label = d.label || dayId;
+            var rootId = roots[dayId] != null ? String(roots[dayId]) : '';
+
+            var tabBtn = tabsNav.querySelector('.ibank-action-eval-day-tab[data-day-id="' + dayId + '"]');
+            if (!tabBtn) {
+              tabBtn = document.createElement('button');
+              tabBtn.type = 'button';
+              tabBtn.className = 'pf-flow-day-tab ibank-action-eval-day-tab';
+              tabBtn.setAttribute('data-day-id', dayId);
+              tabBtn.setAttribute('role', 'tab');
+              tabBtn.addEventListener('click', function () {
+                activateDayTab(tabBtn.getAttribute('data-day-id') || '');
+              });
+              tabsNav.appendChild(tabBtn);
+            }
+            tabBtn.textContent = label;
+
+            var pane = treeCard.querySelector('.ibank-action-eval-day-pane[data-day-id="' + dayId + '"]');
+            if (!pane) {
+              pane = document.createElement('div');
+              pane.className = 'ibank-action-eval-day-pane';
+              pane.setAttribute('data-day-id', dayId);
+              pane.setAttribute('data-day-root-id', rootId);
+              pane.hidden = true;
+              pane.innerHTML = '<div class="ibank-tree-scroll"><ul class="ibank-tree-root js-ibank-tree" role="tree" aria-label="قوائم تقييم الإجراءات — ' + label + '"><li class="muted ibank-tree-empty">لا توجد عناصر بعد — أرفق مجلداً لمستويات الوحدات أو أضف مجلداً.</li></ul></div>';
+              treeCard.appendChild(pane);
+            } else {
+              pane.setAttribute('data-day-root-id', rootId);
+            }
+          });
+
+          days.forEach(function (d) {
+            if (!d || !d.id) return;
+            var tabBtn = tabsNav.querySelector('.ibank-action-eval-day-tab[data-day-id="' + d.id + '"]');
+            if (tabBtn) tabsNav.appendChild(tabBtn);
+          });
+
+          if (!validIds[activeDayId] && days.length) {
+            activateDayTab(days[0].id);
+          } else if (activeDayId) {
+            page.querySelectorAll('.ibank-action-eval-day-tab').forEach(function (btn) {
+              var on = (btn.getAttribute('data-day-id') === activeDayId);
+              btn.classList.toggle('is-active', on);
+              btn.setAttribute('aria-selected', on ? 'true' : 'false');
+            });
+            refreshTreeRefs();
+          }
+        }
+
+        window.ibankApplyActionEvalDays = applyActionEvalDaysPayload;
+      }
+
+      if (isUnitEvalTree) {
+        expandTopLevelFolders();
         var judgeRaw = page.querySelector('.js-ibank-judge-by-unit-data');
         var judgeByUnit = {};
         try {
@@ -453,26 +761,14 @@
         if (!isUnitEvalTree) return;
         var isDirForm = uf.classList.contains('js-ibank-tree-upload-dir-form');
         uf.addEventListener('submit', function (e) {
-          if (!targetId) {
-            e.preventDefault();
-            window.alert('حدّد مجلداً مستهدفاً في الشجرة (زر «تحديد»).');
-            return;
-          }
-          var tgtLi = page.querySelector('[data-node-id="' + targetId + '"]');
+          var uploadId = effectiveUploadTargetId(isDirForm);
           var inp = uf.querySelector('input[type=file]');
           var files = inp && inp.files ? inp.files : null;
-          if (isPhaseRootLi(tgtLi)) {
-            if (!isDirForm || !uploadHasSubdirs(files)) {
-              e.preventDefault();
-              window.alert('حدّد مرحلة التمرين ثم «إرفاق مجلد» (مجلد كامل وليس ملفات متفرقة).');
-            }
+          if (!validateUnitEvalUpload(uploadId, isDirForm, files)) {
+            e.preventDefault();
             return;
           }
-          if (!folderHasUnitLevel(tgtLi)) {
-            if (isDirForm && uploadHasSubdirs(files)) return;
-            e.preventDefault();
-            window.alert('اختر مستوى الوحدة من القائمة على المجلد المرفق، أو ارفق مجلداً فرعياً.');
-          }
+          parentInputs.forEach(function (inpEl) { inpEl.value = uploadId; });
         });
       });
 
@@ -486,6 +782,16 @@
             setTarget(nid, nm);
           }
         });
+      });
+
+      page.addEventListener('click', function (e) {
+        var moveBtn = e.target.closest('.js-ibank-tree-move');
+        if (!moveBtn || !page.contains(moveBtn)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var li = moveBtn.closest('.ibank-tree-node');
+        if (!li) return;
+        moveTreeNode(li, moveBtn.getAttribute('data-direction') || '');
       });
 
       var clearSel = page.querySelector('.js-ibank-tree-clear-select');
@@ -586,14 +892,34 @@
         pick.addEventListener('click', function () { inp.click(); });
         inp.addEventListener('change', function () {
           if (!inp.files || inp.files.length === 0) return;
-          if (!targetId) {
-            alert('حدّد مجلداً مستهدفاً في الشجرة (زر «تحديد») قبل الإدراج.');
+          var isDirForm = form.classList.contains('js-ibank-tree-upload-dir-form');
+          var uploadId = effectiveUploadTargetId(isDirForm);
+          if (isUnitEvalTree && !validateUnitEvalUpload(uploadId, isDirForm, inp.files)) {
             inp.value = '';
             return;
           }
+          if (!uploadId) {
+            alert(dayTabsMode && isDirForm
+              ? 'اختر يوماً ثم «إرفاق مجلد» (مجلد كامل لمستويات الوحدات).'
+              : 'حدّد مجلداً مستهدفاً في الشجرة (زر «تحديد») قبل الإدراج.');
+            inp.value = '';
+            return;
+          }
+          parentInputs.forEach(function (pInp) { pInp.value = uploadId; });
           ibankSubmitting = true;
           btns.forEach(function (b) { b.disabled = true; });
-          form.submit();
+          submitUploadForm(form);
+        });
+      }
+      var folderForm = page.querySelector('.js-ibank-tree-folder-form');
+      if (folderForm) {
+        folderForm.addEventListener('submit', function () {
+          if (!targetId && dayTabsMode) {
+            var rootId = activeDayRootId();
+            if (rootId) {
+              parentInputs.forEach(function (pInp) { pInp.value = rootId; });
+            }
+          }
         });
       }
       bindPick('.js-ibank-tree-pick-files', '.js-ibank-tree-files', '.js-ibank-tree-upload-files-form');
@@ -601,6 +927,25 @@
 
       setTarget('', '');
     });
+
+    window.ibankFetchActionEvalDays = function () {
+      var page = card.querySelector('.ibank-tree-page[data-ibank-day-tabs="1"]');
+      if (!page) return;
+      var url = page.getAttribute('data-action-eval-sync-url') || '';
+      if (!url) return;
+      fetch(url, {
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (j && j.ok && window.ibankApplyActionEvalDays) {
+            window.ibankApplyActionEvalDays(j);
+          }
+        })
+        .catch(function () {});
+    };
 
     function payloadFromEl(el) {
       var u = el.getAttribute('href') || '';

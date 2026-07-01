@@ -198,8 +198,6 @@ class MainActivity : AppCompatActivity() {
 
         pageZoomPercent = prefs.getInt("page_zoom_percent", 100)
 
-        OfflineSyncWorker.schedule(this)
-
         registerNetworkMonitor()
 
 
@@ -360,12 +358,6 @@ class MainActivity : AppCompatActivity() {
 
                 injectOfflineState()
 
-                if (ServerReachability.isReachable(this)) {
-
-                    triggerOfflineSync()
-
-                }
-
             },
 
             onOfflineMode = {
@@ -379,8 +371,6 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
 
                     injectServerOnline()
-
-                    triggerOfflineSync()
 
                 }
 
@@ -576,9 +566,7 @@ class MainActivity : AppCompatActivity() {
 
         if (ServerReachability.isReachable(this, force = true)) {
 
-            OfflineSyncWorker.syncNow(this)
-
-            triggerOfflineSync()
+            injectServerOnline()
 
         } else {
 
@@ -855,8 +843,6 @@ class MainActivity : AppCompatActivity() {
                         ServerReachability.markReachable()
 
                         injectServerOnline()
-
-                        triggerOfflineSync()
 
                     }
 

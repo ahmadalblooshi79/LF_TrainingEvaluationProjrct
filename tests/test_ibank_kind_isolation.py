@@ -47,9 +47,9 @@ class IbankKindIsolationTests(unittest.TestCase):
         self.phase_action = InformationBankTreeNode(
             kind=INFO_BANK_ACTION_EVAL_KIND,
             parent_id=None,
-            name="التحضير",
+            name="اليوم/1",
             is_folder=True,
-            catalog_phase_key="preparation",
+            catalog_phase_key="flow_day:day-1",
             is_system=True,
         )
         self.db.add(self.phase_eval)
@@ -135,6 +135,7 @@ class IbankKindIsolationTests(unittest.TestCase):
                 self.db,
                 phase_key="preparation",
                 unit_key="ul_mech13_bn_c1",
+                flow_day_id="day-1",
             )
         node_ids = {int(s["node_id"]) for s in sources}
         self.assertIn(int(self.file_action.id), node_ids)

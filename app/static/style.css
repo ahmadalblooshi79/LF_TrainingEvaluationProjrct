@@ -3784,6 +3784,16 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   text-decoration: none;
   display: inline-block;
 }
+.ibank-action-eval-days-bar {
+  margin: 0.35rem 0 0.15rem;
+}
+.ibank-action-eval-days-note {
+  margin: 0 0 0.55rem;
+  font-size: 0.82rem;
+}
+.ibank-action-eval-day-pane .ibank-tree-scroll {
+  margin-top: 0;
+}
 .eval-lists-phase-picker {
   display: flex;
   flex-wrap: wrap;
@@ -10396,6 +10406,21 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
 }
 .js-ibank-tree-select-target.is-active {
   font-weight: 700;
+}
+.ibank-tree-reorder {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.15rem;
+  flex-shrink: 0;
+}
+.ibank-tree-reorder[hidden] {
+  display: none !important;
+}
+.ibank-tree-node--target-selected > .ibank-tree-row .ibank-tree-reorder:not([hidden]) {
+  outline: 1px solid rgba(127, 29, 29, 0.35);
+  border-radius: 4px;
+  padding: 0 0.1rem;
 }
 .ibank-tree-empty {
   padding: 0.65rem;

@@ -692,14 +692,11 @@
     var sumMax = 0;
     var sumAcq = 0;
     var anyNumericAcquired = false;
-    /** مقام النسبة الإجمالية: قصوى كل بند يُحسب (ليس فقط المُدخل)، باستثناء «لا ينطبق»؛ بدون قصوى رقمية يُفترض 5 كعمود النسبة. */
-    var sumMaxDen = 0;
     table.querySelectorAll('.eval-structured-row.eval-row--score').forEach(function (tr) {
       var mx = parseMaxAttr(tr);
       if (!isNaN(mx) && mx > 0) sumMax += mx;
       var sel = tr.querySelector('.eval-acquired-input');
       var rawAcq = sel ? String(sel.value || '').trim() : '';
-      if (rawAcq !== 'na') sumMaxDen += effectiveMaxForRow(tr);
       if (rawAcq !== '' && rawAcq !== 'na') {
         var an = parseFloat(rawAcq.replace(',', '.'));
         if (!isNaN(an)) {
@@ -712,13 +709,13 @@
     if (sumAcqEl) {
       sumAcqEl.textContent = anyNumericAcquired ? String(Math.round(sumAcq * 100) / 100) : '—';
     }
-    if (sumMaxDen <= 0) {
+    if (sumMax <= 0 || !anyNumericAcquired) {
       totalEl.textContent = '—';
       if (gradeEl) gradeEl.textContent = '';
       syncApproveButtonVisibility();
       return;
     }
-    var actualPct = (sumAcq / sumMaxDen) * 100;
+    var actualPct = (sumAcq / sumMax) * 100;
     totalEl.textContent = Math.round(actualPct * 100) / 100 + '%';
     var totalGrade = gradeFromPct(actualPct);
     if (gradeEl) gradeEl.textContent = totalGrade;

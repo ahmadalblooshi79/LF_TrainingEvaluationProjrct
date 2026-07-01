@@ -117,6 +117,60 @@ class InfoBankTreeReorderTests(unittest.TestCase):
         )
         self.assertEqual([n.name for n in ordered], ["سرية 3", "سرية 1", "سرية 2"])
 
+    def test_step_down_moves_file(self):
+        folder = InformationBankTreeNode(
+            kind=KIND,
+            parent_id=int(self.parent.id),
+            name="مجلد ملفات",
+            is_folder=True,
+            sort_order=9,
+        )
+        self.db.add(folder)
+        self.db.flush()
+        file_a = InformationBankTreeNode(
+            kind=KIND,
+            parent_id=int(folder.id),
+            name="ملف أ",
+            is_folder=False,
+            sort_order=0,
+        )
+        file_b = InformationBankTreeNode(
+            kind=KIND,
+            parent_id=int(folder.id),
+            name="ملف ب",
+            is_folder=False,
+            sort_order=1,
+        )
+        self.db.add(file_a)
+        self.db.add(file_b)
+        self.db.commit()
+        reorder_tree_sibling_step(
+            self.db,
+            kind=KIND,
+            node_id=int(file_a.id),
+            direction="down",
+        )
+        self.db.commit()
+        ordered = (
+            self.db.query(InformationBankTreeNode)
+            .filter(
+                InformationBankTreeNode.parent_id == int(folder.id),
+                InformationBankTreeNode.is_folder.is_(False),
+            )
+            .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
+            .all()
+        )
+        self.assertEqual([n.name for n in ordered], ["ملف ب", "ملف أ"])
+
+    def test_cannot_move_phase_root(self):
+        with self.assertRaises(ValueError):
+            reorder_tree_sibling_step(
+                self.db,
+                kind=KIND,
+                node_id=int(self.parent.id),
+                direction="down",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

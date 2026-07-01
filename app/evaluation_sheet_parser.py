@@ -11,10 +11,10 @@ from app.evaluation_list_columns import (
     annotate_evaluation_row_kinds,
     build_structured_rows,
     import_body_end_row_index,
-    military_template_column_indices,
     normalize_ar_header,
     parse_max_cell,
     resolve_evaluation_column_indices,
+    resolve_military_template_columns,
     resolve_rubric_subheader_indices,
     try_named_eval_column_indices,
 )
@@ -206,7 +206,7 @@ def read_evaluation_list_sheet(path: Path, *, sheet_index: int = 0) -> dict[str,
 
     if rubric_i is not None:
         sub_header = grid[rubric_i]
-        mil = military_template_column_indices(ncol)
+        mil = resolve_military_template_columns(sub_header, ncol)
         i_pct = i_grade = i_notes = None
         if mil is not None:
             i_el, i_mx, i_aq, i_pct, i_grade, i_notes = mil

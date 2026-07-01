@@ -261,6 +261,52 @@ def military_template_column_indices(ncol: int) -> tuple[int, int, int, int, int
     )
 
 
+def resolve_military_template_columns(
+    header_row: list[str], ncol: int
+) -> tuple[int, int, int, int, int, int] | None:
+    """قالب B..I مع استنتاج عمود «عناصر التقييم» من صف العناوين (قد يكون D وليس B)."""
+    mil = military_template_column_indices(ncol)
+    if mil is None:
+        return None
+    i_el, i_mx, i_aq, i_pct, i_grade, i_notes = mil
+    m = match_evaluation_sheet_columns(header_row)
+    if m.get("elements") is not None:
+        cand = int(m["elements"])
+        score_cols = {i_mx, i_aq, i_pct, i_grade, i_notes}
+        if cand not in score_cols:
+            i_el = cand
+    return (i_el, i_mx, i_aq, i_pct, i_grade, i_notes)
+
+
+def _normalize_acquired_hint(s: str) -> str:
+    t = normalize_ar_header(s or "")
+    for src, dst in (("أ", "ا"), ("إ", "ا"), ("آ", "ا"), ("ٱ", "ا")):
+        t = t.replace(src, dst)
+    return t.replace("(", "").replace(")", "").strip()
+
+
+def is_acquired_entry_placeholder(cell: str) -> bool:
+    """نص توجيهي في Excel مثل «(أدخل العلامة)» — يعني بنداً قابلاً للتقييم."""
+    t = _normalize_acquired_hint(cell)
+    if not t:
+        return False
+    return "ادخل" in t and "علام" in t
+
+
+def is_explicit_zero_max(max_val: str | None) -> bool:
+    t = normalize_ar_header(str(max_val or ""))
+    return t in ("0", "0.0", "0,0", "٠", "۰")
+
+
+def row_has_acquired_entry_signal(acquired_raw: str, acquired_initial: str) -> bool:
+    if is_acquired_entry_placeholder(acquired_raw):
+        return True
+    if (acquired_initial or "").strip():
+        return True
+    t = normalize_ar_header(acquired_raw)
+    return bool(t) and ("لا" in t and "ينطبق" in t)
+
+
 def should_skip_evaluation_import_row(
     cells: list[str], *, excel_row_1based: int
 ) -> bool:
@@ -335,11 +381,13 @@ def build_structured_rows(
         excel_row = body_start_row_1based + offset
         if should_skip_evaluation_import_row(cells, excel_row_1based=excel_row):
             continue
+        aq_cell = cells[i_aq] if i_aq < len(cells) else ""
         row: dict[str, Any] = {
             "element": cells[i_el] if i_el < len(cells) else "",
             "max_val": cells[i_mx] if i_mx < len(cells) else "",
+            "acquired_raw": normalize_ar_header(aq_cell),
             "acquired_initial": snap_cell_to_acquired_value(
-                cells[i_aq] if i_aq < len(cells) else "",
+                aq_cell,
                 cap_five=acquired_cap_five,
             ),
         }
@@ -358,19 +406,23 @@ def build_structured_rows(
 
 
 def annotate_evaluation_row_kinds(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """يصنّف كل صف: score (له قصوى رقمية > 0) أو section (عنوان فرعي فقط)."""
+    """يصنّف كل صف: score (بند قابل للتقييم) أو section (عنوان فرعي فقط)."""
     out: list[dict[str, Any]] = []
     for r in rows:
         mx = parse_max_cell(r.get("max_val"))
         el = (r.get("element") or "").strip()
+        aq_raw = str(r.get("acquired_raw") or "")
+        aq_init = (r.get("acquired_initial") or "").strip()
         if mx is not None and mx > 0:
             out.append({**r, "row_kind": "score", "max_num": mx})
+        elif is_explicit_zero_max(r.get("max_val")) or row_has_acquired_entry_signal(
+            aq_raw, aq_init
+        ):
+            max_num = float(mx) if mx is not None else 0.0
+            out.append({**r, "row_kind": "score", "max_num": max_num})
         elif el:
             out.append({**r, "row_kind": "section", "max_num": None})
-        else:
-            aq = (r.get("acquired_initial") or "").strip()
-            if not aq:
-                continue
+        elif aq_init:
             out.append({**r, "row_kind": "section", "max_num": None})
     return out
 

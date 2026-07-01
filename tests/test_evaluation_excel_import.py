@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 from app.evaluation_list_columns import (
+    annotate_evaluation_row_kinds,
     build_structured_rows,
+    is_acquired_entry_placeholder,
     is_evaluation_import_footer_stop_row,
     military_template_column_indices,
+    resolve_military_template_columns,
     should_skip_evaluation_import_row,
 )
 
@@ -73,3 +76,86 @@ def test_build_structured_rows_imports_notes_and_scores():
     assert rows[0]["acquired_initial"] == "4"
     assert rows[0]["notes_initial"] == "ملاحظة"
     assert rows[0]["grade_initial"] == "جيد جدا"
+
+
+def test_resolve_military_template_columns_uses_header_element_column():
+    header = [
+        "",
+        "م",
+        "",
+        "عناصر التقييم",
+        "القصوى",
+        "المكتسبة",
+        "النسبة",
+        "النتيجة",
+        "",
+        "ملاحظات",
+    ]
+    cols = resolve_military_template_columns(header, 10)
+    assert cols is not None
+    i_el, i_mx, i_aq, i_pct, i_grade, i_notes = cols
+    assert i_el == 3
+    assert i_mx == 4
+    assert i_aq == 5
+
+
+def test_zero_max_with_placeholder_is_score_not_section():
+    header = [
+        "",
+        "م",
+        "",
+        "عناصر التقييم",
+        "القصوى",
+        "المكتسبة",
+        "النسبة",
+        "النتيجة",
+        "",
+        "ملاحظات",
+    ]
+    cols = resolve_military_template_columns(header, 10)
+    assert cols is not None
+    i_el, i_mx, i_aq, i_pct, i_grade, i_notes = cols
+    body = [
+        [
+            "",
+            "",
+            "",
+            "1 استلام برقية رفع الحالة",
+            "0",
+            "(أدخل العلامة)",
+            "",
+            "",
+            "",
+            "",
+        ],
+        [
+            "",
+            "",
+            "",
+            "أ. الرد على البرقية",
+            "0",
+            "(أدخل العلامة)",
+            "",
+            "",
+            "",
+            "",
+        ],
+    ]
+    rows = build_structured_rows(
+        body,
+        10,
+        i_el,
+        i_mx,
+        i_aq,
+        acquired_cap_five=False,
+        i_pct=i_pct,
+        i_grade=i_grade,
+        i_notes=i_notes,
+        body_start_row_1based=9,
+    )
+    assert is_acquired_entry_placeholder("(أدخل العلامة)")
+    annotated = annotate_evaluation_row_kinds(rows)
+    assert len(annotated) == 2
+    assert all(r["row_kind"] == "score" for r in annotated)
+    assert annotated[0]["max_num"] == 0.0
+    assert annotated[0]["acquired_initial"] == ""

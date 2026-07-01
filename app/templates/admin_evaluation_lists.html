@@ -142,7 +142,7 @@
               <li class="eval-lists-row{% if row.published %} eval-lists-row--published{% else %} eval-lists-row--unpublished{% endif %}">
                 <span class="eval-lists-row__seq" aria-hidden="true">{{ loop.index }}</span>
                 <label class="eval-lists-row__cb" title="تضمين في النشر" onclick="event.stopPropagation()">
-                  <input type="checkbox" class="eval-lists-publish-cb" name="publish_sel" value="{{ group.unit_key }}:{{ row.node_id }}" data-unit="{{ group.unit_key }}" data-folder="{{ folder.folder_key }}"{% if row.selected %} checked{% endif %}>
+                  <input type="checkbox" class="eval-lists-publish-cb" name="publish_sel" value="{{ group.unit_key }}:{{ row.node_id }}" data-unit="{{ group.unit_key }}" data-folder="{{ folder.folder_key }}"{% if row.published or row.selected %} checked{% endif %}>
                 </label>
                 <span class="eval-lists-row__title" title="{{ row.title }}">
                   <i class="fa-solid fa-file-excel eval-lists-row__icon" aria-hidden="true"></i>

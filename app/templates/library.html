@@ -249,6 +249,7 @@
         .then(function (r) { window.location.href = r.url; })
         .catch(function () { alert('تعذر الاتصال بالخادم.'); });
     }
+
     function bindPick(btnSel, inpSel, formSel) {
       var pick = page.querySelector(btnSel);
       var inp = page.querySelector(inpSel);
