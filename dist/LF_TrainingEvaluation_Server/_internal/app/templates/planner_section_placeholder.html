@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}{{ section_title }} — التخطيط{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-calendar-check fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+  <p class="muted">هذا القسم قيد الإعداد وسيُربط بالوظائف لاحقاً.</p>
+  <div class="page-header__nav">
+    {% include 'partials/subpage_close.html' %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,1203 @@
+<script>
+/* planner-flow-table v31 */
+(function () {
+  'use strict';
+
+  var ASSIGNEE_COL = 2;
+  var DAY_ONE_ID = 'day-1';
+  var DAY_ONE_LABEL = 'اليوم/1';
+
+  function initPlannerFlowTable(section) {
+    if (!section || section.dataset.pfFlowInit === '1') return;
+
+    var tbody = section.querySelector('#pf-flow-table-body');
+    var table = section.querySelector('#pf-flow-table');
+    var wrap = section.querySelector('#pf-flow-table-wrap');
+    var menu = section.querySelector('#pf-flow-table-menu');
+    var statusEl = section.querySelector('#pf-flow-table-save-status');
+    if (!tbody || !table || !wrap) return;
+
+    section.dataset.pfFlowInit = '1';
+
+    var saveUrl = section.getAttribute('data-save-url') || '';
+    var importDocxUrl = section.getAttribute('data-import-docx-url') || '';
+    var pullIbankUrl = section.getAttribute('data-pull-ibank-url') || '';
+    var distributeJudgesUrl = section.getAttribute('data-distribute-judges-url') || '';
+    var importDocxBtn = section.querySelector('#pf-flow-import-docx-btn');
+    var importDocxInput = section.querySelector('#pf-flow-import-docx-input');
+    var pullIbankBtn = section.querySelector('#pf-flow-pull-ibank-btn');
+    var distributeJudgesBtn = section.querySelector('#pf-flow-distribute-judges-btn');
+    var readOnly = section.getAttribute('data-readonly') === '1';
+    var tabsEl = section.querySelector('#pf-flow-days-tabs');
+    var dayAddBtn = section.querySelector('#pf-flow-day-add');
+    var clearDayBtn = section.querySelector('#pf-flow-clear-day-btn');
+    var daysMenu = section.querySelector('#pf-flow-days-menu');
+    var dayNoteEl = section.querySelector('#pf-flow-day-note');
+    var daysState = [];
+    var activeDayId = '';
+    var contextDayId = null;
+    var insertAfter = null;
+    var selectedRow = null;
+    var contextAssigneeTd = null;
+    var saveTimer = null;
+    var saving = false;
+    var saveQueued = false;
+
+    function readFlowDaysJsonRaw() {
+      var scriptEl = document.getElementById('pf-flow-days-json');
+      if (scriptEl && (scriptEl.textContent || '').trim()) {
+        return scriptEl.textContent;
+      }
+      return section.getAttribute('data-flow-days') || '[]';
+    }
+
+    function parseDaysPayload() {
+      var raw = readFlowDaysJsonRaw();
+      try {
+        var parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length) {
+          return parsed.map(function (d, idx) {
+            return {
+              id: String((d && d.id) || 'day-' + (idx + 1)),
+              label: String((d && d.label) || 'اليوم/' + (idx + 1)),
+              note: String((d && d.note) || ''),
+              rows: Array.isArray(d && d.rows) ? d.rows : []
+            };
+          });
+        }
+      } catch (e) {
+        /* ignore */
+      }
+      return [{ id: 'day-1', label: 'اليوم/1', note: '', rows: [] }];
+    }
+
+    function ensureDayOneTab() {
+      var idx = -1;
+      var i;
+      for (i = 0; i < daysState.length; i += 1) {
+        if (daysState[i].id === DAY_ONE_ID) {
+          idx = i;
+          break;
+        }
+      }
+      if (idx < 0) {
+        for (i = 0; i < daysState.length; i += 1) {
+          if ((daysState[i].label || '').trim() === DAY_ONE_LABEL) {
+            idx = i;
+            break;
+          }
+        }
+      }
+      if (idx < 0) {
+        daysState.unshift({ id: DAY_ONE_ID, label: DAY_ONE_LABEL, note: '', rows: [] });
+        return;
+      }
+      var dayOne = daysState.splice(idx, 1)[0];
+      if (dayOne.id !== DAY_ONE_ID) dayOne.id = DAY_ONE_ID;
+      if (!(dayOne.label || '').trim()) dayOne.label = DAY_ONE_LABEL;
+      daysState.unshift(dayOne);
+    }
+
+    function isProtectedDayTab(dayId) {
+      return dayId === DAY_ONE_ID;
+    }
+
+    daysState = parseDaysPayload();
+    ensureDayOneTab();
+    activeDayId = (section.getAttribute('data-active-day-id') || '').trim();
+    if (!activeDayId || !daysState.some(function (d) { return d.id === activeDayId; })) {
+      activeDayId = daysState[0].id;
+    }
+
+    function lineText(el) {
+      if (!el) return '';
+      var raw = el.innerText != null ? el.innerText : el.textContent;
+      return (raw || '').replace(/\r\n/g, '\n').replace(/\u00a0/g, ' ').trim();
+    }
+
+    function rowText(el) {
+      return lineText(el);
+    }
+
+    function readAssigneeCell(td) {
+      var texts = td.querySelectorAll('.pf-assignee-stack .pf-assignee-cell-text');
+      if (!texts.length) {
+        texts = td.querySelectorAll('.pf-assignee-inner-table .pf-assignee-cell-text');
+      }
+      if (!texts.length) {
+        texts = td.querySelectorAll('.pf-assignee-row-cell[contenteditable]');
+      }
+      if (!texts.length) return lineText(td);
+      return Array.prototype.map.call(texts, lineText).join('\n');
+    }
+
+    function getAssigneeContainer(outerTd) {
+      if (!outerTd) return null;
+      return (
+        outerTd.querySelector('.pf-assignee-stack') ||
+        (function () {
+          var table = outerTd.querySelector('.pf-assignee-inner-table');
+          return table ? table.querySelector('tbody') : null;
+        })()
+      );
+    }
+
+    function getAssigneeBody(outerTd) {
+      return getAssigneeContainer(outerTd);
+    }
+
+    function assigneeEntryCount(container) {
+      if (!container) return 0;
+      if (container.classList.contains('pf-assignee-stack')) {
+        return container.querySelectorAll('.pf-assignee-line').length;
+      }
+      return container.querySelectorAll('tr').length;
+    }
+
+    function upgradeAllAssigneeColumns() {
+      tbody.querySelectorAll('.pf-flow-row--data').forEach(function (tr) {
+        var cells = tr.querySelectorAll('.pf-flow-cell');
+        var assigneeTd = cells[ASSIGNEE_COL];
+        if (!assigneeTd) return;
+        if (
+          assigneeTd.querySelector('.pf-assignee-inner-table') &&
+          !assigneeTd.querySelector('.pf-assignee-stack')
+        ) {
+          var legacyRaw = readAssigneeCell(assigneeTd);
+          fillAssigneeCell(assigneeTd, legacyRaw ? legacyRaw.split('\n') : ['']);
+        } else if (!assigneeTd.querySelector('.pf-assignee-cell-text')) {
+          var raw = readAssigneeCell(assigneeTd);
+          var parts = raw ? raw.split('\n') : [''];
+          fillAssigneeCell(assigneeTd, parts);
+        } else {
+          stripAssigneeToolsRows(getAssigneeContainer(assigneeTd));
+        }
+      });
+    }
+
+    function updateContextMenuForAssignee() {
+      if (!menu) return;
+      var show = !!contextAssigneeTd;
+      menu.querySelectorAll('[data-pf-menu-assignee-only]').forEach(function (btn) {
+        btn.hidden = !show;
+      });
+    }
+
+    function readCell(td) {
+      if (!td) return '';
+      if (
+        td.classList.contains('pf-flow-cell--assignee') ||
+        td.querySelector('.pf-assignee-stack') ||
+        td.querySelector('.pf-assignee-inner-table')
+      ) {
+        return readAssigneeCell(td);
+      }
+      return lineText(td);
+    }
+
+    function makeAssigneeLine(text) {
+      var line = document.createElement('div');
+      line.className = 'pf-assignee-line';
+      var span = document.createElement('span');
+      span.className = 'pf-assignee-cell-text';
+      if (!readOnly) {
+        span.contentEditable = 'true';
+        span.spellcheck = true;
+      }
+      span.textContent = text || '';
+      line.appendChild(span);
+      return line;
+    }
+
+    function fillAssigneeCell(outerTd, lineTexts) {
+      outerTd.innerHTML = '';
+      outerTd.className = 'pf-flow-cell pf-flow-cell--assignee';
+      var stack = document.createElement('div');
+      stack.className = 'pf-assignee-stack';
+      stack.setAttribute('dir', 'rtl');
+      var texts = lineTexts && lineTexts.length ? lineTexts : [''];
+      texts.forEach(function (t) {
+        stack.appendChild(makeAssigneeLine(t));
+      });
+      outerTd.appendChild(stack);
+    }
+
+    function fillSimpleCell(td, text) {
+      td.innerHTML = '';
+      td.className = 'pf-flow-cell pf-flow-cell--simple';
+      if (!readOnly) {
+        td.contentEditable = 'true';
+        td.spellcheck = true;
+      }
+      td.textContent = (text || '').split('\n')[0] || '';
+    }
+
+    function fillDataCells(tr, colValues) {
+      var cells = tr.querySelectorAll('.pf-flow-cell');
+      for (var c = 0; c < 5; c += 1) {
+        var val = colValues[c] != null ? colValues[c] : '';
+        if (c === ASSIGNEE_COL) {
+          var parts = val ? String(val).split('\n') : [''];
+          fillAssigneeCell(cells[c], parts);
+        } else {
+          fillSimpleCell(cells[c], val);
+        }
+      }
+    }
+
+    function assigneeStructureOk(td) {
+      return !!(
+        td &&
+        (td.querySelector('.pf-assignee-stack .pf-assignee-cell-text') ||
+          td.querySelector('.pf-assignee-inner-table .pf-assignee-cell-text'))
+      );
+    }
+
+    function renumberRows() {
+      var n = 0;
+      tbody.querySelectorAll('.pf-flow-row--data').forEach(function (tr) {
+        n += 1;
+        var seq = tr.querySelector('.pf-flow-seq');
+        if (seq) seq.textContent = String(n);
+      });
+    }
+
+    function findDayIndex(dayId) {
+      for (var i = 0; i < daysState.length; i += 1) {
+        if (daysState[i].id === dayId) return i;
+      }
+      return -1;
+    }
+
+    function autoGrowDayNote() {
+      if (!dayNoteEl) return;
+      dayNoteEl.style.overflow = 'hidden';
+      dayNoteEl.style.height = '0px';
+      var minPx = 52;
+      var next = Math.max(dayNoteEl.scrollHeight, minPx);
+      dayNoteEl.style.height = next + 'px';
+    }
+
+    function scheduleAutoGrowDayNote() {
+      autoGrowDayNote();
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(autoGrowDayNote);
+      }
+      setTimeout(autoGrowDayNote, 60);
+    }
+
+    function wireDayNoteAutoGrow() {
+      if (!dayNoteEl) return;
+      scheduleAutoGrowDayNote();
+      dayNoteEl.addEventListener('input', autoGrowDayNote);
+      dayNoteEl.addEventListener('paste', function () {
+        setTimeout(autoGrowDayNote, 0);
+      });
+      dayNoteEl.addEventListener('cut', function () {
+        setTimeout(autoGrowDayNote, 0);
+      });
+      window.addEventListener('resize', autoGrowDayNote);
+    }
+
+    function applyDayNote() {
+      if (!dayNoteEl) return;
+      var idx = findDayIndex(activeDayId);
+      dayNoteEl.value = idx >= 0 ? daysState[idx].note || '' : '';
+      scheduleAutoGrowDayNote();
+    }
+
+    function persistCurrentDayRows() {
+      var idx = findDayIndex(activeDayId);
+      if (idx < 0) return;
+      daysState[idx].rows = collectRows();
+      if (dayNoteEl) {
+        daysState[idx].note = String(dayNoteEl.value || '').slice(0, 4000);
+      }
+    }
+
+    function nextDayNumber() {
+      var max = 0;
+      daysState.forEach(function (d) {
+        var m = String(d.label || '').match(/اليوم\s*\/\s*(\d+)/);
+        if (m) max = Math.max(max, parseInt(m[1], 10) || 0);
+      });
+      return max + 1;
+    }
+
+    function renderRows(rows) {
+      tbody.innerHTML = '';
+      selectedRow = null;
+      (rows || []).forEach(function (r) {
+        var kind = (r && r.kind) || 'row';
+        if (kind === 'event' || kind === 'dilemma') {
+          var mergedTr = makeMergedRow(kind);
+          var mergedTd = mergedTr.querySelector('.pf-flow-merged-cell');
+          if (mergedTd) mergedTd.textContent = (r && r.text) || '';
+          tbody.appendChild(mergedTr);
+        } else {
+          var dataTr = makeDataRow();
+          fillDataCells(dataTr, [
+            (r && r.time) || '',
+            (r && r.description) || '',
+            (r && r.assignee) || '',
+            (r && r.method) || '',
+            (r && r.reaction) || ''
+          ]);
+          tbody.appendChild(dataTr);
+        }
+      });
+      if (!readOnly) {
+        migrateLegacyRows();
+        upgradeAllAssigneeColumns();
+        purgeAssigneeLegacyUi();
+      }
+      renumberRows();
+    }
+
+    function renderDayTabs() {
+      if (!tabsEl) return;
+      tabsEl.innerHTML = '';
+      daysState.forEach(function (d) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'pf-flow-day-tab';
+        btn.setAttribute('role', 'tab');
+        btn.setAttribute('data-day-id', d.id);
+        btn.setAttribute('aria-selected', d.id === activeDayId ? 'true' : 'false');
+        btn.tabIndex = d.id === activeDayId ? 0 : -1;
+        if (d.id === activeDayId) btn.classList.add('is-active');
+        if (d.id === DAY_ONE_ID) btn.classList.add('is-locked');
+        btn.textContent = d.label || d.id;
+        tabsEl.appendChild(btn);
+      });
+      if (dayAddBtn && !readOnly) {
+        tabsEl.appendChild(dayAddBtn);
+      }
+    }
+
+    function switchToDay(dayId) {
+      if (!dayId || dayId === activeDayId) return;
+      persistCurrentDayRows();
+      activeDayId = dayId;
+      var idx = findDayIndex(dayId);
+      renderRows(idx >= 0 ? daysState[idx].rows : []);
+      renderDayTabs();
+      applyDayNote();
+      if (saveUrl) saveNow();
+    }
+
+    function addDayTab() {
+      persistCurrentDayRows();
+      var n = nextDayNumber();
+      var id = 'day-' + String(Date.now());
+      daysState.push({ id: id, label: 'اليوم/' + n, note: '', rows: [] });
+      activeDayId = id;
+      renderDayTabs();
+      renderRows([]);
+      applyDayNote();
+      syncFlowDaysDataset();
+      if (saveUrl) saveNow();
+    }
+
+    function clearActiveDayTable() {
+      if (readOnly) return;
+      var idx = findDayIndex(activeDayId);
+      if (idx < 0) return;
+      if (
+        !window.confirm(
+          'تفريغ محتوى الجدول والنص في التبويب الحالي؟ يبقى التبويب فارغاً ويمكنك إعادة ملئه أو الاستيراد من Word.'
+        )
+      ) {
+        return;
+      }
+      daysState[idx].rows = [];
+      daysState[idx].note = '';
+      renderRows([]);
+      applyDayNote();
+      syncFlowDaysDataset();
+      setStatus('تم تفريغ محتوى التبويب.', false);
+      if (saveUrl) saveNow();
+    }
+
+    function deleteDayTab(dayId) {
+      if (isProtectedDayTab(dayId)) {
+        setStatus('لا يمكن حذف تبويب «اليوم/1» — يُعاد تلقائياً عند فتح الصفحة إن كان مفقوداً.', true);
+        hideDaysMenu();
+        return;
+      }
+      if (daysState.length <= 1) {
+        setStatus('لا يمكن حذف آخر تبويب يوم.', true);
+        return;
+      }
+      persistCurrentDayRows();
+      daysState = daysState.filter(function (d) {
+        return d.id !== dayId;
+      });
+      ensureDayOneTab();
+      if (activeDayId === dayId) {
+        activeDayId = daysState[0].id;
+        renderRows(daysState[0].rows || []);
+        applyDayNote();
+      }
+      renderDayTabs();
+      hideDaysMenu();
+      syncFlowDaysDataset();
+      if (saveUrl) saveNow();
+    }
+
+    function hideDaysMenu() {
+      if (!daysMenu) return;
+      daysMenu.classList.remove('is-open');
+      daysMenu.setAttribute('aria-hidden', 'true');
+      contextDayId = null;
+    }
+
+    function showDaysMenu(x, y) {
+      if (!daysMenu || readOnly) return;
+      var delDayBtn = daysMenu.querySelector('[data-action="delete-day"]');
+      if (delDayBtn) {
+        delDayBtn.hidden = !!(contextDayId && isProtectedDayTab(contextDayId));
+      }
+      if (daysMenu.parentNode !== document.body) document.body.appendChild(daysMenu);
+      daysMenu.classList.add('is-open');
+      daysMenu.setAttribute('aria-hidden', 'false');
+      daysMenu.style.left = '0px';
+      daysMenu.style.top = '0px';
+      var mw = daysMenu.offsetWidth || 120;
+      var mh = daysMenu.offsetHeight || 48;
+      daysMenu.style.left = Math.max(8, Math.min(x, window.innerWidth - mw - 8)) + 'px';
+      daysMenu.style.top = Math.max(8, Math.min(y, window.innerHeight - mh - 8)) + 'px';
+    }
+
+    function collectRows() {
+      var rows = [];
+      tbody.querySelectorAll('.pf-flow-row').forEach(function (tr) {
+        var kind = tr.getAttribute('data-kind') || 'row';
+        if (kind === 'event' || kind === 'dilemma') {
+          rows.push({ kind: kind, text: rowText(tr.querySelector('.pf-flow-merged-cell')) });
+        } else {
+          var cells = tr.querySelectorAll('.pf-flow-cell');
+          rows.push({
+            kind: 'row',
+            time: readCell(cells[0]),
+            description: readCell(cells[1]),
+            assignee: readCell(cells[2]),
+            method: readCell(cells[3]),
+            reaction: readCell(cells[4])
+          });
+        }
+      });
+      return rows;
+    }
+
+    function setStatus(msg, isErr) {
+      if (!statusEl) return;
+      statusEl.textContent = msg || '';
+      statusEl.classList.toggle('planner-flow-table-save-status--err', !!isErr);
+    }
+
+    function syncFlowDaysDataset() {
+      try {
+        var scriptEl = document.getElementById('pf-flow-days-json');
+        if (scriptEl) {
+          scriptEl.textContent = JSON.stringify(daysState);
+        }
+        section.setAttribute('data-active-day-id', activeDayId);
+      } catch (e) {
+        /* ignore */
+      }
+    }
+
+    function hydrateActiveDayFromDomIfEmpty() {
+      var idx = findDayIndex(activeDayId);
+      if (idx < 0) return;
+      var bucket = daysState[idx];
+      if (!bucket || (bucket.rows && bucket.rows.length)) return;
+      var domRows = collectRows();
+      if (!domRows.length) return;
+      bucket.rows = domRows;
+      if (dayNoteEl && !(bucket.note || '').trim() && (dayNoteEl.value || '').trim()) {
+        bucket.note = String(dayNoteEl.value || '').slice(0, 4000);
+      }
+    }
+
+    function scheduleSave() {
+      if (!saveUrl) return;
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(doSave, 800);
+    }
+
+    function saveNow() {
+      if (!saveUrl) return;
+      if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+      }
+      doSave();
+    }
+
+    function doSave() {
+      if (!saveUrl) return;
+      if (saving) {
+        saveQueued = true;
+        return;
+      }
+      if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+      }
+      saving = true;
+      saveQueued = false;
+      setStatus('جاري الحفظ…', false);
+      persistCurrentDayRows();
+      ensureDayOneTab();
+      fetch(saveUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ active_day_id: activeDayId, days: daysState })
+      })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            return { ok: r.ok, j: j };
+          });
+        })
+        .then(function (res) {
+          if (res.ok && res.j && res.j.ok) {
+            syncFlowDaysDataset();
+            if (window.ibankApplyActionEvalDays && res.j.action_eval) {
+              window.ibankApplyActionEvalDays(res.j.action_eval);
+            } else if (window.ibankFetchActionEvalDays) {
+              window.ibankFetchActionEvalDays();
+            }
+            setStatus('تم الحفظ', false);
+            setTimeout(function () {
+              if (statusEl && statusEl.textContent === 'تم الحفظ') setStatus('', false);
+            }, 2500);
+          } else {
+            setStatus('تعذّر الحفظ', true);
+          }
+        })
+        .catch(function () {
+          setStatus('تعذّر الحفظ', true);
+        })
+        .finally(function () {
+          saving = false;
+          if (saveQueued) {
+            saveQueued = false;
+            doSave();
+          }
+        });
+    }
+
+    function selectRow(tr) {
+      if (selectedRow) selectedRow.classList.remove('is-selected');
+      selectedRow = tr && tr.classList.contains('pf-flow-row') ? tr : null;
+      if (selectedRow) selectedRow.classList.add('is-selected');
+    }
+
+    function deleteSelectedRow() {
+      if (!selectedRow || !selectedRow.parentNode) {
+        setStatus('اختر صفاً من الجدول ثم اضغط «حذف الصف».', true);
+        return;
+      }
+      selectedRow.remove();
+      selectedRow = null;
+      renumberRows();
+      hideMenu();
+      saveNow();
+    }
+
+    function hideMenu() {
+      if (!menu) return;
+      menu.classList.remove('is-open');
+      menu.setAttribute('aria-hidden', 'true');
+      insertAfter = null;
+      contextAssigneeTd = null;
+      updateContextMenuForAssignee();
+    }
+
+    function showMenu(x, y, afterRow) {
+      if (!menu) return;
+      insertAfter = afterRow;
+      updateContextMenuForAssignee();
+      if (menu.parentNode !== document.body) document.body.appendChild(menu);
+      menu.classList.add('is-open');
+      menu.setAttribute('aria-hidden', 'false');
+      menu.style.left = '0px';
+      menu.style.top = '0px';
+      var mw = menu.offsetWidth || 168;
+      var mh = menu.offsetHeight || 140;
+      menu.style.left = Math.max(8, Math.min(x, window.innerWidth - mw - 8)) + 'px';
+      menu.style.top = Math.max(8, Math.min(y, window.innerHeight - mh - 8)) + 'px';
+    }
+
+    function makeMergedRow(kind) {
+      var tr = document.createElement('tr');
+      tr.className = 'pf-flow-row pf-flow-row--' + (kind === 'event' ? 'event' : 'dilemma');
+      tr.setAttribute('data-kind', kind);
+      var td = document.createElement('td');
+      td.colSpan = 6;
+      td.className = 'pf-flow-merged-cell';
+      if (!readOnly) {
+        td.contentEditable = 'true';
+        td.spellcheck = true;
+      }
+      tr.appendChild(td);
+      return tr;
+    }
+
+    function makeDataRow() {
+      var tr = document.createElement('tr');
+      tr.className = 'pf-flow-row pf-flow-row--data';
+      tr.setAttribute('data-kind', 'row');
+      var seq = document.createElement('td');
+      seq.className = 'planner-flow-action-col-num pf-flow-seq';
+      seq.setAttribute('aria-label', 'ت');
+      tr.appendChild(seq);
+      for (var c = 0; c < 5; c += 1) {
+        var td = document.createElement('td');
+        if (c === ASSIGNEE_COL) fillAssigneeCell(td, ['']);
+        else fillSimpleCell(td, '');
+        tr.appendChild(td);
+      }
+      return tr;
+    }
+
+    function stripAssigneeToolsRows(body) {
+      if (!body) return;
+      body.querySelectorAll('.pf-assignee-tools-row').forEach(function (row) {
+        row.remove();
+      });
+    }
+
+    function purgeAssigneeLegacyUi() {
+      section.querySelectorAll('.pf-assignee-tools-row').forEach(function (row) {
+        row.remove();
+      });
+      section.querySelectorAll('[data-pf-assignee-add], [data-pf-assignee-del]').forEach(function (btn) {
+        btn.remove();
+      });
+      section.querySelectorAll('.pf-assignee-cell-inner').forEach(function (wrap) {
+        var text = wrap.querySelector('.pf-assignee-cell-text');
+        var td = wrap.closest('.pf-assignee-row-cell');
+        if (text && td) {
+          td.appendChild(text);
+        }
+        wrap.remove();
+      });
+    }
+
+    function appendAssigneeSubCell(outerTd) {
+      var container = getAssigneeContainer(outerTd);
+      if (!container) return null;
+      stripAssigneeToolsRows(container);
+      var neu = makeAssigneeLine('');
+      container.appendChild(neu);
+      var text = neu.querySelector('.pf-assignee-cell-text');
+      if (text) text.focus();
+      return neu;
+    }
+
+    function insertAssigneeRowAfter(textEl) {
+      var hostLine = textEl.closest('.pf-assignee-line') || textEl.closest('tr');
+      var outerTd = textEl.closest('.pf-flow-cell--assignee');
+      if (!hostLine || !outerTd) return null;
+      stripAssigneeToolsRows(getAssigneeContainer(outerTd));
+      var neu = makeAssigneeLine('');
+      hostLine.insertAdjacentElement('afterend', neu);
+      var text = neu.querySelector('.pf-assignee-cell-text');
+      if (text) text.focus();
+      return neu;
+    }
+
+    function deleteAssigneeSubRow(hostLine) {
+      var outerTd = hostLine && hostLine.closest('.pf-flow-cell--assignee');
+      var container = getAssigneeContainer(outerTd);
+      if (!hostLine || !container) return;
+      if (assigneeEntryCount(container) <= 1) {
+        setStatus('يجب أن يبقى اسم واحد على الأقل في عمود المكلف.', true);
+        return;
+      }
+      var nextFocus = hostLine.nextElementSibling;
+      hostLine.remove();
+      var focusText =
+        (nextFocus && nextFocus.querySelector('.pf-assignee-cell-text')) ||
+        container.querySelector('.pf-assignee-cell-text');
+      if (focusText) focusText.focus();
+      saveNow();
+    }
+
+    function focusDataRow(tr, colIndex) {
+      var cell = tr.querySelectorAll('.pf-flow-cell')[colIndex];
+      if (!cell) return;
+      if (colIndex === ASSIGNEE_COL) {
+        var first = cell.querySelector('.pf-assignee-cell-text');
+        if (first) first.focus();
+      } else {
+        cell.focus();
+      }
+    }
+
+    function insertRow(kind) {
+      var tr = kind === 'row' ? makeDataRow() : makeMergedRow(kind);
+      if (insertAfter && insertAfter.parentNode === tbody) {
+        insertAfter.insertAdjacentElement('afterend', tr);
+      } else {
+        tbody.appendChild(tr);
+      }
+      renumberRows();
+      hideMenu();
+      selectRow(tr);
+      if (kind === 'row') focusDataRow(tr, ASSIGNEE_COL);
+      else {
+        var merged = tr.querySelector('.pf-flow-merged-cell');
+        if (merged) merged.focus();
+      }
+      saveNow();
+    }
+
+    function migrateLegacyRows() {
+      var dataRows = Array.prototype.slice.call(tbody.querySelectorAll('.pf-flow-row--data'));
+      var i = 0;
+      while (i < dataRows.length) {
+        var tr = dataRows[i];
+        var groupId = tr.getAttribute('data-row-group');
+        if (groupId) {
+          var group = [tr];
+          var j = i + 1;
+          while (j < dataRows.length && dataRows[j].getAttribute('data-row-group') === groupId) {
+            group.push(dataRows[j]);
+            j += 1;
+          }
+          var mergedCols = [[], [], [], [], []];
+          group.forEach(function (rowTr) {
+            var cells = rowTr.querySelectorAll('.pf-flow-cell');
+            for (var c = 0; c < 5; c += 1) mergedCols[c].push(readCell(cells[c]));
+          });
+          var colValues = [];
+          for (var c = 0; c < 5; c += 1) {
+            colValues.push(c === ASSIGNEE_COL ? mergedCols[c].join('\n') : mergedCols[c][0] || '');
+          }
+          fillDataCells(tr, colValues);
+          tr.removeAttribute('data-row-group');
+          tr.removeAttribute('data-line-index');
+          for (var k = 1; k < group.length; k += 1) group[k].remove();
+          i = j;
+          continue;
+        }
+        var cells = tr.querySelectorAll('.pf-flow-cell');
+        var assigneeTd = cells[ASSIGNEE_COL];
+        if (!assigneeStructureOk(assigneeTd)) {
+          var colValues = [];
+          for (var c = 0; c < 5; c += 1) colValues.push(readCell(cells[c]));
+          fillDataCells(tr, colValues);
+        }
+        i += 1;
+      }
+    }
+
+    function inTableArea(node) {
+      return !!(node && node.closest('#pf-flow-table-wrap'));
+    }
+
+    function onContextMenu(e) {
+      if (!inTableArea(e.target)) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      var tr = e.target.closest('.pf-flow-row');
+      if (tr) selectRow(tr);
+      contextAssigneeTd = null;
+      if (tr && tr.classList.contains('pf-flow-row--data')) {
+        var hit = e.target.closest('.pf-flow-cell--assignee, .pf-assignee-cell-text');
+        if (hit) contextAssigneeTd = tr.querySelectorAll('.pf-flow-cell')[ASSIGNEE_COL];
+      }
+      showMenu(e.clientX, e.clientY, tr);
+      return false;
+    }
+
+    function deleteAssigneeFromContext() {
+      if (!contextAssigneeTd) return;
+      var container = getAssigneeContainer(contextAssigneeTd);
+      if (!container) return;
+      var active = document.activeElement;
+      var textEl =
+        active && contextAssigneeTd.contains(active) && active.closest('.pf-assignee-cell-text');
+      var hostLine = textEl && (textEl.closest('.pf-assignee-line') || textEl.closest('tr'));
+      if (!hostLine) {
+        var lines = container.querySelectorAll('.pf-assignee-line');
+        hostLine = lines.length
+          ? lines[lines.length - 1]
+          : (function () {
+              var rows = container.querySelectorAll('tr');
+              return rows.length ? rows[rows.length - 1] : null;
+            })();
+      }
+      if (hostLine) deleteAssigneeSubRow(hostLine);
+    }
+
+    hydrateActiveDayFromDomIfEmpty();
+    var activeIdx = findDayIndex(activeDayId);
+    renderRows(activeIdx >= 0 ? daysState[activeIdx].rows : []);
+    renderDayTabs();
+    applyDayNote();
+    syncFlowDaysDataset();
+
+    if (dayNoteEl && !readOnly) {
+      wireDayNoteAutoGrow();
+      dayNoteEl.addEventListener('input', function () {
+        scheduleSave();
+      });
+    } else if (dayNoteEl) {
+      wireDayNoteAutoGrow();
+    }
+
+    function applyImportedDays(payload) {
+      if (!payload || !Array.isArray(payload.days) || !payload.days.length) return;
+      daysState = payload.days.map(function (d, idx) {
+        return {
+          id: String((d && d.id) || 'day-' + (idx + 1)),
+          label: String((d && d.label) || 'اليوم/' + (idx + 1)),
+          note: String((d && d.note) || ''),
+          rows: Array.isArray(d && d.rows) ? d.rows : []
+        };
+      });
+      ensureDayOneTab();
+      activeDayId = String(payload.active_day_id || daysState[0].id);
+      if (!daysState.some(function (d) { return d.id === activeDayId; })) {
+        activeDayId = daysState[0].id;
+      }
+      var idx = findDayIndex(activeDayId);
+      renderRows(idx >= 0 ? daysState[idx].rows : []);
+      renderDayTabs();
+      applyDayNote();
+      syncFlowDaysDataset();
+    }
+
+    function importDocxFile(file) {
+      if (!importDocxUrl || !file || readOnly) return;
+      persistCurrentDayRows();
+      var fd = new FormData();
+      fd.append('file', file);
+      fd.append('day_id', activeDayId);
+      setStatus('جاري استيراد Word…', false);
+      fetch(importDocxUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+        body: fd
+      })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            return { ok: r.ok, j: j };
+          });
+        })
+        .then(function (res) {
+          if (res.ok && res.j && res.j.ok) {
+            applyImportedDays(res.j);
+            if (window.ibankApplyActionEvalDays && res.j.action_eval) {
+              window.ibankApplyActionEvalDays(res.j.action_eval);
+            } else if (window.ibankFetchActionEvalDays) {
+              window.ibankFetchActionEvalDays();
+            }
+            var msg = 'تم الاستيراد (' + (res.j.row_count || 0) + ' صف)';
+            if (res.j.warnings && res.j.warnings.length) {
+              msg += ' — ' + res.j.warnings.join(' ');
+            }
+            setStatus(msg, false);
+            setTimeout(function () {
+              if (statusEl && statusEl.textContent.indexOf('تم الاستيراد') === 0) {
+                setStatus('', false);
+              }
+            }, 4000);
+          } else {
+            var errMap = {
+              bad_docx: 'يُقبل ملف Word (.docx) فقط.',
+              no_file: 'لم يُحدد ملف.',
+              empty_content: 'لم يُعثر على محتوى قابل للاستيراد.',
+              no_table: 'لا يوجد جدول في الملف.',
+              invalid_docx: 'ملف Word غير صالح.'
+            };
+            var code = (res.j && res.j.error) || '';
+            setStatus(errMap[code] || 'تعذّر الاستيراد', true);
+          }
+        })
+        .catch(function () {
+          setStatus('تعذّر الاستيراد', true);
+        });
+    }
+
+    function buildFlowDocument() {
+      persistCurrentDayRows();
+      ensureDayOneTab();
+      return { version: 2, active_day_id: activeDayId, days: daysState };
+    }
+
+    function pullFromIbank() {
+      if (!pullIbankUrl || readOnly) return;
+      if (!window.confirm('سيتم استبدال جدول المجرى الحالي (جميع الأيام) بمحتوى بنك المعلومات. متابعة؟')) return;
+      setStatus('جاري السحب من بنك المعلومات…', false);
+      fetch(pullIbankUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' }
+      })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            return { ok: r.ok, j: j };
+          });
+        })
+        .then(function (res) {
+          if (res.ok && res.j && res.j.ok) {
+            applyImportedDays(res.j);
+            var msg = 'تم السحب من بنك المعلومات (' + (res.j.row_count || 0) + ' صف في اليوم النشط)';
+            setStatus(msg, false);
+            setTimeout(function () {
+              if (statusEl && statusEl.textContent.indexOf('تم السحب من بنك المعلومات') === 0) {
+                setStatus('', false);
+              }
+            }, 4000);
+          } else {
+            var errMap = {
+              empty_ibank: 'بنك المعلومات لا يحتوي جدول مجرى بعد.',
+              not_found: 'الحزمة غير موجودة.',
+              forbidden: 'لا صلاحية.',
+              unauthorized: 'يجب تسجيل الدخول.'
+            };
+            var code = (res.j && res.j.error) || '';
+            setStatus(errMap[code] || 'تعذّر السحب من بنك المعلومات', true);
+          }
+        })
+        .catch(function () {
+          setStatus('تعذّر السحب من بنك المعلومات', true);
+        });
+    }
+
+    function distributeToJudges() {
+      if (!distributeJudgesUrl || readOnly) return;
+      if (!window.confirm('سيتم نسخ الجدول الحالي وتوزيعه على صفحات جميع المحكمين (للقراءة فقط). متابعة؟')) return;
+      setStatus('جاري التوزيع على المحكمين…', false);
+      fetch(distributeJudgesUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(buildFlowDocument())
+      })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            return { ok: r.ok, j: j };
+          });
+        })
+        .then(function (res) {
+          if (res.ok && res.j && res.j.ok) {
+            var n = res.j.bundle_count || 0;
+            var jn = res.j.judge_assignment_count || 0;
+            setStatus('تم التوزيع — ' + n + ' حزمة، ' + jn + ' إسناد محكم', false);
+            setTimeout(function () {
+              if (statusEl && statusEl.textContent.indexOf('تم التوزيع') === 0) {
+                setStatus('', false);
+              }
+            }, 5000);
+          } else {
+            setStatus('تعذّر التوزيع على المحكمين', true);
+          }
+        })
+        .catch(function () {
+          setStatus('تعذّر التوزيع على المحكمين', true);
+        });
+    }
+
+    if (importDocxBtn && importDocxInput && importDocxUrl && !readOnly) {
+      importDocxBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        importDocxInput.click();
+      });
+      importDocxInput.addEventListener('change', function () {
+        var file = importDocxInput.files && importDocxInput.files[0];
+        importDocxInput.value = '';
+        if (file) importDocxFile(file);
+      });
+    }
+
+    if (pullIbankBtn && pullIbankUrl && !readOnly) {
+      pullIbankBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        pullFromIbank();
+      });
+    }
+
+    if (distributeJudgesBtn && distributeJudgesUrl && !readOnly) {
+      distributeJudgesBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        distributeToJudges();
+      });
+    }
+
+    if (tabsEl) {
+      tabsEl.addEventListener('click', function (e) {
+        if (e.target.closest('.pf-flow-day-add-btn')) return;
+        var tab = e.target.closest('.pf-flow-day-tab');
+        if (!tab) return;
+        var dayId = tab.getAttribute('data-day-id');
+        if (dayId) switchToDay(dayId);
+      });
+      tabsEl.addEventListener('contextmenu', function (e) {
+        if (readOnly) return;
+        var tab = e.target.closest('.pf-flow-day-tab');
+        if (!tab) return;
+        e.preventDefault();
+        e.stopPropagation();
+        contextDayId = tab.getAttribute('data-day-id');
+        showDaysMenu(e.clientX, e.clientY);
+      });
+    }
+
+    if (clearDayBtn && !readOnly) {
+      clearDayBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        clearActiveDayTable();
+      });
+    }
+
+    if (dayAddBtn && !readOnly) {
+      dayAddBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        addDayTab();
+      });
+    }
+
+    if (daysMenu && !readOnly) {
+      daysMenu.querySelectorAll('[data-action]').forEach(function (btn) {
+        btn.addEventListener('mousedown', function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+        });
+        btn.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          var action = btn.getAttribute('data-action') || '';
+          if (action === 'delete-day' && contextDayId) deleteDayTab(contextDayId);
+        });
+      });
+      document.addEventListener(
+        'click',
+        function (e) {
+          if (!daysMenu.classList.contains('is-open')) return;
+          if (e.target.closest('.pf-flow-days-menu')) return;
+          hideDaysMenu();
+        },
+        true
+      );
+    }
+
+    section.addEventListener(
+      'keydown',
+      function (e) {
+        if (e.key !== 'Enter' || e.shiftKey) return;
+        var editable = e.target.closest(
+          '.pf-flow-cell[contenteditable="true"], .pf-flow-merged-cell[contenteditable="true"], .pf-assignee-cell-text[contenteditable="true"]'
+        );
+        if (!editable || !section.contains(editable)) return;
+        e.preventDefault();
+        e.stopPropagation();
+      },
+      true
+    );
+
+    section.addEventListener(
+      'input',
+      function (e) {
+        if (e.target.closest('.pf-flow-cell, .pf-flow-merged-cell, .pf-assignee-cell-text')) {
+          scheduleSave();
+        }
+      },
+      true
+    );
+
+    section.addEventListener('contextmenu', onContextMenu, true);
+
+    document.addEventListener('click', function (e) {
+      if (!e.target.closest('[data-pf-save]')) return;
+      if (section.dataset.pfFlowInit !== '1') return;
+      e.preventDefault();
+      saveNow();
+    });
+
+    section.addEventListener('click', function (e) {
+      if (e.target.closest('[data-pf-save]')) {
+        return;
+      }
+      if (e.target.closest('[data-pf-delete-row]')) {
+        e.preventDefault();
+        deleteSelectedRow();
+        return;
+      }
+      var ins = e.target.closest('[data-pf-insert]');
+      if (ins) {
+        e.preventDefault();
+        insertAfter = null;
+        insertRow(ins.getAttribute('data-pf-insert') || 'row');
+      }
+      var tr = e.target.closest('.pf-flow-row');
+      if (tr && tbody.contains(tr)) selectRow(tr);
+    });
+
+    if (menu) {
+      menu.querySelectorAll('[data-action]').forEach(function (btn) {
+        btn.addEventListener('mousedown', function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+        });
+        btn.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          var action = btn.getAttribute('data-action') || 'row';
+          if (action === 'delete') deleteSelectedRow();
+          else if (action === 'assignee-add') {
+            if (contextAssigneeTd) {
+              appendAssigneeSubCell(contextAssigneeTd);
+              scheduleSave();
+            }
+          } else if (action === 'assignee-del') deleteAssigneeFromContext();
+          else insertRow(action);
+        });
+      });
+
+      document.addEventListener(
+        'click',
+        function (e) {
+          if (!menu.classList.contains('is-open')) return;
+          if (e.target.closest('.pf-flow-context-menu')) return;
+          hideMenu();
+        },
+        true
+      );
+    }
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        hideMenu();
+        hideDaysMenu();
+      }
+    });
+    window.addEventListener('scroll', function () {
+      hideMenu();
+      hideDaysMenu();
+    }, true);
+    window.addEventListener('resize', function () {
+      hideMenu();
+      hideDaysMenu();
+    });
+  }
+
+  function boot() {
+    document.querySelectorAll('#pf-flow-table-section').forEach(initPlannerFlowTable);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();
+</script>

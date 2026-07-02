@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+
+{% block title %}{{ phase_label }} — {{ section_title }}{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+
+  <h1><i class="fa-solid fa-list-check fa-icon-title" aria-hidden="true"></i> {{ phase_label }}</h1>
+
+  <p class="muted">
+
+    {% if unit %}{{ unit.label }}{% else %}معايير التقييم{% endif %}
+
+  </p>
+
+  <div class="page-header__nav">
+
+    {% include 'partials/subpage_close.html' %}
+
+  </div>
+
+</div>
+
+
+
+{% if not has_exercise %}
+
+<section class="card">
+
+  <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل.</p>
+
+</section>
+
+{% else %}
+
+<section class="card">
+
+  <h2 class="h2-in-card"><i class="fa-solid fa-table-list fa-icon-title" aria-hidden="true"></i> جدول {{ phase_label }}</h2>
+
+  {% if ok_msg %}
+
+  <p class="form-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
+
+  {% endif %}
+
+
+
+  <form method="post" id="criteria-phase-form">
+
+    <div class="table-wrap">
+
+      <table dir="rtl" id="criteria-phase-table" class="analyst-criteria-phase-table" aria-label="جدول {{ phase_label }}">
+
+        <thead>
+
+          <tr>
+
+            <th scope="col" class="analyst-criteria-seq-th">ت</th>
+
+            <th scope="col">المعايير</th>
+
+            <th scope="col">العلامه المخصصه</th>
+
+            <th scope="col">النسبة المئويه المخصصة</th>
+
+          </tr>
+
+        </thead>
+
+        <tbody id="criteria-phase-body">
+
+          {% if items %}
+
+            {% for item in items %}
+
+            {% set allocated_mark = item.allocated_mark|default(none) %}
+
+            {% set allocated_pct = item.allocated_pct|default(none) %}
+
+            <tr>
+
+              <td class="analyst-criteria-seq criteria-seq-cell">{{ loop.index }}</td>
+
+              <td class="criteria-text-cell">
+
+                <span class="criteria-text-from-eval-list" title="من قائمة التقييم — التخطيط">{{ item.criteria_text }}</span>
+
+                <input type="hidden" name="criteria_text" value="{{ item.criteria_text }}">
+
+              </td>
+
+              <td><input class="unit-level-select mark-input" style="max-width:9rem;" type="number" name="allocated_mark" min="0" step="0.01" value="{% if allocated_mark is number %}{{ allocated_mark|round(2) }}{% endif %}"></td>
+
+              <td class="pct-cell">{% if allocated_pct is number %}{{ allocated_pct|round(2) }}%{% else %}—{% endif %}</td>
+
+            </tr>
+
+            {% endfor %}
+
+          {% else %}
+
+            <tr>
+
+              <td class="analyst-criteria-seq criteria-seq-cell">1</td>
+
+              <td class="criteria-text-cell">
+
+                <span class="muted">لا توجد قوائم تقييم لهذه المرحلة في التخطيط بعد.</span>
+
+              </td>
+
+              <td><input class="unit-level-select mark-input" style="max-width:9rem;" type="number" name="allocated_mark" min="0" step="0.01" value="" disabled></td>
+
+              <td class="pct-cell">—</td>
+
+            </tr>
+
+          {% endif %}
+
+        </tbody>
+
+        <tfoot>
+
+          <tr>
+
+            <td class="analyst-criteria-seq muted">—</td>
+
+            <th scope="row">الإجمالي</th>
+
+            <td id="total-mark-cell">{% if total_mark is number %}{{ total_mark|round(2) }}{% else %}0{% endif %}</td>
+
+            <td id="total-pct-cell">{% if total_mark is number %}100%{% else %}0%{% endif %}</td>
+
+          </tr>
+
+        </tfoot>
+
+      </table>
+
+    </div>
+
+    <div class="btn-group" style="margin-top:1rem;">
+
+      <button class="btn" type="submit"{% if eval_list_driven and not items %} disabled{% endif %}><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ وعودة</button>
+
+    </div>
+
+  </form>
+
+</section>
+
+
+
+<script>
+
+(() => {
+
+  const body = document.getElementById("criteria-phase-body");
+
+  const totalMarkCell = document.getElementById("total-mark-cell");
+
+  const totalPctCell = document.getElementById("total-pct-cell");
+
+  if (!body || !totalMarkCell || !totalPctCell) return;
+
+
+
+  function fmt(n) {
+
+    if (!Number.isFinite(n)) return "0";
+
+    return (Math.round(n * 100) / 100).toString();
+
+  }
+
+
+
+  function rows() {
+
+    return Array.from(body.querySelectorAll("tr")).filter((row) => row.querySelector(".mark-input:not([disabled])"));
+
+  }
+
+
+
+  function recalc() {
+
+    const dataRows = rows();
+
+    const marks = dataRows.map((row) => {
+
+      const input = row.querySelector(".mark-input");
+
+      const raw = input ? String(input.value || "").replace(",", ".") : "";
+
+      const n = Number.parseFloat(raw);
+
+      return Number.isFinite(n) && n >= 0 ? n : 0;
+
+    });
+
+    const total = marks.reduce((a, b) => a + b, 0);
+
+    dataRows.forEach((row, idx) => {
+
+      const cell = row.querySelector(".pct-cell");
+
+      if (!cell) return;
+
+      if (total <= 0 || marks[idx] <= 0) {
+
+        cell.textContent = "—";
+
+      } else {
+
+        cell.textContent = fmt((marks[idx] / total) * 100) + "%";
+
+      }
+
+    });
+
+    totalMarkCell.textContent = fmt(total);
+
+    totalPctCell.textContent = total > 0 ? "100%" : "0%";
+
+  }
+
+
+
+  body.querySelectorAll(".mark-input:not([disabled])").forEach((input) => {
+
+    input.addEventListener("input", recalc);
+
+  });
+
+  recalc();
+
+})();
+
+</script>
+
+{% endif %}
+
+{% endblock %}
+
+

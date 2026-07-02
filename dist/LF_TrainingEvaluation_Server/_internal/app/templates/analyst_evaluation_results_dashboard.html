@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}{{ section_title }} — المحللين{% endblock %}
+{% block body_class %}aerc-page{% endblock %}
+{% block content %}
+<div class="aerc" dir="rtl">
+  <header class="aerc-top">
+    <div class="aerc-top__lead">
+      <h1 class="aerc-title"><i class="fa-solid fa-chart-column fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+    </div>
+    <div class="aerc-back">{% include 'partials/control_hub_back.html' %}</div>
+  </header>
+
+  {% if not has_exercise %}
+  <section class="card aerc-empty">
+    <p class="muted" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل. افتح أو أنشئ تمريناً لعرض النتائج.</p>
+  </section>
+  {% else %}
+
+  <section class="card aerc-panel aerc-panel--phases aerc-panel--first" aria-labelledby="aerc-phases-title">
+    <div class="aerc-panel__head">
+      <h2 id="aerc-phases-title" class="aerc-panel__title"><i class="fa-solid fa-chart-pie" aria-hidden="true"></i> نتائج مراحل التمرين</h2>
+      {% if phase_exercise_pct is not none %}
+      <p class="aerc-panel__overall muted">
+        المجموع المركّب: <strong>{{ phase_exercise_pct }}%</strong> — {{ phase_exercise_grade }}
+      </p>
+      {% endif %}
+    </div>
+    {% if phase_bars %}
+    <div class="aerc-phase-grid" role="img" aria-label="نسب المراحل من القوائم المحفوظة">
+      {% for ph in phase_bars %}
+      <article class="aerc-phase-card aerc-phase-card--{{ ph.band }}" style="--phase-color: {{ ph.color }};">
+        <span class="aerc-phase-card__label">{{ ph.label }}</span>
+        <strong class="aerc-phase-card__pct">{{ ph.pct_display }}%</strong>
+        <span class="aerc-phase-card__grade">{{ ph.grade }}</span>
+        <span class="aerc-phase-card__count muted">{{ ph.count }} وحدة</span>
+        <span class="aerc-phase-card__bar" aria-hidden="true">
+          <span class="aerc-phase-card__bar-fill" style="width: {{ ph.bar_h_pct }}%;"></span>
+        </span>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted aerc-panel__empty">لا توجد بيانات مراحل من قوائم محفوظة.</p>
+    {% endif %}
+  </section>
+
+  <div class="aerc-grid">
+    <section class="card aerc-panel aerc-panel--count" aria-labelledby="aerc-count-title">
+      <h2 id="aerc-count-title" class="aerc-panel__title"><i class="fa-solid fa-layer-group" aria-hidden="true"></i> عدد القوائم المحفوظة حسب الوحدة</h2>
+      {% if unit_count_bars %}
+      <div class="aerc-donut-layout" role="img" aria-label="توزيع عدد القوائم المحفوظة لكل وحدة">
+        <div class="aerc-donut" style="background: {{ unit_count_donut_css }};">
+          <span class="aerc-donut__hole">
+            <strong class="aerc-donut__total">{{ n_saved_lists }}</strong>
+            <span class="aerc-donut__hint muted">قائمة محفوظة</span>
+          </span>
+        </div>
+        <ul class="aerc-donut-legend">
+          {% for bar in unit_count_bars %}
+          <li class="aerc-donut-legend__row">
+            <i class="aerc-donut-legend__swatch" style="background: {{ bar.segment_color }};" aria-hidden="true"></i>
+            <span class="aerc-donut-legend__name" title="{{ bar.label }}">{{ bar.label }}</span>
+            <span class="aerc-donut-legend__vals">
+              <strong>{{ bar.count }}</strong>
+              <span class="muted">{{ bar.share_pct }}%</span>
+            </span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% else %}
+      <p class="muted aerc-panel__empty">لا توجد قوائم محفوظة بعد.</p>
+      {% endif %}
+    </section>
+
+    <section class="card aerc-panel aerc-panel--units" aria-labelledby="aerc-units-title">
+      <h2 id="aerc-units-title" class="aerc-panel__title"><i class="fa-solid fa-building-shield" aria-hidden="true"></i> متوسط النسبة حسب الوحدة</h2>
+      {% if unit_pct_bars %}
+      <ul class="aerc-hbars">
+        {% for row in unit_pct_bars %}
+        <li class="aerc-hbars__row aerc-hbars__row--{{ row.band }}">
+          <span class="aerc-hbars__name" title="{{ row.label }}">{{ row.label }}</span>
+          <span class="aerc-hbars__track">
+            <span class="aerc-hbars__fill" style="width: {{ row.bar_w_pct }}%; background: {{ row.color }};"></span>
+          </span>
+          <span class="aerc-hbars__meta">
+            <strong>{{ row.avg_pct }}%</strong>
+            <span class="muted">({{ row.saved_count }})</span>
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted aerc-panel__empty">لا توجد نسب محسوبة للوحدات.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  <section class="aerc-legend card" aria-label="دليل الألوان">
+    <h2 class="aerc-legend__title">دليل التقدير</h2>
+    <ul class="aerc-legend__list">
+      {% for item in grade_legend %}
+      <li><i class="aerc-legend__swatch" style="background: {{ item.color }};"></i> {{ item.label }} <span class="muted">{{ item.range }}</span></li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  {% endif %}
+</div>
+{% endblock %}

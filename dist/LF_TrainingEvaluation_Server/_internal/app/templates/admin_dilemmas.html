@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}قوائم المعاضل — مساحة التخطيط{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-triangle-exclamation fa-icon-title" aria-hidden="true"></i> قوائم المعاضل</h1>
+  <div class="page-header__nav">
+    {% include 'partials/subpage_close.html' %}
+  </div>
+</div>
+{% if error %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ error }}</p>
+{% endif %}
+{% if ok_msg %}
+<p class="form-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
+{% endif %}
+{% if catalog_empty %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا توجد مستويات وحدة في كتالوج التخطيط. بنك المعلومات يستخدم كتالوجاً منفصلاً ولم يُمس.</p>
+{% endif %}
+{% if phases_catalog_empty %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا توجد مراحل تمرين في كتالوج التخطيط. بنك المعلومات يستخدم كتالوج مراحل منفصلاً ولم يُمس.</p>
+{% endif %}
+
+<div class="dilemmas-page">
+  <div class="dilemmas-col">
+    <section class="card dilemmas-current">
+      <h2 class="h2-in-card"><i class="fa-solid fa-list-ol fa-icon-title" aria-hidden="true"></i> القائمة الحالية — {{ selected_unit_label }}</h2>
+      {% if items %}
+      <ol class="objectives-list dilemmas-list">
+        {% for it in items %}
+          {% set row_phase = normalize_exercise_phase(it.exercise_phase) %}
+          <li class="objectives-list__item dilemmas-list__item">
+            <div class="dilemmas-list__toolbar">
+              <div class="dilemmas-list__title" title="{{ it.text }}">{{ it.text }}</div>
+              <form method="post" action="{{ url_for('views.admin_dilemmas_set_phase', unit_key=selected_unit_key, item_id=it.id) }}" class="dilemmas-current-phase-form dilemmas-current-phase-form--row dilemmas-current-phase-form--toolbar">
+                <label class="muted dilemmas-current-phase-form__label" for="dil-phase-{{ it.id }}">مرحلة التمرين</label>
+                <select id="dil-phase-{{ it.id }}" name="exercise_phase" class="unit-level-select dilemmas-current-phase-form__select" aria-label="مرحلة التمرين لهذا العنصر"
+                        onchange="this.form.submit()">
+                  {% for pk, pl in exercise_phase_options %}
+                  <option value="{{ pk }}" {% if pk == row_phase %}selected{% endif %}>{{ pl }}</option>
+                  {% endfor %}
+                </select>
+              </form>
+              <div class="dilemmas-list__actions">
+              {% if it.pdf_relpath %}
+              <a class="btn btn-ghost dilemmas-open-pdf-btn" href="{{ url_for('views.admin_dilemma_viewer', unit_key=selected_unit_key, item_id=it.id) }}">
+                <i class="fa-solid fa-file-pdf" aria-hidden="true"></i>
+                فتح المعضلة (PDF)
+              </a>
+              <form method="post" class="dilemmas-item-delete-form" action="{{ url_for('views.admin_dilemmas_delete_item', unit_key=selected_unit_key, item_id=it.id) }}"
+                    onsubmit="return confirm('حذف هذه المعضلة وملفها من القائمة؟');">
+                <button type="submit" class="btn btn-ghost dilemmas-delete-one-btn" title="حذف المعضلة" aria-label="حذف المعضلة">
+                  <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
+                </button>
+              </form>
+              {% else %}
+              <span class="muted dilemmas-list__no-pdf">لا يوجد ملف PDF (بيانات قديمة)</span>
+              <form method="post" class="dilemmas-item-delete-form" action="{{ url_for('views.admin_dilemmas_delete_item', unit_key=selected_unit_key, item_id=it.id) }}"
+                    onsubmit="return confirm('حذف هذا السطر من القائمة؟');">
+                <button type="submit" class="btn btn-ghost dilemmas-delete-one-btn" title="حذف السطر" aria-label="حذف السطر">
+                  <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
+                </button>
+              </form>
+              {% endif %}
+              </div>
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="muted">لا توجد معاضل محفوظة لهذا المستوى. أضف ملفاً بصيغة PDF من العمود المجاور.</p>
+      {% endif %}
+    </section>
+
+    <section class="card dilemmas-add">
+      <h2 class="h2-in-card">
+        <i class="fa-solid fa-file-pdf fa-icon-title" aria-hidden="true"></i>
+        إدراج ملفات المعاضل (PDF)
+      </h2>
+      <form method="post" action="{{ url_for('views.admin_dilemmas', unit_key=selected_unit_key) }}" enctype="multipart/form-data" class="dilemmas-upload-form">
+        <div class="form-group">
+          <label for="upload-phase-dilemmas"><i class="fa-solid fa-timeline fa-icon-label" aria-hidden="true"></i> مرحلة التمرين (للملفات الجديدة)</label>
+          <select id="upload-phase-dilemmas" name="exercise_phase" class="unit-level-select" aria-label="مرحلة التمرين للملفات المضافة" {% if phases_catalog_empty %}disabled{% endif %}>
+            {% for pk, pl in exercise_phase_options %}
+              <option value="{{ pk }}" {% if pk == upload_phase_default %}selected{% endif %}>{{ pl }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="unit-level-select-dilemmas"><i class="fa-solid fa-layer-group fa-icon-label" aria-hidden="true"></i> مستوى الوحدة</label>
+          <select id="unit-level-select-dilemmas" class="unit-level-select" {% if catalog_empty %}disabled{% endif %}>
+            {% for u in unit_levels %}
+              <option value="{{ u.key }}" {% if u.key == selected_unit_key %}selected{% endif %}>{{ u.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <span class="battle-field-label" id="dilemmas-file-label">ملف المعضلة</span>
+          <input id="dilemmas-pdf-input" name="dilemmas_file" type="file"
+                 accept="application/pdf,.pdf"
+                 multiple
+                 class="sr-only"
+                 tabindex="-1"
+                 aria-labelledby="dilemmas-file-label"
+                 {% if not items %}required{% endif %}
+          >
+          <div class="dilemmas-file-trigger-row dilemmas-file-trigger-row--align">
+            <button type="button" class="btn btn-ghost dilemmas-pdf-trigger" id="dilemmas-pdf-trigger" {% if not items %}title="اختيار ملف PDF واحد أو أكثر"{% endif %}>
+              <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
+              اختيار ملف (PDF)
+            </button>
+            <span class="muted dilemmas-file-name" id="dilemmas-file-name" aria-live="polite"></span>
+          </div>
+        </div>
+        <div class="btn-group dilemmas-add__actions dilemmas-add__actions--end">
+          <button class="btn" type="submit" id="dilemmas-save-btn" disabled><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> إضافة إلى القائمة</button>
+        </div>
+      </form>
+      {% if items %}
+      <form method="post" action="/admin/dilemmas/{{ selected_unit_key }}/clear"
+            class="dilemmas-clear-form dilemmas-clear-form--align"
+            onsubmit="return confirm('هل تريد مسح كل المعاضل وملفات PDF لهذا المستوى؟');">
+        <button class="btn btn-ghost" type="submit"><i class="fa-solid fa-trash" aria-hidden="true"></i> مسح القائمة وملفات هذا المستوى</button>
+      </form>
+      {% endif %}
+    </section>
+  </div>
+</div>
+<script>
+(() => {
+  const sel = document.getElementById("unit-level-select-dilemmas");
+  if (sel) {
+    sel.addEventListener("change", () => {
+      const val = (sel.value || "").trim();
+      if (!val) return;
+      window.location.href = `/admin/dilemmas/${encodeURIComponent(val)}`;
+    });
+  }
+  const input = document.getElementById("dilemmas-pdf-input");
+  const trigger = document.getElementById("dilemmas-pdf-trigger");
+  const nameEl = document.getElementById("dilemmas-file-name");
+  const saveBtn = document.getElementById("dilemmas-save-btn");
+  if (trigger && input) {
+    trigger.addEventListener("click", () => input.click());
+  }
+  function syncFileHint() {
+    if (!input || !nameEl || !saveBtn) return;
+    const n = input.files ? input.files.length : 0;
+    if (n === 0) {
+      nameEl.textContent = "";
+      saveBtn.disabled = true;
+      return;
+    }
+    nameEl.textContent = n === 1 ? input.files[0].name : `تم اختيار ${n} ملفات`;
+    saveBtn.disabled = false;
+  }
+  if (input) {
+    input.addEventListener("change", syncFileHint);
+    syncFileHint();
+  }
+})();
+</script>
+{% endblock %}

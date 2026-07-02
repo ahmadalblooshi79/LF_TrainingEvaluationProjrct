@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}تقييم — {{ item_title }}{% endblock %}
+{% block body_class %}eval-list-page-layout{% endblock %}
+{% block content %}
+{% if header_row and eval_structured %}
+<div class="eval-list-page dilemma-viewer-page">
+  <div class="eval-list-page__sticky-top">
+    <div class="dilemma-viewer-toolbar card">
+      <div class="dilemma-viewer-toolbar__titles">
+        <h1 class="dilemma-viewer-title"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ item_title }}</h1>
+      </div>
+      <div class="dilemma-viewer-toolbar__actions">
+        {% include 'partials/subpage_close.html' %}
+      </div>
+    </div>
+
+    {% if eval_saved_notice|default(false) %}
+    <p class="form-ok-banner eval-banner--small" role="status" dir="rtl"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> تم حفظ نتائج التقييم بنجاح.</p>
+    {% endif %}
+    {% if eval_readonly_notice|default(false) %}
+    <p class="form-error-banner eval-banner--small" role="alert" dir="rtl"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يمكن الحفظ من وضع الاعتماد — استخدم «إعادة للمحكم» لإرجاع التقييم.</p>
+    {% endif %}
+    {% if eval_action_failed|default(false) %}
+    <p class="form-error-banner eval-banner--small" role="alert" dir="rtl"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> تعذّر تنفيذ العملية — تحقق من مسار الاعتماد الحالي ثم أعد المحاولة.</p>
+    {% endif %}
+    {% if eval_save_notes_required|default(false) %}
+    <p class="form-error-banner eval-banner--small" role="alert" dir="rtl"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يمكن الحفظ: يوجد بند نتيجته «مقبول» أو «راسب» — اكتب ملاحظات لهذا الصف في خانة الملاحظات.</p>
+    {% endif %}
+    {% if eval_approve_grade_blocked|default(false) %}
+    <p class="form-error-banner eval-banner--small" role="alert" dir="rtl"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يمكن الاعتماد: التقدير «راسب» أو «مقبول» — عدّل العلامات إلى «جيد» فما فوق، أو اكتب ملاحظات في خانة الملاحظات ثم احفظ.</p>
+    {% endif %}
+    <div class="eval-top-messages eval-banner-row--compact" dir="ltr">
+      {% if eval_workflow_label|default('') and eval_workflow_label != '—' %}
+      <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-route" aria-hidden="true"></i> {{ eval_workflow_label }}</p>
+      {% endif %}
+      {% if saved_is_approved %}
+      <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> اعتماد المحكم{% if saved_approved_at %} {{ saved_approved_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</p>
+      {% endif %}
+      {% if saved_is_chief_approved|default(false) %}
+      <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-stamp" aria-hidden="true"></i> اعتماد كبير المحكمين{% if saved_chief_approved_at %} {{ saved_chief_approved_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</p>
+      {% endif %}
+      {% if saved_reopened_for_judge|default(false) %}
+      <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> معاد للمحكم لإعادة التقييم</p>
+      {% endif %}
+      {% if saved_updated_at %}
+      <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ {{ saved_updated_at.strftime('%Y-%m-%d %H:%M') }}</p>
+      {% endif %}
+    </div>
+
+    {% if preview_error %}
+    <p class="form-error-banner eval-banner--small" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ preview_error }}</p>
+    {% endif %}
+
+    <section class="card eval-info-card eval-info-card--compact" dir="rtl">
+      <div class="eval-info-card__row">
+        <span class="eval-info-card__kv"><span class="eval-info-card__k">مسمى الوحدة</span> <strong>{{ unit_label }}</strong></span>
+        <span class="eval-info-card__sep" aria-hidden="true">|</span>
+        <span class="eval-info-card__kv"><span class="eval-info-card__k">التاريخ</span> {% if shown_date %}{{ shown_date.strftime('%Y-%m-%d') }}{% else %}—{% endif %}</span>
+      </div>
+      <div class="eval-info-card__row">
+        <span class="eval-info-card__kv"><span class="eval-info-card__k">قائد الوحدة</span> {{ commander_name }}</span>
+        <span class="eval-info-card__sep" aria-hidden="true">|</span>
+        <span class="eval-info-card__kv"><span class="eval-info-card__k">المحكم</span> {{ judge_name }}</span>
+      </div>
+    </section>
+    {% if sheet_title %}
+    <p class="eval-preview-sheet-title eval-preview-sheet-title--inline muted" dir="rtl"><strong>{{ sheet_title }}</strong></p>
+    {% endif %}
+  </div>
+
+  <div class="eval-list-page__main">
+    {% include 'partials/evaluation_list_structured_panel.html' %}
+  </div>
+</div>
+{% else %}
+<div class="dilemma-viewer-page">
+  <div class="dilemma-viewer-toolbar card">
+    <div class="dilemma-viewer-toolbar__titles">
+      <h1 class="dilemma-viewer-title"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ item_title }}</h1>
+    </div>
+    <div class="dilemma-viewer-toolbar__actions">
+      {% include 'partials/subpage_close.html' %}
+    </div>
+  </div>
+
+  <div class="eval-top-messages" dir="ltr">
+    {% if saved_is_approved %}
+    <p class="form-ok-banner" role="status" style="display:inline-block;margin:0 0 0.5rem;">
+      <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+      تم اعتماد التقييم{% if saved_approved_at %} بتاريخ {{ saved_approved_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}.
+    </p>
+    {% endif %}
+    {% if saved_updated_at %}
+    <p class="form-ok-banner" role="status" style="display:inline-block;margin:0 0 0.5rem;">
+      <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i>
+      آخر حفظ: {{ saved_updated_at.strftime('%Y-%m-%d %H:%M') }}
+    </p>
+    {% endif %}
+  </div>
+
+  {% if preview_error %}
+  <p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ preview_error }}</p>
+  {% endif %}
+
+  {% if header_row %}
+  <section class="card eval-info-card" dir="rtl" style="margin:0 0 0.75rem;">
+    <div class="eval-meta-grid" style="max-width:none;grid-template-columns: 10rem 1fr;">
+      <div class="eval-level-label">مسمى الوحدة</div>
+      <div><strong>{{ unit_label }}</strong></div>
+      <div class="eval-level-label">التاريخ</div>
+      <div>{% if shown_date %}{{ shown_date.strftime('%Y-%m-%d') }}{% else %}—{% endif %}</div>
+      <div class="eval-level-label">قائد الوحدة</div>
+      <div>{{ commander_name }}</div>
+      <div class="eval-level-label">المحكم</div>
+      <div>{{ judge_name }}</div>
+    </div>
+  </section>
+  {% if sheet_title %}
+  <p class="eval-preview-sheet-title muted" dir="rtl"><strong>{{ sheet_title }}</strong></p>
+  {% endif %}
+  <p class="muted eval-preview-hint" dir="rtl">لعرض الجدول التفاعلي يلزم ورقة Excel تحتوي صف «القصوى» و«المكتسبة» أو صفًا أولًا بثلاثة أعمدة على الأقل.</p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

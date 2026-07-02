@@ -1,0 +1,333 @@
+﻿{% extends "base.html" %}
+{% block title %}{{ section_title }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-chart-column fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+  <p class="muted">صفحة تحليل مبنية على نتائج التقييم المحفوظة من صفحة قائمة التقييم.</p>
+  <div class="page-header__nav">
+    {% include 'partials/control_hub_back.html' %}
+  </div>
+</div>
+
+{% if not has_exercise %}
+<section class="card">
+  <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل لهذا المستخدم. أنشئ/افتح تمريناً أولاً.</p>
+</section>
+{% else %}
+<section class="card">
+  <h2 class="h2-in-card"><i class="fa-solid fa-square-poll-vertical fa-icon-title" aria-hidden="true"></i> نتائج تقييم المحكمين</h2>
+  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">التمرين الحالي: <strong>{{ exercise.title }}</strong> — <code>{{ exercise.code }}</code></p>
+
+  <div class="analysis-tabs" dir="rtl" role="tablist" aria-label="تبويبات النتائج">
+    <button type="button" class="analysis-tab is-active" data-tab-btn="overall" role="tab" aria-selected="true">نتائج عامة للتمرين</button>
+    {% for u in unit_tabs %}
+    <button type="button" class="analysis-tab" data-tab-btn="unit-{{ u.unit_key }}" role="tab" aria-selected="false">{{ u.unit_label }}</button>
+    {% endfor %}
+  </div>
+
+  <div class="analysis-tabpanes">
+    <div class="analysis-tabpane is-active" data-tab-pane="overall" role="tabpanel">
+      <div class="analysis-kpis" dir="rtl">
+        <div class="analysis-kpi">
+          <div class="muted">المتوسط العام</div>
+          <div class="analysis-kpi__value">{% if overall_avg is not none %}{{ (overall_avg | round(2)) }}%{% else %}—{% endif %}</div>
+        </div>
+        <div class="analysis-kpi">
+          <div class="muted">التقدير</div>
+          <div class="analysis-kpi__value">{{ overall_grade }}</div>
+        </div>
+        <div class="analysis-kpi">
+          <div class="muted">عدد النتائج المحفوظة</div>
+          <div class="analysis-kpi__value">{{ (saved_rows|length) }}</div>
+        </div>
+      </div>
+
+      <section class="card" style="margin:0.85rem 0 0;">
+        <h3 class="h2-in-card"><i class="fa-solid fa-chart-simple fa-icon-title" aria-hidden="true"></i> رسم بياني لمتوسط النتائج حسب مستوى الوحدة</h3>
+        {% if unit_totals %}
+        <div class="analysis-bars" dir="rtl" aria-label="متوسط النتائج حسب مستوى الوحدة">
+          {% for u in unit_totals %}
+          <div class="analysis-bar">
+            <div class="analysis-bar__label">{{ u.unit_label }} <span class="muted">({{ u.n }})</span></div>
+            <div class="analysis-bar__track" aria-hidden="true">
+              <div class="analysis-bar__fill" style="width: {{ (u.avg_pct | round(2)) }}%;"></div>
+            </div>
+            <div class="analysis-bar__value">{{ (u.avg_pct | round(2)) }}%</div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="muted" dir="rtl" style="margin:0;">لا توجد بيانات كافية للرسم البياني.</p>
+        {% endif %}
+      </section>
+
+      <section class="card" style="margin:0.85rem 0 0;">
+        <h3 class="h2-in-card"><i class="fa-solid fa-file-lines fa-icon-title" aria-hidden="true"></i> تقرير التقييم</h3>
+        <p class="muted" dir="rtl" style="margin:0;">
+          يعرض التقرير “المجموع العام” لكل وحدة (اعتماداً على أحدث نتيجة لكل محكم لكل قائمة)، ثم تفاصيل كل قائمة تقييم على حدة، مع إظهار القوائم غير المعبّأة.
+        </p>
+      </section>
+
+      <section class="card" style="margin:0.85rem 0 0;">
+        <h3 class="h2-in-card"><i class="fa-solid fa-lightbulb fa-icon-title" aria-hidden="true"></i> توصية</h3>
+        <p dir="rtl" style="margin:0;">{{ recommendation }}</p>
+      </section>
+
+      <section class="card" style="margin:0.85rem 0 0;">
+        <h3 class="h2-in-card"><i class="fa-solid fa-star fa-icon-title" aria-hidden="true"></i> نقاط القوة والضعف</h3>
+        <div dir="rtl" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0.75rem;">
+          <div class="card" style="padding:0.65rem 0.85rem;margin:0;">
+            <strong>نقاط القوة (أعلى متوسط)</strong>
+            {% if strengths_units %}
+            <ul style="margin:0.5rem 0 0;">
+              {% for u in strengths_units %}
+              <li>{{ u.unit_label }} — {{ (u.avg_pct | round(2)) }}%</li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <p class="muted" style="margin:0.5rem 0 0;">—</p>
+            {% endif %}
+          </div>
+          <div class="card" style="padding:0.65rem 0.85rem;margin:0;">
+            <strong>نقاط الضعف (أقل متوسط)</strong>
+            {% if weaknesses_units %}
+            <ul style="margin:0.5rem 0 0;">
+              {% for u in weaknesses_units %}
+              <li>{{ u.unit_label }} — {{ (u.avg_pct | round(2)) }}%</li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <p class="muted" style="margin:0.5rem 0 0;">—</p>
+            {% endif %}
+          </div>
+        </div>
+      </section>
+
+      {% if saved_display %}
+      <div class="table-wrap" style="margin-top:0.85rem;">
+        <table dir="rtl" aria-label="نتائج التقييم المحفوظة">
+          <thead>
+            <tr>
+              <th scope="col">مستوى الوحدة</th>
+              <th scope="col">مرحلة</th>
+              <th scope="col">ملف/عنوان</th>
+              <th scope="col">النسبة</th>
+              <th scope="col">التقدير</th>
+              <th scope="col">آخر تحديث</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for sd in saved_display %}
+            {% set r = sd.row %}
+            <tr>
+              <td>{{ sd.unit_label_ar }}</td>
+              <td>{{ phase_label_ar(r.exercise_phase) }}</td>
+              <td><a href="{{ url_for('views.analyst_evaluation_list_file_viewer', unit_key=r.unit_level_key, item_id=r.evaluation_item_id) }}">فتح التقييم</a></td>
+              <td>{% if r.total_pct is not none %}{{ (r.total_pct | round(2)) }}%{% else %}—{% endif %}</td>
+              <td>{{ r.grade_label or "—" }}</td>
+              <td>{% if r.updated_at %}{{ r.updated_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="muted" dir="rtl" style="margin:0;">لا توجد نتائج محفوظة بعد. افتح أحد ملفات التقييم واضغط «حفظ نتائج التقييم».</p>
+      {% endif %}
+    </div>
+
+    {% for ut in unit_tabs %}
+    <div class="analysis-tabpane" data-tab-pane="unit-{{ ut.unit_key }}" role="tabpanel">
+      <section class="card" style="margin:0.85rem 0 0;">
+        <h3 class="h2-in-card"><i class="fa-solid fa-flag fa-icon-title" aria-hidden="true"></i> {{ ut.unit_label }}</h3>
+        <p class="muted" dir="rtl" style="margin:0;">
+          عدد قوائم التقييم المخصصة للوحدة: <strong>{{ ut.completion.total }}</strong>
+          — المعبّأة: <strong>{{ ut.completion.filled_n }}</strong>
+          — غير المعبّأة: <strong>{{ ut.completion.unfilled_n }}</strong>
+        </p>
+      </section>
+
+      <section class="card" style="margin:0.85rem 0 0;">
+        <h3 class="h2-in-card"><i class="fa-solid fa-square-poll-vertical fa-icon-title" aria-hidden="true"></i> نتيجة تقييم الوحدة (المجموع العام)</h3>
+        <div class="analysis-kpis" dir="rtl">
+          <div class="analysis-kpi">
+            <div class="muted">المجموع العام</div>
+            <div class="analysis-kpi__value">{% if ut.unit_total_pct is not none %}{{ (ut.unit_total_pct | round(2)) }}%{% else %}—{% endif %}</div>
+          </div>
+          <div class="analysis-kpi">
+            <div class="muted">التقدير</div>
+            <div class="analysis-kpi__value">{{ ut.unit_total_grade }}</div>
+          </div>
+          <div class="analysis-kpi">
+            <div class="muted">غير معبّأة</div>
+            <div class="analysis-kpi__value">{{ ut.completion.unfilled_n }}</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" style="margin:0.85rem 0 0;">
+        <h3 class="h2-in-card"><i class="fa-solid fa-chart-simple fa-icon-title" aria-hidden="true"></i> رسم بياني (متوسط كل قائمة تقييم داخل الوحدة)</h3>
+        {% if ut.chart_items %}
+        <div class="analysis-bars" dir="rtl" aria-label="متوسط النتائج حسب كل قائمة تقييم">
+          {% for it in ut.chart_items %}
+          {% set is_unfilled = (it.avg_pct is none) %}
+          <div class="analysis-bar{% if is_unfilled %} is-unfilled{% endif %}">
+            <div class="analysis-bar__label">
+              {{ it.title }}
+              <span class="muted">— {{ phase_label_ar(it.phase) }}</span>
+              {% if is_unfilled %}
+                <span class="badge eval-item-unfilled">غير معبّأة</span>
+              {% else %}
+                <span class="muted">({{ it.n }})</span>
+              {% endif %}
+            </div>
+            <div class="analysis-bar__track" aria-hidden="true">
+              <div class="analysis-bar__fill" style="width: {{ ((it.avg_pct or 0) | round(2)) }}%;"></div>
+            </div>
+            <div class="analysis-bar__value">{% if it.avg_pct is not none %}{{ (it.avg_pct | round(2)) }}%{% else %}—{% endif %}</div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="muted" dir="rtl" style="margin:0;">لا توجد بيانات كافية للرسم البياني.</p>
+        {% endif %}
+      </section>
+
+      <section class="card" style="margin:0.85rem 0 0;">
+        <h3 class="h2-in-card"><i class="fa-solid fa-star fa-icon-title" aria-hidden="true"></i> نقاط القوة والضعف داخل الوحدة</h3>
+        <div dir="rtl" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0.75rem;">
+          <div class="card" style="padding:0.65rem 0.85rem;margin:0;">
+            <strong>نقاط القوة (أعلى متوسط)</strong>
+            {% if ut.strengths %}
+            <ul style="margin:0.5rem 0 0;">
+              {% for it in ut.strengths %}
+              <li>{{ it.title }} — {{ (it.avg_pct | round(2)) }}%</li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <p class="muted" style="margin:0.5rem 0 0;">—</p>
+            {% endif %}
+          </div>
+          <div class="card" style="padding:0.65rem 0.85rem;margin:0;">
+            <strong>نقاط الضعف (أقل متوسط)</strong>
+            {% if ut.weaknesses %}
+            <ul style="margin:0.5rem 0 0;">
+              {% for it in ut.weaknesses %}
+              <li>{{ it.title }} — {{ (it.avg_pct | round(2)) }}%</li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <p class="muted" style="margin:0.5rem 0 0;">—</p>
+            {% endif %}
+          </div>
+        </div>
+      </section>
+
+      <section class="card" style="margin:0.85rem 0 0;">
+        <h3 class="h2-in-card"><i class="fa-solid fa-user-tie fa-icon-title" aria-hidden="true"></i> إكمال قوائم الوحدة لكل محكم</h3>
+        {% if ut.judge_completion %}
+        <div class="table-wrap">
+          <table dir="rtl" aria-label="إكمال القوائم حسب المحكم">
+            <thead>
+              <tr>
+                <th scope="col">المحكم</th>
+                <th scope="col">المخصصة</th>
+                <th scope="col">المعبّأة</th>
+                <th scope="col">غير المعبّأة</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for jr in ut.judge_completion %}
+              <tr>
+                <td>{{ jr.judge_name }}</td>
+                <td>{{ jr.total }}</td>
+                <td>{{ jr.filled_n }}</td>
+                <td>{% if jr.unfilled_n > 0 %}<span class="badge eval-item-unfilled">{{ jr.unfilled_n }}</span>{% else %}0{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="muted" dir="rtl" style="margin:0;">لا توجد بيانات محكمين.</p>
+        {% endif %}
+      </section>
+
+      <section class="card" style="margin:0.85rem 0 0;">
+        <h3 class="h2-in-card"><i class="fa-solid fa-list-check fa-icon-title" aria-hidden="true"></i> جميع قوائم التقييم المخصصة للوحدة</h3>
+        {% if ut.eval_lists %}
+        {% for it in ut.eval_lists %}
+        <div class="card {% if not it.is_filled %}eval-item-unfilled{% endif %}" style="padding:0.55rem 0.75rem;margin:0 0 0.65rem;">
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:baseline;">
+            <span><strong>{{ it.title }}</strong></span>
+            <span class="muted">— {{ phase_label_ar(it.phase) }}</span>
+            {% if not it.is_filled %}<span class="badge">غير معبّأة</span>{% endif %}
+          </div>
+          {% if it.results %}
+          <div class="table-wrap" style="margin-top:0.5rem;">
+            <table dir="rtl" aria-label="نتائج القائمة">
+              <thead>
+                <tr>
+                  <th scope="col">المحكم</th>
+                  <th scope="col">النسبة</th>
+                  <th scope="col">التقدير</th>
+                  <th scope="col">اعتماد</th>
+                  <th scope="col">آخر تحديث</th>
+                  <th scope="col">فتح</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for r in it.results %}
+                <tr>
+                  <td>{{ r.judge_name }}</td>
+                  <td>{% if r.total_pct is not none %}{{ (r.total_pct | round(2)) }}%{% else %}—{% endif %}</td>
+                  <td>{{ r.grade_label or "—" }}</td>
+                  <td>{% if r.is_approved %}<span class="badge">معتمد</span>{% else %}<span class="muted">غير معتمد</span>{% endif %}</td>
+                  <td>{% if r.updated_at %}{{ r.updated_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+                  <td><a href="{{ url_for('views.analyst_evaluation_list_file_viewer', unit_key=ut.unit_key, item_id=it.item_id, saved_id=r.saved_id) }}">فتح</a></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <p class="muted" dir="rtl" style="margin:0.5rem 0 0;">لا توجد نتائج محفوظة لهذه القائمة.</p>
+          {% endif %}
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="muted" dir="rtl" style="margin:0;">لا توجد قوائم.</p>
+        {% endif %}
+      </section>
+    </div>
+    {% endfor %}
+  </div>
+
+  <script>
+  (function () {
+    var card = document.currentScript && document.currentScript.parentElement;
+    if (!card) return;
+    var btns = card.querySelectorAll('[data-tab-btn]');
+    var panes = card.querySelectorAll('[data-tab-pane]');
+    function activate(id) {
+      btns.forEach(function (b) {
+        var on = (b.getAttribute('data-tab-btn') === id);
+        b.classList.toggle('is-active', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      panes.forEach(function (p) {
+        var on = (p.getAttribute('data-tab-pane') === id);
+        p.classList.toggle('is-active', on);
+      });
+    }
+    btns.forEach(function (b) {
+      b.addEventListener('click', function () {
+        activate(b.getAttribute('data-tab-btn'));
+      });
+    });
+  })();
+  </script>
+</section>
+{% endif %}
+{% endblock %}
+

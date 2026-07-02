@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ section_title }} — المحللين{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-star fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+  <div class="page-header__nav">
+    {% include 'partials/control_hub_back.html' %}
+  </div>
+</div>
+
+{% if not has_exercise %}
+<section class="card">
+  <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل.</p>
+</section>
+{% else %}
+<section class="card analyst-positives-negatives-wrap">
+  <div class="control-pn-summary" dir="rtl">
+    <span class="control-pn-summary__chip">قوائم معتمدة من المحكم: <strong>{{ n_approved_eval_lists }}</strong> / {{ n_eval_lists }}</span>
+    <span class="control-pn-summary__chip">مستويات وحدات مُحلّلة: <strong>{{ n_ai_units | default(0) }}</strong></span>
+    <span class="control-pn-summary__chip control-pn-summary__chip--pos">إيجابيات (ذكاء اصطناعي): <strong>{{ n_ai_positives | default(0) }}</strong></span>
+    <span class="control-pn-summary__chip control-pn-summary__chip--neg">سلبيات (ذكاء اصطناعي): <strong>{{ n_ai_negatives | default(0) }}</strong></span>
+  </div>
+
+  {% set ai_refresh_url = url_for('views.analyst_positives_negatives_refresh_ai') %}
+  {% set ai_refreshed = request.args.get('ai_refreshed') %}
+  {% include 'partials/positives_negatives_ai_units.html' %}
+</section>
+{% endif %}
+{% endblock %}

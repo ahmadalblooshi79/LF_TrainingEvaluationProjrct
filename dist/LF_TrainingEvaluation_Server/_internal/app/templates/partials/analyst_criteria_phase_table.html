@@ -1,0 +1,117 @@
+{# جدول معايير مرحلة — مشترك بين معايير التقييم (تحرير) والتقييم النهائي (عرض) #}
+{% set criteria_marks_editable = criteria_marks_editable if criteria_marks_editable is defined else true %}
+<section class="criteria-phase-block{% if not criteria_marks_editable %} criteria-phase-block--readonly{% endif %}{% if nested_in_final_eval %} criteria-phase-block--nested{% endif %}" aria-labelledby="{{ form_id }}-title">
+  {% if nested_in_final_eval %}
+  <h4 class="h3-in-card criteria-phase-block__title" id="{{ form_id }}-title">
+    <i class="fa-solid fa-table-list fa-icon-title" aria-hidden="true"></i> {{ section_title }}
+  </h4>
+  {% else %}
+  <h3 class="h2-in-card criteria-phase-block__title" id="{{ form_id }}-title" style="margin-top:0.85rem;">
+    <i class="fa-solid fa-table-list fa-icon-title" aria-hidden="true"></i> {{ section_title }}
+  </h3>
+  {% endif %}
+  {% if not has_criteria_unit %}
+  <p class="muted criteria-phase-block__hint" dir="rtl">لا توجد وحدة مطابقة في جدول «توزيع النسبة المئوية» لمعايير التقييم. أضف وحدة بنفس اسم مستوى الوحدة من صفحة معايير التقييم.</p>
+  {% else %}
+  {% if criteria_unit_label %}
+  <p class="muted criteria-phase-block__meta" dir="rtl">
+    وحدة المعايير: <strong>{{ criteria_unit_label }}</strong> — {{ phase_label }}
+    {% if not criteria_marks_editable %}
+    <span class="criteria-phase-badge">القصوى من معايير التقييم (غير قابلة للتعديل هنا)</span>
+    {% endif %}
+  </p>
+  {% endif %}
+
+  {% if criteria_marks_editable %}
+  <form method="post" action="{{ form_action }}" id="{{ form_id }}" class="criteria-phase-form-block">
+    {% if criteria_hidden_fields %}
+    {% for name, value in criteria_hidden_fields|dictsort %}
+    <input type="hidden" name="{{ name }}" value="{{ value }}">
+    {% endfor %}
+    {% endif %}
+  {% else %}
+  <div class="criteria-phase-view" id="{{ form_id }}">
+  {% endif %}
+
+    <div class="table-wrap analyst-criteria-phase-table-wrap">
+      <table dir="rtl" class="analyst-criteria-phase-table" aria-label="{{ section_title }}">
+        <thead>
+          <tr>
+            <th scope="col" class="analyst-criteria-seq-th">ت</th>
+            <th scope="col" class="analyst-criteria-th-criteria">قائمة التقييم</th>
+            <th scope="col" class="analyst-criteria-th-mark">القصوى</th>
+            <th scope="col" class="analyst-criteria-th-pct">النسبة المئويه المخصصة</th>
+            {% if criteria_marks_editable %}
+            <th scope="col" class="analyst-criteria-th-actions">حذف</th>
+            {% endif %}
+          </tr>
+        </thead>
+        <tbody class="criteria-phase-body">
+          {% if criteria_items %}
+            {% for item in criteria_items %}
+            {% set allocated_mark = item.allocated_mark|default(none) %}
+            {% set allocated_pct = item.allocated_pct|default(none) %}
+            <tr>
+              <td class="analyst-criteria-seq criteria-seq-cell">{{ loop.index }}</td>
+              <td class="criteria-text-cell">
+                {% if criteria_marks_editable %}
+                <input class="unit-level-select criteria-text" type="text" name="criteria_text" value="{{ item.criteria_text }}" maxlength="1000" placeholder="اكتب قائمة التقييم">
+                {% else %}
+                <span class="criteria-text-display">{{ item.criteria_text or "—" }}</span>
+                {% endif %}
+              </td>
+              <td class="criteria-mark-cell{% if not criteria_marks_editable %} criteria-mark-cell--readonly{% endif %}">
+                {% if criteria_marks_editable %}
+                <input class="unit-level-select mark-input" type="number" name="allocated_mark" min="0" step="0.01" value="{% if allocated_mark is number %}{{ allocated_mark|round(2) }}{% endif %}" inputmode="decimal">
+                {% else %}
+                <span class="criteria-mark-display">{% if allocated_mark is number %}{{ allocated_mark|round(2) }}{% else %}—{% endif %}</span>
+                {% endif %}
+              </td>
+              <td class="pct-cell criteria-pct-cell">{% if allocated_pct is number %}{{ allocated_pct|round(2) }}%{% else %}—{% endif %}</td>
+              {% if criteria_marks_editable %}
+              <td class="criteria-actions-cell">
+                <button class="btn btn-ghost btn-sm delete-row-btn" type="button" title="حذف الصف"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="sr-only">حذف</span></button>
+              </td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td class="analyst-criteria-seq criteria-seq-cell">—</td>
+              <td colspan="{% if criteria_marks_editable %}4{% else %}3{% endif %}" class="muted criteria-phase-empty">لا توجد قوائم تقييم لهذه المرحلة بعد.</td>
+            </tr>
+          {% endif %}
+        </tbody>
+        {% if criteria_items %}
+        <tfoot>
+          <tr class="criteria-phase-total-row">
+            <td class="analyst-criteria-seq muted">—</td>
+            <th scope="row">الإجمالي</th>
+            <td class="criteria-total-mark-cell">{% if total_mark is number %}{{ total_mark|round(2) }}{% else %}0{% endif %}</td>
+            <td class="criteria-total-pct-cell">{% if total_mark is number and total_mark > 0 %}100%{% else %}0%{% endif %}</td>
+            {% if criteria_marks_editable %}
+            <td>—</td>
+            {% endif %}
+          </tr>
+        </tfoot>
+        {% endif %}
+      </table>
+    </div>
+
+    <div class="criteria-phase-toolbar btn-group">
+      {% if criteria_marks_editable %}
+      <button class="btn btn-ghost add-criteria-row-btn" type="button"><i class="fa-solid fa-plus" aria-hidden="true"></i> إضافة قائمة تقييم</button>
+      <button class="btn" type="submit"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ جدول المرحلة</button>
+      {% endif %}
+      {% if criteria_edit_url %}
+      <a class="btn{% if criteria_marks_editable %} btn-ghost{% endif %}" href="{{ criteria_edit_url }}"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i> تعديل في معايير التقييم</a>
+      {% endif %}
+    </div>
+
+  {% if criteria_marks_editable %}
+  </form>
+  {% else %}
+  </div>
+  {% endif %}
+  {% endif %}
+</section>

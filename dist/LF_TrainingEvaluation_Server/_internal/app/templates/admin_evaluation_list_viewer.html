@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}معاينة تقييم — قوائم التقييم{% endblock %}
+{% block body_class %}eval-list-page-layout{% endblock %}
+{% block content %}
+{% if header_row and eval_structured %}
+<div class="eval-list-page dilemma-viewer-page">
+  <div class="eval-list-page__sticky-top">
+    <div class="dilemma-viewer-toolbar card">
+      <div class="dilemma-viewer-toolbar__titles">
+        <h1 class="dilemma-viewer-title"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ item_title }}</h1>
+      </div>
+      <div class="dilemma-viewer-toolbar__actions">
+        {% include 'partials/subpage_close.html' %}
+      </div>
+    </div>
+
+    <div class="eval-top-messages eval-banner-row--compact" dir="ltr">
+      {% if saved_is_approved %}
+      <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> اعتماد{% if saved_approved_at %} {{ saved_approved_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</p>
+      {% endif %}
+      {% if saved_updated_at %}
+      <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ {{ saved_updated_at.strftime('%Y-%m-%d %H:%M') }}</p>
+      {% endif %}
+    </div>
+
+    {% if eval_save_notes_required|default(false) %}
+    <p class="form-error-banner eval-banner--small" role="alert" dir="rtl"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يمكن الحفظ: يوجد بند نتيجته «مقبول» أو «راسب» — اكتب ملاحظات لهذا الصف في خانة الملاحظات.</p>
+    {% endif %}
+    {% if eval_approve_grade_blocked|default(false) %}
+    <p class="form-error-banner eval-banner--small" role="alert" dir="rtl"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يمكن الاعتماد: التقدير «راسب» أو «مقبول» — عدّل العلامات إلى «جيد» فما فوق، أو اكتب ملاحظات في خانة الملاحظات ثم احفظ.</p>
+    {% endif %}
+    {% if preview_error %}
+    <p class="form-error-banner eval-banner--small" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ preview_error }}</p>
+    {% endif %}
+
+    <section class="card eval-info-card eval-info-card--compact" dir="rtl">
+      <div class="eval-info-card__row">
+        <span class="eval-info-card__kv"><span class="eval-info-card__k">مسمى الوحدة</span> <strong>{{ unit_label }}</strong></span>
+        <span class="eval-info-card__sep" aria-hidden="true">|</span>
+        <span class="eval-info-card__kv"><span class="eval-info-card__k">التاريخ</span> {% if shown_date %}{{ shown_date.strftime('%Y-%m-%d') }}{% else %}—{% endif %}</span>
+      </div>
+      <div class="eval-info-card__row">
+        <span class="eval-info-card__kv"><span class="eval-info-card__k">قائد الوحدة</span> {{ commander_name }}</span>
+        <span class="eval-info-card__sep" aria-hidden="true">|</span>
+        <span class="eval-info-card__kv"><span class="eval-info-card__k">المحكم</span> {{ judge_name }}</span>
+      </div>
+    </section>
+    {% if sheet_title %}
+    <p class="eval-preview-sheet-title eval-preview-sheet-title--inline muted" dir="rtl"><strong>{{ sheet_title }}</strong></p>
+    {% endif %}
+  </div>
+
+  <div class="eval-list-page__main">
+    {% include 'partials/evaluation_list_structured_panel.html' %}
+  </div>
+</div>
+{% else %}
+<div class="dilemma-viewer-page">
+  <div class="dilemma-viewer-toolbar card">
+    <div class="dilemma-viewer-toolbar__titles">
+      <h1 class="dilemma-viewer-title"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ item_title }}</h1>
+    </div>
+    <div class="dilemma-viewer-toolbar__actions">
+      {% include 'partials/subpage_close.html' %}
+    </div>
+  </div>
+
+  <div class="eval-top-messages" dir="ltr">
+    {% if saved_is_approved %}
+    <p class="form-ok-banner" role="status" style="display:inline-block;margin:0 0 0.5rem;">
+      <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+      تم اعتماد التقييم{% if saved_approved_at %} بتاريخ {{ saved_approved_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}.
+    </p>
+    {% endif %}
+    {% if saved_updated_at %}
+    <p class="form-ok-banner" role="status" style="display:inline-block;margin:0 0 0.5rem;">
+      <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i>
+      آخر حفظ: {{ saved_updated_at.strftime('%Y-%m-%d %H:%M') }}
+    </p>
+    {% endif %}
+  </div>
+
+  {% if preview_error %}
+  <p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ preview_error }}</p>
+  {% endif %}
+
+  {% if header_row %}
+  <section class="card eval-info-card" dir="rtl" style="margin:0 0 0.75rem;">
+    <div class="eval-meta-grid" style="max-width:none;grid-template-columns: 10rem 1fr;">
+      <div class="eval-level-label">مسمى الوحدة</div>
+      <div><strong>{{ unit_label }}</strong></div>
+      <div class="eval-level-label">التاريخ</div>
+      <div>{% if shown_date %}{{ shown_date.strftime('%Y-%m-%d') }}{% else %}—{% endif %}</div>
+      <div class="eval-level-label">قائد الوحدة</div>
+      <div>{{ commander_name }}</div>
+      <div class="eval-level-label">المحكم</div>
+      <div>{{ judge_name }}</div>
+    </div>
+  </section>
+  {% if sheet_title %}
+  <p class="eval-preview-sheet-title muted" dir="rtl"><strong>{{ sheet_title }}</strong></p>
+  {% endif %}
+
+  {% if not eval_structured %}
+  <p class="muted eval-preview-hint" dir="rtl">لعرض الجدول التفاعلي يلزم ورقة Excel تحتوي صف عناوين «القصوى» و«المكتسبة» (كقالب قائمة التقييم)، أو صفًا أولًا بثلاثة أعمدة على الأقل (عناصر التقييم، القصوى، المكتسبة).</p>
+  <div class="eval-preview-shell" dir="rtl">
+    <div class="eval-preview-scroll">
+      <table class="eval-preview-table eval-preview-table--raw" role="table" aria-label="جدول التقييم">
+        <thead>
+          <tr>
+            <th scope="col" class="eval-preview-th eval-preview-th--index"><span class="sr-only">ترقيم الصفوف</span></th>
+            {% for h in header_row %}
+            <th scope="col" class="eval-preview-th">{{ h }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        {% if body_rows %}
+        <tbody>
+          {% for row in body_rows %}
+          <tr>
+            <th scope="row" class="eval-preview-rowhead">{{ loop.index }}</th>
+            {% for cell in row %}
+            <td class="eval-preview-td">{{ cell }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if not eval_structured and not body_rows and not preview_error %}
+  <p class="muted eval-preview-empty" dir="rtl">لا توجد صفوف بيانات بعد صف العناوين.</p>
+  {% endif %}
+  {% elif not preview_error %}
+  <section class="card" style="padding: 1.25rem;">
+    <p class="muted" style="margin: 0;">لا توجد بيانات لعرضها في هذه الورقة.</p>
+  </section>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

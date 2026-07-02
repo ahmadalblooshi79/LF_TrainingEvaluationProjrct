@@ -1,0 +1,61 @@
+{% extends "admin_shell.html" %}
+{% block title %}تعديل مستخدم{% endblock %}
+{% block admin_workspace %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-user-pen fa-icon-title" aria-hidden="true"></i> تعديل مستخدم</h1>
+  <p class="muted">تعديل الاسم والدور والتفعيل، ويمكن إعادة تعيين كلمة المرور</p>
+</div>
+{% if error %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ error }}</p>
+{% endif %}
+<form class="card form-narrow-w" method="post" action="/admin/users/{{ target.id }}/edit">
+  <div class="form-group">
+    <label><i class="fa-solid fa-hashtag fa-icon-label" aria-hidden="true"></i> المعرّف</label>
+    <input value="{{ target.id }}" disabled>
+  </div>
+  <div class="form-group">
+    <label><i class="fa-solid fa-user fa-icon-label" aria-hidden="true"></i> اسم المستخدم</label>
+    <input value="{{ target.username }}" disabled>
+  </div>
+  <div class="form-group">
+    <label><i class="fa-solid fa-id-card fa-icon-label" aria-hidden="true"></i> الاسم</label>
+    <input name="full_name" value="{{ target.full_name }}">
+  </div>
+  <div class="form-group">
+    <label><i class="fa-solid fa-user-tag fa-icon-label" aria-hidden="true"></i> الدور</label>
+    <select name="role_key">
+      {% for c in role_choices %}
+        <option value="{{ c.value }}" {% if c.value == target.role_key %}selected{% endif %}>{{ c.label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="form-group">
+    <label><i class="fa-solid fa-toggle-on fa-icon-label" aria-hidden="true"></i> مفعّل</label>
+    <select name="is_active">
+      <option value="1" {% if target.is_active %}selected{% endif %}>نعم</option>
+      <option value="0" {% if not target.is_active %}selected{% endif %}>لا</option>
+    </select>
+  </div>
+  <div class="form-group">
+    <label><i class="fa-solid fa-key fa-icon-label" aria-hidden="true"></i> كلمة مرور مؤقتة (اختياري)</label>
+    <input name="temp_password" type="password" placeholder="اتركها فارغة لعدم التغيير">
+  </div>
+  {% if has_exercise and trainee_choices and target.role_key == 'judge' %}
+  <div class="form-group">
+    <label><i class="fa-solid fa-link fa-icon-label" aria-hidden="true"></i> تخصيص المحكم لمتدرب</label>
+    <select name="trainee_row_id">
+      <option value="">بدون تخصيص</option>
+      {% for tr in trainee_choices %}
+        <option value="{{ tr.id }}" {% if assignment and assignment.unit_level_key == tr.unit_key %}selected{% endif %}>{{ tr.label }}</option>
+      {% endfor %}
+    </select>
+    <p class="muted mt-tight">بعد التخصيص لن يرى المحكم إلا قوائم المتدرب المحدد (المعاضل + التقييم).</p>
+  </div>
+  {% endif %}
+  <div class="btn-group">
+    <button class="btn" type="submit"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ</button>
+    <a class="btn btn-ghost" href="/admin/users"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> رجوع</a>
+  </div>
+</form>
+{% endblock %}
+

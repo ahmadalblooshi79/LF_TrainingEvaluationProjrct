@@ -1,0 +1,164 @@
+/* تحسينات عرض للأجهزة اللوحية (10–12 بوصة) و WebView — بدون تغيير الهوية البصرية */
+
+@media screen and (min-width: 600px) and (max-width: 1400px) {
+  :root {
+    --page-gutter-inline: 0.75cm;
+  }
+
+  /* أهداف لمس مريحة دون تغيير الشكل العام */
+  .btn,
+  .header-nav a,
+  .header-nav button,
+  .nav-dd__toggle,
+  .btn-icon-nav,
+  .btn-nav-logout,
+  input[type="submit"],
+  input[type="button"],
+  input[type="reset"] {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  .header-nav a,
+  .nav-dd__toggle {
+    padding-block: 0.45rem;
+  }
+
+  /* جداول وعناصر عريضة — تمرير أفقي مريح */
+  .table-wrap,
+  .de-report-table-wrap,
+  .timeline-table-wrap,
+  .planner-flow-table-wrap,
+  .eval-sheet-wrap,
+  .xlsx-grid-preview-wrap,
+  main .card,
+  section.card {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table-wrap,
+  .de-report-table-wrap,
+  .timeline-table-wrap {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  table {
+    min-width: 0;
+  }
+
+  /* حقول إدخال أوضح للمس */
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  textarea {
+    min-height: 5rem;
+  }
+
+  /* شريط الترويسة — التفاف أنسب على التابلت */
+  .header-bar {
+    flex-wrap: wrap;
+    row-gap: 0.35rem;
+  }
+
+  .header-bar__segment--center {
+    flex: 1 1 100%;
+    order: 3;
+  }
+
+  .header-nav {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 0.35rem 0.5rem;
+  }
+
+  /* محتوى الصفحة — تمرير عمودي سلس */
+  main {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  footer {
+    padding-block: 0.65rem;
+  }
+}
+
+/* تابلت أفقي كبير (Samsung 12" landscape) */
+@media screen and (min-width: 1000px) and (max-width: 1400px) and (orientation: landscape) {
+  .header-bar__segment--center {
+    flex: 1 1 auto;
+    order: 0;
+  }
+}
+
+/* دوائر التقييم — نسبة 1:1 ثابتة (منع البيضاوي على التابلت) */
+@media screen and (min-width: 600px) {
+  .aerc-donut,
+  .cr-phase-donut,
+  .control-donut {
+    aspect-ratio: 1 / 1;
+    flex-shrink: 0;
+  }
+
+  .aerc-donut-layout,
+  .cr-phase-donut-layout,
+  .control-donut-layout {
+    align-items: center;
+  }
+}
+
+/* شريط وضع عدم الاتصال */
+.lf-offline-banner {
+  position: fixed;
+  inset-inline: 0;
+  top: 0;
+  z-index: 12000;
+  padding: 0.55rem 1rem;
+  text-align: center;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #3d342e;
+  background: linear-gradient(180deg, #fff8e6 0%, #ffefc7 100%);
+  border-bottom: 1px solid #e5c76b;
+  box-shadow: 0 2px 8px rgba(60, 48, 40, 0.12);
+}
+
+/* لوحة إدارة الخادم */
+.server-dash-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+.server-dash-card--wide {
+  grid-column: 1 / -1;
+}
+.server-dash-kv {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+.server-dash-kv li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px dashed var(--border-light, #e5dcd2);
+}
+.server-dash-kv span {
+  color: var(--text-muted, #7d7167);
+}
+.server-dash-qr {
+  margin-top: 1rem;
+  text-align: center;
+}
+.server-dash-log-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}

@@ -1,0 +1,983 @@
+{# جدول تعبئة قائمة التقييم — تمرير وسفلي ثابتان، مكتسبة كقائمة حسب القصوى #}
+<div class="eval-structured-layout{% if not eval_can_edit|default(false) %} eval-structured-layout--readonly{% endif %}" dir="rtl" id="eval-structured-root" data-crit-upload-url="{{ eval_crit_upload_url|default('', true)|e }}" data-crit-li="{{ eval_crit_list_item_id if eval_crit_list_item_id is not none else '' }}" data-crit-ba="{{ eval_crit_bundle_action_id if eval_crit_bundle_action_id is not none else '' }}" data-approve-incomplete="{% if eval_approve_incomplete|default(false) %}1{% else %}0{% endif %}" data-approve-grade-blocked="{% if eval_approve_grade_blocked|default(false) %}1{% else %}0{% endif %}" data-readonly="{% if eval_can_edit|default(false) %}0{% else %}1{% endif %}">
+  <div class="eval-structured-layout__scroll" id="eval-structured-scroll">
+    <table class="eval-preview-table eval-structured eval-structured--tight" role="table" aria-label="جدول التقييم" id="eval-structured-table">
+      <thead>
+        <tr>
+          <th scope="col" class="eval-preview-th eval-preview-th--index"><span class="sr-only">ترقيم الصفوف</span></th>
+          <th scope="col" class="eval-preview-th eval-th--col">عناصر التقييم</th>
+          <th scope="col" class="eval-preview-th eval-th--col">القصوى</th>
+          <th scope="col" class="eval-preview-th eval-th--col">المكتسبة</th>
+          <th scope="col" class="eval-preview-th eval-th--col">النسبة</th>
+          <th scope="col" class="eval-preview-th eval-th--col">النتيجة</th>
+          <th scope="col" class="eval-preview-th eval-th--col">ملاحظات</th>
+          <th scope="col" class="eval-preview-th eval-th--col eval-col--crit-th" title="صورة JPEG مضغوطة أو فيديو WebM/MP4"><span class="eval-crit-th-label">توثيق</span></th>
+          <th scope="col" class="eval-preview-th eval-th--col eval-th--delete" aria-label="حذف الصف"><i class="fa-solid fa-trash" aria-hidden="true"></i></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set saved_rows = (saved_payload.get('rows') or []) if saved_payload else [] %}
+        {% for row in eval_rows %}
+        {% set rk = row.row_kind | default('score') %}
+        {% set saved_row = saved_rows[loop.index0] if saved_rows and (loop.index0 < (saved_rows|length)) else {} %}
+        {% set acq_saved = saved_row.get('acquired') if saved_row else none %}
+        {% set acq_explicit_saved = saved_row is mapping and 'acquired' in saved_row %}
+        {% set crit_rows = eval_crit_media_by_row|default({}, true) %}
+        {% set row_crit = crit_rows[loop.index0] if loop.index0 in crit_rows else [] %}
+        {% if rk == 'section' %}
+        <tr class="eval-structured-row eval-row--section" data-row-kind="section" data-eval-row-index="{{ loop.index0 }}">
+          <th scope="row" class="eval-preview-rowhead eval-row-section-num">{{ loop.index }}</th>
+          <td class="eval-preview-td eval-section-banner" colspan="7"><strong>{{ row.element }}</strong></td>
+          <td class="eval-preview-td eval-col--delete">
+            {% if eval_can_edit|default(false) %}
+            <button type="button" class="btn btn-icon eval-row-delete" title="حذف الصف" aria-label="حذف الصف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        {% set mxn = row.max_num if row.max_num is defined and row.max_num is not none else none %}
+        {% set init_aq = (row.acquired_initial or '') | string %}
+        {% if mxn is not none and mxn > 0 %}
+          {% set cap_steps = (mxn * 4)|int %}
+        {% else %}
+          {% set cap_steps = 20 %}
+        {% endif %}
+        {% set acq_display = (acq_saved | string) if acq_explicit_saved else init_aq %}
+        <tr class="eval-structured-row eval-row--score" data-eval-row-index="{{ loop.index0 }}" data-row-kind="score" data-max="{% if mxn is not none and mxn > 0 %}{{ mxn }}{% endif %}" data-max-text="{{ row.max_val | e }}" data-acquired="{{ acq_display | string | e }}">
+          <th scope="row" class="eval-preview-rowhead eval-row-num">{{ loop.index }}</th>
+          <td class="eval-preview-td eval-col--element">
+            {% set epk = row.element_prefix_kind | default('plain') %}
+            {% set eind = row.element_indent | default(0)|int %}
+            {% if epk == 'plain' %}
+            <span class="eval-el-line eval-el-tier--plain">{{ row.element }}</span>
+            {% else %}
+            <span class="eval-el-line eval-el-tier--{{ eind }}">
+              <span class="eval-el-marker"><span class="eval-el-prefix eval-el-prefix--{{ epk }}">{{ row.element_prefix }}</span></span><span class="eval-el-body">{{ row.element_rest }}</span>
+            </span>
+            {% endif %}
+          </td>
+          <td class="eval-preview-td eval-col--max eval-td-readonly" data-max-persist="{{ row.max_val | e }}">
+            <span class="eval-max-display">{{ row.max_val }}</span>
+          </td>
+          <td class="eval-preview-td eval-col--acq">
+            <label class="sr-only">المكتسبة — الصف {{ loop.index }}</label>
+            <select class="eval-preview-acquired-select eval-acquired-input" name="acquired_sel_{{ loop.index0 }}" autocomplete="off" dir="rtl" title="اختر علامة لا تتجاوز القصوى"{% if not eval_can_edit %} disabled{% endif %}>
+              <option value=""{% if acq_explicit_saved and (acq_saved == '' or acq_saved is none) %} selected{% elif not acq_explicit_saved and init_aq == '' %} selected{% endif %}>&#8203;</option>
+              <option value="na"{% if acq_explicit_saved and acq_saved == 'na' %} selected{% elif not acq_explicit_saved and init_aq == 'na' %} selected{% endif %}>لا ينطبق</option>
+              {% for step in range(0, cap_steps + 1) %}
+              {% if step % 4 == 0 %}
+              {% set val_key = (step // 4) | string %}
+              {% else %}
+              {% set val_key = ((step * 0.25) | round(2)) | string %}
+              {% endif %}
+              <option value="{{ val_key }}"{% if acq_explicit_saved and acq_saved is not none and acq_saved != '' and acq_saved != 'na' and (acq_saved | string) == val_key %} selected{% elif not acq_explicit_saved and init_aq != '' and init_aq != 'na' and (init_aq | string) == val_key %} selected{% endif %}>{{ val_key }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td class="eval-preview-td eval-col--pct eval-td-readonly"><span class="eval-pct-out" data-pct-out aria-live="polite">—</span></td>
+          <td class="eval-preview-td eval-col--grade eval-td-readonly"><span class="eval-grade-out" data-grade-out aria-live="polite">—</span></td>
+          <td class="eval-preview-td eval-col--notes">
+            <textarea class="eval-notes-textarea eval-notes-textarea--compact" name="notes_{{ loop.index0 }}" rows="1" placeholder="ملاحظات" spellcheck="true" dir="rtl" {% if not eval_can_edit %}disabled{% endif %}>{% if saved_row and (saved_row.get('notes') or '') %}{{ saved_row.get('notes') }}{% elif row.notes_initial is defined and row.notes_initial %}{{ row.notes_initial }}{% endif %}</textarea>
+          </td>
+          <td class="eval-preview-td eval-col--crit" data-eval-crit-slot="{{ loop.index0 }}">
+            <div class="eval-crit-buttons" role="group" aria-label="توثيق البند {{ loop.index }}">
+              {% if eval_can_edit|default(false) and (eval_crit_upload_url|default('')) %}
+              <button type="button" class="btn btn-icon btn-icon-crit eval-crit-cap-btn" title="التقاط صورة" data-eval-crit-trigger="photo" data-row-index="{{ loop.index0 }}" aria-label="التقاط صورة للصف {{ loop.index }}"><i class="fa-solid fa-camera" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn-icon btn-icon-crit eval-crit-cap-btn" title="تسجيل فيديو" data-eval-crit-trigger="video" data-row-index="{{ loop.index0 }}" aria-label="تسجيل فيديو للصف {{ loop.index }}"><i class="fa-solid fa-video" aria-hidden="true"></i></button>
+              <input type="file" class="eval-crit-file eval-crit-file--photo" accept="image/*" capture="environment" hidden data-row-index="{{ loop.index0 }}" data-kind="photo" data-capture-mode="camera">
+              <input type="file" class="eval-crit-file eval-crit-file--video" accept="video/*" capture="camcorder" hidden data-row-index="{{ loop.index0 }}" data-kind="video" data-capture-mode="camcorder">
+              {% endif %}
+              {% for m in row_crit %}
+              <span class="eval-crit-slot-item">
+                <button type="button" class="btn btn-icon btn-icon-crit eval-crit-play" title="{% if m.media_kind == 'video' %}تشغيل فيديو{% else %}عرض الصورة{% endif %}" data-stream-url="{{ url_for('views.eval_criterion_media_stream', media_id=m.id) }}" data-media-kind="{{ m.media_kind }}" aria-label="معاينة توثيق"><i class="fa-solid {% if m.media_kind == 'video' %}fa-film{% else %}fa-image{% endif %}" aria-hidden="true"></i></button>
+                {% if eval_can_edit|default(false) and (eval_crit_upload_url|default('')) %}
+                <button type="button" class="btn btn-icon btn-icon-crit eval-crit-del js-eval-crit-del" data-eval-crit-delete-url="{{ url_for('views.eval_criterion_media_delete', media_id=m.id) }}" aria-label="حذف التوثيق" title="حذف التوثيق"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+                {% endif %}
+              </span>
+              {% endfor %}
+            </div>
+          </td>
+          <td class="eval-preview-td eval-col--delete">
+            {% if eval_can_edit|default(false) %}
+            <button type="button" class="btn btn-icon eval-row-delete" title="حذف الصف" aria-label="حذف الصف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
+            {% endif %}
+          </td>
+        </tr>
+        {% endif %}
+        {% else %}
+        <tr>
+          <td class="eval-preview-td eval-preview-empty-row" colspan="9">لا توجد صفوف بيانات بعد صف العناوين.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="form-error-banner eval-approve-block-msg" id="eval-approve-block-msg" role="alert" dir="rtl"{% if not eval_approve_incomplete|default(false) and not eval_approve_grade_blocked|default(false) %} hidden{% endif %}>{% if eval_approve_grade_blocked|default(false) %}لا يمكن الاعتماد: التقدير «راسب» أو «مقبول» — عدّل العلامات إلى «جيد» فما فوق، أو اكتب ملاحظات في خانة الملاحظات ثم احفظ.{% elif eval_approve_incomplete|default(false) %}لا يمكن الاعتماد: يوجد بند أو أكثر لم تُدخل له المكتسبة (الخانات المحددة باللون الأحمر). اختر علامة أو «لا ينطبق»، ثم احفظ إن لزم، ثم أعد الاعتماد.{% endif %}</p>
+  <p class="eval-acquired-warn" id="eval-acquired-warn" role="alert" hidden></p>
+  {% if eval_chief_next_step_hint|default(false) and (show_chief_approve|default(false) or show_chief_reopen|default(false)) %}
+  <p class="eval-chief-hint-row muted" dir="rtl"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> بعد <strong>اعتماد كبير المحكمين</strong> يُرسل التقييم إلى <strong>اعتماد السيطرة</strong>.</p>
+  {% endif %}
+  <div class="eval-sticky-footer eval-sticky-footer--bar" dir="rtl" id="eval-structured-footer">
+    <div class="eval-sticky-footer__left">
+      <div class="eval-footer-stats">
+        <div class="eval-footer-stats__line"><span class="muted">مجموع العلامات المكتسبة</span> <span class="eval-sticky-total"><span id="eval-sum-acquired">—</span></span></div>
+        <div class="eval-footer-stats__line"><span class="muted">النسبة المئوية الفعلية</span> <span class="eval-sticky-total"><span id="eval-total-pct">—</span> <span class="muted" id="eval-total-grade"></span></span></div>
+        <div class="eval-footer-stats__line"><span class="muted">مجموع علامات القصوى</span> <span class="eval-sticky-total"><span id="eval-sum-max">—</span></span></div>
+      </div>
+    </div>
+    <div class="eval-sticky-footer__right">
+      {% if eval_can_edit|default(false) and eval_save_url %}
+      <form method="post" action="{{ eval_save_url }}" id="eval-save-form" style="margin:0;">
+        <input type="hidden" name="payload_json" id="eval-save-payload" value="">
+        <input type="hidden" name="saved_id" value="{{ saved_row_id or '' }}">
+        <button type="submit" class="btn eval-btn-footer" id="eval-save-btn"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ نتائج التقييم</button>
+      </form>
+      {% elif saved_is_approved|default(false) %}
+      <span class="muted">معتمد — للتعديل يُعاد من كبير المحكمين</span>
+      {% else %}
+      <span class="muted">عرض فقط</span>
+      {% endif %}
+      {% if show_eval_approve_form|default(show_eval_approve|default(false)) and has_saved_rows and eval_approve_url %}
+      <form method="post" action="{{ eval_approve_url }}" id="eval-approve-form" style="margin:0;"{% if not show_eval_approve|default(false) %} hidden{% endif %}>
+        <button type="submit" class="btn btn-danger eval-btn-footer"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> اعتماد المحكم</button>
+      </form>
+      {% endif %}
+      {% if show_chief_approve|default(false) and eval_chief_approve_url %}
+      <form method="post" action="{{ eval_chief_approve_url }}" id="eval-chief-approve-form" style="margin:0;">
+        <button type="submit" class="btn eval-btn-footer" style="background:#1d4ed8;color:#fff;"><i class="fa-solid fa-stamp" aria-hidden="true"></i> اعتماد كبير المحكمين</button>
+      </form>
+      {% endif %}
+      {% if show_chief_reopen|default(false) and eval_chief_reopen_url %}
+      <form method="post" action="{{ eval_chief_reopen_url }}" id="eval-chief-reopen-form" style="margin:0;">
+        <button type="submit" class="btn btn-ghost eval-btn-footer"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> إعادة للمحكم</button>
+      </form>
+      {% endif %}
+      <span class="muted eval-save-hint" id="eval-save-hint" aria-live="polite"></span>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var table = document.getElementById('eval-structured-table');
+  if (!table) return;
+  var form = document.getElementById('eval-save-form');
+  var payloadEl = document.getElementById('eval-save-payload');
+  var hintEl = document.getElementById('eval-save-hint');
+  var warnEl = document.getElementById('eval-acquired-warn');
+  var approveMsgEl = document.getElementById('eval-approve-block-msg');
+  var root = document.getElementById('eval-structured-root');
+  var approveForm = document.getElementById('eval-approve-form');
+
+  function clearAcqIncompleteHighlight() {
+    table.querySelectorAll('td.eval-col--acq.eval-acq--incomplete').forEach(function (td) {
+      td.classList.remove('eval-acq--incomplete');
+    });
+  }
+
+  function collectEmptyAcquiredRows() {
+    var out = [];
+    table.querySelectorAll('tr.eval-row--score').forEach(function (tr) {
+      var sel = tr.querySelector('.eval-acquired-input');
+      if (!sel) return;
+      if (String(sel.value || '').trim() === '') out.push(tr);
+    });
+    return out;
+  }
+
+  function showApproveBlockMsg(emptyRows) {
+    clearAcqIncompleteHighlight();
+    if (approveMsgEl) {
+      approveMsgEl.textContent =
+        'لا يمكن الاعتماد: يوجد بند أو أكثر لم تُدخل له المكتسبة (الخانات المحددة باللون الأحمر). اختر علامة أو «لا ينطبق»، ثم احفظ إن لزم، ثم أعد الاعتماد.';
+      approveMsgEl.hidden = false;
+    }
+    emptyRows.forEach(function (tr) {
+      var td = tr.querySelector('td.eval-col--acq');
+      if (td) td.classList.add('eval-acq--incomplete');
+    });
+    if (emptyRows[0]) {
+      var firstTd = emptyRows[0].querySelector('td.eval-col--acq');
+      if (firstTd && firstTd.scrollIntoView) firstTd.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
+  function maybeClearApproveBlockVisual() {
+    if (collectEmptyAcquiredRows().length) return;
+    var gradeCheck = evaluateApproveGradeState();
+    if (!gradeCheck.allow) return;
+    clearAcqIncompleteHighlight();
+    clearNotesRequiredHighlight();
+    if (approveMsgEl) {
+      approveMsgEl.hidden = true;
+      approveMsgEl.textContent = '';
+    }
+  }
+
+  function navigateEvalResponse(resp, busyHint) {
+    if (resp.status >= 300 && resp.status < 400) {
+      var loc = resp.headers.get('Location');
+      if (loc) {
+        try {
+          location.replace(new URL(loc, location.origin).href);
+        } catch (err) {
+          location.replace(loc);
+        }
+        return true;
+      }
+      location.reload();
+      return true;
+    }
+    if (resp.ok) {
+      if (resp.url) {
+        try {
+          location.replace(resp.url);
+        } catch (err2) {
+          location.reload();
+        }
+      } else {
+        location.reload();
+      }
+      return true;
+    }
+    var errLoc = resp.headers.get('Location');
+    if (errLoc) {
+      try {
+        location.replace(new URL(errLoc, location.origin).href);
+      } catch (err3) {
+        location.replace(errLoc);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function submitEvalSaveForm(formEl, busyHint) {
+    if (!formEl) return;
+    if (busyHint) {
+      busyHint.textContent = 'جاري الحفظ…';
+      busyHint.classList.remove('eval-save-hint--ok');
+    }
+    var fd = new FormData(formEl);
+    fetch(formEl.action, { method: 'POST', body: fd, credentials: 'same-origin', redirect: 'follow' })
+      .then(function (resp) {
+        if (resp.ok) {
+          if (busyHint) {
+            busyHint.textContent = 'تم حفظ نتائج التقييم بنجاح';
+            busyHint.classList.add('eval-save-hint--ok');
+          }
+          var target = resp.url || location.href;
+          try {
+            var u = new URL(target, location.origin);
+            if (!u.searchParams.has('eval_saved')) {
+              u.searchParams.set('eval_saved', '1');
+            }
+            target = u.pathname + u.search + u.hash;
+          } catch (err) {
+            target = location.pathname + location.search;
+          }
+          setTimeout(function () {
+            location.replace(target);
+          }, 450);
+          return;
+        }
+        if (navigateEvalResponse(resp, busyHint)) return;
+        if (busyHint) busyHint.textContent = 'تعذّر تنفيذ العملية — أعد المحاولة';
+      })
+      .catch(function () {
+        if (busyHint) busyHint.textContent = 'تعذّر تنفيذ العملية — أعد المحاولة';
+      });
+  }
+
+  function submitEvalActionForm(formEl, busyHint, busyText) {
+    if (!formEl) return;
+    if (busyHint) {
+      busyHint.textContent = busyText || 'جاري التنفيذ…';
+      busyHint.classList.remove('eval-save-hint--ok');
+    }
+    var fd = new FormData(formEl);
+    fetch(formEl.action, { method: 'POST', body: fd, credentials: 'same-origin', redirect: 'manual' })
+      .then(function (resp) {
+        if (navigateEvalResponse(resp, busyHint)) return;
+        if (busyHint) busyHint.textContent = 'تعذّر تنفيذ العملية — أعد المحاولة';
+      })
+      .catch(function () {
+        if (busyHint) busyHint.textContent = 'تعذّر تنفيذ العملية — أعد المحاولة';
+      });
+  }
+
+  if (approveForm) {
+    approveForm.addEventListener('submit', function (e) {
+      var emptyRows = collectEmptyAcquiredRows();
+      if (emptyRows.length) {
+        e.preventDefault();
+        showApproveBlockMsg(emptyRows);
+        return false;
+      }
+      var gradeCheck = evaluateApproveGradeState();
+      if (!gradeCheck.allow) {
+        e.preventDefault();
+        if (gradeCheck.reason === 'notes') {
+          showGradeNotesBlockMsg(gradeCheck.missingNotesRows);
+        } else {
+          showGradeApproveBlockMsg();
+        }
+        return false;
+      }
+      e.preventDefault();
+      clearAcqIncompleteHighlight();
+      if (approveMsgEl) {
+        approveMsgEl.hidden = true;
+        approveMsgEl.textContent = '';
+      }
+      submitEvalActionForm(approveForm, hintEl);
+    });
+  }
+
+  var chiefApproveForm = document.getElementById('eval-chief-approve-form');
+  if (chiefApproveForm) {
+    chiefApproveForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      submitEvalActionForm(chiefApproveForm, hintEl);
+    });
+  }
+
+  var chiefReopenForm = document.getElementById('eval-chief-reopen-form');
+  if (chiefReopenForm) {
+    chiefReopenForm.addEventListener('submit', function (e) {
+      if (!confirm('إعادة القائمة للمحكم لإعادة التقييم؟ سيُرسل إشعار للمحكم. يبقى الموقف «ينجز» حتى يحفظ المحكم تعديلاته، ثم يصبح «لم ينجز» و«بانتظار الإعتماد».')) {
+        return;
+      }
+      e.preventDefault();
+      submitEvalActionForm(chiefReopenForm, hintEl);
+    });
+  }
+
+  table.addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t || !t.classList.contains('eval-acquired-input')) return;
+    var tr = t.closest('tr');
+    if (tr) {
+      var td = tr.querySelector('td.eval-col--acq');
+      if (td && String(t.value || '').trim() !== '') td.classList.remove('eval-acq--incomplete');
+    }
+    maybeClearApproveBlockVisual();
+  });
+
+  if (root && root.getAttribute('data-approve-incomplete') === '1') {
+    var bad = collectEmptyAcquiredRows();
+    if (bad.length) showApproveBlockMsg(bad);
+  }
+
+  function showWarn(msg) {
+    if (!warnEl) return;
+    if (!msg) { warnEl.hidden = true; warnEl.textContent = ''; return; }
+    warnEl.textContent = msg;
+    warnEl.hidden = false;
+    clearTimeout(showWarn._t);
+    showWarn._t = setTimeout(function () { warnEl.hidden = true; }, 4500);
+  }
+
+  function getAcquiredFromRow(tr) {
+    var sel = tr.querySelector('.eval-acquired-input');
+    if (sel) return String(sel.value || '').trim();
+    var da = tr.getAttribute('data-acquired');
+    if (da !== null && da !== undefined) return String(da).trim();
+    return '';
+  }
+
+  function parseMaxAttr(tr) {
+    var dm = tr.getAttribute('data-max');
+    var mx = dm ? parseFloat(dm) : NaN;
+    if (!isNaN(mx) && mx > 0) return mx;
+    return NaN;
+  }
+
+  /** قصوى الصف لحساب النسبة؛ يطابق rowPercent عند غياب قصوى رقمية (افتراض 5). */
+  function effectiveMaxForRow(tr) {
+    var mx = parseMaxAttr(tr);
+    if (!isNaN(mx) && mx > 0) return mx;
+    return 5;
+  }
+
+  function maxPersistText(tr) {
+    var td = tr.querySelector('.eval-col--max');
+    if (!td) return '';
+    return (td.getAttribute('data-max-persist') || '').trim();
+  }
+
+  function clampSelectToMax(tr, silent) {
+    var sel = tr.querySelector('.eval-acquired-input');
+    if (!sel || sel.disabled) return;
+    var mx = parseMaxAttr(tr);
+    if (isNaN(mx) || mx <= 0) return;
+    var v = getAcquiredFromRow(tr);
+    if (v === '' || v === 'na') return;
+    var n = parseFloat(String(v).replace(',', '.'));
+    if (isNaN(n) || n <= mx) return;
+    if (!silent) showWarn('لا يمكن تجاوز علامة القصوى لهذا البند.');
+    var best = '';
+    for (var i = 0; i < sel.options.length; i++) {
+      var o = sel.options[i];
+      if (o.value === 'na' || o.value === '') continue;
+      var ov = parseFloat(String(o.value).replace(',', '.'));
+      if (!isNaN(ov) && ov <= mx) best = o.value;
+    }
+    sel.value = best;
+  }
+
+  function buildPayload() {
+    var out = { rows: [] };
+    table.querySelectorAll('.eval-structured-row').forEach(function (tr) {
+      var kind = tr.getAttribute('data-row-kind') || 'score';
+      var elCell = tr.querySelector('.eval-col--element');
+      var notes = tr.querySelector('.eval-notes-textarea');
+      if (kind === 'section') {
+        var banner = tr.querySelector('.eval-section-banner');
+        out.rows.push({
+          row_kind: 'section',
+          element: banner ? (banner.textContent || '').trim() : '',
+          max_val: '',
+          acquired: '',
+          notes: '',
+        });
+        return;
+      }
+      out.rows.push({
+        row_kind: 'score',
+        element: elCell ? (elCell.textContent || '').trim() : '',
+        max_val: maxPersistText(tr),
+        acquired: getAcquiredFromRow(tr),
+        notes: notes ? (notes.value || '') : '',
+      });
+    });
+    return out;
+  }
+  if (form && payloadEl) {
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var blockedNoteRows = collectSaveBlockedNoteRows();
+      if (blockedNoteRows.length) {
+        showSaveNotesBlockMsg(blockedNoteRows);
+        return;
+      }
+      if (warnEl) warnEl.hidden = true;
+      payloadEl.value = JSON.stringify(buildPayload());
+      submitEvalSaveForm(form, hintEl);
+    });
+  }
+
+  function gradeFromPct(p) {
+    if (p === null || typeof p !== 'number' || isNaN(p)) return 'غير محسوب';
+    if (p < 60) return 'راسب';
+    if (p < 70) return 'مقبول';
+    if (p < 80) return 'جيد';
+    if (p < 90) return 'جيد جدا';
+    return 'ممتاز';
+  }
+  var NON_APPROVABLE_GRADES = { 'راسب': true, 'مقبول': true, 'متوسط': true };
+  function rowNotesText(tr) {
+    var notes = tr.querySelector('.eval-notes-textarea');
+    return notes ? String(notes.value || '').trim() : '';
+  }
+  function rowGradeText(tr) {
+    var grEl = tr.querySelector('[data-grade-out]');
+    return grEl ? String(grEl.textContent || '').trim() : '';
+  }
+  function collectSaveBlockedNoteRows() {
+    var out = [];
+    table.querySelectorAll('tr.eval-row--score').forEach(function (tr) {
+      var g = rowGradeText(tr);
+      if (NON_APPROVABLE_GRADES[g] && !rowNotesText(tr)) out.push(tr);
+    });
+    return out;
+  }
+  function showSaveNotesBlockMsg(missingRows) {
+    clearNotesRequiredHighlight();
+    if (warnEl) {
+      warnEl.textContent =
+        'لا يمكن الحفظ: يوجد بند نتيجته «مقبول» أو «راسب» — اكتب ملاحظات لهذا الصف في خانة الملاحظات.';
+      warnEl.hidden = false;
+    }
+    (missingRows || []).forEach(function (tr) {
+      var td = tr.querySelector('td.eval-col--notes');
+      if (td) td.classList.add('eval-notes--required');
+    });
+    if (missingRows && missingRows[0]) {
+      var firstTd = missingRows[0].querySelector('td.eval-col--notes');
+      if (firstTd && firstTd.scrollIntoView) firstTd.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+  function hasAnyNotesFilled() {
+    var found = false;
+    table.querySelectorAll('tr.eval-row--score').forEach(function (tr) {
+      if (rowNotesText(tr)) found = true;
+    });
+    return found;
+  }
+  function collectNotesRequiredRows() {
+    if (hasAnyNotesFilled()) return [];
+    var out = [];
+    table.querySelectorAll('tr.eval-row--score').forEach(function (tr) {
+      out.push(tr);
+    });
+    return out;
+  }
+  function clearNotesRequiredHighlight() {
+    table.querySelectorAll('td.eval-col--notes.eval-notes--required').forEach(function (td) {
+      td.classList.remove('eval-notes--required');
+    });
+  }
+  function evaluateApproveGradeState() {
+    var gradeEl = document.getElementById('eval-total-grade');
+    var totalGrade = gradeEl ? String(gradeEl.textContent || '').trim() : '';
+    if (!totalGrade || totalGrade === 'غير محسوب') {
+      return { allow: false, reason: 'grade' };
+    }
+    if (!NON_APPROVABLE_GRADES[totalGrade]) {
+      return { allow: true, reason: '' };
+    }
+    if (!NON_APPROVABLE_GRADES[totalGrade]) {
+      return { allow: true, reason: '' };
+    }
+    if (hasAnyNotesFilled()) {
+      return { allow: true, reason: '' };
+    }
+    return { allow: false, reason: 'notes', missingNotesRows: collectNotesRequiredRows() };
+  }
+  function showGradeApproveBlockMsg() {
+    if (approveMsgEl) {
+      approveMsgEl.textContent = 'لا يمكن الاعتماد: التقدير «راسب» أو «مقبول» — عدّل العلامات إلى «جيد» فما فوق، أو اكتب ملاحظات في خانة الملاحظات ثم احفظ.';
+      approveMsgEl.hidden = false;
+    }
+  }
+  function showGradeNotesBlockMsg(missingRows) {
+    clearNotesRequiredHighlight();
+    if (approveMsgEl) {
+      approveMsgEl.textContent = 'لا يمكن الاعتماد: التقدير «راسب» أو «مقبول» — اكتب ملاحظات في خانة الملاحظات، ثم احفظ، ثم أعد الاعتماد.';
+      approveMsgEl.hidden = false;
+    }
+    (missingRows || []).forEach(function (tr) {
+      var td = tr.querySelector('td.eval-col--notes');
+      if (td) td.classList.add('eval-notes--required');
+    });
+    if (missingRows && missingRows[0]) {
+      var firstTd = missingRows[0].querySelector('td.eval-col--notes');
+      if (firstTd && firstTd.scrollIntoView) firstTd.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+  function syncApproveButtonVisibility() {
+    if (!approveForm) return;
+    var gradeCheck = evaluateApproveGradeState();
+    var allow = gradeCheck.allow;
+    approveForm.hidden = !allow;
+    approveForm.style.display = allow ? '' : 'none';
+    if (!allow) {
+      if (gradeCheck.reason === 'notes') {
+        showGradeNotesBlockMsg(gradeCheck.missingNotesRows);
+      } else {
+        showGradeApproveBlockMsg();
+      }
+    } else if (!collectEmptyAcquiredRows().length) {
+      clearNotesRequiredHighlight();
+      maybeClearApproveBlockVisual();
+    }
+  }
+  var GRADE_CELL_BG = { na: '#ffffff', fail: '#fecaca', mid: '#fed7aa', good: '#fef08a', vgood: '#bae6fd', excellent: '#bbf7d0' };
+  function setResultCellBackground(gradeTd, pct) {
+    if (!gradeTd) return;
+    var bg;
+    if (pct === null || typeof pct !== 'number' || isNaN(pct)) bg = GRADE_CELL_BG.na;
+    else if (pct < 60) bg = GRADE_CELL_BG.fail;
+    else if (pct < 70) bg = GRADE_CELL_BG.mid;
+    else if (pct < 80) bg = GRADE_CELL_BG.good;
+    else if (pct < 90) bg = GRADE_CELL_BG.vgood;
+    else bg = GRADE_CELL_BG.excellent;
+    gradeTd.style.backgroundColor = bg;
+  }
+
+  function rowPercent(tr) {
+    if ((tr.getAttribute('data-row-kind') || '') === 'section') return null;
+    var v = getAcquiredFromRow(tr);
+    if (v === '' || v === 'na') return null;
+    var n = parseFloat(String(v).replace(',', '.'));
+    if (isNaN(n)) return null;
+    var mx = parseMaxAttr(tr);
+    if (!isNaN(mx) && mx > 0) {
+      if (n > mx + 1e-6) return null;
+      return (n / mx) * 100;
+    }
+    return (n / 5) * 100;
+  }
+
+  function syncMaxDisplay(tr) {
+    var v = getAcquiredFromRow(tr);
+    var span = tr.querySelector('.eval-max-display');
+    var persist = maxPersistText(tr);
+    if (!span) return;
+    if (v === 'na') {
+      span.textContent = '—';
+      span.classList.add('eval-max-display--muted');
+    } else {
+      span.textContent = persist || '—';
+      span.classList.remove('eval-max-display--muted');
+    }
+  }
+
+  function updateRow(tr) {
+    var pctEl = tr.querySelector('[data-pct-out]');
+    var grEl = tr.querySelector('[data-grade-out]');
+    var gradeTd = tr.querySelector('td.eval-col--grade');
+    if (!pctEl || !grEl) return;
+    syncMaxDisplay(tr);
+    var v = getAcquiredFromRow(tr);
+    if (v === 'na') {
+      pctEl.textContent = '—';
+      grEl.textContent = 'غير محسوب';
+      setResultCellBackground(gradeTd, null);
+      return;
+    }
+    var pct = rowPercent(tr);
+    if (pct === null) {
+      pctEl.textContent = '—';
+      grEl.textContent = 'غير محسوب';
+      setResultCellBackground(gradeTd, null);
+      return;
+    }
+    pctEl.textContent = Math.round(pct * 100) / 100 + '%';
+    grEl.textContent = gradeFromPct(pct);
+    setResultCellBackground(gradeTd, pct);
+  }
+
+  function bindRow(tr) {
+    var sel = tr.querySelector('.eval-acquired-input');
+    var handler = function () {
+      clampSelectToMax(tr, false);
+      updateRow(tr);
+      updateTotal();
+    };
+    if (sel) {
+      sel.addEventListener('change', handler);
+      clampSelectToMax(tr, true);
+    }
+    updateRow(tr);
+  }
+
+  table.querySelectorAll('.eval-structured-row.eval-row--score').forEach(bindRow);
+
+  function renumberRows() {
+    var i = 0;
+    table.querySelectorAll('.eval-structured-row').forEach(function (tr) {
+      i += 1;
+      var th = tr.querySelector('th.eval-preview-rowhead');
+      if (th) th.textContent = String(i);
+    });
+  }
+
+  table.addEventListener('click', function (e) {
+    var btn = e.target.closest('.eval-row-delete');
+    if (!btn || btn.disabled) return;
+    var tr = btn.closest('tr');
+    if (!tr || !tr.parentNode) return;
+    tr.parentNode.removeChild(tr);
+    renumberRows();
+    updateTotal();
+  });
+
+  function updateTotal() {
+    var totalEl = document.getElementById('eval-total-pct');
+    var gradeEl = document.getElementById('eval-total-grade');
+    var sumMaxEl = document.getElementById('eval-sum-max');
+    var sumAcqEl = document.getElementById('eval-sum-acquired');
+    if (!totalEl) return;
+    var sumMax = 0;
+    var sumAcq = 0;
+    var anyNumericAcquired = false;
+    table.querySelectorAll('.eval-structured-row.eval-row--score').forEach(function (tr) {
+      var mx = parseMaxAttr(tr);
+      if (!isNaN(mx) && mx > 0) sumMax += mx;
+      var sel = tr.querySelector('.eval-acquired-input');
+      var rawAcq = sel ? String(sel.value || '').trim() : '';
+      if (rawAcq !== '' && rawAcq !== 'na') {
+        var an = parseFloat(rawAcq.replace(',', '.'));
+        if (!isNaN(an)) {
+          sumAcq += an;
+          anyNumericAcquired = true;
+        }
+      }
+    });
+    if (sumMaxEl) sumMaxEl.textContent = sumMax > 0 ? String(Math.round(sumMax * 100) / 100) : '—';
+    if (sumAcqEl) {
+      sumAcqEl.textContent = anyNumericAcquired ? String(Math.round(sumAcq * 100) / 100) : '—';
+    }
+    if (sumMax <= 0 || !anyNumericAcquired) {
+      totalEl.textContent = '—';
+      if (gradeEl) gradeEl.textContent = '';
+      syncApproveButtonVisibility();
+      return;
+    }
+    var actualPct = (sumAcq / sumMax) * 100;
+    totalEl.textContent = Math.round(actualPct * 100) / 100 + '%';
+    var totalGrade = gradeFromPct(actualPct);
+    if (gradeEl) gradeEl.textContent = totalGrade;
+    syncApproveButtonVisibility();
+  }
+  updateTotal();
+  if (root && root.getAttribute('data-approve-grade-blocked') === '1') {
+    syncApproveButtonVisibility();
+  }
+
+  table.addEventListener('input', function (e) {
+    var t = e.target;
+    if (!t || !t.classList.contains('eval-notes-textarea')) return;
+    var tr = t.closest('tr');
+    if (tr) {
+      var td = tr.querySelector('td.eval-col--notes');
+      if (td && String(t.value || '').trim() !== '') td.classList.remove('eval-notes--required');
+    }
+    if (warnEl && !collectSaveBlockedNoteRows().length) warnEl.hidden = true;
+    syncApproveButtonVisibility();
+  });
+})();
+</script>
+<div id="eval-crit-media-modal" class="eval-crit-media-modal" hidden aria-hidden="true">
+  <div class="eval-crit-media-modal__backdrop" tabindex="-1" data-eval-crit-close="1"></div>
+  <div class="eval-crit-media-modal__panel" role="dialog" aria-modal="true" aria-label="معاينة التوثيق">
+    <button type="button" class="eval-crit-media-modal__x btn btn-icon" data-eval-crit-close="1" aria-label="إغلاق">×</button>
+    <img id="eval-crit-modal-img" class="eval-crit-media-modal__img" alt="" />
+    <video id="eval-crit-modal-video" class="eval-crit-media-modal__vid" controls playsinline preload="metadata"></video>
+  </div>
+</div>
+<script>
+(function () {
+  var root = document.getElementById('eval-structured-root');
+  if (!root || !document.getElementById('eval-structured-table')) return;
+  var uploadUrl = (root.getAttribute('data-crit-upload-url') || '').trim();
+  var liPk = String(root.getAttribute('data-crit-li') || '').trim();
+  var baPk = String(root.getAttribute('data-crit-ba') || '').trim();
+  var modal = document.getElementById('eval-crit-media-modal');
+  var mImg = document.getElementById('eval-crit-modal-img');
+  var mVid = document.getElementById('eval-crit-modal-video');
+  function showWarnCrit(msg) {
+    var w = document.getElementById('eval-acquired-warn');
+    if (!w) {
+      alert(msg);
+      return;
+    }
+    w.textContent = msg;
+    w.hidden = false;
+    clearTimeout(showWarnCrit._t);
+    showWarnCrit._t = setTimeout(function () {
+      w.hidden = true;
+    }, 5000);
+  }
+  function openModal(kind, streamUrl) {
+    if (!modal || !mImg || !mVid) return;
+    mVid.pause();
+    mVid.removeAttribute('src');
+    mVid.load();
+    mImg.removeAttribute('src');
+    modal.hidden = false;
+    modal.setAttribute('aria-hidden', 'false');
+    if (kind === 'video') {
+      mImg.style.display = 'none';
+      mVid.style.display = 'block';
+      mVid.src = streamUrl;
+      mVid.play().catch(function () {});
+    } else {
+      mVid.style.display = 'none';
+      mImg.style.display = 'block';
+      mImg.src = streamUrl;
+    }
+  }
+  function closeModal() {
+    if (!modal || !mImg || !mVid) return;
+    modal.hidden = true;
+    modal.setAttribute('aria-hidden', 'true');
+    mVid.pause();
+    mVid.removeAttribute('src');
+    mVid.load();
+    mImg.removeAttribute('src');
+  }
+  if (modal) {
+    modal.querySelectorAll('[data-eval-crit-close]').forEach(function (el) {
+      el.addEventListener('click', closeModal);
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && modal && !modal.hidden) closeModal();
+    });
+  }
+  root.addEventListener('click', function (e) {
+    var pl = e.target.closest('.eval-crit-play');
+    if (pl) {
+      e.preventDefault();
+      var url = pl.getAttribute('data-stream-url') || '';
+      var k = String(pl.getAttribute('data-media-kind') || '').toLowerCase();
+      if (url) openModal(k === 'video' ? 'video' : 'photo', url);
+      return;
+    }
+    var trg = e.target.closest('.eval-crit-cap-btn');
+    if (!trg || !uploadUrl) return;
+    var rk = String(trg.getAttribute('data-eval-crit-trigger') || '').toLowerCase();
+    var ridx = String(trg.getAttribute('data-row-index') || '');
+    var cls = rk === 'video' ? '.eval-crit-file--video' : '.eval-crit-file--photo';
+    var slot = root.querySelector(cls + '[data-row-index="' + ridx + '"]');
+    if (slot && !slot.disabled) {
+      if (rk === 'video') {
+        slot.setAttribute('accept', 'video/*');
+        slot.setAttribute('capture', 'camcorder');
+      } else {
+        slot.setAttribute('accept', 'image/*');
+        slot.setAttribute('capture', 'environment');
+      }
+      slot.click();
+    }
+  });
+  function maybeCompressPhoto(file, done) {
+    if (!file || !/^image\//.test(file.type || '')) {
+      done(file);
+      return;
+    }
+    if (file.type === 'image/jpeg' && file.size < 850000) {
+      done(file);
+      return;
+    }
+    var rd = new FileReader();
+    rd.onload = function () {
+      var url = rd.result;
+      var im = new Image();
+      im.onload = function () {
+        var w = im.width,
+          h = im.height,
+          maxS = 1280,
+          sc = Math.min(1, maxS / Math.max(w, h));
+        var nw = Math.max(1, Math.round(w * sc)),
+          nh = Math.max(1, Math.round(h * sc));
+        var cv = document.createElement('canvas');
+        cv.width = nw;
+        cv.height = nh;
+        var gx = cv.getContext('2d');
+        gx.drawImage(im, 0, 0, nw, nh);
+        cv.toBlob(
+          function (blob) {
+            done(blob ? blob : file);
+          },
+          'image/jpeg',
+          0.82
+        );
+      };
+      im.onerror = function () {
+        done(file);
+      };
+      im.src = url;
+    };
+    rd.onerror = function () {
+      done(file);
+    };
+    rd.readAsDataURL(file);
+  }
+  root.addEventListener('change', function (e) {
+    var inp = e.target.closest('input.eval-crit-file');
+    if (!inp || !uploadUrl) return;
+    var file = inp.files && inp.files[0];
+    if (!file) return;
+    var ridxRaw = inp.getAttribute('data-row-index');
+    var rk = String(inp.getAttribute('data-kind') || 'photo').toLowerCase();
+    var rowIx = parseInt(String(ridxRaw || ''), 10);
+    if (!isFinite(rowIx) || rowIx < 0) {
+      inp.value = '';
+      return;
+    }
+    function sendBlob(blob, fname) {
+      var fd = new FormData();
+      fd.append('row_index', String(rowIx));
+      if (liPk) fd.append('evaluation_list_item_id', liPk);
+      if (baPk) fd.append('bundle_action_eval_id', baPk);
+      fd.append('media_kind', rk);
+      fd.append('file', blob, fname || file.name || (rk === 'video' ? 'clip.webm' : 'doc.jpg'));
+      fetch(uploadUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+        .then(function (r) {
+          return r.json().then(
+            function (j) {
+              return { r: r, j: j || {} };
+            },
+            function () {
+              return { r: r, j: {} };
+            }
+          );
+        })
+        .then(function (pack) {
+          var j = pack.j;
+          if (!pack.r.ok || !j || !j.ok || !j.stream_url) {
+            throw new Error('bad');
+          }
+          var td = inp.closest('.eval-col--crit');
+          if (!td) return location.reload();
+          var wrap = td.querySelector('.eval-crit-buttons');
+          if (!wrap) return location.reload();
+          var span = document.createElement('span');
+          span.className = 'eval-crit-slot-item';
+          var isVid = String(j.media_kind || rk).toLowerCase() === 'video';
+          var play = document.createElement('button');
+          play.type = 'button';
+          play.className = 'btn btn-icon btn-icon-crit eval-crit-play';
+          play.setAttribute('data-stream-url', j.stream_url);
+          play.setAttribute('data-media-kind', isVid ? 'video' : 'photo');
+          play.setAttribute('title', isVid ? 'تشغيل فيديو' : 'عرض الصورة');
+          play.setAttribute('aria-label', 'معاينة توثيق');
+          play.innerHTML =
+            '<i class="fa-solid ' + (isVid ? 'fa-film' : 'fa-image') + '" aria-hidden="true"></i>';
+          span.appendChild(play);
+          if (uploadUrl && (root.getAttribute('data-readonly') || '') !== '1' && j.delete_url) {
+            var delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'btn btn-icon btn-icon-crit eval-crit-del js-eval-crit-del';
+            delBtn.setAttribute('aria-label', 'حذف التوثيق');
+            delBtn.setAttribute('title', 'حذف التوثيق');
+            delBtn.setAttribute('data-eval-crit-delete-url', j.delete_url);
+            delBtn.innerHTML = '<i class="fa-solid fa-xmark" aria-hidden="true"></i>';
+            span.appendChild(delBtn);
+          }
+          wrap.appendChild(span);
+        })
+        .catch(function () {
+          showWarnCrit('فشل رفع الملف؛ تحقّق من الاتصال أو من صيغة الملف.');
+        })
+        .then(function () {
+          inp.value = '';
+        });
+    }
+    if (rk === 'video') {
+      sendBlob(file, file.name);
+      return;
+    }
+    maybeCompressPhoto(file, function (blob) {
+      sendBlob(blob, 'capture.jpg');
+    });
+  });
+
+  root.addEventListener('click', function (e) {
+    var del = e.target.closest('.js-eval-crit-del');
+    if (!del) return;
+    e.preventDefault();
+    var du = del.getAttribute('data-eval-crit-delete-url') || '';
+    if (!du) return;
+    if (!confirm('حذف ملف التوثيق هذا؟')) return;
+    fetch(du, { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function (r) {
+        return r.json().catch(function () {
+          return { ok: false };
+        }).then(function (j) {
+          return !!(j && j.ok);
+        });
+      })
+      .then(function (ok) {
+        if (!ok) throw new Error('x');
+        var host = del.closest('.eval-crit-slot-item');
+        if (host && host.parentNode) host.parentNode.removeChild(host);
+      })
+      .catch(function () {
+        showWarnCrit('لم يتم حذف الملف.');
+      });
+  });
+})();
+</script>

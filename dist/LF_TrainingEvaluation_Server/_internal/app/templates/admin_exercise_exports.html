@@ -1,0 +1,52 @@
+{% extends "admin_shell.html" %}
+{% block title %}ملفات التمارين (JSON){% endblock %}
+{% block admin_workspace %}
+<div class="page-header">
+  <p class="muted" style="margin: 0;">الملفات تُحفظ تلقائياً عند إنشاء تمرين أو تحديث أهدافه. المحتوى كامل (بيانات التمرين، الأهداف، المراحل، القوائم، الملاحظات، الروابط).</p>
+</div>
+{% if error %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ error }}</p>
+{% endif %}
+{% if ok_msg %}
+<p class="form-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
+{% endif %}
+
+<p class="muted"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> مجلد التصدير: <code>{{ export_dir }}</code></p>
+
+<section class="card" style="margin-bottom: 1rem;">
+  <h2 class="h2-in-card"><i class="fa-solid fa-upload fa-icon-title" aria-hidden="true"></i> رفع ملف JSON</h2>
+  <p class="muted">إذا كان التمرين موجوداً في النظام، سيتم فتح صفحته مباشرة.</p>
+  <form method="post" action="/admin/exercises/exports" enctype="multipart/form-data">
+    <div class="form-group">
+      <label for="json_file"><i class="fa-solid fa-file-code fa-icon-label" aria-hidden="true"></i> ملف JSON</label>
+      <input id="json_file" name="json_file" type="file" accept=".json,application/json" required>
+    </div>
+    <button class="btn" type="submit"><i class="fa-solid fa-door-open" aria-hidden="true"></i> فتح التمرين</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2 class="h2-in-card"><i class="fa-solid fa-list fa-icon-title" aria-hidden="true"></i> الملفات في المجلد</h2>
+  {% if export_files %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>الملف</th><th>إجراء</th></tr>
+      </thead>
+      <tbody>
+        {% for name, _mtime in export_files %}
+        <tr>
+          <td><code>{{ name }}</code></td>
+          <td>
+            <a class="btn btn-ghost" href="/admin/exercises/open-export?f={{ name|urlencode }}"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> فتح التمرين</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">لا توجد ملفات بعد. أنشئ تمريناً جديداً ليُنشأ ملف باسم التمرين.</p>
+  {% endif %}
+</section>
+{% endblock %}

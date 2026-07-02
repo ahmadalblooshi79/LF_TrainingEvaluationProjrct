@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}قوائم تقييم الإجراءات — {{ unit.label }}{% if day_label %} — {{ day_label }}{% endif %}{% endblock %}
+
+{% block body_class %}judge-eval-lists-page-layout{% endblock %}
+
+{% block content %}
+
+<div class="page-header page-header--judge-eval-lists">
+  <h1><i class="fa-solid fa-clipboard-list fa-icon-title" aria-hidden="true"></i> قوائم تقييم الإجراءات — {{ unit.label }}{% if day_label %} — {{ day_label }}{% endif %}</h1>
+  <div class="page-header__nav">
+    {% include 'partials/subpage_close.html' %}
+  </div>
+</div>
+
+{% if pf_reopened %}
+<p class="form-ok-banner eval-lists-banner" role="status"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> تم إعادة التقييم — يظهر كـ <strong>معاد للتعديل</strong>.</p>
+{% endif %}
+
+<section class="card judge-eval-lists-fill-card">
+  {% if day_tabs %}
+  <div class="eval-lists-day-tabs-bar" dir="rtl" style="margin-bottom:1rem;">
+    <nav class="eval-lists-day-tabs pf-flow-days-tabs" role="tablist" aria-label="أيام المجرى">
+      {% for tab in day_tabs %}
+      <a href="{{ url_for('views.judge_dilemmas', unit_key=unit_key, day=tab.day_id) }}"
+         class="pf-flow-day-tab{% if tab.day_id == active_day_id %} is-active{% endif %}"
+         role="tab"
+         aria-selected="{{ 'true' if tab.day_id == active_day_id else 'false' }}">{{ tab.day_label }}</a>
+      {% endfor %}
+    </nav>
+  </div>
+  {% endif %}
+
+  {% if action_eval_rows %}
+  <p class="judge-eval-lists-legend" dir="rtl">
+    <span><i class="swatch--pending" aria-hidden="true"></i> بانتظار الإعتماد (بعد الحفظ)</span>
+    <span><i class="swatch--sent" aria-hidden="true"></i> مرسل (بعد اعتماد المحكم)</span>
+    <span><i class="swatch--returned" aria-hidden="true"></i> معاد للتعديل (من كبير المحكمين)</span>
+  </p>
+
+  <div class="table-wrap">
+    <table class="judge-eval-lists-table" dir="rtl" aria-label="قوائم تقييم الإجراءات">
+      <thead>
+        <tr>
+          <th scope="col" class="eval-lists-table__seq">ت</th>
+          <th scope="col">التاريخ والوقت</th>
+          <th scope="col">نوع التمرين</th>
+          <th scope="col">الوحدة المقيمة</th>
+          <th scope="col">قائمة التقييم</th>
+          <th scope="col">التقدير العام</th>
+          <th scope="col">توقيت التسليم</th>
+          <th scope="col">الموقف</th>
+          <th scope="col">إرسال للاعتماد</th>
+          <th scope="col">فتح</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in action_eval_rows %}
+        <tr class="{% if r.row_tone and r.row_tone != 'none' %}eval-row-tone--{{ r.row_tone }}{% endif %}">
+          <td class="eval-lists-table__seq">{{ loop.index }}</td>
+          <td>{% if r.dt %}{{ r.dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td>{{ r.exercise_type or "—" }}</td>
+          <td>{{ r.trained_unit or "—" }}</td>
+          <td>{{ r.item_title }}</td>
+          <td>{{ r.grade_label or "—" }}</td>
+          <td>{% if r.delivery_dt %}{{ r.delivery_dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td>{% if r.status_done %}<span class="badge badge--done">ينجز</span>{% else %}<span class="badge badge--not-done">لم ينجز</span>{% endif %}</td>
+          <td>
+            <span class="judge-eval-dispatch-badge judge-eval-dispatch-badge--{{ r.row_tone | default('none') }}">{{ r.dispatch_label or "—" }}</span>
+          </td>
+          <td><a href="{{ r.open_href }}">فتح التقييم</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted" dir="rtl" style="margin:0;">لا توجد قوائم تقييم إجراءات منشورة من التخطيط لهذا المستوى في اليوم المحدد.</p>
+  {% endif %}
+</section>
+
+{% endblock %}

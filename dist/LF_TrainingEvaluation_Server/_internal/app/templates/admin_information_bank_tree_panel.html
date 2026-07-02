@@ -1,0 +1,251 @@
+{# kind: event_flow | action_eval | dilemma_eval #}
+
+{% set is_unit_eval_tree = kind in ['action_eval', 'dilemma_eval'] %}
+{% set use_action_eval_day_tabs = kind == 'action_eval' and ibank_action_eval_flow_days is defined and ibank_action_eval_flow_days %}
+{% set tree_title = {'event_flow': 'مجرى الأحداث والمعاضل', 'action_eval': 'قوائم تقييم الإجراءات', 'dilemma_eval': 'قوائم التقييم'}[kind] %}
+
+<div class="ibank-tree-page" dir="rtl" data-ibank-tree-kind="{{ kind }}" data-tree-move-url="{{ url_for('views.admin_information_bank_tree_move') }}" data-ibank-ui-build="action-eval-day-tabs-v2"{% if use_action_eval_day_tabs %} data-ibank-day-tabs="1" data-active-day-id="{{ active_action_eval_day|default('')|e }}" data-action-eval-sync-url="{{ url_for('views.admin_information_bank_action_eval_day_tabs') }}"{% endif %}>
+
+  <section class="card ibank-tree-card">
+
+    <h2 class="h2-in-card"><i class="fa-solid fa-folder-tree fa-icon-title" aria-hidden="true"></i> {{ tree_title }}</h2>
+
+    {% if use_action_eval_day_tabs %}
+    <div class="ibank-action-eval-days-bar pf-flow-days-bar" dir="rtl">
+      <div class="pf-flow-days-tabs-row">
+        <nav class="pf-flow-days-tabs ibank-action-eval-day-tabs" role="tablist" aria-label="أيام التمرين">
+          {% for day in ibank_action_eval_flow_days %}
+          <button type="button"
+                  class="pf-flow-day-tab ibank-action-eval-day-tab{% if day.id == active_action_eval_day %} is-active{% endif %}"
+                  data-day-id="{{ day.id }}"
+                  role="tab"
+                  aria-selected="{{ 'true' if day.id == active_action_eval_day else 'false' }}">{{ day.label }}</button>
+          {% endfor %}
+        </nav>
+      </div>
+    </div>
+    <p class="muted ibank-action-eval-days-note" role="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> الأيام من تبويب <strong>مجرى الأحداث والمعاضل</strong> — عند إضافة يوم هناك يُنشأ تبويب مقابل هنا تلقائياً.</p>
+    <script type="application/json" class="js-ibank-action-eval-day-roots">{{ action_eval_day_root_ids|default({})|tojson }}</script>
+    {% endif %}
+
+    {% if information_bank_can_manage %}
+
+    <div class="ibank-tree-toolbar">
+
+      <div class="ibank-tree-toolbar__main-row">
+
+        <form method="post" action="{{ url_for('views.admin_information_bank_tree_folder_add') }}" class="ibank-tree-inline-form ibank-tree-inline-form--grow js-ibank-tree-folder-form">
+
+          <input type="hidden" name="kind" value="{{ kind }}">
+
+          <input type="hidden" name="parent_id" value="" class="js-ibank-tree-parent-id">
+
+          {% if use_action_eval_day_tabs %}
+          <input type="hidden" name="action_eval_day" value="{{ active_action_eval_day|default('') }}" class="js-ibank-action-eval-day">
+          {% endif %}
+
+          <input type="text" name="folder_name" class="ibank-tree-folder-name-input" placeholder="{% if is_unit_eval_tree %}اسم مجلد (اختياري){% else %}اسم مجلد جديد{% endif %}" maxlength="500" required aria-label="اسم المجلد">
+
+          <button type="submit" class="btn btn-ghost btn-sm-compact"><i class="fa-solid fa-folder-plus" aria-hidden="true"></i> إضافة مجلد</button>
+
+        </form>
+
+        <form method="post" action="{{ url_for('views.admin_information_bank_tree_upload') }}" enctype="multipart/form-data" class="ibank-tree-upload-form js-ibank-tree-upload-files-form">
+
+          <input type="hidden" name="kind" value="{{ kind }}">
+
+          <input type="hidden" name="parent_id" value="" class="js-ibank-tree-upload-parent">
+
+          {% if use_action_eval_day_tabs %}
+          <input type="hidden" name="action_eval_day" value="{{ active_action_eval_day|default('') }}" class="js-ibank-action-eval-day">
+          {% endif %}
+
+          <input type="file" name="files" multiple class="ibank-tree-file-input js-ibank-tree-files" tabindex="-1" aria-hidden="true"
+
+                 accept=".pdf,.doc,.docx,.xlsx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+
+          <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-pick-files"><i class="fa-solid fa-file" aria-hidden="true"></i> إرفاق ملفات</button>
+
+        </form>
+
+        <form method="post" action="{{ url_for('views.admin_information_bank_tree_upload') }}" enctype="multipart/form-data" class="ibank-tree-upload-form js-ibank-tree-upload-dir-form">
+
+          <input type="hidden" name="kind" value="{{ kind }}">
+
+          <input type="hidden" name="parent_id" value="" class="js-ibank-tree-upload-parent">
+
+          {% if use_action_eval_day_tabs %}
+          <input type="hidden" name="action_eval_day" value="{{ active_action_eval_day|default('') }}" class="js-ibank-action-eval-day">
+          {% endif %}
+
+          <input type="file" name="files" multiple class="ibank-tree-file-input js-ibank-tree-dir" tabindex="-1" aria-hidden="true" webkitdirectory directory>
+
+          <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-pick-dir"><i class="fa-solid fa-folder-open" aria-hidden="true"></i> إرفاق مجلد</button>
+
+        </form>
+
+        <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-clear-select"><i class="fa-solid fa-xmark" aria-hidden="true"></i> إلغاء التحديد</button>
+
+        {% if kind in ['action_eval', 'dilemma_eval'] %}
+        <form method="post" action="/admin/information-bank/eval-list/purge-all" class="ibank-tree-purge-form" onsubmit="return confirm('مسح جميع محتويات هذا التبويب{% if kind == 'action_eval' %} (الأيام، الوحدات، والملفات){% else %} (المراحل، الوحدات، والملفات){% endif %}؟ لا يمكن التراجع.');">
+          <input type="hidden" name="kind" value="{{ kind }}">
+          <button type="submit" class="btn btn-danger btn-sm-compact"><i class="fa-solid fa-trash-can" aria-hidden="true"></i> مسح كل المحتويات</button>
+        </form>
+        {% endif %}
+
+      </div>
+
+      <p class="ibank-tree-selection-label js-ibank-tree-target-label" role="status">{% if use_action_eval_day_tabs %}المستهدف: اليوم الحالي — «إرفاق مجلد» لإدراج مستويات الوحدات، أو حدّد مجلداً ثم أرفق{% elif kind == 'action_eval' %}المستهدف: الجذر — حدّد اليوم ثم «إرفاق مجلد» أو «إضافة مجلد» (اختياري)، واختر مستوى الوحدة من القائمة على المجلد{% elif is_unit_eval_tree %}المستهدف: الجذر — حدّد مرحلة التمرين ثم «إرفاق مجلد» أو «إضافة مجلد» (اختياري)، واختر مستوى الوحدة من القائمة على المجلد{% else %}المستهدف: الجذر — انقر «تحديد» على مجلد في الشجرة{% endif %}</p>
+
+    </div>
+
+    {% endif %}
+
+    {% macro ibank_action_eval_unit_cluster(n) %}
+      <div class="ibank-tree-unit-cluster" dir="rtl">
+        <div class="ibank-tree-unit-pair" dir="rtl">
+          <span class="ibank-tree-unit-cluster__label">مستوى الوحدة</span>
+          {% if information_bank_can_manage and n.show_unit_select %}
+          <form method="post" action="{{ url_for('views.admin_information_bank_tree_unit_level', node_id=n.id) }}" class="ibank-tree-unit-form">
+            <input type="hidden" name="kind" value="{{ kind }}">
+            {% if use_action_eval_day_tabs %}
+            <input type="hidden" name="action_eval_day" value="{{ active_action_eval_day|default('') }}" class="js-ibank-action-eval-day">
+            {% endif %}
+            <select id="ibank-unit-{{ n.id }}" name="unit_key" class="ibank-tree-unit-select js-ibank-tree-unit-select" aria-label="مستوى الوحدة — {{ n.name }}" data-judge-input="ibank-judge-{{ n.id }}" onchange="if(this.value){this.form.submit();}">
+              <option value="">— اختر مستوى الوحدة —</option>
+              {% for u in ibank_tree_unit_levels|default([]) %}
+              <option value="{{ u['key'] }}"{% if n.catalog_unit_key == u['key'] or (not n.catalog_unit_key and n.effective_unit_key == u['key']) %} selected{% endif %}>{{ u['label'] }}</option>
+              {% endfor %}
+            </select>
+          </form>
+          {% elif n.unit_level_label %}
+          <span class="ibank-tree-unit-badge" title="مستوى الوحدة">{{ n.unit_level_label }}</span>
+          {% else %}
+          <span class="ibank-tree-unit-badge ibank-tree-unit-badge--empty">—</span>
+          {% endif %}
+        </div>
+        <div class="ibank-tree-judge-pair" dir="rtl">
+          <label class="ibank-tree-unit-cluster__label" for="ibank-judge-{{ n.id }}">اسم المحكم</label>
+          <input type="text" id="ibank-judge-{{ n.id }}" class="ibank-tree-judge-readonly" value="{{ n.judge_name or '—' }}" readonly tabindex="-1" aria-label="اسم المحكم — {{ n.name }}" title="من قائمة المحكمين للتمرين الحالي">
+        </div>
+      </div>
+    {% endmacro %}
+
+    {% macro render_nodes(nodes, depth=0) %}
+
+      {% for n in nodes %}
+
+      <li class="ibank-tree-node{% if n.is_folder %} ibank-tree-node--folder{% else %} ibank-tree-node--file{% endif %}{% if n.is_system %} ibank-tree-node--system{% endif %}{% if n.children %} ibank-tree-has-children{% endif %}" role="treeitem"{% if n.children %} aria-expanded="false"{% endif %} data-node-id="{{ n.id }}" data-is-folder="{{ '1' if n.is_folder else '0' }}" data-is-phase-root="{{ '1' if n.is_phase_root else '0' }}" data-effective-unit-key="{{ n.effective_unit_key|e }}">
+
+        <div class="ibank-tree-row" style="--ibank-depth: {{ depth }}">
+
+          {% if n.is_folder %}
+
+          <button type="button" class="ibank-tree-toggle" aria-label="طي أو توسيع"><i class="fa-solid fa-caret-left" aria-hidden="true"></i></button>
+
+          <span class="ibank-tree-icon"><i class="fa-solid fa-folder" aria-hidden="true"></i></span>
+
+          {% else %}
+
+          <span class="ibank-tree-toggle-spacer"></span>
+
+          <span class="ibank-tree-icon"><i class="fa-solid fa-file-lines" aria-hidden="true"></i></span>
+
+          {% endif %}
+
+          <span class="ibank-tree-label">{{ n.name }}</span>
+
+          {% if is_unit_eval_tree and information_bank_can_manage and not n.is_phase_root %}
+          <span class="ibank-tree-reorder js-ibank-tree-reorder" hidden aria-hidden="true">
+            <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-move" data-direction="up" title="تحريك لأعلى"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i> أعلى</button>
+            <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-move" data-direction="down" title="تحريك لأسفل"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i> أسفل</button>
+          </span>
+          {% endif %}
+
+          {% if is_unit_eval_tree %}
+          {% if n.is_folder and not n.is_phase_root %}
+          {{ ibank_action_eval_unit_cluster(n) }}
+          {% elif not n.is_folder and (n.show_unit_select or n.effective_unit_key) %}
+          {{ ibank_action_eval_unit_cluster(n) }}
+          {% endif %}
+          {% endif %}
+
+          {% if not n.is_folder %}
+
+          <a class="ibank-tree-open" href="{{ url_for('views.admin_information_bank_tree_file', node_id=n.id) }}" target="_blank" rel="noopener">فتح</a>
+
+          {% endif %}
+
+          {% if information_bank_can_manage %}
+
+          <form method="post" action="{{ url_for('views.admin_information_bank_tree_delete', node_id=n.id) }}" class="ibank-tree-delete-form js-ibank-tree-delete-form" data-confirm-msg="حذف هذا العنصر{% if n.is_folder %} وجميع محتوياته{% endif %}؟">
+
+            <button type="submit" class="btn btn-ghost btn-sm-compact" title="حذف"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
+
+          </form>
+
+          {% endif %}
+
+          {% if information_bank_can_manage and (is_unit_eval_tree or n.is_folder) %}
+
+          <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-select-target" data-node-id="{{ n.id }}" data-node-name="{{ n.name|e }}" title="تحديد{% if is_unit_eval_tree %} للإدراج أو التحريك{% else %} كهدف للإدراج{% endif %}">تحديد</button>
+
+          {% endif %}
+
+        </div>
+
+        {% if n.children %}
+
+        <ul class="ibank-tree-children" role="group" hidden>
+
+          {{ render_nodes(n.children, depth + 1) }}
+
+        </ul>
+
+        {% endif %}
+
+      </li>
+
+      {% endfor %}
+
+    {% endmacro %}
+
+    {% if use_action_eval_day_tabs %}
+    {% for day in ibank_action_eval_flow_days %}
+    <div class="ibank-action-eval-day-pane{% if day.id == active_action_eval_day %} is-active{% endif %}" data-day-id="{{ day.id }}" data-day-root-id="{{ action_eval_day_root_ids.get(day.id, '') }}"{% if day.id != active_action_eval_day %} hidden{% endif %}>
+      <div class="ibank-tree-scroll">
+        <ul class="ibank-tree-root js-ibank-tree" role="tree" aria-label="{{ tree_title }} — {{ day.label }}">
+          {{ render_nodes(action_eval_trees_by_day.get(day.id, [])) }}
+          {% if not action_eval_trees_by_day.get(day.id) %}
+          <li class="muted ibank-tree-empty">لا توجد عناصر بعد — أرفق مجلداً لمستويات الوحدات أو أضف مجلداً.</li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="ibank-tree-scroll">
+
+      <ul class="ibank-tree-root js-ibank-tree" role="tree" aria-label="{{ tree_title }}">
+
+        {{ render_nodes(tree_nodes) }}
+
+        {% if not tree_nodes %}
+
+        <li class="muted ibank-tree-empty">لا توجد عناصر بعد — أضف مجلداً أو ارفق ملفات.</li>
+
+        {% endif %}
+
+      </ul>
+
+    </div>
+    {% endif %}
+
+  </section>
+
+  {% if is_unit_eval_tree %}
+  <script type="application/json" class="js-ibank-judge-by-unit-data">{{ ibank_judge_names_by_unit|default({})|tojson }}</script>
+  {% endif %}
+
+</div>
+

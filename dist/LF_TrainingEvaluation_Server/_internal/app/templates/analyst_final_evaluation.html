@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}{{ section_title }} — المحللين{% endblock %}
+{% block body_class %}final-eval-page-layout{% endblock %}
+{% block content %}
+<div class="page-header page-header--final-eval">
+  <div class="page-header__row">
+    <h1><i class="fa-solid fa-file-signature fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+    <div class="page-header__nav">{% include 'partials/subpage_close.html' %}</div>
+  </div>
+</div>
+
+{% if not has_exercise %}
+<section class="card final-report-card" id="top">
+  <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل. افتح أو أنشئ تمريناً لعرض التقرير النهائي.</p>
+</section>
+{% else %}
+<section class="card final-report-card">
+  <div id="final-eval-report-form" class="final-eval-report-form">
+  <div class="final-report-box" dir="rtl">
+    <div class="final-report-box__sticky">
+      <div class="final-report-box__head">
+        <h2 class="final-report-box__title"><i class="fa-solid fa-table-list fa-icon-title" aria-hidden="true"></i> التقرير النهائي</h2>
+        {% if report_summary and report_summary.phase_summaries %}
+        <div class="final-report-box__head-vrule" aria-hidden="true"></div>
+        <div class="final-report-summary-bar" aria-label="مجاميع نسب المراحل والمجموع العام">
+          {% for ps in report_summary.phase_summaries %}
+          <span class="final-report-summary-chip final-report-summary-chip--phase final-report-summary-chip--{{ ps.phase_key }}">
+            <span class="final-report-summary-chip__label">{{ ps.phase_label }}</span>
+            <strong>{% if ps.pct is not none %}{{ ps.pct|round(2) }}%{% else %}—{% endif %}</strong>
+          </span>
+          {% endfor %}
+          <span class="final-report-summary-chip final-report-summary-chip--total">
+            <span class="final-report-summary-chip__label">المجموع العام</span>
+            <strong>{% if report_summary.exercise_pct is not none %}{{ report_summary.exercise_pct|round(2) }}%{% else %}—{% endif %}</strong>
+            <span class="final-report-summary-chip__grade">{{ report_summary.exercise_grade }}</span>
+          </span>
+        </div>
+        {% endif %}
+      </div>
+      <div class="final-report-box__rule" role="presentation" aria-hidden="true"></div>
+    </div>
+
+    {% if final_rows %}
+    <div class="final-report-table-scroll" id="final-report-table-scroll">
+      <div class="table-wrap final-report-table-wrap final-report-table-wrap--main">
+        <table class="final-report-table final-report-table--main" dir="rtl" aria-label="جدول التقرير النهائي">
+          <colgroup>
+            <col class="final-report-col-seq">
+            <col class="final-report-col-unit">
+            <col class="final-report-col-phase">
+            <col class="final-report-col-mark">
+            <col class="final-report-col-mark">
+            <col class="final-report-col-pct">
+            <col class="final-report-col-pct">
+            <col class="final-report-col-grade">
+            <col class="final-report-col-grade">
+            <col class="final-report-col-details">
+          </colgroup>
+          <thead>
+            <tr>
+              <th scope="col">ت</th>
+              <th scope="col">الوحده</th>
+              <th scope="col">المرحله</th>
+              <th scope="col">القصوى</th>
+              <th scope="col">المكتسبه</th>
+              <th scope="col">النسبة المئوية لكل مرحله</th>
+              <th scope="col">النسبه المئوية الإجمالية للوحدة</th>
+              <th scope="col">تقدير كل مرحلة</th>
+              <th scope="col">التقدير العام</th>
+              <th scope="col">تفاصيل</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in final_rows %}
+            {% set phase_key = (row.phase_key or '')|trim %}
+            {% set is_unit_first = row.show_unit_total %}
+            {% set is_unit_last = loop.last or (final_rows[loop.index0 + 1].unit_key != row.unit_key) %}
+            <tr class="final-report-row{% if phase_key %} final-report-row--{{ phase_key }}{% endif %}{% if is_unit_first %} final-report-row--unit-first{% endif %}{% if is_unit_last %} final-report-row--unit-last{% endif %}" data-unit-key="{{ row.unit_key }}">
+              <td>{{ loop.index }}</td>
+              {% if row.show_unit_total %}
+              <th scope="row" class="final-report-cell--unit" rowspan="{{ row.unit_rowspan }}">{{ row.unit_label }}</th>
+              {% endif %}
+              <td class="final-report-cell--phase">{{ row.phase_label }}</td>
+              <td class="final-eval-alloc-max-cell final-eval-alloc-max-cell--readonly">
+                {% if phase_key and row.max_mark is number and row.max_mark > 0 %}{{ row.max_mark|round(2) }}{% elif phase_key and row.max_mark is number %}0{% else %}—{% endif %}
+              </td>
+              <td class="final-report-cell--acquired">{% if row.acquired_mark is number %}{% if row.acquired_mark > 0 %}{{ row.acquired_mark|round(2) }}{% else %}0{% endif %}{% else %}—{% endif %}</td>
+              <td class="final-report-cell--phase-pct">{% if row.phase_pct is not none %}{{ row.phase_pct|round(2) }}%{% else %}—{% endif %}</td>
+              {% if row.show_unit_total %}
+              <td class="final-report-cell--unit-block" rowspan="{{ row.unit_rowspan }}">{% if row.unit_total_pct is not none %}{{ row.unit_total_pct|round(2) }}%{% else %}—{% endif %}</td>
+              {% endif %}
+              <td class="final-report-cell--phase-grade">{{ row.phase_grade }}</td>
+              {% if row.show_unit_total %}
+              <td class="final-report-cell--unit-block" rowspan="{{ row.unit_rowspan }}">{{ row.unit_grade }}</td>
+              <td class="final-report-cell--unit-block" rowspan="{{ row.unit_rowspan }}"><a class="btn btn-ghost" href="{{ url_for('views.analyst_final_evaluation_unit_detail', unit_key=row.unit_key) }}">عرض تفاصيل الوحدة</a></td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <p class="muted final-report-box__empty" style="margin:0;">لا توجد قوائم تقييم لهذا التمرين بعد.</p>
+    {% endif %}
+  </div>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

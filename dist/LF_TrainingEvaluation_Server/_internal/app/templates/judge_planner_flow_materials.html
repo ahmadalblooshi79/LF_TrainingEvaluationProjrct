@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}مجرى الأحداث والمعاضل{% endblock %}
+{% block content %}
+<div class="judge-pf-root judge-pf-flow-readonly">
+<div class="page-header judge-pf-page-header">
+  <h1><i class="fa-solid fa-table-list fa-icon-title" aria-hidden="true"></i> مجرى الأحداث والمعاضل</h1>
+  <div class="judge-pf-page-header-meta">
+    {% if bundle is not none and planner_flow_unit_label %}
+    <p class="judge-pf-unit-line"><i class="fa-solid fa-layer-group" aria-hidden="true"></i> مستوى الوحدة المعروض: <strong>{{ planner_flow_unit_label }}</strong></p>
+    {% endif %}
+  </div>
+  <div class="page-header__nav">
+    {% include 'partials/subpage_close.html' %}
+  </div>
+</div>
+
+{% if not has_exercise %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يوجد تمرين حالي.</p>
+{% elif bundle is none %}
+<p class="muted">لم يُوزَّع جدول المجرى بعد من التخطيط. اطلب من التخطيط الضغط على «توزيع للمحكمين» بعد إعداد الجدول.</p>
+{% elif not flow_table_has_content|default(false) %}
+<p class="muted">الحزمة مرتبطة لكن الجدول فارغ — اطلب من التخطيط توزيع جدول المجرى عبر زر «توزيع للمحكمين».</p>
+{% else %}
+<p class="form-ok-banner judge-pf-readonly-banner" role="status"><i class="fa-solid fa-eye" aria-hidden="true"></i> للقراءة فقط — لا يمكن التعديل أو الحفظ من هنا.</p>
+<section class="card judge-pf-flow-readonly-card">
+  {% with readonly_mode=true %}
+  {% include 'partials/planner_action_flow_table.html' %}
+  {% endwith %}
+</section>
+{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,97 @@
+﻿{% extends "base.html" %}
+{% block title %}مهام غير مكتملة — المحكمين{% endblock %}
+{% block content %}
+<style>
+  .judge-tasks-table th,
+  .judge-tasks-table td {
+    text-align: center;
+    vertical-align: middle;
+  }
+  .judge-tasks-table td .muted { justify-content: center; }
+</style>
+<div class="page-header">
+  <h1><i class="fa-solid fa-clipboard-list fa-icon-title" aria-hidden="true"></i> مهام غير مكتملة</h1>
+  <div class="page-header__nav">
+    {% include 'partials/control_hub_back.html' %}
+  </div>
+</div>
+
+{% if not has_exercise %}
+<section class="card">
+  <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل لهذا المستخدم. افتح/أنشئ تمريناً أولاً.</p>
+</section>
+{% else %}
+<section class="card">
+  {% if tasks %}
+  <div class="table-wrap">
+    <table class="judge-tasks-table" dir="rtl" aria-label="مهام غير مكتملة">
+      <thead>
+        <tr>
+          <th scope="col">اسم المهمة</th>
+          <th scope="col">المكلفة بالاجراء (المحكم)</th>
+          <th scope="col">توقيت الإنجاز</th>
+          <th scope="col">درجة الاسبقية</th>
+          <th scope="col">مؤشر الحالة</th>
+          <th scope="col">تغيير الحالة</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tasks %}
+        <tr>
+          <td>
+            <div style="font-weight:700;">{{ t.task_name }}</div>
+            <div class="muted" style="margin-top:0.15rem;">
+              {% if t.unit_label %}{{ t.unit_label }}{% else %}—{% endif %}
+              <span class="sep-meta">•</span>
+              {% if t.phase_ar %}{{ t.phase_ar }}{% else %}—{% endif %}
+              {% if t.open_eval_href %}
+                <span class="sep-meta">•</span>
+                <a href="{{ t.open_eval_href }}">فتح قائمة التقييم</a>
+              {% endif %}
+            </div>
+          </td>
+          <td>{{ t.judge_name }}</td>
+          <td>{% if t.done_dt %}{{ t.done_dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td>
+            {% if t.priority_key == 'high' %}
+              <span class="badge badge--prio-high">عالية</span>
+            {% elif t.priority_key == 'medium' %}
+              <span class="badge badge--prio-med">متوسطة</span>
+            {% else %}
+              <span class="badge badge--prio-low">منخفضة</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if t.status_key == 'late' %}
+              <span class="badge badge--status-late">متأخرة</span>
+            {% elif t.status_key == 'ontime' %}
+              <span class="badge badge--status-ontime">ضمن الوقت</span>
+            {% else %}
+              <span class="badge badge--status-done">مكتملة</span>
+            {% endif %}
+          </td>
+          <td>
+            <form method="post" action="/judge/incomplete-tasks/update" style="margin:0;">
+              <input type="hidden" name="unit_key" value="{{ t.unit_key }}">
+              <input type="hidden" name="phase" value="{{ t.phase }}">
+              <input type="hidden" name="pair_index" value="{{ t.pair_index }}">
+              <input type="hidden" name="dilemma_id" value="{{ t.dilemma_id or '' }}">
+              <input type="hidden" name="evaluation_item_id" value="{{ t.evaluation_item_id or '' }}">
+              <select name="status_key" onchange="this.form.submit()" aria-label="تغيير الحالة" style="min-width:9rem;">
+                <option value="late" {% if t.status_key == 'late' %}selected{% endif %}>متأخرة</option>
+                <option value="ontime" {% if t.status_key == 'ontime' %}selected{% endif %}>ضمن الوقت</option>
+                <option value="done" {% if t.status_key == 'done' %}selected{% endif %}>مكتملة</option>
+              </select>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted" dir="rtl" style="margin:0;">لا توجد مهام حالياً لهذا المحكم ضمن التمرين الحالي.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

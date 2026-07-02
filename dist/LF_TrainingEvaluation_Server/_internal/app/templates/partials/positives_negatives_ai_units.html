@@ -1,0 +1,58 @@
+{% if ai_refreshed %}
+<p class="control-pn-ai-notice" dir="rtl" role="status">تم تحديث التحليل بالذكاء الاصطناعي.</p>
+{% endif %}
+
+<div class="control-pn-ai-toolbar" dir="rtl">
+  <form method="post" action="{{ ai_refresh_url }}">
+    <button type="submit" class="btn btn-secondary btn-sm">
+      <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> إعادة التحليل بالذكاء الاصطناعي
+    </button>
+  </form>
+  {% if ai_generated_at %}
+  <span class="muted control-pn-ai-meta">آخر تحليل: {{ ai_generated_at[:19].replace('T', ' ') }} UTC</span>
+  {% endif %}
+  {% if not ai_has_api_key %}
+  <span class="muted control-pn-ai-meta">تحليل قاعدي — أضف OPENAI_API_KEY في .env للتحليل الذكي الكامل.</span>
+  {% endif %}
+</div>
+
+{% if ai_unit_summaries %}
+<div class="control-pn-units-stack" dir="rtl">
+  {% for u in ai_unit_summaries %}
+  <section class="control-pn-unit-block" aria-label="{{ u.unit_label }}">
+    <header class="control-pn-unit-block__head">
+      <h2 class="control-pn-unit-block__title">{{ u.unit_label }}</h2>
+      <span class="control-pn-unit-block__meta">{{ u.n_criteria }} معيار — {% if u.source == 'ai' %}تحليل ذكاء اصطناعي{% elif u.source == 'fallback' %}تحليل قاعدي{% else %}تحليل جزئي{% endif %}</span>
+    </header>
+    <div class="control-pn-columns">
+      <section class="control-pn-panel control-pn-panel--positive" aria-label="إيجابيات {{ u.unit_label }}">
+        <h3><i class="fa-solid fa-circle-check" aria-hidden="true"></i> أبرز الإيجابيات</h3>
+        {% if u.positives %}
+        <ul class="control-pn-note-list control-pn-ai-bullets">
+          {% for item in u.positives %}
+          <li class="control-pn-note control-pn-note--positive control-pn-ai-bullet">{{ item }}</li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="muted" style="margin:0;">لا إيجابيات بارزة في بيانات هذه الوحدة.</p>
+        {% endif %}
+      </section>
+      <section class="control-pn-panel control-pn-panel--negative" aria-label="سلبيات {{ u.unit_label }}">
+        <h3><i class="fa-solid fa-circle-xmark" aria-hidden="true"></i> أبرز السلبيات</h3>
+        {% if u.negatives %}
+        <ul class="control-pn-note-list control-pn-ai-bullets">
+          {% for item in u.negatives %}
+          <li class="control-pn-note control-pn-note--negative control-pn-ai-bullet">{{ item }}</li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="muted" style="margin:0;">لا سلبيات بارزة في بيانات هذه الوحدة.</p>
+        {% endif %}
+      </section>
+    </div>
+  </section>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted" dir="rtl" style="margin:0;">لا توجد قوائم تقييم معتمدة من المحكم لتحليلها بعد.</p>
+{% endif %}

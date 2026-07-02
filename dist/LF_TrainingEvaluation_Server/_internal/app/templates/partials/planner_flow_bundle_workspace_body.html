@@ -1,0 +1,39 @@
+{# سياق: داخل مسار has_exercise (القالب الأم يفرض ذلك). المتغيرات: readonly_mode, pf_workspace_endpoint, bundle, إلخ. #}
+{% if readonly_mode %}
+<p class="form-ok-banner" role="status"><i class="fa-solid fa-eye" aria-hidden="true"></i> هذه الصفحة للإطلاع فقط — لا يمكن الإضافة أو التعديل أو الحذف من هنا.</p>
+{% endif %}
+{% if not readonly_mode and ok_msg %}
+<p class="form-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
+{% endif %}
+{% if not readonly_mode and err_msg %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ err_msg }}</p>
+{% endif %}
+
+{% if has_exercise %}
+<div class="planner-flow-col-head planner-flow-col-head--page" dir="rtl">
+  <div class="planner-flow-col-head__title-row">
+    <h2 class="h2-in-card planner-flow-page-title"><i class="fa-solid fa-table-list fa-icon-title" aria-hidden="true"></i> جدول مجرى الأحداث والمعاضل</h2>
+  </div>
+  <div class="planner-flow-col-head__actions pf-flow-head-actions">
+    {% include 'partials/control_hub_back.html' %}
+    {% if bundle and not readonly_mode %}
+    <button type="button" class="btn btn-sm-compact pf-flow-save-btn" data-pf-save><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> الحفظ</button>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% if phases_catalog_empty %}
+<p class="form-error-banner" dir="rtl" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا توجد مراحل تمرين في كتالوج التخطيط. بنك المعلومات له كتالوج مراحل مستقل ولم يُمس.</p>
+{% endif %}
+{% if catalog_empty %}
+<p class="form-error-banner" dir="rtl" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا توجد مستويات وحدة في كتالوج التخطيط. أضفها إلى <code>UNIT_LEVELS</code> في النظام (بنك المعلومات له كتالوج مستقل ولا يتأثر).</p>
+{% elif bundle is none %}
+<p class="muted card" dir="rtl" role="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> لا توجد حزمة مهيّأة بعد لهذا المزيج (المرحلة ومستوى الوحدة) ضمن مساحة العمل الحالية — يمكن لمسؤول التخطيط إنشاؤها وتجهيزها من مساحة التخطيط.</p>
+{% else %}
+
+{% with readonly_mode=readonly_mode|default(false), pf_flow_save_url=url_for('views.planner_flow_bundle_save_flow_table', bundle_id=bundle.id), pf_flow_import_docx_url=url_for('views.planner_flow_bundle_import_flow_docx', bundle_id=bundle.id), pf_flow_pull_ibank_url=url_for('views.planner_flow_bundle_pull_flow_from_ibank', bundle_id=bundle.id), pf_flow_distribute_judges_url=url_for('views.planner_flow_bundle_distribute_flow_to_judges', bundle_id=bundle.id) %}
+{% include "partials/planner_action_flow_table.html" %}
+{% endwith %}
+
+{% endif %}

@@ -10,6 +10,7 @@ from app.config import HEARTBEAT_FAST_POLL_MS, HEARTBEAT_POLL_MS
 from app.models import Exercise, ExerciseNotification
 from app.permissions import (
     can_access_analyst_hub,
+    can_access_chief_judge_hub,
     can_access_control_hub,
     can_access_judge_hub,
     can_access_planner_hub,
@@ -28,6 +29,7 @@ _HUB_LANDING_PRESERVE_BUTTON_ENDPOINTS = frozenset({
     "views.planner_hub",
     "views.control_hub",
     "views.judge_hub",
+    "views.chief_judge_hub",
     "views.analyst_hub",
 })
 
@@ -126,6 +128,7 @@ def inject_header_exercise():
         _push_hub("/planner", "التخطيط", "fa-calendar-check", can_access_planner_hub)
         _push_hub("/control", "السيطرة", "fa-eye", can_access_control_hub)
         _push_hub("/judge", "المحكمين", "fa-scale-balanced", _nav_show_judge_hub_link)
+        _push_hub("/chief-judge", "كبير المحكمين", "fa-stamp", can_access_chief_judge_hub)
         _push_hub("/analyst", "المحللين", "fa-magnifying-glass-chart", can_access_analyst_hub)
         base["nav_role_hub_links"] = nav_hubs
         base["hide_header_center_nav"] = _is_individual_judge_user(u)

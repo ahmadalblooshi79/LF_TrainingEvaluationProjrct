@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}مجرى الأحداث والمعاضل{% endblock %}
+{% block content %}
+{% if not has_exercise %}
+<div class="planner-flow-col-head planner-flow-col-head--page planner-flow-col-head--close-only" dir="rtl">
+  <div class="planner-flow-col-head__actions pf-flow-head-actions">
+    {% include 'partials/control_hub_back.html' %}
+  </div>
+</div>
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يوجد تمرين حالي في مساحة العمل. افتح أو أنشئ تمريناً من الصفحة الرئيسية أو إدارة النظام.</p>
+{% else %}
+{% include 'partials/planner_flow_bundle_workspace_body.html' %}
+{% endif %}
+{% endblock %}

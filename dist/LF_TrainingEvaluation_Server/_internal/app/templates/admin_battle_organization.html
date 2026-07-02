@@ -1,0 +1,256 @@
+{% extends "admin_shell.html" %}
+{% macro mil_symbol_svg_fallback(echelon, branch) %}
+<div class="mil-sym mil-sym--fallback" aria-hidden="true">
+  {% if echelon == 'brigade' %}
+  <svg class="mil-sym__svg mil-sym__svg--tall" viewBox="0 0 100 72" xmlns="http://www.w3.org/2000/svg">
+    <g stroke="#111" stroke-width="2.8" stroke-linecap="square">
+      <line x1="22" y1="6" x2="78" y2="20"/>
+      <line x1="78" y1="6" x2="22" y2="20"/>
+    </g>
+    <rect x="5" y="24" width="90" height="44" fill="var(--mil-friendly-fill)" stroke="#111" stroke-width="2"/>
+    {% if branch == 'mech_inf' %}
+    <g stroke="#111" stroke-width="2.4" stroke-linecap="square">
+      <line x1="14" y1="30" x2="86" y2="62"/>
+      <line x1="86" y1="30" x2="14" y2="62"/>
+    </g>
+    <rect x="30" y="38" width="40" height="16" rx="8" fill="none" stroke="#111" stroke-width="2.4"/>
+    {% elif branch == 'infantry' %}
+    <g stroke="#111" stroke-width="2.4" stroke-linecap="square">
+      <line x1="14" y1="30" x2="86" y2="62"/>
+      <line x1="86" y1="30" x2="14" y2="62"/>
+    </g>
+    {% elif branch == 'armor' %}
+    <rect x="30" y="38" width="40" height="16" rx="8" fill="none" stroke="#111" stroke-width="2.4"/>
+    {% elif branch == 'artillery' %}
+    <circle cx="50" cy="46" r="9" fill="#111"/>
+    {% endif %}
+  </svg>
+  {% else %}
+  <div class="mil-sym__ticks mil-sym__ticks--{{ echelon }}">
+    {% if echelon == 'company' %}<span></span>
+    {% elif echelon == 'battalion' %}<span></span><span></span>
+    {% elif echelon == 'platoon' %}<span></span><span></span><span></span>
+    {% elif echelon == 'squad' %}<span class="mil-sym__ticks--bar"></span>
+    {% endif %}
+  </div>
+  <svg class="mil-sym__svg" viewBox="0 0 100 58" xmlns="http://www.w3.org/2000/svg">
+    <rect x="6" y="10" width="88" height="44" fill="var(--mil-friendly-fill)" stroke="#111" stroke-width="2"/>
+    {% if branch == 'mech_inf' %}
+    <g stroke="#111" stroke-width="2.4" stroke-linecap="square">
+      <line x1="14" y1="16" x2="86" y2="48"/>
+      <line x1="86" y1="16" x2="14" y2="48"/>
+    </g>
+    <rect x="30" y="26" width="40" height="16" rx="8" fill="none" stroke="#111" stroke-width="2.4"/>
+    {% elif branch == 'infantry' %}
+    <g stroke="#111" stroke-width="2.4" stroke-linecap="square">
+      <line x1="14" y1="16" x2="86" y2="48"/>
+      <line x1="86" y1="16" x2="14" y2="48"/>
+    </g>
+    {% elif branch == 'armor' %}
+    <rect x="30" y="26" width="40" height="16" rx="8" fill="none" stroke="#111" stroke-width="2.4"/>
+    {% elif branch == 'artillery' %}
+    <circle cx="50" cy="32" r="9" fill="#111"/>
+    {% endif %}
+  </svg>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% macro mil_symbol(symbol) %}
+{% set href = mil_symbol_url_for_symbol(symbol) %}
+<div class="mil-sym-wrap">
+{% if href %}
+  <img class="mil-sym__img" src="{{ href }}" alt="" loading="lazy" decoding="async" width="96" height="72">
+{% else %}
+  {{ mil_symbol_svg_fallback(symbol.echelon, symbol.branch) }}
+{% endif %}
+</div>
+{% endmacro %}
+
+{% macro render_battle(node, depth) -%}
+{% set has_kids = node.children and node.children|length > 0 %}
+{% set start_open = depth < 1 %}
+<li class="battle-org__li">
+  <div class="battle-org__row">
+    {% if has_kids %}
+    <button type="button" class="battle-org__expand-btn" aria-expanded="{{ 'true' if start_open else 'false' }}" aria-controls="battle-ch-{{ node.id }}" title="توسيع أو طي الفرع">
+      <span class="battle-org__chev" aria-hidden="true"></span>
+    </button>
+    {% else %}
+    <span class="battle-org__expand-spacer" aria-hidden="true"></span>
+    {% endif %}
+    <button type="button" class="mil-sym-hit" title="اختيار الوحدة لعرضها وتعديل بيانات المتدرب والمحكم"
+      aria-label="اختيار وحدة {{ node.label }}"
+      data-unit-id="{{ node.id|e }}"
+      data-unit-label="{{ node.label|e }}">
+      {{ mil_symbol(node.symbol) }}
+    </button>
+    <span class="battle-org__label">{{ node.label }}</span>
+  </div>
+  {% if has_kids %}
+  <ul id="battle-ch-{{ node.id }}" class="battle-org__ul" {% if not start_open %}hidden{% endif %}>
+    {% for ch in node.children %}
+    {{ render_battle(ch, depth + 1) }}
+    {% endfor %}
+  </ul>
+  {% endif %}
+</li>
+{%- endmacro %}
+
+{% block title %}تنظيم المعركة — إدارة النظام{% endblock %}
+{% block admin_workspace %}
+<div class="battle-org-root" id="battleOrgRoot">
+<div class="page-header">
+  <h1><i class="fa-solid fa-sitemap fa-icon-title" aria-hidden="true"></i> تنظيم المعركة</h1>
+</div>
+
+{% if battle_ok_msg %}
+<p class="form-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ battle_ok_msg }}</p>
+{% endif %}
+{% if battle_error_msg %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ battle_error_msg }}</p>
+{% endif %}
+
+{% if not current_exercise %}
+<section class="card">
+  <p class="muted"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> لا يوجد تمرين حالي. أنشئ تمريناً من «إنشاء تمرين جديد» ليتم ربط بيانات المحكم والمتدرب بهذا التمرين.</p>
+</section>
+{% endif %}
+
+<section class="card battle-org-card">
+  <div class="battle-org-card__head">
+    <h2 class="h2-in-card battle-org-card__title"><i class="fa-solid fa-chess-board fa-icon-title" aria-hidden="true"></i> هيكل الوحدات وبيانات المحكم والمتدرب</h2>
+    <div class="battle-org-unit-strip" aria-live="polite">
+      <span class="battle-org-unit-strip__label">الوحدة المختارة</span>
+      <p id="battleFormUnitLabel" class="battle-org-unit-strip__readout">—</p>
+    </div>
+  </div>
+
+  <div class="battle-org-layout">
+    <div class="battle-org-forms-col" aria-label="نماذج المحكم والمتدرب للوحدة المختارة">
+      <form id="battle-personnel-form" class="battle-personnel-form battle-personnel-form--dual" method="post" action="{{ url_for('views.admin_battle_organization_save') }}" {% if not current_exercise %}aria-disabled="true"{% endif %}>
+        <input type="hidden" name="exercise_id" value="{{ current_exercise.id if current_exercise else '' }}">
+        <input type="hidden" name="unit_id" id="battleFormUnitId" value="">
+        <aside class="battle-unit-panel battle-unit-panel--judge">
+          <h3 class="battle-unit-panel__title"><i class="fa-solid fa-gavel fa-icon-title" aria-hidden="true"></i> بيانات المحكم</h3>
+          <div class="form-group">
+            <label for="battleInJudgeTrainee">اسم المحكم</label>
+            <input id="battleInJudgeTrainee" name="judge_trainee_name" type="text" autocomplete="off" {% if not current_exercise %}disabled{% endif %}>
+          </div>
+          <div class="form-group">
+            <label for="battleInJudgeMilitary">الرقم العسكري</label>
+            <input id="battleInJudgeMilitary" name="judge_military_number" type="text" inputmode="numeric" autocomplete="off" {% if not current_exercise %}disabled{% endif %}>
+          </div>
+          <div class="form-group">
+            <label for="battleInJudgeRank">الرتبة</label>
+            <input id="battleInJudgeRank" name="judge_rank_ar" type="text" autocomplete="off" {% if not current_exercise %}disabled{% endif %}>
+          </div>
+          <div class="form-group">
+            <label for="battleInJudgePosition">المنصب</label>
+            <input id="battleInJudgePosition" name="judge_position_ar" type="text" autocomplete="off" {% if not current_exercise %}disabled{% endif %}>
+          </div>
+        </aside>
+        <aside class="battle-unit-panel battle-unit-panel--trainee">
+          <h3 class="battle-unit-panel__title"><i class="fa-solid fa-id-card fa-icon-title" aria-hidden="true"></i> بيانات المتدرب</h3>
+          <div class="form-group">
+            <label for="battleInTrainee">اسم المتدرب</label>
+            <input id="battleInTrainee" name="trainee_name" type="text" autocomplete="off" {% if not current_exercise %}disabled{% endif %}>
+          </div>
+          <div class="form-group">
+            <label for="battleInTraineeMilitary">الرقم العسكري</label>
+            <input id="battleInTraineeMilitary" name="trainee_military_number" type="text" inputmode="numeric" autocomplete="off" {% if not current_exercise %}disabled{% endif %}>
+          </div>
+          <div class="form-group">
+            <label for="battleInRank">الرتبة</label>
+            <input id="battleInRank" name="rank_ar" type="text" autocomplete="off" {% if not current_exercise %}disabled{% endif %}>
+          </div>
+          <div class="form-group">
+            <label for="battleInPosition">المنصب</label>
+            <input id="battleInPosition" name="position_ar" type="text" autocomplete="off" {% if not current_exercise %}disabled{% endif %}>
+          </div>
+        </aside>
+        <div class="battle-save-row">
+          <button class="btn" type="submit" id="battleSaveBtn" {% if not current_exercise %}disabled{% endif %}><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ لهذه الوحدة</button>
+        </div>
+      </form>
+    </div>
+    <div class="battle-org-main">
+      <ul class="battle-org">
+        {{ render_battle(battle_tree, 0) }}
+      </ul>
+    </div>
+  </div>
+</section>
+</div>
+<script type="application/json" id="battle-personnel-saved">{{ personnel_by_unit | tojson }}</script>
+<script>
+(function () {
+  var root = document.getElementById("battleOrgRoot");
+  if (!root) return;
+  var raw = document.getElementById("battle-personnel-saved");
+  var saved = {};
+  try {
+    saved = raw && raw.textContent ? JSON.parse(raw.textContent) : {};
+  } catch (e) { saved = {}; }
+
+  var elUnitId = document.getElementById("battleFormUnitId");
+  var elUnitLabel = document.getElementById("battleFormUnitLabel");
+  var elTrainee = document.getElementById("battleInTrainee");
+  var elTraineeMil = document.getElementById("battleInTraineeMilitary");
+  var elRank = document.getElementById("battleInRank");
+  var elPos = document.getElementById("battleInPosition");
+  var elJudgeTrainee = document.getElementById("battleInJudgeTrainee");
+  var elJudgeMil = document.getElementById("battleInJudgeMilitary");
+  var elJudgeRank = document.getElementById("battleInJudgeRank");
+  var elJudgePos = document.getElementById("battleInJudgePosition");
+  var form = document.getElementById("battle-personnel-form");
+
+  function applyUnit(unitId, unitLabel) {
+    if (!elUnitId || !elUnitLabel) return;
+    elUnitId.value = unitId || "";
+    elUnitLabel.textContent = unitLabel || "—";
+    var rec = saved[unitId] || {};
+    if (elTrainee) elTrainee.value = rec.trainee_name || "";
+    if (elTraineeMil) elTraineeMil.value = rec.trainee_military_number || "";
+    if (elRank) elRank.value = rec.rank_ar || "";
+    if (elPos) elPos.value = rec.position_ar || "";
+    if (elJudgeTrainee) elJudgeTrainee.value = rec.judge_trainee_name || "";
+    if (elJudgeMil) elJudgeMil.value = rec.judge_military_number || "";
+    if (elJudgeRank) elJudgeRank.value = rec.judge_rank_ar || "";
+    if (elJudgePos) elJudgePos.value = rec.judge_position_ar || "";
+  }
+
+  root.addEventListener("click", function (ev) {
+    var t = ev.target;
+    var expandBtn = t.closest(".battle-org__expand-btn");
+    if (expandBtn && root.contains(expandBtn)) {
+      ev.preventDefault();
+      var cid = expandBtn.getAttribute("aria-controls");
+      var ul = cid ? document.getElementById(cid) : null;
+      if (!ul) return;
+      var open = expandBtn.getAttribute("aria-expanded") === "true";
+      expandBtn.setAttribute("aria-expanded", open ? "false" : "true");
+      ul.hidden = open;
+      return;
+    }
+    var symBtn = t.closest(".mil-sym-hit");
+    if (symBtn && root.contains(symBtn)) {
+      ev.preventDefault();
+      var uid = symBtn.getAttribute("data-unit-id") || "";
+      var lab = symBtn.getAttribute("data-unit-label") || "";
+      applyUnit(uid, lab);
+    }
+  });
+
+  if (form) {
+    form.addEventListener("submit", function (ev) {
+      var uid = elUnitId ? elUnitId.value.trim() : "";
+      if (!uid) {
+        ev.preventDefault();
+        return;
+      }
+    });
+  }
+})();
+</script>
+{% endblock %}

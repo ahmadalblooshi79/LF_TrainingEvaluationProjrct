@@ -11,6 +11,18 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, unquote
 
+if getattr(sys, "frozen", False):
+    import bootstrap_sys_path  # noqa: F401
+else:
+    _root = Path(__file__).resolve().parents[1]
+    _boot = _root / "bootstrap_sys_path.py"
+    import importlib.util
+
+    _spec = importlib.util.spec_from_file_location("bootstrap_sys_path", _boot)
+    if _spec and _spec.loader:
+        _mod = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+
 from flask import (
     Blueprint,
     abort,
@@ -4304,7 +4316,7 @@ def _evaluation_list_titles_for_criteria_unit(
     unit: AnalystEvaluationCriteriaUnit,
     criteria_phase_key: str,
 ) -> list[str]:
-    """عناوين القائمة الحالية من مساحة التخطيط (إنشاء قائمة التقييم) لهذه الوحدة والمرحلة."""
+    """عناوين القائمة الحالية من مساحة التخطيط (إنشاء قوائم التقييم) لهذه الوحدة والمرحلة."""
     from sqlalchemy import or_
 
     unit_label = (unit.label or "").strip()
@@ -4649,8 +4661,8 @@ def _dashboard_role_card_target(role_key: str, user: User) -> tuple[str, str, st
         return ("/judge", "فتح مساحة المحكمين", "إبدأ")
     if role_key == RoleKey.CHIEF_JUDGE.value:
         return (
-            "/judge",
-            "فتح مساحة المحكمين (مع صلاحيات كبير المحكمين)",
+            "/chief-judge",
+            "فتح مساحة كبير المحكمين",
             "إبدأ",
         )
     if role_key == RoleKey.STANDARDS_LIBRARY.value:
@@ -4664,6 +4676,7 @@ _DASHBOARD_CARD_ORDER: tuple[str, ...] = (
     RoleKey.PLANNER.value,
     RoleKey.CONTROL.value,
     RoleKey.JUDGE.value,
+    RoleKey.CHIEF_JUDGE.value,
     RoleKey.ANALYST.value,
 )
 _DASHBOARD_CARD_ORDER_RANK: dict[str, int] = {rk: i for i, rk in enumerate(_DASHBOARD_CARD_ORDER)}
@@ -4681,12 +4694,10 @@ def dashboard():
     role_title = next(
         (r.title_ar for r in roles if r.role_key == user.role_key), rk.value
     )
-    # لا بطاقة منفصلة لـ chief_judge: نفس نقطة الدخول «المحكمين» مع امتيازات الاعتماد الثاني من صلاحيات الدور.
     role_defs_home = [
         r
         for r in roles
         if r.role_key != RoleKey.STANDARDS_LIBRARY.value
-        and r.role_key != RoleKey.CHIEF_JUDGE.value
     ]
     dashboard_cards: list[dict] = []
     for r in role_defs_home:
@@ -6189,38 +6200,6 @@ def planner_flow_bundle_workspace():
             user,
             **page_ctx,
             **_hub_back_ctx_for_request_path(),
-        ),
-    )
-
-
-@bp.route("/admin/exercises/planner-flow-overview", methods=["GET"])
-def admin_planner_flow_bundle_overview():
-    user = get_current_user_optional()
-    if not user:
-        return redirect("/login?next=/admin/exercises/planner-flow-overview")
-    if not is_system_admin(user):
-        abort(403)
-    from flask import g
-
-    db = g.db
-    ex = _admin_current_workspace_exercise(db, user)
-    page_ctx = _build_planner_flow_bundle_page_context(
-        db,
-        user,
-        ex,
-        readonly=True,
-        pf_workspace_endpoint="views.admin_planner_flow_bundle_overview",
-        chief_hub_query_on_judge_links=False,
-        err="",
-        ok="",
-    )
-    return render_template(
-        "admin_planner_flow_bundle_overview.html",
-        **_ctx(
-            user,
-            **page_ctx,
-            hub_back_href=url_for("views.admin_exercise_judge_unit_roster"),
-            hub_back_label="العودة إلى قائمة المحكمين",
         ),
     )
 
@@ -7954,8 +7933,7 @@ def judge_planner_flow_materials_action_chief_reopen(slot: int):
 PLANNER_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("new-flow", "مجرى الأحداث والمعاضل", "fa-diagram-project"),
     ("new-action-eval-lists", "إنشاء قوائم تقييم الإجراءات", "fa-file-excel"),
-    ("new-evaluation-list", "إنشاء قائمة تقييم", "fa-file-circle-plus"),
-    ("evaluation-lists", "قوائم التقييم — إدخال النتائج", "fa-file-excel"),
+    ("new-evaluation-list", "إنشاء قوائم التقييم", "fa-file-circle-plus"),
     ("incomplete-tasks", "موقف المهام غير المكتملة", "fa-hourglass-half"),
     ("battle-overview", "الصورة العامة للمعركة", "fa-map"),
     ("assign-task", "إسناد مهمة جديدة", "fa-user-plus"),
@@ -8285,8 +8263,6 @@ def planner_hub_section(slug: str):
         return redirect(url_for("views.planner_action_eval_lists_workspace"))
     if slug_norm == "new-evaluation-list":
         return redirect(url_for("views.admin_evaluation_lists"))
-    if slug_norm == "evaluation-lists":
-        return redirect(url_for("views.admin_evaluation_lists"))
     if slug_norm == "visual-documentation":
         return redirect(url_for("views.visual_documentation", from_planner=1))
     title = PLANNER_HUB_SLUGS.get(slug_norm)
@@ -8310,343 +8286,6 @@ def planner_hub_section(slug: str):
     )
 
 
-@bp.route("/planner/evaluation-lists", methods=["GET"])
-def planner_evaluation_lists_home():
-    user = get_current_user_optional()
-    if not user:
-        return redirect("/login?next=/planner/evaluation-lists")
-    if not can_access_planner_hub(user):
-        abort(403)
-    from flask import g
-
-    db = g.db
-    ex = _admin_current_workspace_exercise(db, user)
-    units = list(UNIT_LEVELS)
-    phase_tabs = evaluation_unit_home_phase_tabs(db, ex, units)
-    return render_template(
-        "judge_evaluation_lists_home.html",
-        **_ctx(
-            user,
-            has_exercise=ex is not None,
-            exercise=ex,
-            unit_levels=units,
-            phase_tabs=phase_tabs,
-            active_phase_key=_evaluation_list_home_active_phase(phase_tabs),
-            unit_list_endpoint="views.planner_evaluation_lists",
-            **_hub_back_ctx_for_request_path(),
-        ),
-    )
-
-
-@bp.route("/planner/evaluation-lists/<unit_key>", methods=["GET"])
-def planner_evaluation_lists(unit_key: str):
-    user = get_current_user_optional()
-    if not user:
-        return redirect(f"/login?next=/planner/evaluation-lists/{unit_key}")
-    if not can_access_planner_hub(user):
-        abort(403)
-    unit = _require_unit_level_row(unit_key)
-    from flask import g
-
-    db = g.db
-    ex = _admin_current_workspace_exercise(db, user)
-    if ex is None:
-        return redirect("/planner/evaluation-lists")
-    phase_key = _evaluation_list_phase_from_request()
-    items = (
-        db.query(EvaluationListPdfItem)
-        .filter(EvaluationListPdfItem.exercise_id == ex.id, EvaluationListPdfItem.unit_level_key == unit_key)
-        .order_by(
-            _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
-            EvaluationListPdfItem.sort_order,
-            EvaluationListPdfItem.id,
-        )
-        .all()
-    )
-    items = filter_evaluation_items_by_phase(items, phase_key)
-    item_ids = [int(it.id) for it in items]
-    canonical_by_item = _evaluation_canonical_map_for_items(db, ex.id, item_ids)
-
-    evaluation_lists_rows: list[dict] = []
-    for it in items:
-        s = canonical_by_item.get(int(it.id))
-        evaluation_lists_rows.append(
-            build_evaluation_list_row(
-                item=it,
-                saved=s,
-                exercise=ex,
-                open_href=url_for(
-                    "views.planner_evaluation_list_file_viewer",
-                    unit_key=unit_key,
-                    item_id=it.id,
-                    **_evaluation_list_phase_url_kwargs(phase_key),
-                ),
-            )
-        )
-    list_close_href = (
-        url_for("views.planner_evaluation_lists_home", **_evaluation_list_phase_url_kwargs(phase_key))
-        if phase_key
-        else url_for("views.planner_evaluation_lists_home")
-    )
-    return render_template(
-        "judge_evaluation_lists.html",
-        **_ctx(
-            user,
-            exercise=ex,
-            unit=unit,
-            unit_key=unit_key,
-            items=items,
-            evaluation_lists_rows=evaluation_lists_rows,
-            eval_lists_parent_href=list_close_href,
-            subpage_close_fallback=list_close_href,
-            phase_key=phase_key,
-            phase_label=_phase_label_ar(phase_key) if phase_key else "",
-            **_hub_back_ctx_for_request_path(),
-        ),
-    )
-
-
-@bp.route("/planner/evaluation-lists/<unit_key>/view/<int:item_id>", methods=["GET"])
-def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
-    user = get_current_user_optional()
-    if not user:
-        return redirect(f"/login?next=/planner/evaluation-lists/{unit_key}/view/{item_id}")
-    if not can_access_planner_hub(user):
-        abort(403)
-    unit = _require_unit_level_row(unit_key)
-    from flask import g
-
-    db = g.db
-    row = db.get(EvaluationListPdfItem, item_id)
-    current_exercise = _admin_current_workspace_exercise(db, user)
-    if not row or row.unit_level_key != unit_key or current_exercise is None or row.exercise_id != current_exercise.id:
-        abort(404)
-    list_url = _evaluation_list_unit_href(
-        "views.planner_evaluation_lists", unit_key, _evaluation_list_resolved_phase(row)
-    )
-    if not (row.pdf_relpath or "").strip():
-        return redirect(list_url)
-    fspath = _evaluation_list_file_abspath(row.pdf_relpath)
-    if fspath is None:
-        return redirect(list_url)
-    ev = _evaluation_sheet_view_context(fspath)
-
-    saved_payload = {}
-    saved_updated_at = None
-    saved_is_approved = False
-    saved_approved_at = None
-    saved_row_id = None
-    canon = _evaluation_canonical_saved_row(db, current_exercise.id, row.id)
-
-    def _load_payload(sr: EvaluationListSavedResult | None) -> dict:
-        if not sr or not (sr.payload_json or "").strip():
-            return {}
-        try:
-            p = json.loads(sr.payload_json)
-        except Exception:
-            return {}
-        return p if isinstance(p, dict) else {}
-
-    if canon is not None:
-        saved_payload = _load_payload(canon)
-        saved_updated_at = canon.updated_at
-        saved_is_approved = bool(getattr(canon, "is_approved", False))
-        saved_approved_at = getattr(canon, "approved_at", None)
-        saved_row_id = canon.id
-    saved_payload = _saved_payload_aligned_with_eval_rows(saved_payload, ev.get("eval_rows"))
-
-    unit_label = (unit.get("label") or "").strip() if isinstance(unit, dict) else ""
-    shown_date = getattr(current_exercise, "planned_start", None) or getattr(current_exercise, "created_at", None)
-
-    commander_name = "—"
-    commander_row = (
-        db.query(ExerciseRosterRow)
-        .filter(
-            ExerciseRosterRow.exercise_id == current_exercise.id,
-            ExerciseRosterRow.roster_kind == ExerciseRosterKind.TRAINEE.value,
-            ExerciseRosterRow.unit_level_key == unit_key,
-        )
-        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
-        .first()
-    )
-    if commander_row is not None:
-        commander_name = (commander_row.full_name or "").strip() or commander_name
-
-    judge_name = "—"
-    judge_row = (
-        db.query(ExerciseRosterRow)
-        .filter(
-            ExerciseRosterRow.exercise_id == current_exercise.id,
-            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
-            ExerciseRosterRow.unit_level_key == unit_key,
-        )
-        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
-        .first()
-    )
-    if judge_row is not None:
-        judge_name = (judge_row.full_name or "").strip() or judge_name
-
-    phase_key = _evaluation_list_resolved_phase(row)
-    eval_save_url = url_for(
-        "views.planner_evaluation_list_save_results",
-        unit_key=unit_key,
-        item_id=item_id,
-        **_evaluation_list_phase_url_kwargs(phase_key),
-    )
-    eval_approve_url = url_for(
-        "views.planner_evaluation_list_approve",
-        unit_key=unit_key,
-        item_id=item_id,
-        **_evaluation_list_phase_url_kwargs(phase_key),
-    )
-    wf = _eval_list_viewer_ctx(user, canon)
-    crit_edit = bool(
-        not saved_is_approved and can_save_evaluation_results(user)
-    )
-    wf["eval_can_edit"] = crit_edit
-
-    return render_template(
-        "judge_evaluation_list_viewer.html",
-        **_ctx(
-            user,
-            unit_key=unit_key,
-            item_id=item_id,
-            item_title=row.text or "تقييم",
-            evaluation_item_id=row.id,
-            saved_row_id=saved_row_id,
-            saved_payload=saved_payload,
-            saved_updated_at=saved_updated_at,
-            **wf,
-            **ev,
-            **_eval_crit_media_sheet_ctx(
-                db,
-                user,
-                exercise=current_exercise,
-                list_item_id=int(row.id),
-                bundle_action_eval_id=None,
-                eval_can_edit=crit_edit,
-            ),
-            unit_label=unit_label or "—",
-            shown_date=shown_date,
-            commander_name=commander_name or "—",
-            judge_name=judge_name or "—",
-            has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
-            eval_save_url=eval_save_url,
-            eval_approve_url=eval_approve_url,
-            eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
-            eval_save_notes_required=request.args.get("eval_save_notes_required", type=int) == 1,
-            subpage_close_fallback=_evaluation_list_unit_href(
-                "views.planner_evaluation_lists", unit_key, phase_key
-            ),
-            **_hub_back_ctx_for_request_path(),
-        ),
-    )
-
-
-@bp.route(
-    "/planner/evaluation-lists/<unit_key>/view/<int:item_id>/save-results",
-    methods=["POST"],
-)
-def planner_evaluation_list_save_results(unit_key: str, item_id: int):
-    user = get_current_user_optional()
-    if not user:
-        abort(403)
-    if not can_access_planner_hub(user):
-        abort(403)
-    unit = _require_unit_level_row(unit_key)
-    from flask import g
-
-    db = g.db
-    item = db.get(EvaluationListPdfItem, item_id)
-    current_exercise = _admin_current_workspace_exercise(db, user)
-    if (
-        not item
-        or item.unit_level_key != unit_key
-        or current_exercise is None
-        or item.exercise_id != current_exercise.id
-    ):
-        abort(404)
-
-    raw = (request.form.get("payload_json") or "").strip()
-    if not raw:
-        return _evaluation_list_viewer_redirect(
-            "views.planner_evaluation_list_file_viewer", unit_key, item_id, item
-        )
-    if len(raw) > 250_000:
-        abort(400)
-    if _evaluation_save_payload_missing_row_notes(raw):
-        return _evaluation_list_viewer_redirect(
-            "views.planner_evaluation_list_file_viewer",
-            unit_key,
-            item_id,
-            item,
-            eval_save_notes_required=1,
-        )
-    _evaluation_commit_payload_save(db, user=user, item=item, current_exercise=current_exercise, raw=raw)
-    return _evaluation_list_viewer_redirect(
-        "views.planner_evaluation_list_file_viewer", unit_key, item_id, item, eval_saved=1
-    )
-
-
-@bp.route(
-    "/planner/evaluation-lists/<unit_key>/view/<int:item_id>/approve",
-    methods=["POST"],
-)
-def planner_evaluation_list_approve(unit_key: str, item_id: int):
-    user = get_current_user_optional()
-    if not user:
-        abort(403)
-    if not can_access_planner_hub(user):
-        abort(403)
-    if not can_approve_evaluation_results(user):
-        abort(403)
-    unit = _require_unit_level_row(unit_key)
-    from flask import g
-
-    db = g.db
-    item = db.get(EvaluationListPdfItem, item_id)
-    current_exercise = _admin_current_workspace_exercise(db, user)
-    if (
-        not item
-        or item.unit_level_key != unit_key
-        or current_exercise is None
-        or item.exercise_id != current_exercise.id
-    ):
-        abort(404)
-
-    saved = _evaluation_canonical_saved_row(db, current_exercise.id, item.id)
-    if saved is None or not (saved.payload_json or "").strip():
-        abort(400)
-    if bool(getattr(saved, "is_approved", False)):
-        return _evaluation_list_viewer_redirect(
-            "views.planner_evaluation_list_file_viewer", unit_key, item_id, item
-        )
-    rows = _parse_saved_eval_rows(saved.payload_json)
-    if _evaluation_payload_has_empty_acquired_for_approve(rows):
-        return _evaluation_list_viewer_redirect(
-            "views.planner_evaluation_list_file_viewer",
-            unit_key,
-            item_id,
-            item,
-            eval_approve_incomplete=1,
-        )
-    if not _evaluation_saved_allows_judge_approve(saved):
-        return _evaluation_list_viewer_redirect(
-            "views.planner_evaluation_list_file_viewer",
-            unit_key,
-            item_id,
-            item,
-            eval_approve_grade_blocked=1,
-        )
-    saved.is_approved = True
-    saved.approved_by_id = getattr(user, "id", None)
-    saved.approved_at = datetime.utcnow()
-    db.commit()
-    return _evaluation_list_viewer_redirect(
-        "views.planner_evaluation_list_file_viewer", unit_key, item_id, item
-    )
-
-
 # مساحة المحكمين — عناصر الشريط (المعرّف، العنوان، أيقونة Font Awesome)
 JUDGE_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("dilemmas", "قوائم تقييم الإجراءات", "fa-file-excel"),
@@ -8660,7 +8299,7 @@ JUDGE_HUB_SLUGS: dict[str, str] = {s: t for s, t, _ in JUDGE_HUB_ITEMS}
 
 
 def _judge_hub_menu_items(user: User) -> tuple[tuple[str, str, str], ...]:
-    """عناصر أوامر مساحة المحكمين حسب الدور."""
+    """عناصر أوامر مساحة المحكمين حسب الدور (بدون أوامر كبير المحكمين)."""
     _hub_by_slug = {x[0]: x for x in JUDGE_HUB_ITEMS}
     _judge_individual_slugs = (
         "dilemmas",
@@ -8668,8 +8307,8 @@ def _judge_hub_menu_items(user: User) -> tuple[tuple[str, str, str], ...]:
         "planner-flow-materials",
         "incomplete-tasks",
     )
-    if is_system_admin(user) or can_access_chief_judge_hub(user):
-        return CHIEF_JUDGE_ONLY_HUB_ITEMS + JUDGE_HUB_ITEMS
+    if is_system_admin(user) or is_chief_judge(user):
+        return JUDGE_HUB_ITEMS
     return tuple(_hub_by_slug[s] for s in _judge_individual_slugs if s in _hub_by_slug)
 
 
@@ -8694,7 +8333,6 @@ def judge_hub():
         **_ctx(
             user,
             hub_items=hub_items,
-            judge_hub_show_chief_subtitle=bool(can_access_chief_judge_hub(user)),
             judge_hub_hide_close=bool(
                 is_judge(user)
                 and not can_access_chief_judge_hub(user)
@@ -8715,13 +8353,11 @@ def judge_hub_section(slug: str):
     if slug_norm == "evaluation-lists-chief":
         if not can_access_chief_judge_hub(user):
             abort(403)
-        return redirect(url_for("views.chief_judge_evaluation_lists_home"))
+        return redirect(url_for("views.chief_judge_hub_section", slug="evaluation-lists-chief"))
     if slug_norm == "planner-flow-bundle-overview":
         if not can_access_chief_judge_hub(user):
             abort(403)
-        return redirect(
-            url_for("views.judge_planner_flow_action_approval", from_chief_judge=1)
-        )
+        return redirect(url_for("views.chief_judge_hub_section", slug="planner-flow-bundle-overview"))
     title = JUDGE_HUB_SLUGS.get(slug_norm)
     if not title:
         abort(404)
@@ -9481,10 +9117,9 @@ def visual_document_file(doc_id: int):
 
 # مساحة السيطرة — عناصر الشريط (المعرّف، العنوان، أيقونة Font Awesome)
 CONTROL_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
-    ("evaluation-lists-status", "موقف قوائم التقييم", "fa-file-excel"),
+    ("evaluation-lists-status", "موقف قوائم التقييم والمهام غير المكتملة", "fa-file-excel"),
     ("top-positives-negatives", "عرض أبرز الإيجابيات والسلبيات", "fa-star"),
     ("evaluation-results", "عرض نتائج التقييم", "fa-square-poll-vertical"),
-    ("incomplete-tasks-status", "موقف المهام غير المكتملة", "fa-hourglass-half"),
     ("visual-doc-status", "موقف التوثيق المرئي", "fa-photo-film"),
     ("battle-overview", "الصورة العامة للمعركة", "fa-map"),
     ("assign-task", "إسناد مهمة جديدة", "fa-user-plus"),
@@ -9584,10 +9219,9 @@ def _planner_hub_back_ctx_always() -> dict:
 
 
 def _chief_judge_hub_back_ctx_always() -> dict:
-    """مسارات الاعتماد الثاني ما زالت تحت /chief-judge؛ العودة إلى مركز المحكمين الموحد."""
     return {
-        "hub_back_href": url_for("views.judge_hub"),
-        "hub_back_label": "العودة إلى مساحة المحكمين",
+        "hub_back_href": url_for("views.chief_judge_hub"),
+        "hub_back_label": "العودة إلى مساحة كبير المحكمين",
     }
 
 
@@ -9613,7 +9247,7 @@ def _hub_back_ctx_for_request_path() -> dict:
         "hub_back_href": "/dashboard",
         "hub_back_label": "العودة إلى لوحة المستخدم",
     }
-    if p in ("/control", "/judge", "/analyst", "/planner"):
+    if p in ("/control", "/judge", "/chief-judge", "/analyst", "/planner"):
         return hub_dashboard
     if p.startswith("/control"):
         return _control_hub_back_ctx_always()
@@ -10088,7 +9722,7 @@ def _build_incomplete_evaluations_report(db, user: User, *, role: str) -> dict:
     elif role == "planner":
         ex0 = _admin_current_workspace_exercise(db, user)
         unit_filter = None
-        eval_ep = "views.planner_evaluation_list_file_viewer"
+        eval_ep = "views.admin_evaluation_list_file_viewer"
         pf_ep = "views.control_planner_flow_action_view"
         pf_slot = False
     elif role == "analyst":
@@ -11053,6 +10687,8 @@ def control_hub_section(slug: str):
     if not can_access_control_hub(user):
         abort(403)
     slug_norm = (slug or "").strip().lower()
+    if slug_norm == "incomplete-tasks-status":
+        return redirect(url_for("views.control_hub_section", slug="evaluation-lists-status"))
     if slug_norm in ("visual-doc-status", "visual-documentation"):
         return redirect(url_for("views.visual_documentation", from_control=1))
     title = CONTROL_HUB_SLUGS.get(slug_norm)
@@ -11075,6 +10711,7 @@ def control_hub_section(slug: str):
         from flask import g
 
         status = _build_control_evaluation_lists_status(g.db, user)
+        incomplete = _build_incomplete_evaluations_report(g.db, user, role="control")
         if not status.get("has_exercise"):
             return render_template(
                 "control_evaluation_lists_status.html",
@@ -11083,6 +10720,8 @@ def control_hub_section(slug: str):
                     section_title=title,
                     section_icon=_control_section_icon(slug_norm),
                     has_exercise=False,
+                    incomplete_rows=[],
+                    incomplete_count=0,
                     **_control_hub_back_ctx_always(),
                 ),
             )
@@ -11092,16 +10731,11 @@ def control_hub_section(slug: str):
                 user,
                 section_title=title,
                 section_icon=_control_section_icon(slug_norm),
+                incomplete_rows=incomplete.get("incomplete_rows") or [],
+                incomplete_count=int(incomplete.get("incomplete_count") or 0),
                 **_control_hub_back_ctx_always(),
                 **status,
             ),
-        )
-    if slug_norm == "incomplete-tasks-status":
-        return _render_incomplete_evaluations_page(
-            user,
-            section_title=title,
-            section_icon=_control_section_icon(slug_norm),
-            role="control",
         )
     if slug_norm == "top-positives-negatives":
         from flask import g
@@ -12986,21 +12620,20 @@ def eval_criterion_media_delete(media_id: int):
 
 # ——— مساحة كبير المحكمين ———
 CHIEF_JUDGE_ONLY_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
-    ("evaluation-lists-chief", "اعتماد قوائم التقييم (كبير المحكمين)", "fa-stamp"),
+    (
+        "evaluation-lists-chief",
+        "اعتماد قوائم تقييم الإجراءات (مجرى الأحداث والمعاضل)",
+        "fa-diagram-project",
+    ),
     (
         "planner-flow-bundle-overview",
-        "المجرى وتقييم الإجراءات (اعتماد)",
-        "fa-diagram-project",
+        "اعتماد قوائم التقييم",
+        "fa-file-excel",
     ),
 )
 
 
-def _chief_judge_hub_items() -> tuple[tuple[str, str, str], ...]:
-    """امتيازات كبير المحكمين الخاصة + جميع أوامر مساحة المحكمين."""
-    return CHIEF_JUDGE_ONLY_HUB_ITEMS + JUDGE_HUB_ITEMS
-
-
-CHIEF_JUDGE_HUB_SLUGS: dict[str, str] = {s: t for s, t, _ in _chief_judge_hub_items()}
+CHIEF_JUDGE_HUB_SLUGS: dict[str, str] = {s: t for s, t, _ in CHIEF_JUDGE_ONLY_HUB_ITEMS}
 
 
 @bp.route("/chief-judge")
@@ -13010,7 +12643,13 @@ def chief_judge_hub():
         return redirect("/login?next=/chief-judge")
     if not can_access_chief_judge_hub(user):
         abort(403)
-    return redirect(url_for("views.judge_hub"))
+    hub_items = [
+        {"slug": s, "title_ar": t, "icon": ic} for s, t, ic in CHIEF_JUDGE_ONLY_HUB_ITEMS
+    ]
+    return render_template(
+        "chief_judge_hub.html",
+        **_ctx(user, hub_items=hub_items),
+    )
 
 
 @bp.route("/chief-judge/<slug>")
@@ -13021,9 +12660,24 @@ def chief_judge_hub_section(slug: str):
     if not can_access_chief_judge_hub(user):
         abort(403)
     slug_norm = (slug or "").strip().lower()
-    if slug_norm not in CHIEF_JUDGE_HUB_SLUGS:
+    title = CHIEF_JUDGE_HUB_SLUGS.get(slug_norm)
+    if not title:
         abort(404)
-    return redirect(url_for("views.judge_hub_section", slug=slug_norm))
+    if slug_norm == "evaluation-lists-chief":
+        return redirect(url_for("views.chief_judge_evaluation_lists_home"))
+    if slug_norm == "planner-flow-bundle-overview":
+        return redirect(
+            url_for("views.judge_planner_flow_action_approval", from_chief_judge=1)
+        )
+    return render_template(
+        "judge_section_placeholder.html",
+        **_ctx(
+            user,
+            section_title=title,
+            section_slug=slug_norm,
+            **_hub_back_ctx_for_request_path(),
+        ),
+    )
 
 
 @bp.route("/chief-judge/evaluation-lists", methods=["GET"])
@@ -16962,3 +16616,10 @@ def admin_chat_rooms():
             all_users=all_users,
         ),
     )
+
+
+if __name__ == "__main__":
+    import runpy
+
+    print("ملف المسارات فقط — يُشغَّل التطبيق عبر run.py", file=sys.stderr)
+    runpy.run_path(str(_root / "run.py"), run_name="__main__")
