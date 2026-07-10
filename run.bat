@@ -4,6 +4,6 @@ cd /d "%~dp0"
 if exist ".venv\Scripts\python.exe" (
   ".venv\Scripts\python.exe" run.py
 ) else (
-  echo [خطأ] لم يُعثر على .venv\Scripts\python.exe — أنشئ البيئة الافتراضية أولاً.
+  echo [ERROR] .venv\Scripts\python.exe not found — create the virtual environment first.
   exit /b 1
 )

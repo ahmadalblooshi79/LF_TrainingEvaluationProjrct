@@ -4,24 +4,11 @@ import json
 import logging
 import mimetypes
 import re
-import sys
 import uuid
 import zipfile
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, unquote
-
-if getattr(sys, "frozen", False):
-    import bootstrap_sys_path  # noqa: F401
-else:
-    _root = Path(__file__).resolve().parents[1]
-    _boot = _root / "bootstrap_sys_path.py"
-    import importlib.util
-
-    _spec = importlib.util.spec_from_file_location("bootstrap_sys_path", _boot)
-    if _spec and _spec.loader:
-        _mod = importlib.util.module_from_spec(_spec)
-        _spec.loader.exec_module(_mod)
 
 from flask import (
     Blueprint,
@@ -317,6 +304,12 @@ def _is_docx_bytes(data: bytes) -> bool:
             return any(n.startswith("word/") for n in z.namelist())
     except zipfile.BadZipFile:
         return False
+
+
+def _is_pptx_bytes(data: bytes) -> bool:
+    from app.exercise_pptx_import import is_pptx_bytes
+
+    return is_pptx_bytes(data)
 
 
 def _is_doc_bytes(data: bytes) -> bool:
@@ -4727,16 +4720,45 @@ def dashboard():
     )
 
 
+# أزرار معطّلة مؤقتاً في أوامر المساحات (لا روابط ولا وصول مباشر بالرابط)
+HUB_DISABLED_SLUGS: frozenset[str] = frozenset({"battle-overview", "assign-task"})
+
+
+def _hub_menu_items(
+    items: tuple[tuple[str, str, str], ...],
+    *,
+    section_endpoint: str,
+) -> list[dict]:
+    out: list[dict] = []
+    for slug, title_ar, icon in items:
+        disabled = slug in HUB_DISABLED_SLUGS
+        out.append(
+            {
+                "slug": slug,
+                "title_ar": title_ar,
+                "icon": icon,
+                "disabled": disabled,
+                "href": None if disabled else url_for(section_endpoint, slug=slug),
+            }
+        )
+    return out
+
+
+def _abort_if_hub_section_disabled(slug: str) -> None:
+    if (slug or "").strip().lower() in HUB_DISABLED_SLUGS:
+        abort(404)
+
+
 # مساحة المحللين — عناصر الشريط (المعرّف، العنوان، أيقونة Font Awesome)
 ANALYST_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("evaluation-criteria", "معايير التقييم", "fa-list-check"),
-    ("positives-negatives", "عرض الإيجابيات والسلبيات", "fa-plus-minus"),
+    ("final-evaluation", "التقييم نهائي", "fa-file-signature"),
     ("evaluation-results", "عرض نتائج التقييم", "fa-square-poll-vertical"),
     ("judges-eval-analysis", "تحليل وتقييم المحكمين", "fa-chart-column"),
+    ("positives-negatives", "عرض الإيجابيات والسلبيات", "fa-plus-minus"),
     ("incomplete-tasks", "مهام غير مكتملة", "fa-clipboard-list"),
     ("after-action-review", "إنشاء مراجعة ما بعد العمل", "fa-people-arrows"),
     ("visual-documentation", "التوثيق المرئي", "fa-photo-film"),
-    ("final-evaluation", "التقييم نهائي", "fa-file-signature"),
 )
 ANALYST_HUB_SLUGS: dict[str, str] = {s: t for s, t, _ in ANALYST_HUB_ITEMS}
 
@@ -4748,7 +4770,9 @@ def analyst_hub():
         return redirect("/login?next=/analyst")
     if not can_access_analyst_hub(user):
         abort(403)
-    hub_items = [{"slug": s, "title_ar": t, "icon": ic} for s, t, ic in ANALYST_HUB_ITEMS]
+    hub_items = _hub_menu_items(
+        ANALYST_HUB_ITEMS, section_endpoint="views.analyst_hub_section"
+    )
     return render_template(
         "analyst_hub.html",
         **_ctx(
@@ -8239,7 +8263,9 @@ def planner_hub():
         return redirect("/login?next=/planner")
     if not can_access_planner_hub(user):
         abort(403)
-    hub_items = [{"slug": s, "title_ar": t, "icon": ic} for s, t, ic in PLANNER_HUB_ITEMS]
+    hub_items = _hub_menu_items(
+        PLANNER_HUB_ITEMS, section_endpoint="views.planner_hub_section"
+    )
     return render_template(
         "planner_hub.html",
         **_ctx(
@@ -8257,6 +8283,7 @@ def planner_hub_section(slug: str):
     if not can_access_planner_hub(user):
         abort(403)
     slug_norm = (slug or "").strip().lower()
+    _abort_if_hub_section_disabled(slug_norm)
     if slug_norm == "new-flow":
         return redirect(url_for("views.planner_flow_bundle_workspace"))
     if slug_norm == "new-action-eval-lists":
@@ -8288,9 +8315,9 @@ def planner_hub_section(slug: str):
 
 # مساحة المحكمين — عناصر الشريط (المعرّف، العنوان، أيقونة Font Awesome)
 JUDGE_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
+    ("planner-flow-materials", "مجرى الأحداث والمعاضل", "fa-table-list"),
     ("dilemmas", "قوائم تقييم الإجراءات", "fa-file-excel"),
     ("evaluation-lists", "قوائم التقييم", "fa-file-excel"),
-    ("planner-flow-materials", "مجرى الأحداث والمعاضل", "fa-table-list"),
     ("visual-documentation", "التوثيق المرئي", "fa-photo-film"),
     ("incomplete-tasks", "مهام غير مكتملة", "fa-clipboard-list"),
     ("battle-overview", "الصورة العامة للمعركة", "fa-map"),
@@ -8302,9 +8329,9 @@ def _judge_hub_menu_items(user: User) -> tuple[tuple[str, str, str], ...]:
     """عناصر أوامر مساحة المحكمين حسب الدور (بدون أوامر كبير المحكمين)."""
     _hub_by_slug = {x[0]: x for x in JUDGE_HUB_ITEMS}
     _judge_individual_slugs = (
+        "planner-flow-materials",
         "dilemmas",
         "evaluation-lists",
-        "planner-flow-materials",
         "incomplete-tasks",
     )
     if is_system_admin(user) or is_chief_judge(user):
@@ -8327,7 +8354,9 @@ def judge_hub():
     _ensure_judge_roster_synced(db, user, ex)
 
     items_src = _judge_hub_menu_items(user)
-    hub_items = [{"slug": s, "title_ar": t, "icon": ic} for s, t, ic in items_src]
+    hub_items = _hub_menu_items(
+        items_src, section_endpoint="views.judge_hub_section"
+    )
     return render_template(
         "judge_hub.html",
         **_ctx(
@@ -8350,6 +8379,7 @@ def judge_hub_section(slug: str):
     if not can_access_judge_hub(user):
         abort(403)
     slug_norm = (slug or "").strip().lower()
+    _abort_if_hub_section_disabled(slug_norm)
     if slug_norm == "evaluation-lists-chief":
         if not can_access_chief_judge_hub(user):
             abort(403)
@@ -9117,9 +9147,9 @@ def visual_document_file(doc_id: int):
 
 # مساحة السيطرة — عناصر الشريط (المعرّف، العنوان، أيقونة Font Awesome)
 CONTROL_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
+    ("evaluation-results", "عرض نتائج التقييم", "fa-square-poll-vertical"),
     ("evaluation-lists-status", "موقف قوائم التقييم والمهام غير المكتملة", "fa-file-excel"),
     ("top-positives-negatives", "عرض أبرز الإيجابيات والسلبيات", "fa-star"),
-    ("evaluation-results", "عرض نتائج التقييم", "fa-square-poll-vertical"),
     ("visual-doc-status", "موقف التوثيق المرئي", "fa-photo-film"),
     ("battle-overview", "الصورة العامة للمعركة", "fa-map"),
     ("assign-task", "إسناد مهمة جديدة", "fa-user-plus"),
@@ -10669,7 +10699,9 @@ def control_hub():
         return redirect("/login?next=/control")
     if not can_access_control_hub(user):
         abort(403)
-    hub_items = [{"slug": s, "title_ar": t, "icon": ic} for s, t, ic in CONTROL_HUB_ITEMS]
+    hub_items = _hub_menu_items(
+        CONTROL_HUB_ITEMS, section_endpoint="views.control_hub_section"
+    )
     return render_template(
         "control_hub.html",
         **_ctx(
@@ -10687,6 +10719,7 @@ def control_hub_section(slug: str):
     if not can_access_control_hub(user):
         abort(403)
     slug_norm = (slug or "").strip().lower()
+    _abort_if_hub_section_disabled(slug_norm)
     if slug_norm == "incomplete-tasks-status":
         return redirect(url_for("views.control_hub_section", slug="evaluation-lists-status"))
     if slug_norm in ("visual-doc-status", "visual-documentation"):
@@ -12622,12 +12655,12 @@ def eval_criterion_media_delete(media_id: int):
 CHIEF_JUDGE_ONLY_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     (
         "evaluation-lists-chief",
-        "اعتماد قوائم تقييم الإجراءات (مجرى الأحداث والمعاضل)",
+        "اعتماد قوائم التقييم",
         "fa-diagram-project",
     ),
     (
         "planner-flow-bundle-overview",
-        "اعتماد قوائم التقييم",
+        "اعتماد قوائم تقييم الإجراءات (مجرى الأحداث والمعاضل)",
         "fa-file-excel",
     ),
 )
@@ -12643,9 +12676,9 @@ def chief_judge_hub():
         return redirect("/login?next=/chief-judge")
     if not can_access_chief_judge_hub(user):
         abort(403)
-    hub_items = [
-        {"slug": s, "title_ar": t, "icon": ic} for s, t, ic in CHIEF_JUDGE_ONLY_HUB_ITEMS
-    ]
+    hub_items = _hub_menu_items(
+        CHIEF_JUDGE_ONLY_HUB_ITEMS, section_endpoint="views.chief_judge_hub_section"
+    )
     return render_template(
         "chief_judge_hub.html",
         **_ctx(user, hub_items=hub_items),
@@ -13358,24 +13391,6 @@ def admin_evaluation_lists():
 def admin_evaluation_lists_unit_redirect(unit_key: str):
     """توافق خلفي — الصفحة الموحّدة بدون اختيار وحدة."""
     return redirect(url_for("views.admin_evaluation_lists"))
-
-
-@bp.route("/admin/server-management", methods=["GET"])
-def admin_server_management():
-    user = get_current_user_optional()
-    if not user or not is_system_admin(user):
-        abort(403)
-    from app.server_monitor.metrics import server_status_payload
-
-    status = server_status_payload()
-    return render_template(
-        "admin_server_management.html",
-        **_ctx(
-            user,
-            server_status=status,
-            page_title="إدارة الخادم",
-        ),
-    )
 
 
 @bp.route("/admin/battle-organization", methods=["GET"])
@@ -15383,14 +15398,25 @@ def _exercise_type_level_display_text(ex: Exercise) -> str:
 
 
 def _apply_exercise_workspace_form(ex: Exercise) -> None:
+    from app.exercise_text_format import join_idea_paragraphs
+
     ex.exercise_purpose = (request.form.get("exercise_purpose") or "").strip()
     ex.exercise_type_level_text = (
         request.form.get("exercise_type_level_text") or ""
     ).strip()
     ex.exercise_participants = (request.form.get("exercise_participants") or "").strip()
-    ex.general_idea_text = (request.form.get("general_idea_text") or "").strip()
-    ex.specific_idea_text = (request.form.get("specific_idea_text") or "").strip()
+    general_paras = [p.strip() for p in request.form.getlist("general_idea_paragraph")]
+    if general_paras:
+        ex.general_idea_text = join_idea_paragraphs(general_paras)
+    else:
+        ex.general_idea_text = (request.form.get("general_idea_text") or "").strip()
+    specific_paras = [p.strip() for p in request.form.getlist("specific_idea_paragraph")]
+    if specific_paras:
+        ex.specific_idea_text = join_idea_paragraphs(specific_paras)
+    else:
+        ex.specific_idea_text = (request.form.get("specific_idea_text") or "").strip()
     ex.program_text = (request.form.get("program_text") or "").strip()
+    ex.program_table_json = (request.form.get("program_table_json") or "").strip()
     ex.map_text = (request.form.get("map_text") or "").strip()
 
 
@@ -15426,6 +15452,14 @@ def exercise_detail(eid):
         )
     if request.args.get("ok"):
         ok_msg = "تم حفظ البيانات."
+    from app.exercise_program_table import render_program_table_html
+    from app.exercise_text_format import split_idea_paragraphs
+
+    program_table_html = render_program_table_html(
+        getattr(ex, "program_table_json", None) or ""
+    )
+    general_idea_paragraphs = split_idea_paragraphs(ex.general_idea_text or "")
+    specific_idea_paragraphs = split_idea_paragraphs(ex.specific_idea_text or "")
     return render_template(
         "exercise_detail.html",
         **_ctx(
@@ -15437,9 +15471,42 @@ def exercise_detail(eid):
             active_workspace_tab=active_tab,
             exercise_type_level_display=_exercise_type_level_display_text(ex),
             ok_msg=ok_msg,
+            program_table_html=program_table_html,
+            general_idea_paragraphs=general_idea_paragraphs,
+            specific_idea_paragraphs=specific_idea_paragraphs,
+            exercise_import_pptx_url=url_for("views.exercise_import_pptx", eid=int(eid)),
             **_subpage_close_ctx("/dashboard"),
         ),
     )
+
+
+@bp.route("/exercises/<int:eid>/import-pptx", methods=["POST"])
+def exercise_import_pptx(eid: int):
+    user = get_current_user_optional()
+    if not user:
+        return jsonify({"ok": False, "error": "auth"}), 401
+    if not can_plan_exercises(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    from flask import g
+
+    from app.exercise_pptx_import import parse_exercise_pptx_bytes
+
+    db = g.db
+    ex = db.query(Exercise).filter(Exercise.id == eid).first()
+    if not ex:
+        return jsonify({"ok": False, "error": "not_found"}), 404
+    up = request.files.get("pptx_file")
+    if up is None or not (up.filename or "").strip():
+        return jsonify({"ok": False, "error": "no_file"}), 400
+    raw = up.read()
+    if not raw:
+        return jsonify({"ok": False, "error": "empty_file"}), 400
+    if not _is_pptx_bytes(raw):
+        return jsonify({"ok": False, "error": "bad_pptx"}), 400
+    parsed = parse_exercise_pptx_bytes(raw)
+    if not parsed.get("ok"):
+        return jsonify(parsed), 400
+    return jsonify(parsed)
 
 
 def _library_redirect(*, tab: str, ok: str = "", err: str = ""):

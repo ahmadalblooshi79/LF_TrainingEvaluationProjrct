@@ -35,18 +35,22 @@
   --shadow-card: 0 1px 3px rgba(60, 48, 40, 0.06);
   --radius: 10px;
   --radius-sm: 8px;
-  --space-xs: 0.5rem;
-  --space-sm: 0.75rem;
-  --space-md: 1.25rem;
-  --space-lg: 1.75rem;
-  --space-xl: 2.5rem;
+  --space-xs: 0.4rem;
+  --space-sm: 0.65rem;
+  --space-md: 1rem;
+  --space-lg: 1.45rem;
+  --space-xl: 2rem;
+  --table-cell-py: 0.38rem;
+  --table-cell-px: 0.62rem;
+  --table-row-lh: 1.38;
+  --table-inset-control-py: 0.28rem;
   --font: "Tajawal", "Segoe UI", Tahoma, sans-serif;
   /* عرض منطقة التطبيق: كامل الشاشة (بدون عمود جانبي فارغ كالسابق 80%) */
   --app-viewport-width: 100%;
   --safe-inline-start: env(safe-area-inset-left, env(safe-area-inset-inline-start, 0px));
   --safe-inline-end: env(safe-area-inset-right, env(safe-area-inset-inline-end, 0px));
   /* هامش أفقي موحّد من يمين ويسار الشاشة (مع أخذ المنطقة الآمنة عند الحاجة) */
-  --page-gutter-inline: 1cm;
+  --page-gutter-inline: 0.75cm;
   --page-padding-inline-start: max(var(--page-gutter-inline), var(--safe-inline-start));
   --page-padding-inline-end: max(var(--page-gutter-inline), var(--safe-inline-end));
   --icon-nav-size: 0.95em;
@@ -111,7 +115,7 @@ body {
   font-weight: 400;
   background: var(--page-bg);
   color: var(--text);
-  line-height: 1.65;
+  line-height: 1.55;
   direction: rtl;
   height: 100%;
   min-height: 0;
@@ -816,7 +820,7 @@ main {
   width: 100%;
   max-width: none;
   margin-inline: 0;
-  padding-block: var(--space-lg) var(--space-xl);
+  padding-block: var(--space-md) var(--space-lg);
   padding-inline-start: var(--page-padding-inline-start);
   padding-inline-end: var(--page-padding-inline-end);
   overflow-x: hidden;
@@ -846,7 +850,7 @@ main h2 {
   font-size: 1.2rem;
   font-weight: 700;
   color: var(--brown-800);
-  margin: var(--space-lg) 0 var(--space-sm);
+  margin: var(--space-md) 0 var(--space-xs);
   padding-bottom: var(--space-xs);
   border-bottom: 1px solid var(--border-light);
   letter-spacing: -0.01em;
@@ -856,13 +860,13 @@ section.card h2,
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin: 0 0 var(--space-md);
+  margin: 0 0 var(--space-sm);
   padding-bottom: 0.4rem;
   border-bottom: 1px solid var(--border-light);
   font-size: 1.1rem;
 }
 h2.h2-in-card {
-  margin: 0 0 var(--space-md);
+  margin: 0 0 var(--space-sm);
   padding-bottom: 0.4rem;
   border-bottom: 1px solid var(--border-light);
   font-size: 1.1rem;
@@ -904,8 +908,8 @@ footer {
   background: var(--surface);
   border: 1px solid var(--border-light);
   border-radius: var(--radius);
-  padding: var(--space-md) 1.35rem;
-  margin-bottom: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-sm);
   box-shadow: var(--shadow-card);
 }
 .card--tint {
@@ -938,8 +942,8 @@ main > .page-header__nav.catalog-tools-back:first-child {
 }
 
 .page-header {
-  margin-bottom: 0.4rem;
-  padding-bottom: 0.28rem;
+  margin-bottom: var(--space-sm);
+  padding-bottom: var(--space-xs);
   border-bottom: 1px solid var(--border-light);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1117,10 +1121,10 @@ main > .page-header__nav.catalog-tools-back:first-child {
 }
 .de-report-table th,
 .de-report-table td {
-  padding: 0.45rem 0.55rem;
+  padding: var(--table-cell-py) var(--table-cell-px);
   border-bottom: 1px solid var(--border-light);
   text-align: right;
-  vertical-align: top;
+  vertical-align: middle;
 }
 .de-report-table th {
   background: var(--tint-100);
@@ -1239,7 +1243,7 @@ main > .page-header__nav.catalog-tools-back:first-child {
   background: linear-gradient(180deg, var(--btn-from) 0%, var(--btn-to) 100%);
   color: var(--white);
   border: 1px solid var(--btn-border);
-  padding: 0.55rem 1.2rem;
+  padding: 0.48rem 1rem;
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 0.95rem;
@@ -1402,7 +1406,7 @@ label .fa-icon-label {
   font-size: 0.9em;
 }
 .form-group {
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-sm);
 }
 
 .error {
@@ -1509,7 +1513,7 @@ body.page-dashboard .dashboard-page-quote {
   position: fixed;
   left: 0;
   right: 0;
-  top: calc(50% + 2cm);
+  top: calc(50% + 0.5cm);
   transform: translateY(-50%);
   margin: 0;
   padding: 0.75rem var(--page-padding-inline-end) 0.75rem var(--page-padding-inline-start);
@@ -1590,7 +1594,7 @@ body.page-dashboard .role-grid .dashboard-role-card > .dashboard-role-start {
   padding-inline-start: var(--page-padding-inline-start);
   padding-inline-end: var(--page-padding-inline-end);
 }
-.auth-card {
+.card.auth-card {
   max-width: 420px;
   width: 100%;
   margin: 0 auto;
@@ -1621,7 +1625,7 @@ body.page-dashboard .role-grid .dashboard-role-card > .dashboard-role-start {
 .auth-card h1 .fa-icon-title {
   color: var(--brown-400);
 }
-body.page-login .auth-card {
+body.page-login .card.auth-card {
   --login-ui-scale: 0.75;
   max-width: calc(420px * var(--login-ui-scale));
   padding: calc(var(--space-md) * var(--login-ui-scale)) calc(1.35rem * var(--login-ui-scale));
@@ -1970,14 +1974,16 @@ form.inline .btn-ghost {
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
+  line-height: var(--table-row-lh);
 }
 th,
 td {
   border: 1px solid var(--border-light);
-  padding: 0.7rem 0.85rem;
+  padding: var(--table-cell-py) var(--table-cell-px);
   text-align: start;
-  vertical-align: top;
+  vertical-align: middle;
+  line-height: var(--table-row-lh);
 }
 th {
   background: var(--tint-50);
@@ -2014,8 +2020,8 @@ code {
 pre,
 .output-pre {
   white-space: pre-wrap;
-  margin-top: 1rem;
-  padding: 1rem 1.1rem;
+  margin-top: var(--space-sm);
+  padding: 0.75rem 0.85rem;
   border-radius: var(--radius-sm);
   background: var(--white);
   border: 1px solid var(--border-light);
@@ -2027,8 +2033,8 @@ pre,
 
 /* أقسام تمرين — فصل أوضح */
 section.card {
-  margin-bottom: var(--space-md);
-  padding: var(--space-md) 1.35rem;
+  margin-bottom: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
 }
 section.card:last-child {
   margin-bottom: 0;
@@ -2049,7 +2055,12 @@ ul, ol {
   padding-inline-start: 1.25rem;
 }
 li {
-  margin-bottom: 0.35rem;
+  margin-bottom: 0.25rem;
+}
+
+main p {
+  margin-top: 0;
+  margin-bottom: var(--space-sm);
 }
 
 footer .fa-icon-foot {
@@ -2065,9 +2076,9 @@ footer .fa-icon-foot {
 .btn-group {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.38rem;
   align-items: center;
-  margin-top: 0.5rem;
+  margin-top: 0.38rem;
 }
 h2.h2-icon {
   display: flex;
@@ -2120,9 +2131,9 @@ h2.h2-icon .fa-icon-title {
   color: #a54a3a;
   background: #fdf5f3;
   border: 1px solid #e8c4be;
-  padding: 0.65rem 0.9rem;
+  padding: 0.5rem 0.75rem;
   border-radius: var(--radius-sm);
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-sm);
   font-size: 0.95rem;
 }
 .form-error-banner i { margin-inline-end: 0.4em; }
@@ -2131,9 +2142,9 @@ h2.h2-icon .fa-icon-title {
   color: #1d5f3a;
   background: #f3fbf6;
   border: 1px solid #bfe1cc;
-  padding: 0.65rem 0.9rem;
+  padding: 0.5rem 0.75rem;
   border-radius: var(--radius-sm);
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-sm);
   font-size: 0.95rem;
 }
 .form-ok-banner i { margin-inline-end: 0.4em; }
@@ -2587,10 +2598,10 @@ h2.h2-icon .fa-icon-title {
 /* جدول المستخدمين الحاليون — تصغير ارتفاع الصفوف */
 .admin-users-table th,
 .admin-users-table td {
-  padding-block: 0.28rem !important;
-  padding-inline: 0.6rem !important;
-  font-size: 0.88rem !important;
-  line-height: 1.25 !important;
+  padding-block: 0.18rem !important;
+  padding-inline: 0.5rem !important;
+  font-size: 0.86rem !important;
+  line-height: 1.2 !important;
   vertical-align: middle !important;
 }
 
@@ -2853,6 +2864,23 @@ body:not(.page-dashboard) main > .role-grid.role-grid--pyramid {
   color: var(--brown-900);
   text-decoration: none;
 }
+.admin-action-btn.admin-action-btn--disabled,
+.role-hub-menu .admin-action-btn--disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  pointer-events: none;
+  filter: grayscale(0.4);
+  background: var(--tint-50);
+  color: var(--brown-500);
+  border-style: dashed;
+}
+.admin-action-btn.admin-action-btn--disabled i {
+  color: var(--brown-300);
+}
+.admin-action-btn.admin-action-btn--disabled:hover {
+  background: var(--tint-50);
+  color: var(--brown-500);
+}
 .admin-action-btn.admin-action-btn--active {
   background: var(--tint-200);
   border-color: var(--brown-300);
@@ -2941,7 +2969,7 @@ body.hub-landing-preserve-buttons .btn-finish-exercise:hover {
   box-shadow: var(--shadow-sm);
 }
 .battle-unit-panel__title {
-  margin: 0 0 var(--space-md);
+  margin: 0 0 var(--space-sm);
   font-size: 1rem;
   font-weight: 700;
   color: var(--brown-800);
@@ -3546,10 +3574,10 @@ body.timeline-col-resizing {
 }
 .timeline-table th,
 .timeline-table td {
-  padding: 0.2rem 0.35rem;
+  padding: 0.14rem 0.28rem;
   vertical-align: top;
-  font-size: 1rem;
-  line-height: 1.45;
+  font-size: 0.95rem;
+  line-height: 1.32;
   word-break: break-word;
   overflow-wrap: anywhere;
   min-height: 0;
@@ -4010,11 +4038,11 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   display: inline-block;
 }
 .ibank-action-eval-days-bar {
-  margin: 0.35rem 0 0.15rem;
+  margin: 0.2rem 0 0.1rem;
 }
 .ibank-action-eval-days-note {
-  margin: 0 0 0.55rem;
-  font-size: 0.82rem;
+  margin: 0 0 0.32rem;
+  font-size: 0.8rem;
 }
 .ibank-action-eval-day-pane .ibank-tree-scroll {
   margin-top: 0;
@@ -4670,7 +4698,7 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   background: #4a3d32;
 }
 .eval-preview-td {
-  padding: 0.55rem 1rem;
+  padding: 0.32rem 0.55rem;
   text-align: right;
   vertical-align: middle;
   border-bottom: 1px solid var(--border-light);
@@ -4679,7 +4707,7 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   word-break: break-word;
 }
 .eval-preview-rowhead {
-  padding: 0.45rem 0.5rem;
+  padding: 0.28rem 0.4rem;
   text-align: center;
   font-weight: 700;
   color: var(--brown-600);
@@ -5682,9 +5710,9 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .judge-eval-lists-table td,
 .chief-eval-lists-table th,
 .chief-eval-lists-table td {
-  padding: 0.2rem 0.38rem;
-  font-size: 0.81rem;
-  line-height: 1.16;
+  padding: 0.14rem 0.32rem;
+  font-size: 0.8rem;
+  line-height: 1.15;
   text-align: center;
   vertical-align: middle;
   overflow: hidden;
@@ -5692,20 +5720,20 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 }
 .judge-eval-lists-table thead th,
 .chief-eval-lists-table thead th {
-  padding: 0.24rem 0.38rem;
-  font-size: 0.83rem;
+  padding: 0.16rem 0.32rem;
+  font-size: 0.82rem;
 }
 .judge-eval-units-table th,
 .judge-eval-units-table td {
-  padding: 0.2rem 0.38rem;
-  font-size: 0.81rem;
-  line-height: 1.16;
+  padding: 0.14rem 0.32rem;
+  font-size: 0.8rem;
+  line-height: 1.15;
   text-align: center;
   vertical-align: middle;
 }
 .judge-eval-units-table thead th {
-  padding: 0.24rem 0.38rem;
-  font-size: 0.83rem;
+  padding: 0.16rem 0.32rem;
+  font-size: 0.82rem;
 }
 .judge-eval-units-table td.judge-eval-unit-label {
   text-align: right;
@@ -6115,9 +6143,9 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .aerd-side-table th,
 .aerd-side-table td {
   border: 1px solid var(--border-light, #e8dfd6);
-  padding: 0.35rem 0.4rem;
+  padding: var(--table-cell-py) var(--table-cell-px);
   text-align: right;
-  vertical-align: top;
+  vertical-align: middle;
 }
 .aerd-side-table thead th {
   background: #f1f5f9;
@@ -7618,7 +7646,7 @@ body.control-report-page #cr-panel-charts.control-report-tab-panel {
   color: var(--text);
 }
 .cr-detail-table thead th {
-  padding: 0.32rem 0.45rem;
+  padding: 0.22rem 0.38rem;
   border: 1px solid var(--border-light);
   background: var(--tint-100);
   color: var(--brown-800);
@@ -7802,7 +7830,7 @@ body.control-report-page #cr-panel-charts.control-report-tab-panel {
 }
 .control-perf-table th,
 .control-perf-table td {
-  padding: 0.42rem 0.36rem;
+  padding: 0.28rem 0.3rem;
   border: 1px solid var(--border-light);
   text-align: center;
   vertical-align: middle;
@@ -8006,8 +8034,8 @@ body.control-report-page #cr-panel-charts.control-report-tab-panel {
 }
 /* بنك المعلومات — شريط العنوان الضيق وزر الصفحة الرئيسية */
 .ibank-subheader {
-  margin-bottom: 0.35rem;
-  padding-bottom: 0.25rem;
+  margin-bottom: 0.22rem;
+  padding-bottom: 0.18rem;
   border-bottom: 1px solid var(--border-light);
 }
 .ibank-subheader__row {
@@ -8070,14 +8098,14 @@ main:has(.ibank-tabpane[data-tab-pane="event-flow"].is-active) .ibank-tabs-row {
   align-items: flex-end;
   gap: 0;
   margin: 0;
-  padding: 0.5rem 0.5rem 0;
+  padding: 0.32rem 0.4rem 0;
   background: #ece8e3;
   border-bottom: 1px solid var(--border-soft, #c9bfb5);
 }
 .ibank-tab {
   appearance: none;
   margin: 0 0 -1px 5px;
-  padding: 0.48rem 0.95rem 0.52rem;
+  padding: 0.36rem 0.72rem 0.4rem;
   border: 1px solid var(--border-soft, #c9bfb5);
   border-bottom: none;
   border-radius: 8px 8px 0 0;
@@ -8106,7 +8134,7 @@ main:has(.ibank-tabpane[data-tab-pane="event-flow"].is-active) .ibank-tabs-row {
   z-index: 2;
 }
 .ibank-tab-body {
-  padding: 0.85rem 1rem 1.05rem;
+  padding: 0.5rem 0.65rem 0.6rem;
   background: var(--surface-card, #fff);
 }
 main:has(.ibank-tabpane[data-tab-pane="event-flow"].is-active) .ibank-tab-body {
@@ -8127,21 +8155,24 @@ main:has(.ibank-tabpane[data-tab-pane="event-flow"].is-active) .ibank-tab-body {
 .ibank-tab-body .ibank-table thead th,
 .ibank-tab-body .ibank-table tbody th,
 .ibank-tab-body .ibank-table tbody td {
-  padding-top: 0.16rem;
-  padding-bottom: 0.16rem;
+  padding-top: 0.08rem;
+  padding-bottom: 0.08rem;
+  padding-inline: 0.38rem;
   vertical-align: middle;
+  line-height: 1.2;
 }
 .ibank-tab-body .ibank-table thead th {
-  font-size: 0.875rem;
-  line-height: 1.25;
+  font-size: 0.84rem;
+  line-height: 1.2;
 }
 .ibank-tab-body .ibank-table td form {
   margin: 0;
 }
 .ibank-tab-body .ibank-table td .btn {
-  padding: 0.32rem 0.55rem;
-  font-size: 0.86rem;
-  line-height: 1.25;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.8rem;
+  line-height: 1.15;
+  min-height: 0;
 }
 /* جداول تبويبات بنك المعلومات: حدود نحيفة موحّدة + تظليل الصف بالكامل */
 .ibank-tab-body .ibank-table-scroll .ibank-table,
@@ -8181,15 +8212,15 @@ main:has(.ibank-tabpane[data-tab-pane="event-flow"].is-active) .ibank-tab-body {
   background-color: var(--tint-200);
 }
 .ibank-tab-body .ibank-files-page table.ibank-files-compact tbody td {
-  padding-top: 0.14rem;
-  padding-bottom: 0.14rem;
+  padding-top: 0.06rem;
+  padding-bottom: 0.06rem;
 }
 .ibank-inline-add-form {
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
-  gap: 0.4rem 0.48rem;
-  margin: 0 0 0.5rem;
+  gap: 0.28rem 0.38rem;
+  margin: 0 0 0.32rem;
   direction: rtl;
 }
 .ibank-inline-add-form__label {
@@ -8206,16 +8237,18 @@ main:has(.ibank-tabpane[data-tab-pane="event-flow"].is-active) .ibank-tab-body {
   max-width: 22rem;
   width: auto;
   align-self: center;
-  padding: 0.52rem 0.72rem;
-  font-size: 0.92rem;
-  line-height: 1.25;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.86rem;
+  line-height: 1.2;
+  min-height: 0;
   box-sizing: border-box;
 }
 .ibank-inline-add-form__submit {
   flex: 0 0 auto;
   align-self: center;
-  padding-inline: 0.9rem;
-  padding-block: 0.52rem;
+  padding-inline: 0.75rem;
+  padding-block: 0.3rem;
+  min-height: 0;
 }
 .ibank-tabpane {
   display: none;
@@ -8277,8 +8310,8 @@ main:has(.ibank-tabpane[data-tab-pane="event-flow"].is-active) .ibank-tab-body {
   min-width: 10rem;
 }
 .ibank-files-page table.ibank-files-compact tbody td {
-  padding-top: 0.3rem;
-  padding-bottom: 0.3rem;
+  padding-top: 0.12rem;
+  padding-bottom: 0.12rem;
   vertical-align: middle;
 }
 .ibank-table-scroll {
@@ -8332,9 +8365,9 @@ main:has(.ibank-tabpane[data-tab-pane="event-flow"].is-active) .ibank-tab-body {
 }
 .ibank-table.ibank-table--compact-notes th,
 .ibank-table.ibank-table--compact-notes td {
-  padding-top: 0.3rem;
-  padding-bottom: 0.3rem;
-  vertical-align: top;
+  padding-top: 0.1rem;
+  padding-bottom: 0.1rem;
+  vertical-align: middle;
 }
 .ibank-table--compact-notes .ibank-readonly-notes {
   font-size: 0.92rem;
@@ -8371,20 +8404,20 @@ main:has(.ibank-tabpane[data-tab-pane="event-flow"].is-active) .ibank-tab-body {
   cursor: pointer;
 }
 .ibank-included-label--header {
-  gap: 0.35rem;
+  gap: 0.25rem;
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: 0.84rem;
 }
 .ibank-included-cb {
-  width: 1.15rem;
-  height: 1.15rem;
+  width: 1rem;
+  height: 1rem;
   cursor: pointer;
 }
 .ibank-units-included-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem 1rem;
+  gap: 0.45rem 0.65rem;
 }
 .ibank-unit-actions-cell {
   display: flex;
@@ -8401,6 +8434,76 @@ main:has(.ibank-tabpane[data-tab-pane="event-flow"].is-active) .ibank-tab-body {
   margin-top: 0.75rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--border-light);
+}
+
+/* بنك المعلومات — تبويب التنظيم: تمرير الجدول فقط + شريط أزرار ثابت أسفل */
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0.35rem;
+}
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) > .ibank-subheader,
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) > .form-error-banner,
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) > .form-ok-banner {
+  flex-shrink: 0;
+}
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) > .ibank-card.ibank-card--tabbed {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) .ibank-tabbed {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) .ibank-tabs-row {
+  flex-shrink: 0;
+}
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) .ibank-tab-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) .ibank-tabpane[data-tab-pane^="units-bg-"].is-active {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active)
+  .ibank-tabpane[data-tab-pane^="units-bg-"].is-active
+  .h2-in-card,
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active)
+  .ibank-tabpane[data-tab-pane^="units-bg-"].is-active
+  .ibank-inline-add-form {
+  flex-shrink: 0;
+}
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active)
+  .ibank-tabpane[data-tab-pane^="units-bg-"].is-active
+  .ibank-table-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) .ibank-units-included-form--global {
+  flex-shrink: 0;
+  margin-top: 0;
+  padding: 0.4rem 0 0.5rem;
+  background: var(--surface-card, #fff);
+  border-top: 1px solid var(--border-light);
+  box-shadow: 0 -6px 16px rgba(35, 30, 26, 0.06);
+  position: relative;
+  z-index: 4;
 }
 .ibank-tabs-row--brigades .ibank-tab {
   font-size: 0.82rem;
@@ -8718,12 +8821,12 @@ main:has(.ibank-tabpane[data-tab-pane="event-flow"].is-active) .ibank-tab-body {
 
 .final-report-table th,
 .final-report-table td {
-  padding: 0.42rem 0.55rem;
-  line-height: 1.35;
+  padding: 0.24rem 0.38rem;
+  line-height: 1.28;
   vertical-align: middle;
   white-space: normal;
   overflow-wrap: anywhere;
-  min-height: 2.35rem;
+  min-height: 1.65rem;
   text-align: center;
 }
 
@@ -9392,8 +9495,8 @@ main:has(#pf-flow-table-section):not(:has(.ibank-event-flow-panel)) > #pf-flow-t
   margin-bottom: 0;
 }
 .planner-flow-action-table-section.card {
-  padding-top: 0.5rem;
-  padding-bottom: 0.5rem;
+  padding-top: 0.32rem;
+  padding-bottom: 0.32rem;
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -9408,10 +9511,10 @@ main:has(#pf-flow-table-section):not(:has(.ibank-event-flow-panel)) > #pf-flow-t
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 0.65rem;
+  gap: 0.45rem;
   flex-shrink: 0;
-  margin: 0 0 0.35rem;
-  padding: 0.15rem 0;
+  margin: 0 0 0.22rem;
+  padding: 0.1rem 0;
   border-bottom: 1px solid var(--border-soft, #c9bfb5);
 }
 .pf-flow-days-tabs-row {
@@ -9598,11 +9701,12 @@ main:has(#pf-flow-table-section):not(:has(.ibank-event-flow-panel)) > #pf-flow-t
 }
 .planner-flow-action-table.ibank-table th,
 .planner-flow-action-table.ibank-table td {
-  padding: 0.4rem 0.55rem;
+  padding: 0.22rem 0.38rem;
   vertical-align: middle;
   text-align: center;
   font-weight: 700;
   color: #000;
+  line-height: 1.3;
 }
 /* إلغاء التظليل المتناوب (zebra) في جدول المجرى */
 .planner-flow-action-table.ibank-table tbody tr,
@@ -9628,7 +9732,7 @@ main:has(#pf-flow-table-section):not(:has(.ibank-event-flow-panel)) > #pf-flow-t
 }
 .planner-flow-action-table .pf-assignee-line {
   margin: 0;
-  padding: 0.35rem 0.4rem;
+  padding: 0.2rem 0.28rem;
   border: none;
   border-top: 1px solid var(--border-soft, #c9bfb5);
   background: transparent;
@@ -9665,13 +9769,13 @@ main:has(#pf-flow-table-section):not(:has(.ibank-event-flow-panel)) > #pf-flow-t
 .planner-flow-action-table .pf-flow-merged-cell,
 .planner-flow-action-table .pf-flow-cell {
   min-width: 5rem;
-  line-height: 1.5;
+  line-height: 1.32;
   word-break: break-word;
   text-align: center;
 }
 .planner-flow-action-table .pf-flow-cell {
   vertical-align: middle;
-  padding: 0.35rem 0.55rem;
+  padding: 0.22rem 0.38rem;
 }
 .planner-flow-action-table .pf-flow-cell--assignee {
   padding: 0;
@@ -9680,7 +9784,7 @@ main:has(#pf-flow-table-section):not(:has(.ibank-event-flow-panel)) > #pf-flow-t
 .planner-flow-action-table .pf-flow-cell--simple[contenteditable="true"] {
   outline: none;
   cursor: text;
-  min-height: 1.8em;
+  min-height: 1.45em;
 }
 .planner-flow-action-table .pf-assignee-inner-table {
   width: 100%;
@@ -9694,7 +9798,7 @@ main:has(#pf-flow-table-section):not(:has(.ibank-event-flow-panel)) > #pf-flow-t
   display: block;
   width: 100%;
   text-align: center;
-  line-height: 1.45;
+  line-height: 1.3;
   word-break: break-word;
   outline: none;
   cursor: text;
@@ -10222,7 +10326,7 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
 }
 .planner-flow-judge-table th,
 .planner-flow-judge-table td {
-  padding: 0.28rem 0.45rem;
+  padding: 0.18rem 0.38rem;
   vertical-align: middle;
 }
 .planner-flow-judge-actions {
@@ -10237,8 +10341,10 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   font-size: 0.82rem;
 }
 .btn-sm-compact {
-  padding: 0.32rem 0.55rem;
-  font-size: 0.84rem;
+  min-height: var(--control-h-sm, 1.8rem);
+  padding: 0.3rem 0.62rem;
+  font-size: 0.8125rem;
+  line-height: 1.2;
 }
 .planner-flow-judge-slot-list {
   list-style: none;
@@ -10275,10 +10381,10 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
 }
 .analyst-criteria-distribution-table th,
 .analyst-criteria-distribution-table td {
-  padding-block: 0.25rem !important;
-  padding-inline: 0.5rem !important;
-  font-size: 0.9rem !important;
-  line-height: 1.25 !important;
+  padding-block: 0.16rem !important;
+  padding-inline: 0.42rem !important;
+  font-size: 0.88rem !important;
+  line-height: 1.2 !important;
   vertical-align: middle !important;
 }
 .analyst-criteria-distribution-table .analyst-criteria-unit-label {
@@ -10348,25 +10454,25 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
 /* مساحة المحللين — جدول مرحلة معيار التقييم (صفوف مضغوطة) */
 .analyst-criteria-phase-table th,
 .analyst-criteria-phase-table td {
-  padding-block: 0.25rem !important;
-  padding-inline: 0.5rem !important;
-  font-size: 0.9rem !important;
-  line-height: 1.25 !important;
+  padding-block: 0.16rem !important;
+  padding-inline: 0.42rem !important;
+  font-size: 0.88rem !important;
+  line-height: 1.2 !important;
   vertical-align: middle !important;
 }
 .analyst-criteria-phase-table .unit-level-select,
 .analyst-criteria-phase-table input.criteria-text {
-  padding: 0.2rem 0.45rem;
-  min-height: 1.65rem;
-  font-size: 0.9rem;
+  padding: 0.14rem 0.38rem;
+  min-height: 0;
+  font-size: 0.88rem;
 }
 .analyst-criteria-phase-table .mark-input {
-  padding: 0.2rem 0.45rem;
-  min-height: 1.65rem;
+  padding: 0.14rem 0.38rem;
+  min-height: 0;
 }
 .analyst-criteria-phase-table .btn-ghost.delete-row-btn {
-  padding: 0.2rem 0.45rem;
-  min-height: 1.65rem;
+  padding: 0.14rem 0.38rem;
+  min-height: 0;
 }
 
 .criteria-phase-eval-list-hint {
@@ -10404,15 +10510,15 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
 
 /* بنك المعلومات — عرض شجري */
 .ibank-tree-card {
-  padding: 0.65rem 0.75rem;
+  padding: 0.4rem 0.5rem;
 }
 .ibank-tree-toolbar {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 0.4rem;
-  margin-bottom: 0.55rem;
-  padding: 0.45rem 0.55rem;
+  gap: 0.28rem;
+  margin-bottom: 0.35rem;
+  padding: 0.32rem 0.4rem;
   border: 1px solid var(--border-soft, #c9bfb5);
   border-radius: var(--radius-sm, 6px);
   background: var(--surface-muted, #faf8f6);
@@ -10420,7 +10526,7 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
 .ibank-tree-toolbar__main-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(9.25rem, max-content));
-  gap: 0.45rem 0.5rem;
+  gap: 0.3rem 0.38rem;
   align-items: center;
   width: 100%;
   min-width: 0;
@@ -10445,8 +10551,9 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   min-width: 0;
   max-width: none;
   width: auto;
-  padding: 0.28rem 0.45rem;
-  font-size: 0.84rem;
+  padding: 0.22rem 0.38rem;
+  font-size: 0.82rem;
+  min-height: 0;
   box-sizing: border-box;
 }
 .ibank-tree-toolbar__main-row .btn-sm-compact {
@@ -10454,8 +10561,8 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
 }
 .ibank-tree-selection-label {
   margin: 0;
-  font-size: 0.8rem;
-  line-height: 1.35;
+  font-size: 0.76rem;
+  line-height: 1.25;
   color: #7f1d1d;
   font-weight: 600;
   overflow-wrap: anywhere;
@@ -10466,7 +10573,7 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   overflow: auto;
   border: 1px solid var(--border-soft, #c9bfb5);
   border-radius: var(--radius-sm, 6px);
-  padding: 0.35rem 0.25rem;
+  padding: 0.2rem 0.15rem;
   background: #fff;
 }
 .ibank-tree-root,
@@ -10482,9 +10589,9 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.25rem 0.4rem;
-  padding: 0.22rem 0.35rem;
-  padding-inline-start: calc(0.35rem + var(--ibank-depth, 0) * 1.1rem);
+  gap: 0.18rem 0.32rem;
+  padding: 0.12rem 0.28rem;
+  padding-inline-start: calc(0.28rem + var(--ibank-depth, 0) * 1.1rem);
   border-radius: 4px;
 }
 .ibank-tree-row:hover {
@@ -10514,7 +10621,8 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   flex: 1 1 auto;
   min-width: 0;
   word-break: break-word;
-  font-size: 0.88rem;
+  font-size: 0.84rem;
+  line-height: 1.25;
 }
 .ibank-tree-toolbar__unit-row {
   display: flex;
@@ -10538,7 +10646,7 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 0.55rem 0.85rem;
+  gap: 0.38rem 0.55rem;
   flex: 0 1 auto;
   min-width: 0;
   direction: rtl;
@@ -10548,13 +10656,13 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   display: inline-flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.28rem;
   min-width: 0;
   flex-shrink: 0;
   direction: rtl;
 }
 .ibank-tree-unit-cluster__label {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 600;
   color: var(--brown-soft, #6b5344);
   white-space: nowrap;
@@ -10569,8 +10677,9 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   width: 22rem;
   max-width: 44rem;
   min-width: 22rem;
-  font-size: 0.8rem;
-  padding: 0.2rem 0.35rem;
+  font-size: 0.78rem;
+  padding: 0.14rem 0.3rem;
+  min-height: 0;
   border: 1px solid var(--border, #d4c4b0);
   border-radius: 4px;
   background: #fff;
@@ -10581,8 +10690,9 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   width: 14rem;
   min-width: 14rem;
   max-width: 28rem;
-  font-size: 0.8rem;
-  padding: 0.2rem 0.4rem;
+  font-size: 0.78rem;
+  padding: 0.14rem 0.32rem;
+  min-height: 0;
   border: 1px solid var(--border, #d4c4b0);
   border-radius: 4px;
   background: #f8f5f1;
@@ -10777,16 +10887,16 @@ html {
   :root {
     --responsive-font-base: 14px;
     --page-gutter-inline: 0.5rem;
-    --space-md: 1rem;
-    --space-lg: 1.35rem;
-    --space-xl: 1.85rem;
+    --space-md: 0.8rem;
+    --space-lg: 1.1rem;
+    --space-xl: 1.5rem;
     --header-nav-control-height: 2.35rem;
   }
   main h1 { font-size: 1.45rem; }
   section.card h2,
   .card h2,
   h2.h2-in-card { font-size: 1rem; }
-  .card { padding: 0.9rem 0.95rem; }
+  .card { padding: 0.65rem 0.75rem; }
   .ibank-subheader__row {
     grid-template-columns: 1fr;
     grid-template-areas:
@@ -10841,7 +10951,7 @@ html {
     --space-xl: 1.45rem;
   }
   main h1 { font-size: 1.25rem; }
-  .card { padding: 0.7rem 0.75rem; }
+  .card { padding: 0.55rem 0.65rem; }
   .btn,
   .btn-ghost { padding-block: 0.4rem; padding-inline: 0.65rem; font-size: 0.9rem; }
 }
@@ -10992,6 +11102,21 @@ html {
 .exercise-workspace-form {
   padding: 1rem 1.1rem 1.15rem;
 }
+.exercise-workspace-import-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.55rem 1.1rem 0;
+  border-bottom: 1px solid var(--border-light);
+}
+.exercise-workspace-import-status {
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+.exercise-workspace-import-status.is-error {
+  color: #a54a3a;
+}
 .exercise-info-layout {
   display: flex;
   flex-direction: column;
@@ -11110,6 +11235,100 @@ html {
 .exercise-workspace-objectives li + li {
   margin-top: 0.35rem;
 }
+/* فقرات الفكرة العامة/الخاصة — مربع نص واحد ديناميكي */
+.exercise-idea-panel {
+  margin: 0;
+}
+.exercise-idea-box {
+  display: block;
+  width: 100%;
+  min-height: 12rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border-light, #e8e0d8);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface, #fff);
+  font-size: 15px;
+  line-height: 1.38;
+  box-sizing: border-box;
+}
+.exercise-idea-box--readonly {
+  overflow: auto;
+}
+.exercise-idea-box--edit {
+  overflow: auto;
+}
+.exercise-idea-box__field {
+  margin: 0;
+  resize: none;
+  overflow: hidden;
+  min-height: 12rem;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  font: inherit;
+  line-height: inherit;
+  box-shadow: none;
+}
+.exercise-idea-box__field:focus {
+  outline: none;
+}
+.exercise-idea-box__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.exercise-idea-box__item {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin: 0 0 0.9rem;
+  padding: 0;
+  line-height: 1.38;
+}
+.exercise-idea-box__item:last-child {
+  margin-bottom: 0;
+}
+.exercise-idea-box__num {
+  flex: 0 0 auto;
+  font-weight: 700;
+  line-height: 1.38;
+  color: var(--brown-800, #4a3b32);
+  white-space: nowrap;
+}
+.exercise-idea-box__text {
+  flex: 1 1 auto;
+  margin: 0;
+  min-width: 0;
+  line-height: 1.38;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.exercise-idea-box__para-field {
+  flex: 1 1 auto;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  min-height: 2.75rem;
+  resize: none;
+  overflow: hidden;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.38;
+  box-shadow: none;
+}
+.exercise-idea-box__para-field:focus {
+  outline: none;
+}
+.exercise-idea-add-para {
+  margin-top: 0.45rem;
+}
 .exercise-workspace-empty {
   margin: 0;
 }
@@ -11123,6 +11342,101 @@ html {
   border-top: 1px solid var(--border-light, #e8e0d8);
   display: flex;
   justify-content: flex-end;
+}
+/* جدول برنامج التمرين — تقويم أسبوعي */
+.exercise-program-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.exercise-program-table-preview {
+  overflow-x: auto;
+}
+.exercise-program-empty-hint {
+  margin: 0;
+  padding: 1rem 0.5rem;
+  text-align: center;
+}
+.exercise-program-notes {
+  min-height: 4rem;
+}
+.exercise-program-notes-readonly {
+  margin-top: 0.25rem;
+}
+.exercise-program-calendar-wrap {
+  min-width: 42rem;
+}
+.exercise-program-calendar-title {
+  margin: 0 0 0.65rem;
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #c00000;
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+}
+.exercise-program-calendar {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+.exercise-program-calendar th,
+.exercise-program-calendar td {
+  border: 1px solid #7a7a7a;
+  vertical-align: top;
+  padding: 0.2rem 0.3rem;
+}
+.exercise-program-calendar th {
+  background: #e4e4e4;
+  font-weight: 700;
+  text-align: center;
+  padding: 0.35rem 0.25rem;
+}
+.exercise-program-calendar tr.week-blue td {
+  background: #dce8f4;
+}
+.exercise-program-calendar tr.week-beige td {
+  background: #f5f0e6;
+}
+.exercise-program-calendar tr.week-grey td {
+  background: #ebe8e4;
+}
+.exercise-program-calendar td {
+  position: relative;
+  min-height: 3.5rem;
+  height: 3.8rem;
+}
+.exercise-program-cell-date {
+  position: absolute;
+  top: 0.12rem;
+  left: 0.3rem;
+  font-size: 0.72rem;
+  color: #333;
+  line-height: 1;
+}
+.exercise-program-cell-box {
+  margin-top: 1rem;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid #888;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.45);
+  min-height: 1.6rem;
+  line-height: 1.35;
+  font-size: 0.76rem;
+}
+.exercise-program-bar-cell {
+  text-align: center;
+  vertical-align: middle;
+  height: auto;
+  min-height: 1.6rem;
+  padding: 0.3rem 0.45rem;
+  font-weight: 600;
+}
+.exercise-program-text-red {
+  color: #c00000;
+  font-weight: 600;
 }
 @media (max-width: 960px) {
   .exercise-info-layout__row--top,

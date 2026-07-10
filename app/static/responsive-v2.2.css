@@ -1,0 +1,676 @@
+/* LF Training Evaluation — Responsive v2.2
+   Adaptive layout only — no color/identity/navigation changes. */
+
+:root {
+  --bp-xs: 20rem;   /* 320px */
+  --bp-sm: 30rem;   /* 480px */
+  --bp-md: 48rem;   /* 768px */
+  --bp-lg: 64rem;   /* 1024px */
+  --bp-xl: 80rem;   /* 1280px */
+  --bp-2xl: 100rem; /* 1600px */
+  --bp-3xl: 120rem; /* 1920px */
+
+  --touch-min: 2.75rem; /* 44px */
+  --header-drawer-z: 1200;
+  --sidebar-drawer-z: 1150;
+  --sidebar-width: min(85vw, 20rem);
+
+  --fluid-text-base: clamp(0.875rem, 0.28vw + 0.82rem, 1rem);
+  --fluid-h1: clamp(1.35rem, 1.2vw + 1rem, 1.75rem);
+  --fluid-h2: clamp(1.05rem, 0.6vw + 0.92rem, 1.2rem);
+  --fluid-h3: clamp(0.95rem, 0.35vw + 0.88rem, 1.05rem);
+  --fluid-btn: clamp(0.875rem, 0.22vw + 0.82rem, 0.95rem);
+  --fluid-table: clamp(0.8rem, 0.18vw + 0.76rem, 0.95rem);
+  --fluid-small: clamp(0.72rem, 0.12vw + 0.68rem, 0.82rem);
+
+  --page-gutter-fluid: clamp(0.5rem, 2vw, 0.75cm);
+}
+
+html {
+  font-size: clamp(15px, 0.35vw + 14px, 16px);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overscroll-behavior: none;
+  overscroll-behavior-y: none;
+}
+
+body {
+  touch-action: pan-x pan-y pinch-zoom;
+  overscroll-behavior: none;
+  overscroll-behavior-y: none;
+  overscroll-behavior-x: none;
+}
+
+/* ── Zoom surface (pinch / programmatic scale) ── */
+.layout {
+  position: relative;
+  min-height: 0;
+  overscroll-behavior: none;
+}
+
+.app-zoom-surface {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  overscroll-behavior-y: contain;
+  transform-origin: center top;
+  will-change: transform;
+  touch-action: pan-x pan-y pinch-zoom;
+}
+
+.app-gesture-surface {
+  transform-origin: center top;
+  will-change: transform;
+  touch-action: pan-x pan-y pinch-zoom;
+}
+
+body.is-app-gesturing .app-gesture-surface,
+body.is-app-gesturing .app-zoom-surface,
+.app-gesture-surface.is-map-zoomed,
+body.is-app-zoomed .app-zoom-surface {
+  touch-action: none;
+}
+
+body.is-app-gesturing main,
+body.is-app-zoomed main {
+  overscroll-behavior: contain;
+}
+
+body.is-app-zoomed main {
+  overflow: hidden;
+}
+
+main {
+  flex: 1 1 auto;
+  min-height: 0;
+  overscroll-behavior: contain;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.app-zoom-surface > footer {
+  flex-shrink: 0;
+}
+
+body.is-app-zooming .app-zoom-surface {
+  transition: none;
+}
+
+body:not(.is-app-zooming) .app-zoom-surface {
+  transition: transform 0.12s ease-out;
+}
+
+/* ── Fluid typography (same hierarchy, scaled) ── */
+main {
+  font-size: var(--fluid-text-base);
+}
+
+main h1 {
+  font-size: var(--fluid-h1);
+}
+
+main h2,
+section.card h2,
+.card h2,
+h2.h2-in-card {
+  font-size: var(--fluid-h2);
+}
+
+main h3 {
+  font-size: var(--fluid-h3);
+}
+
+.btn,
+button.btn,
+.admin-action-btn,
+.header-nav a,
+.nav-dd__toggle {
+  font-size: var(--fluid-btn);
+  min-height: var(--touch-min);
+}
+
+.btn-icon-nav,
+.header-notif-bell,
+.app-header-toggle,
+.app-sidebar-toggle,
+.dashboard-role-card,
+.btn-nav-logout {
+  min-width: var(--touch-min);
+  min-height: var(--touch-min);
+}
+
+table {
+  font-size: var(--fluid-table);
+}
+
+th {
+  font-size: clamp(0.78rem, 0.15vw + 0.74rem, 0.88rem);
+}
+
+.badge,
+footer {
+  font-size: var(--fluid-small);
+}
+
+/* ── Responsive media ── */
+img,
+video,
+picture,
+svg:not(.fa-icon-brand):not([class*="fa-"]) {
+  max-width: 100%;
+  height: auto;
+}
+
+img,
+video {
+  object-fit: contain;
+}
+
+canvas {
+  max-width: 100%;
+  height: auto;
+}
+
+.chart-wrap canvas,
+.chart-wrap svg,
+.analysis-chart-wrap canvas,
+.control-chart-wrap canvas,
+.cr-chart-cell canvas {
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 10;
+  object-fit: contain;
+}
+
+/* ── Forms & inputs ── */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+select,
+textarea,
+.import-password-field {
+  max-width: 100%;
+  width: 100%;
+  min-height: var(--touch-min);
+  font-size: inherit;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  min-width: 1.15rem;
+  min-height: 1.15rem;
+}
+
+.form-row-inline,
+.form-grid,
+.exercise-create-cols,
+.analysis-kpis,
+.admin-welcome-grid {
+  display: grid;
+  gap: clamp(0.65rem, 2vw, 1rem);
+}
+
+@media (max-width: 47.9375rem) {
+  .form-row-inline,
+  .exercise-create-cols,
+  .analysis-kpis,
+  .admin-welcome-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .form-row-inline input,
+  .form-row-inline .btn {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+}
+
+@media (min-width: 48rem) {
+  .form-row-inline {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  }
+}
+
+/* ── Tables ── */
+.table-wrap,
+.eval-table-wrap,
+.de-report-table-wrap,
+.timeline-table-wrap,
+.control-table-wrap,
+.judge-eval-lists-page-layout .table-wrap,
+.ibank-tree-scroll {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.table-wrap table,
+.eval-table-wrap table,
+.timeline-table-wrap table {
+  width: max(100%, max-content);
+  table-layout: auto;
+}
+
+.table-wrap thead th,
+.eval-table-wrap thead th,
+.timeline-table-wrap thead th,
+.ibank-tab-body .ibank-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--tint-50);
+}
+
+/* ── Cards & panels ── */
+.card,
+section.card {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.role-grid,
+.dashboard-grid,
+.role-hub-menu {
+  gap: clamp(0.65rem, 2vw, 1.25rem);
+}
+
+/* ── Modals / overlays ── */
+.import-password-overlay,
+[class*="overlay"][role="dialog"],
+.modal-overlay {
+  padding: clamp(0.65rem, 3vw, 1rem);
+  overflow-y: auto;
+  align-items: flex-start;
+}
+
+.import-password-dialog,
+[class*="dialog"].card {
+  width: min(100%, 28rem);
+  max-height: min(92vh, 100%);
+  overflow-y: auto;
+  margin-block: auto;
+}
+
+/* ── Page gutter (fluid) ── */
+:root {
+  --page-gutter-inline: var(--page-gutter-fluid);
+  --page-padding-inline-start: max(var(--page-gutter-fluid), var(--safe-inline-start));
+  --page-padding-inline-end: max(var(--page-gutter-fluid), var(--safe-inline-end));
+}
+
+main {
+  padding-block: clamp(0.85rem, 2.5vw, var(--space-lg))
+    clamp(1rem, 3vw, var(--space-xl));
+}
+
+/* ── Header mobile toggle ── */
+.app-header-toggle,
+.app-sidebar-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch-min);
+  min-height: var(--touch-min);
+  padding: 0;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--tint-50);
+  color: var(--brown-700);
+  cursor: pointer;
+  font-size: 1.15rem;
+  flex-shrink: 0;
+}
+
+.app-header-toggle:hover,
+.app-sidebar-toggle:hover {
+  background: var(--tint-200);
+}
+
+header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.25rem;
+}
+
+header > .app-header-toggle {
+  display: none;
+  align-self: center;
+  margin-inline-start: var(--page-padding-inline-start);
+  margin-inline-end: 0.35rem;
+}
+
+header > .header-bar {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.app-header-backdrop,
+.app-sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--header-drawer-z) - 1);
+  background: rgba(28, 22, 18, 0.35);
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.app-sidebar-backdrop {
+  z-index: calc(var(--sidebar-drawer-z) - 1);
+}
+
+body.app-header-nav-open .app-header-backdrop,
+body.app-sidebar-open .app-sidebar-backdrop {
+  display: block;
+}
+
+/* ── Header: tablet & mobile ── */
+@media (max-width: 63.9375rem) {
+  .header-bar {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+
+  .header-bar__segment--center,
+  .header-bar__segment--trail.header-nav--top-tools {
+    display: none;
+    flex: 1 1 100%;
+    flex-direction: column;
+    align-items: stretch;
+    order: 10;
+    padding-block: 0.35rem 0.5rem;
+    border-top: 1px solid var(--border-light);
+    max-height: min(70vh, 28rem);
+    overflow-y: auto;
+  }
+
+  body.app-header-nav-open .header-bar__segment--center,
+  body.app-header-nav-open .header-bar__segment--trail.header-nav--top-tools {
+    display: flex;
+  }
+
+  .header-bar__segment--center .header-nav,
+  .header-bar__segment--trail.header-nav--top-tools {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    overflow: visible;
+  }
+
+  .header-bar__segment--center .header-nav a,
+  .header-bar__segment--trail.header-nav--top-tools a,
+  .header-bar__segment--center .nav-dd,
+  .header-bar__segment--trail .btn-nav-logout {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .nav-dd__menu {
+    position: static !important;
+    display: none;
+    box-shadow: none;
+    border: 1px solid var(--border-light);
+    margin-top: 0.25rem;
+  }
+
+  .nav-dd.is-open .nav-dd__menu {
+    display: block;
+  }
+
+  .app-header-toggle {
+    display: inline-flex;
+  }
+
+  header > .app-header-toggle {
+    display: inline-flex;
+  }
+
+  .header-bar__segment--lead {
+    flex: 1 1 auto;
+  }
+
+  .brand span {
+    font-size: clamp(0.85rem, 2.8vw, 1.075rem);
+  }
+}
+
+@media (max-width: 29.9375rem) {
+  .header-welcome,
+  .header-workspace-exercise__tag {
+    display: none;
+  }
+
+  .header-bar__scroll {
+    overflow-x: auto;
+    max-width: 100%;
+  }
+}
+
+/* ── Admin sidebar: desktop full ── */
+@media (min-width: 64rem) {
+  .admin-shell {
+    grid-template-columns: minmax(0, 1fr) minmax(12rem, 17.5rem);
+  }
+
+  .admin-shell__menu {
+    display: block !important;
+    position: sticky;
+    top: var(--space-sm);
+  }
+
+  .app-sidebar-toggle {
+    display: none !important;
+  }
+}
+
+/* ── Admin sidebar: tablet collapsible ── */
+@media (min-width: 48rem) and (max-width: 63.9375rem) {
+  .admin-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-shell__menu {
+    display: none;
+    position: fixed;
+    inset-inline-end: 0;
+    top: 0;
+    bottom: 0;
+    width: var(--sidebar-width);
+    z-index: var(--sidebar-drawer-z);
+    margin: 0;
+    overflow-y: auto;
+    box-shadow: -4px 0 24px rgba(60, 48, 40, 0.12);
+    transform: translateX(0);
+  }
+
+  [dir="rtl"] .admin-shell__menu {
+    box-shadow: 4px 0 24px rgba(60, 48, 40, 0.12);
+  }
+
+  body.app-sidebar-open .admin-shell__menu {
+    display: block;
+  }
+
+  .app-sidebar-toggle {
+    display: inline-flex;
+    position: fixed;
+    inset-inline-end: clamp(0.65rem, 2vw, 1rem);
+    bottom: clamp(0.65rem, 2vw, 1rem);
+    z-index: calc(var(--sidebar-drawer-z) + 1);
+    box-shadow: var(--shadow-card);
+    border-radius: 999px;
+    width: 3rem;
+    height: 3rem;
+  }
+}
+
+/* ── Admin sidebar: mobile drawer ── */
+@media (max-width: 47.9375rem) {
+  .admin-shell {
+    grid-template-columns: 1fr !important;
+  }
+
+  .admin-shell__menu {
+    display: none;
+    position: fixed;
+    inset-inline-end: 0;
+    top: 0;
+    bottom: 0;
+    width: var(--sidebar-width);
+    z-index: var(--sidebar-drawer-z);
+    margin: 0;
+    overflow-y: auto;
+    box-shadow: -4px 0 24px rgba(60, 48, 40, 0.15);
+    padding-block-start: clamp(3.5rem, 12vw, 4.5rem);
+  }
+
+  [dir="rtl"] .admin-shell__menu {
+    box-shadow: 4px 0 24px rgba(60, 48, 40, 0.15);
+  }
+
+  body.app-sidebar-open .admin-shell__menu {
+    display: block;
+  }
+
+  .app-sidebar-toggle {
+    display: inline-flex;
+    position: fixed;
+    inset-inline-end: clamp(0.65rem, 2vw, 1rem);
+    bottom: clamp(0.65rem, 2vw, 1rem);
+    z-index: calc(var(--sidebar-drawer-z) + 1);
+    box-shadow: var(--shadow-card);
+    border-radius: 999px;
+    width: 3rem;
+    height: 3rem;
+  }
+
+  .role-hub-menu {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .role-hub-menu .admin-action-btn {
+    width: 100%;
+    max-width: none;
+  }
+
+  main > .role-grid.role-grid--pyramid {
+    margin-top: clamp(1rem, 4vw, 2rem) !important;
+  }
+
+  main > aside.role-hub-menu.card {
+    margin-block-start: clamp(0.75rem, 3vw, 1.5cm);
+  }
+}
+
+/* ── Large screens ── */
+@media (min-width: 80rem) {
+  main {
+    padding-inline-start: max(1.25rem, var(--page-padding-inline-start));
+    padding-inline-end: max(1.25rem, var(--page-padding-inline-end));
+  }
+}
+
+@media (min-width: 100rem) {
+  .layout {
+    margin-inline: auto;
+    max-width: var(--bp-3xl);
+  }
+}
+
+/* ── High DPI / Windows scaling ── */
+@media (min-resolution: 1.25dppx) {
+  :root {
+    --page-gutter-fluid: clamp(0.75rem, 2vw, 1.15rem);
+  }
+}
+
+/* ── Landscape phones ── */
+@media (max-height: 32rem) and (orientation: landscape) {
+  main {
+    padding-block: 0.65rem 0.85rem;
+  }
+
+  .import-password-dialog {
+    max-height: 88vh;
+  }
+}
+
+/* ── Pinch-friendly targets inside tables/maps ── */
+.eval-table-wrap,
+.timeline-table-wrap,
+.control-table-wrap,
+.battle-org-root {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.battle-org-root.app-gesture-surface.is-map-zoomed {
+  overflow: hidden;
+  touch-action: none;
+}
+
+.eval-table-wrap,
+.timeline-table-wrap,
+.control-table-wrap,
+.battle-org-root,
+[class*="map"] {
+  touch-action: pan-x pan-y pinch-zoom;
+}
+
+/* Prevent horizontal body scroll from wide content */
+body {
+  overflow-x: hidden;
+}
+
+/* Zoom indicator (optional screen reader only) */
+.app-zoom-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-zoom-surface {
+    transition: none !important;
+  }
+}
+
+/* جداول — عناصر مضغوطة داخل الصفوف (يُكمّل ui-refine.css) */
+.ibank-card .btn,
+.ibank-card .btn-sm-compact,
+.ibank-tree-row .btn,
+.ibank-units-included-form--global .btn,
+.table-wrap .btn,
+.table-wrap .btn-ghost,
+.table-wrap .btn-sm-compact,
+table .btn,
+table .btn-ghost,
+table .btn-sm-compact {
+  min-height: var(--control-h-xs, 1.62rem);
+}
+
+.ibank-card select,
+.ibank-card input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.ibank-card textarea,
+.ibank-tree-scroll select,
+.ibank-tree-scroll input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.planner-flow-action-table select,
+.planner-flow-action-table input:not([type="checkbox"]):not([type="radio"]),
+.planner-flow-action-table textarea,
+.table-wrap select,
+.table-wrap input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.table-wrap textarea,
+table select,
+table input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+table textarea {
+  min-height: var(--control-h-xs, 1.62rem);
+  height: auto;
+}

@@ -1,17 +1,5 @@
-import importlib.util
 import os
-import sys
 from pathlib import Path
-
-if getattr(sys, "frozen", False):
-    import bootstrap_sys_path  # noqa: F401
-else:
-    _root = Path(__file__).resolve().parents[1]
-    _boot = _root / "bootstrap_sys_path.py"
-    _spec = importlib.util.spec_from_file_location("bootstrap_sys_path", _boot)
-    if _spec and _spec.loader:
-        _mod = importlib.util.module_from_spec(_spec)
-        _spec.loader.exec_module(_mod)
 
 from dotenv import load_dotenv
 
@@ -96,4 +84,4 @@ if __name__ == "__main__":
     import sys
 
     print("ملف الإعدادات فقط — يُشغَّل التطبيق عبر run.py", file=sys.stderr)
-    runpy.run_path(str(_root / "run.py"), run_name="__main__")
+    runpy.run_path(str(APP_DIR / "run.py"), run_name="__main__")

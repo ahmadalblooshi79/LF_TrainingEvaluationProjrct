@@ -1,0 +1,431 @@
+/* LF Training Evaluation — UI Refine
+   تنسيق موحّد: مسافات متوازنة، جداول مرتبة، أزرار وحقول متناسقة */
+
+:root {
+  --space-xs: 0.4rem;
+  --space-sm: 0.65rem;
+  --space-md: 1rem;
+  --space-lg: 1.45rem;
+  --space-xl: 2rem;
+
+  --control-h: 2.05rem;
+  --control-h-sm: 1.8rem;
+  --control-h-xs: 1.62rem;
+  --control-h-tree: 1.32rem;
+  --control-h-tree-field: 1.5rem;
+  --control-radius: 6px;
+  --control-font: 0.875rem;
+  --control-font-sm: 0.8125rem;
+  --control-border: var(--border);
+
+  --table-cell-py: 0.38rem;
+  --table-cell-px: 0.62rem;
+  --table-head-py: 0.48rem;
+  --table-row-lh: 1.38;
+  --table-font: 0.875rem;
+  --table-head-font: 0.8125rem;
+
+  --btn-py: 0.4rem;
+  --btn-px: 0.85rem;
+  --btn-font: 0.875rem;
+  --btn-sm-py: 0.3rem;
+  --btn-sm-px: 0.62rem;
+  --btn-sm-font: 0.8125rem;
+
+  --card-pad-y: 0.75rem;
+  --card-pad-x: 1rem;
+  --page-gutter-inline: 0.85cm;
+}
+
+body {
+  line-height: 1.55;
+}
+
+main {
+  padding-block: var(--space-md) var(--space-lg);
+}
+
+/* ── بطاقات وعناوين ── */
+.card,
+section.card {
+  padding: var(--card-pad-y) var(--card-pad-x);
+  margin-bottom: var(--space-sm);
+  border-radius: var(--radius-sm);
+}
+
+.page-header {
+  margin-bottom: var(--space-sm);
+  padding-bottom: var(--space-xs);
+  gap: 0.28rem 0.5rem;
+}
+
+main p {
+  margin-bottom: var(--space-sm);
+}
+
+.form-group {
+  margin-bottom: var(--space-sm);
+}
+
+/* ── حقول الإدخال (عام) ── */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+select,
+textarea,
+.import-password-field {
+  min-height: var(--control-h);
+  padding: 0.42rem 0.65rem;
+  font-size: var(--control-font);
+  line-height: 1.35;
+  border-radius: var(--control-radius);
+  border: 1px solid var(--control-border);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  width: 1rem;
+  height: 1rem;
+  min-width: 1rem;
+  min-height: 1rem;
+}
+
+/* ── أزرار ── */
+.btn {
+  min-height: var(--control-h);
+  padding: var(--btn-py) var(--btn-px);
+  font-size: var(--btn-font);
+  line-height: 1.25;
+  border-radius: var(--control-radius);
+  gap: 0.38rem;
+}
+
+.btn-sm-compact,
+.btn-sm {
+  min-height: var(--control-h-sm);
+  padding: var(--btn-sm-py) var(--btn-sm-px);
+  font-size: var(--btn-sm-font);
+  line-height: 1.2;
+}
+
+.btn-group {
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+/* ── جداول عامة ── */
+.table-wrap {
+  border: 1px solid var(--border-light);
+  border-radius: var(--control-radius);
+  background: var(--surface);
+}
+
+table {
+  font-size: var(--table-font);
+  line-height: var(--table-row-lh);
+}
+
+th,
+td {
+  padding: var(--table-cell-py) var(--table-cell-px);
+  line-height: var(--table-row-lh);
+  vertical-align: middle;
+}
+
+th {
+  padding-block: var(--table-head-py);
+  font-size: var(--table-head-font);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  background: var(--tint-100);
+  border-bottom-width: 1px;
+}
+
+tbody tr:nth-child(even) {
+  background: var(--tint-50);
+}
+
+tbody tr:hover {
+  background: var(--tint-200);
+}
+
+/* عناصر داخل الجداول */
+.table-wrap .btn,
+.table-wrap .btn-ghost,
+.table-wrap .btn-sm-compact,
+table .btn,
+table .btn-ghost,
+table .btn-sm-compact {
+  min-height: var(--control-h-xs);
+  padding: 0.24rem 0.55rem;
+  font-size: var(--btn-sm-font);
+  line-height: 1.2;
+  border-radius: 5px;
+}
+
+.table-wrap input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.table-wrap select,
+.table-wrap textarea,
+table input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+table select,
+table textarea {
+  min-height: var(--control-h-xs);
+  height: auto;
+  padding: 0.28rem 0.5rem;
+  font-size: var(--control-font-sm);
+  line-height: 1.3;
+  border-radius: 5px;
+}
+
+.form-error-banner,
+.form-ok-banner {
+  padding: 0.55rem 0.75rem;
+  margin-bottom: var(--space-sm);
+  font-size: var(--control-font);
+  border-radius: var(--control-radius);
+}
+
+/* ── بنك المعلومات ── */
+.ibank-subheader {
+  margin-bottom: var(--space-sm);
+  padding-bottom: var(--space-xs);
+}
+
+.ibank-tabs-row {
+  padding: 0.4rem 0.45rem 0;
+}
+
+.ibank-tab {
+  padding: 0.4rem 0.8rem 0.44rem;
+  font-size: var(--control-font-sm);
+  line-height: 1.3;
+}
+
+.ibank-tab-body {
+  padding: var(--space-sm) var(--space-md);
+}
+
+.ibank-inline-add-form {
+  gap: var(--space-xs) var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.ibank-inline-add-form__input {
+  min-height: var(--control-h-sm);
+  padding: 0.35rem 0.55rem;
+  font-size: var(--control-font);
+}
+
+.ibank-inline-add-form__submit {
+  min-height: var(--control-h-sm);
+  padding-block: 0.35rem;
+}
+
+.ibank-tab-body .ibank-table thead th,
+.ibank-tab-body .ibank-table tbody th,
+.ibank-tab-body .ibank-table tbody td {
+  padding-block: 0.32rem;
+  padding-inline: 0.5rem;
+  line-height: 1.35;
+}
+
+.ibank-tab-body .ibank-table thead th {
+  font-size: var(--table-head-font);
+  padding-block: 0.4rem;
+}
+
+.ibank-tab-body .ibank-table td .btn {
+  min-height: var(--control-h-xs);
+  padding: 0.24rem 0.5rem;
+  font-size: var(--btn-sm-font);
+}
+
+.ibank-tree-card {
+  padding: 0.4rem 0.5rem;
+}
+
+.ibank-tree-toolbar {
+  gap: 0.22rem;
+  margin-bottom: 0.35rem;
+  padding: 0.35rem 0.45rem;
+  border-radius: var(--control-radius);
+}
+
+.ibank-tree-toolbar__main-row {
+  gap: 0.25rem 0.35rem;
+}
+
+.ibank-tree-folder-name-input {
+  min-height: var(--control-h-tree);
+  padding: 0.2rem 0.42rem;
+  font-size: 0.8rem;
+  border-radius: 5px;
+}
+
+.ibank-tree-scroll {
+  padding: 0.15rem 0.12rem;
+  border-radius: var(--control-radius);
+}
+
+.ibank-tree-row {
+  gap: 0.12rem 0.28rem;
+  padding: 0.1rem 0.28rem;
+  padding-inline-start: calc(0.28rem + var(--ibank-depth, 0) * 0.95rem);
+  border-radius: 4px;
+}
+
+.ibank-tree-label {
+  font-size: 0.8125rem;
+  line-height: 1.28;
+}
+
+.ibank-tree-unit-cluster {
+  gap: 0.35rem 0.55rem;
+}
+
+.ibank-tree-unit-pair,
+.ibank-tree-judge-pair {
+  gap: 0.25rem;
+}
+
+.ibank-tree-unit-cluster__label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--brown-500);
+}
+
+.ibank-tree-scroll .ibank-tree-unit-select,
+.ibank-tree-scroll .ibank-tree-judge-readonly {
+  min-height: var(--control-h-tree-field) !important;
+  height: var(--control-h-tree-field);
+  padding: 0.18rem 0.4rem !important;
+  font-size: 0.8rem;
+  line-height: 1.28;
+  border-radius: 4px;
+}
+
+.ibank-tree-row .btn,
+.ibank-tree-row .btn-sm-compact,
+.ibank-tree-row .ibank-tree-open {
+  min-height: var(--control-h-tree);
+  padding: 0.12rem 0.42rem;
+  font-size: 0.78rem;
+  line-height: 1.15;
+}
+
+.ibank-tree-open {
+  font-size: 0.78rem;
+  padding: 0.1rem 0.2rem;
+}
+
+.ibank-action-eval-days-bar {
+  margin: 0.15rem 0 0.08rem;
+}
+
+.ibank-action-eval-days-note {
+  margin: 0 0 0.28rem;
+  font-size: 0.78rem;
+}
+
+.ibank-units-included-actions {
+  gap: var(--space-sm) var(--space-md);
+}
+
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) .ibank-units-included-form--global {
+  padding: var(--space-sm) 0 var(--space-md);
+}
+
+.ibank-included-cb {
+  width: 1rem;
+  height: 1rem;
+}
+
+/* ── جدول المجرى ── */
+.planner-flow-action-table.ibank-table th,
+.planner-flow-action-table.ibank-table td,
+.planner-flow-action-table .pf-flow-cell {
+  padding: 0.32rem 0.5rem;
+  line-height: 1.35;
+}
+
+.planner-flow-action-table .pf-assignee-line {
+  padding: 0.28rem 0.35rem;
+}
+
+.pf-flow-days-bar {
+  margin-bottom: var(--space-xs);
+  gap: var(--space-sm);
+}
+
+/* ── تقييم / محكمين / تقارير ── */
+.eval-preview-td {
+  padding: 0.38rem 0.65rem;
+}
+
+.eval-preview-rowhead {
+  padding: 0.35rem 0.45rem;
+}
+
+.judge-eval-lists-table th,
+.judge-eval-lists-table td,
+.chief-eval-lists-table th,
+.chief-eval-lists-table td,
+.judge-eval-units-table th,
+.judge-eval-units-table td {
+  padding: 0.3rem 0.45rem;
+  font-size: var(--control-font-sm);
+  line-height: 1.3;
+}
+
+.final-report-table th,
+.final-report-table td {
+  padding: 0.32rem 0.45rem;
+  line-height: 1.35;
+  min-height: 1.85rem;
+}
+
+.admin-users-table th,
+.admin-users-table td {
+  padding-block: 0.3rem !important;
+  padding-inline: 0.55rem !important;
+  font-size: var(--control-font) !important;
+  line-height: 1.35 !important;
+}
+
+.analyst-criteria-distribution-table th,
+.analyst-criteria-distribution-table td,
+.analyst-criteria-phase-table th,
+.analyst-criteria-phase-table td {
+  padding-block: 0.3rem !important;
+  padding-inline: 0.5rem !important;
+  font-size: var(--control-font) !important;
+  line-height: 1.35 !important;
+}
+
+.analyst-criteria-phase-table .unit-level-select,
+.analyst-criteria-phase-table input.criteria-text,
+.analyst-criteria-phase-table .mark-input {
+  min-height: var(--control-h-xs);
+  padding: 0.28rem 0.45rem;
+  font-size: var(--control-font-sm);
+}
+
+.timeline-table th,
+.timeline-table td {
+  padding: 0.28rem 0.4rem;
+  font-size: var(--control-font);
+  line-height: 1.35;
+}
+
+/* ── شاشات صغيرة: لمس مريح دون تضخيم مفرط ── */
+@media (max-width: 47.9375rem) {
+  :root {
+    --control-h: 2.35rem;
+    --control-h-sm: 2.1rem;
+    --control-h-xs: 1.85rem;
+  }
+
+  .btn,
+  .header-nav a,
+  .nav-dd__toggle {
+    min-height: var(--control-h);
+  }
+}

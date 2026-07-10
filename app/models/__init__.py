@@ -54,13 +54,6 @@ from app.models.domain import (
     InformationBankEventFlowTable,
 )
 
-from app.models.server_monitor import (
-    ConnectedDevice,
-    ServerActivityLog,
-    ServerErrorLog,
-    SyncOperationLog,
-)
-
 __all__ = [
     "User",
     "RoleKey",
@@ -116,8 +109,4 @@ __all__ = [
     "InfoBankActionEvalXlsx",
     "InfoBankDilemmaEvalXlsx",
     "InformationBankEventFlowTable",
-    "ConnectedDevice",
-    "ServerActivityLog",
-    "ServerErrorLog",
-    "SyncOperationLog",
 ]

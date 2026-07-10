@@ -56,6 +56,7 @@ def ensure_exercise_extended_columns() -> None:
         ("general_idea_text", "TEXT"),
         ("specific_idea_text", "TEXT"),
         ("program_text", "TEXT"),
+        ("program_table_json", "TEXT"),
         ("map_text", "TEXT"),
     ]
     stmts = [

@@ -2853,6 +2853,23 @@ body:not(.page-dashboard) main > .role-grid.role-grid--pyramid {
   color: var(--brown-900);
   text-decoration: none;
 }
+.admin-action-btn.admin-action-btn--disabled,
+.role-hub-menu .admin-action-btn--disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  pointer-events: none;
+  filter: grayscale(0.4);
+  background: var(--tint-50);
+  color: var(--brown-500);
+  border-style: dashed;
+}
+.admin-action-btn.admin-action-btn--disabled i {
+  color: var(--brown-300);
+}
+.admin-action-btn.admin-action-btn--disabled:hover {
+  background: var(--tint-50);
+  color: var(--brown-500);
+}
 .admin-action-btn.admin-action-btn--active {
   background: var(--tint-200);
   border-color: var(--brown-300);
@@ -8401,6 +8418,76 @@ main:has(.ibank-tabpane[data-tab-pane="event-flow"].is-active) .ibank-tab-body {
   margin-top: 0.75rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--border-light);
+}
+
+/* بنك المعلومات — تبويب التنظيم: تمرير الجدول فقط + شريط أزرار ثابت أسفل */
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0.35rem;
+}
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) > .ibank-subheader,
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) > .form-error-banner,
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) > .form-ok-banner {
+  flex-shrink: 0;
+}
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) > .ibank-card.ibank-card--tabbed {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) .ibank-tabbed {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) .ibank-tabs-row {
+  flex-shrink: 0;
+}
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) .ibank-tab-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) .ibank-tabpane[data-tab-pane^="units-bg-"].is-active {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active)
+  .ibank-tabpane[data-tab-pane^="units-bg-"].is-active
+  .h2-in-card,
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active)
+  .ibank-tabpane[data-tab-pane^="units-bg-"].is-active
+  .ibank-inline-add-form {
+  flex-shrink: 0;
+}
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active)
+  .ibank-tabpane[data-tab-pane^="units-bg-"].is-active
+  .ibank-table-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+main:has(.ibank-tabpane[data-tab-pane^="units-bg-"].is-active) .ibank-units-included-form--global {
+  flex-shrink: 0;
+  margin-top: 0;
+  padding: 0.65rem 0 0.75rem;
+  background: var(--surface-card, #fff);
+  border-top: 1px solid var(--border-light);
+  box-shadow: 0 -6px 16px rgba(35, 30, 26, 0.06);
+  position: relative;
+  z-index: 4;
 }
 .ibank-tabs-row--brigades .ibank-tab {
   font-size: 0.82rem;

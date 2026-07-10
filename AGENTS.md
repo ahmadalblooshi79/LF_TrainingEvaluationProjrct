@@ -13,3 +13,4 @@
 - بيئة Python في `.venv` (Python 3.14). التشغيل عبر `run.bat` أو `run.py`.
 - ملف بيانات SQLite الافتراضي: `exercises.db` في جذر المشروع.
 - عند تعديل `style.css` رفع `?v=…` في `app/templates/base.html` لكسر كاش المتصفح.
+- **سكربتات البناء (PowerShell/BAT)**: رسائل الطرفية بالإنجليزية فقط — العربية تظهر معكوسة/مشوهة في PowerShell على Windows.

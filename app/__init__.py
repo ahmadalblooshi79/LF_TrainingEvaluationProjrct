@@ -1,4 +1,5 @@
 import os
+import warnings
 
 from flask import Flask, g, request
 
@@ -32,6 +33,13 @@ import app.models  # noqa: F401
 
 
 def create_app() -> Flask:
+    # openpyxl: تحذير غير ضار عند قراءة قوائم Excel (قوائم منسدلة في الملف)
+    warnings.filterwarnings(
+        "ignore",
+        message="Data Validation extension is not supported*",
+        category=UserWarning,
+        module="openpyxl",
+    )
     app = Flask(
         __name__,
         static_folder=os.path.join(os.path.dirname(__file__), "static"),
@@ -141,9 +149,10 @@ def create_app() -> Flask:
 
     from app import views
     app.register_blueprint(views.bp)
-    from app.server_monitor.api import server_api_bp
 
-    app.register_blueprint(server_api_bp)
+    from app.mobile_api import mobile_bp
+
+    app.register_blueprint(mobile_bp)
 
     @app.template_global()
     def report_phase_max_input_name(unit_key, phase_key):

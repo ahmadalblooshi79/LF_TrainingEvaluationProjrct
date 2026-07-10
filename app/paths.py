@@ -9,32 +9,21 @@ from pathlib import Path
 APP_NAME = "LF_TrainingEvaluation"
 
 
-def is_frozen() -> bool:
-    return bool(getattr(sys, "frozen", False))
-
-
-def bundle_dir() -> Path | None:
-    """مجلد الموارد المدمجة (PyInstaller _MEIPASS)."""
-    if not is_frozen():
-        return None
-    meipass = getattr(sys, "_MEIPASS", None)
-    return Path(meipass).resolve() if meipass else None
-
-
-def install_dir() -> Path:
-    """مجلد التنصيب — بجانب الملف التنفيذي عند استخدام PyInstaller."""
-    if is_frozen():
+def app_bundle_dir() -> Path:
+    """مجلد ملفات البرنامج (القوالب/الستاتيك أو جذر المشروع في التطوير)."""
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            return Path(meipass).resolve()
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent.parent
 
 
-# جذر المشروع (مجلد run.py) أو مجلد الحزمة المجمّعة
-APP_DIR = bundle_dir() or Path(__file__).resolve().parent.parent
+# جذر المشروع (مجلد run.py) أو مجلد الحزمة بعد PyInstaller
+APP_DIR = app_bundle_dir()
 
 
 def is_installed_mode() -> bool:
-    if is_frozen():
-        return True
     v = (os.getenv("LF_INSTALL_MODE") or os.getenv("LF_INSTALLED") or "").strip().lower()
     return v in ("1", "true", "yes", "on")
 

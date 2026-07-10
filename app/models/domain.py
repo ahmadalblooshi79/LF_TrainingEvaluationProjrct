@@ -141,6 +141,7 @@ class Exercise(Base):
     general_idea_text: Mapped[str] = mapped_column(Text(), default="")
     specific_idea_text: Mapped[str] = mapped_column(Text(), default="")
     program_text: Mapped[str] = mapped_column(Text(), default="")
+    program_table_json: Mapped[str] = mapped_column(Text(), default="")
     map_text: Mapped[str] = mapped_column(Text(), default="")
     status: Mapped[str] = mapped_column(String(32), default=ExerciseStatus.DRAFT.value)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)

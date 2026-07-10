@@ -1,0 +1,11 @@
+{% if item.disabled %}
+<span class="admin-action-btn admin-action-btn--disabled" aria-disabled="true" title="غير متاح حالياً">
+  <i class="fa-solid {{ item.icon }}" aria-hidden="true"></i>
+  <span>{{ item.title_ar }}</span>
+</span>
+{% else %}
+<a class="admin-action-btn" href="{{ item.href }}">
+  <i class="fa-solid {{ item.icon }}" aria-hidden="true"></i>
+  <span>{{ item.title_ar }}</span>
+</a>
+{% endif %}

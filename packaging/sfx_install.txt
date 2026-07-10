@@ -1,0 +1,11 @@
+;!@Install@!UTF-8!
+Title="نظام إدارة التمارين — LF Training Evaluation"
+BeginPrompt="سيتم تثبيت نظام إدارة التمارين في مجلد Program Files.\n\nالبيانات (قاعدة البيانات والمرفقات) تُحفظ في AppData.\n\nمتابعة؟"
+ExtractPathText="اختر مجلد التثبيت:"
+ExtractTitle="تثبيت نظام إدارة التمارين"
+RunProgram="LF_TrainingEvaluation_Server.exe"
+GUIMode="2"
+InstallPath="%ProgramFiles%\\LF_TrainingEvaluation"
+Shortcut="Desktop"
+Shortcut="StartMenu"
+;!@InstallEnd@!

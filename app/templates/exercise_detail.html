@@ -24,6 +24,16 @@
     {% endfor %}
   </nav>
 
+  {% if can_plan %}
+  <div class="exercise-workspace-import-bar">
+    <button type="button" class="btn btn-ghost btn-sm-compact" id="exercise-import-pptx-btn" title="استيراد من PowerPoint (.pptx)">
+      <i class="fa-solid fa-file-import" aria-hidden="true"></i> استيراد PowerPoint
+    </button>
+    <input type="file" id="exercise-import-pptx-input" class="exercise-workspace-import-input" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" hidden>
+    <span class="muted exercise-workspace-import-status" id="exercise-import-pptx-status" role="status" aria-live="polite"></span>
+  </div>
+  {% endif %}
+
   <form method="post" action="{{ url_for('views.exercise_detail', eid=ex.id, tab=active_workspace_tab) }}" class="exercise-workspace-form" id="exercise-workspace-form">
     <div class="exercise-workspace-panes">
       <div class="exercise-workspace-pane{% if active_workspace_tab == 'info' %} is-active{% endif %}"
@@ -136,12 +146,38 @@
            role="tabpanel"
            aria-labelledby="exercise-tab-general"
            {% if active_workspace_tab != 'general' %}hidden{% endif %}>
-        <div class="form-group">
+        <div class="form-group exercise-idea-panel">
           <label for="general_idea_text" class="sr-only">الفكرة العامة</label>
           {% if can_plan %}
-          <textarea id="general_idea_text" name="general_idea_text" rows="14" class="exercise-workspace-textarea exercise-workspace-textarea--tall" placeholder="الفكرة العامة للتمرين">{{ ex.general_idea_text or '' }}</textarea>
+          <div class="exercise-idea-box exercise-idea-box--edit" id="general-idea-box" data-field-prefix="general_idea_paragraph">
+            <ol class="exercise-idea-box__list exercise-idea-box__list--edit">
+              {% for para in general_idea_paragraphs %}
+              <li class="exercise-idea-box__item">
+                <span class="exercise-idea-box__num" aria-hidden="true">{{ loop.index }}.</span>
+                <textarea id="general_idea_paragraph_{{ loop.index0 }}" name="general_idea_paragraph" rows="2" class="exercise-idea-box__para-field exercise-idea-auto-grow" placeholder="نص الفقرة {{ loop.index }}">{{ para }}</textarea>
+              </li>
+              {% else %}
+              <li class="exercise-idea-box__item">
+                <span class="exercise-idea-box__num" aria-hidden="true">1.</span>
+                <textarea id="general_idea_paragraph_0" name="general_idea_paragraph" rows="2" class="exercise-idea-box__para-field exercise-idea-auto-grow" placeholder="نص الفقرة 1"></textarea>
+              </li>
+              {% endfor %}
+            </ol>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm-compact exercise-idea-add-para" data-target="general-idea-box">إضافة فقرة</button>
+          {% elif general_idea_paragraphs %}
+          <div class="exercise-idea-box exercise-idea-box--readonly">
+            <ol class="exercise-idea-box__list">
+              {% for para in general_idea_paragraphs %}
+              <li class="exercise-idea-box__item">
+                <span class="exercise-idea-box__num" aria-hidden="true">{{ loop.index }}.</span>
+                <p class="exercise-idea-box__text">{{ para }}</p>
+              </li>
+              {% endfor %}
+            </ol>
+          </div>
           {% else %}
-          <div class="exercise-workspace-readonly exercise-workspace-readonly--tall">{{ ex.general_idea_text or '—' }}</div>
+          <p class="muted exercise-workspace-empty">—</p>
           {% endif %}
         </div>
       </div>
@@ -151,12 +187,38 @@
            role="tabpanel"
            aria-labelledby="exercise-tab-specific"
            {% if active_workspace_tab != 'specific' %}hidden{% endif %}>
-        <div class="form-group">
+        <div class="form-group exercise-idea-panel">
           <label for="specific_idea_text" class="sr-only">الفكرة الخاصة</label>
           {% if can_plan %}
-          <textarea id="specific_idea_text" name="specific_idea_text" rows="14" class="exercise-workspace-textarea exercise-workspace-textarea--tall" placeholder="الفكرة الخاصة للتمرين">{{ ex.specific_idea_text or '' }}</textarea>
+          <div class="exercise-idea-box exercise-idea-box--edit" id="specific-idea-box" data-field-prefix="specific_idea_paragraph">
+            <ol class="exercise-idea-box__list exercise-idea-box__list--edit">
+              {% for para in specific_idea_paragraphs %}
+              <li class="exercise-idea-box__item">
+                <span class="exercise-idea-box__num" aria-hidden="true">{{ loop.index }}.</span>
+                <textarea id="specific_idea_paragraph_{{ loop.index0 }}" name="specific_idea_paragraph" rows="2" class="exercise-idea-box__para-field exercise-idea-auto-grow" placeholder="نص الفقرة {{ loop.index }}">{{ para }}</textarea>
+              </li>
+              {% else %}
+              <li class="exercise-idea-box__item">
+                <span class="exercise-idea-box__num" aria-hidden="true">1.</span>
+                <textarea id="specific_idea_paragraph_0" name="specific_idea_paragraph" rows="2" class="exercise-idea-box__para-field exercise-idea-auto-grow" placeholder="نص الفقرة 1"></textarea>
+              </li>
+              {% endfor %}
+            </ol>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm-compact exercise-idea-add-para" data-target="specific-idea-box">إضافة فقرة</button>
+          {% elif specific_idea_paragraphs %}
+          <div class="exercise-idea-box exercise-idea-box--readonly">
+            <ol class="exercise-idea-box__list">
+              {% for para in specific_idea_paragraphs %}
+              <li class="exercise-idea-box__item">
+                <span class="exercise-idea-box__num" aria-hidden="true">{{ loop.index }}.</span>
+                <p class="exercise-idea-box__text">{{ para }}</p>
+              </li>
+              {% endfor %}
+            </ol>
+          </div>
           {% else %}
-          <div class="exercise-workspace-readonly exercise-workspace-readonly--tall">{{ ex.specific_idea_text or '—' }}</div>
+          <p class="muted exercise-workspace-empty">—</p>
           {% endif %}
         </div>
       </div>
@@ -166,12 +228,20 @@
            role="tabpanel"
            aria-labelledby="exercise-tab-program"
            {% if active_workspace_tab != 'program' %}hidden{% endif %}>
-        <div class="form-group">
-          <label for="program_text" class="sr-only">البرنامج</label>
+        <div class="form-group exercise-program-panel">
+          <input type="hidden" name="program_table_json" id="program_table_json" value="{{ ex.program_table_json or '' }}">
+          <div id="exercise-program-table-preview" class="exercise-program-table-preview" aria-live="polite">
+            {% if program_table_html %}
+            {{ program_table_html|safe }}
+            {% else %}
+            <p class="muted exercise-program-empty-hint">لا يوجد جدول برنامج — استورد من PowerPoint لعرض الجدول.</p>
+            {% endif %}
+          </div>
           {% if can_plan %}
-          <textarea id="program_text" name="program_text" rows="14" class="exercise-workspace-textarea exercise-workspace-textarea--tall" placeholder="برنامج التمرين">{{ ex.program_text or '' }}</textarea>
-          {% else %}
-          <div class="exercise-workspace-readonly exercise-workspace-readonly--tall">{{ ex.program_text or '—' }}</div>
+          <label for="program_text" class="sr-only">ملاحظات البرنامج</label>
+          <textarea id="program_text" name="program_text" rows="3" class="exercise-workspace-textarea exercise-program-notes" placeholder="ملاحظات إضافية (اختياري)">{{ ex.program_text or '' }}</textarea>
+          {% elif ex.program_text %}
+          <div class="exercise-workspace-readonly exercise-program-notes-readonly">{{ ex.program_text }}</div>
           {% endif %}
         </div>
       </div>
@@ -199,4 +269,171 @@
     {% endif %}
   </form>
 </section>
+{% if can_plan %}
+<script>
+(function () {
+  function autoGrowTextarea(ta) {
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = Math.max(ta.scrollHeight, 44) + "px";
+  }
+
+  function bindAutoGrow(ta) {
+    autoGrowTextarea(ta);
+    ta.addEventListener("input", function () { autoGrowTextarea(ta); });
+  }
+
+  document.querySelectorAll(".exercise-idea-auto-grow").forEach(bindAutoGrow);
+
+  function splitParagraphs(text) {
+    var raw = (text || "").trim();
+    if (!raw) return [""];
+    var chunks = raw.split(/\n\s*\n+/).map(function (s) { return s.trim(); }).filter(Boolean);
+    if (chunks.length > 1) return chunks;
+    var lines = raw.split(/\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+    return lines.length ? lines : [""];
+  }
+
+  function renumberIdeaBox(box) {
+    if (!box) return;
+    box.querySelectorAll(".exercise-idea-box__item").forEach(function (item, idx) {
+      var num = item.querySelector(".exercise-idea-box__num");
+      if (num) num.textContent = String(idx + 1) + ".";
+      var ta = item.querySelector("textarea");
+      if (ta) ta.placeholder = "نص الفقرة " + (idx + 1);
+    });
+  }
+
+  function appendIdeaParagraph(box, value) {
+    if (!box) return;
+    var list = box.querySelector(".exercise-idea-box__list");
+    if (!list) return;
+    var fieldName = box.getAttribute("data-field-prefix") || "general_idea_paragraph";
+    var idx = list.querySelectorAll("textarea").length;
+    var li = document.createElement("li");
+    li.className = "exercise-idea-box__item";
+    var num = document.createElement("span");
+    num.className = "exercise-idea-box__num";
+    num.setAttribute("aria-hidden", "true");
+    num.textContent = String(idx + 1) + ".";
+    var ta = document.createElement("textarea");
+    ta.id = fieldName + "_" + idx;
+    ta.name = fieldName;
+    ta.rows = 2;
+    ta.className = "exercise-idea-box__para-field exercise-idea-auto-grow";
+    ta.placeholder = "نص الفقرة " + (idx + 1);
+    ta.value = value || "";
+    li.appendChild(num);
+    li.appendChild(ta);
+    list.appendChild(li);
+    bindAutoGrow(ta);
+    renumberIdeaBox(box);
+  }
+
+  function fillIdeaBox(boxId, text) {
+    var box = document.getElementById(boxId);
+    if (!box) return;
+    var list = box.querySelector(".exercise-idea-box__list");
+    if (!list) return;
+    var paras = splitParagraphs(text);
+    list.innerHTML = "";
+    paras.forEach(function (para) { appendIdeaParagraph(box, para); });
+  }
+
+  document.querySelectorAll(".exercise-idea-add-para").forEach(function (addBtn) {
+    addBtn.addEventListener("click", function () {
+      var box = document.getElementById(addBtn.getAttribute("data-target") || "");
+      appendIdeaParagraph(box, "");
+      var last = box && box.querySelector("textarea:last-of-type");
+      if (last) last.focus();
+    });
+  });
+
+  var importUrl = {{ exercise_import_pptx_url|tojson }};
+  var btn = document.getElementById("exercise-import-pptx-btn");
+  var input = document.getElementById("exercise-import-pptx-input");
+  var statusEl = document.getElementById("exercise-import-pptx-status");
+
+  var programTableJsonEl = document.getElementById("program_table_json");
+  var programPreviewEl = document.getElementById("exercise-program-table-preview");
+
+  var errMap = {
+    auth: "يجب تسجيل الدخول.",
+    forbidden: "ليس لديك صلاحية الاستيراد.",
+    not_found: "التمرين غير موجود.",
+    no_file: "لم يُختر ملف.",
+    empty_file: "الملف فارغ.",
+    bad_pptx: "يُقبل ملف PowerPoint (.pptx) فقط.",
+    invalid_pptx: "ملف PowerPoint غير صالح.",
+    no_content: "لم يُعثر على أقسام مطابقة (الفكرة العامة، الفكرة الخاصة، البرنامج، الخريطة).",
+    missing_dependency: "مكتبة الاستيراد غير متوفرة على الخادم."
+  };
+
+  function setStatus(msg, isErr) {
+    if (!statusEl) return;
+    statusEl.textContent = msg || "";
+    statusEl.classList.toggle("is-error", !!isErr);
+  }
+
+  function updateProgramTablePreview(htmlStr) {
+    if (!programPreviewEl) return;
+    var html = (htmlStr || "").trim();
+    if (html) {
+      programPreviewEl.innerHTML = html;
+      return;
+    }
+    programPreviewEl.innerHTML = '<p class="muted exercise-program-empty-hint">لا يوجد جدول برنامج — استورد من PowerPoint لعرض الجدول.</p>';
+  }
+
+  if (btn && input && importUrl) {
+    btn.addEventListener("click", function () { input.click(); });
+
+    input.addEventListener("change", function () {
+      var file = input.files && input.files[0];
+      input.value = "";
+      if (!file) return;
+      if (!/\.pptx$/i.test(file.name || "")) {
+        setStatus(errMap.bad_pptx, true);
+        return;
+      }
+      setStatus("جاري استيراد الملف…", false);
+      btn.disabled = true;
+      var fd = new FormData();
+      fd.append("pptx_file", file);
+      fetch(importUrl, { method: "POST", body: fd, credentials: "same-origin" })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+        .then(function (res) {
+          if (!res.ok || !res.body || !res.body.ok) {
+            var code = (res.body && res.body.error) || "invalid_pptx";
+            throw new Error(errMap[code] || "تعذّر الاستيراد.");
+          }
+          var fields = res.body.fields || {};
+          if (typeof fields.general_idea_text === "string") {
+            fillIdeaBox("general-idea-box", fields.general_idea_text);
+          }
+          if (typeof fields.specific_idea_text === "string") {
+            fillIdeaBox("specific-idea-box", fields.specific_idea_text);
+          }
+          var mapEl = document.getElementById("map_text");
+          if (mapEl && typeof fields.map_text === "string") mapEl.value = fields.map_text;
+          var programTextEl = document.getElementById("program_text");
+          if (programTextEl && typeof fields.program_text === "string") programTextEl.value = fields.program_text;
+          if (programTableJsonEl && typeof fields.program_table_json === "string") {
+            programTableJsonEl.value = fields.program_table_json;
+          }
+          if (typeof res.body.program_table_html === "string") {
+            updateProgramTablePreview(res.body.program_table_html);
+          }
+          var warn = (res.body.warnings || []).join(" ");
+          setStatus("تم الاستيراد — راجع التبويبات ثم اضغط «حفظ»." + (warn ? " " + warn : ""), false);
+        })
+        .catch(function (err) {
+          setStatus(err.message || "تعذّر الاستيراد.", true);
+        })
+        .finally(function () { btn.disabled = false; });
+    });
+  }
+})();
+</script>
+{% endif %}
 {% endblock %}

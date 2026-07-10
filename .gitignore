@@ -9,9 +9,23 @@ __pycache__/
 # أسرار محلية (مفاتيح، كلمات مرور) — لا تُرفع أبداً
 .env
 exercises.db
+exercises.db-wal
+exercises.db-shm
 # سجلات تشغيل محلية
 server-*.log
 _server_*.txt
 _transcript_snippets.txt
 # صور خلفية مؤقتة (غير مستخدمة)
 app/static/images/
+!app/static/images/crests/
+!app/static/images/crests/**
+# مخرجات بناء Setup / APK — لا تُرفع
+dist/
+build/
+android-webview/
+*.spec
+packaging/*.7z
+packaging/advanced_installer/*.aip
+packaging/staging/
+dist/LF_TrainingEvaluation_Server/
+dist/LF_TrainingEvaluation_Setup.exe

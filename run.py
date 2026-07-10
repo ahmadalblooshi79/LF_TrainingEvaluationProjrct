@@ -3,7 +3,6 @@
   run.bat
   أو: .venv\\Scripts\\python.exe run.py
 """
-import bootstrap_sys_path  # noqa: F401 — جذر المشروع في sys.path
 import os
 import shutil
 import subprocess
@@ -175,20 +174,16 @@ def _ensure_port_free(port: int, host: str = "0.0.0.0") -> None:
 
 def main() -> None:
     global PORT
+    if getattr(sys, "frozen", False):
+        os.environ.setdefault("LF_INSTALLED", "1")
     PORT = _resolve_listen_port(_PREFERRED_PORT, HOST)
-    from app.server_runtime import set_listen_port
-
-    set_listen_port(PORT)
     from app import create_app
     from app.network_util import print_server_access_info
 
     app = create_app()
-    debug = _env_flag("FLASK_DEBUG", default=False)
-    if (
-        not getattr(sys, "frozen", False)
-        and not str(sys.executable).lower().endswith(
-            (r".venv\scripts\python.exe", r"/.venv/bin/python")
-        )
+    debug = _env_flag("FLASK_DEBUG", default=False) and not getattr(sys, "frozen", False)
+    if not getattr(sys, "frozen", False) and not str(sys.executable).lower().endswith(
+        (r".venv\scripts\python.exe", r"/.venv/bin/python")
     ):
         print(
             f"\n[تحذير] المفسّر الحالي ليس .venv:\n  {sys.executable}\n"
@@ -207,6 +202,11 @@ def main() -> None:
         _schedule_browser_open(use_reloader=use_reloader)
     print(f"  Python: {sys.executable}", flush=True)
     print_server_access_info(host=HOST, port=PORT)
+    if getattr(sys, "frozen", False):
+        from waitress import serve
+
+        serve(app, host=HOST, port=PORT, threads=8)
+        return
     app.run(host=HOST, port=PORT, debug=debug, use_reloader=use_reloader)
 
 
