@@ -508,6 +508,100 @@ def _render_parts_html(parts: list[dict[str, Any]]) -> str:
     return " ".join(chunks)
 
 
+# ترتيب الأيام المطلوب: الاثنين أولاً (يمين الجدول في RTL) حتى الأحد.
+_CANONICAL_DAY_ORDER = (
+    "الاثنين",
+    "الثلاثاء",
+    "الاربعاء",
+    "الخميس",
+    "الجمعة",
+    "السبت",
+    "الاحد",
+)
+
+
+def _canonical_day_index(label: str) -> int | None:
+    norm = _normalize_day(label)
+    for idx, day in enumerate(_CANONICAL_DAY_ORDER):
+        if norm == _normalize_day(day):
+            return idx
+    return None
+
+
+def _reorder_days_monday_first(
+    header: list[str], rows: list[dict[str, Any]], ncols: int
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """إعادة ترتيب أعمدة الأيام لتبدأ بالاثنين من اليمين."""
+    if len(header) != ncols:
+        return header, rows
+    day_indices = [_canonical_day_index(h) for h in header]
+    if any(idx is None for idx in day_indices):
+        return header, rows
+    # ترتيب الأعمدة تصاعدياً حسب اليوم القانوني (الاثنين=0 يظهر أولاً في RTL).
+    order = sorted(range(ncols), key=lambda c: day_indices[c])
+    if order == list(range(ncols)):
+        return header, rows
+
+    new_header = [header[c] for c in order]
+    new_rows: list[dict[str, Any]] = []
+    for row in rows:
+        cells = list(row.get("cells") or [])
+        is_bar_row = bool(cells) and all(cell.get("is_bar") for cell in cells)
+        if is_bar_row or len(cells) != ncols:
+            new_rows.append(row)
+            continue
+        row["cells"] = [cells[c] for c in order]
+        new_rows.append(row)
+    return new_header, new_rows
+
+
+def _normalize_calendar_rows(
+    rows: list[dict[str, Any]], ncols: int
+) -> list[dict[str, Any]]:
+    """فصل أشرطة التعليمات عن صفوف الأيام وترتيبها بعد الأسبوع التابع لها."""
+    normalized: list[dict[str, Any]] = []
+    leading_bars: list[dict[str, Any]] = []
+    saw_date_row = False
+
+    for row in rows:
+        cells = list(row.get("cells") or [])
+        bars = [cell for cell in cells if cell.get("is_bar")]
+        date_cells = [cell for cell in cells if not cell.get("is_bar")]
+        band = (row.get("week_band") or "").strip()
+
+        if date_cells:
+            # لا يُسمح لأي صف أسبوعي بتجاوز عدد أعمدة الأيام.
+            date_row = {"week_band": band, "cells": date_cells[:ncols]}
+            normalized.append(date_row)
+            saw_date_row = True
+            if leading_bars:
+                normalized.extend(leading_bars)
+                leading_bars = []
+
+        for bar in bars:
+            bar_row = {"week_band": band, "cells": [bar]}
+            if saw_date_row:
+                normalized.append(bar_row)
+            else:
+                leading_bars.append(bar_row)
+
+    normalized.extend(leading_bars)
+
+    # تنسيق الأسابيع كما في النموذج: تمهيدي، أسبوعان أزرقان، أسبوع بيج، ثم أبيض.
+    week_bands = ("beige", "blue", "blue", "beige", "")
+    week_index = -1
+    current_band = ""
+    for row in normalized:
+        cells = list(row.get("cells") or [])
+        is_bar_row = bool(cells) and all(cell.get("is_bar") for cell in cells)
+        if not is_bar_row:
+            week_index += 1
+            current_band = week_bands[week_index] if week_index < len(week_bands) else ""
+        row["week_band"] = current_band
+
+    return normalized
+
+
 def render_program_table_html(raw_json: str) -> str:
     data = loads_program_table(raw_json)
     if not data:
@@ -516,10 +610,15 @@ def render_program_table_html(raw_json: str) -> str:
     title = html.escape((data.get("title") or "برنامج التمرين").strip())
     header: list[str] = list(data.get("header") or [])
     rows: list[dict[str, Any]] = list(data.get("rows") or [])
+    ncols = len(header) or 7
+    rows = _normalize_calendar_rows(rows, ncols)
+    header, rows = _reorder_days_monday_first(header, rows, ncols)
 
     out: list[str] = [
         '<div class="exercise-program-calendar-wrap">',
+        '<div class="exercise-program-calendar-heading">',
         f'<h3 class="exercise-program-calendar-title">{title}</h3>',
+        "</div>",
         '<table class="exercise-program-calendar" dir="rtl">',
     ]
 
@@ -549,14 +648,20 @@ def render_program_table_html(raw_json: str) -> str:
             date_label = html.escape((cell.get("date") or "").strip())
             inner = _render_parts_html(list(cell.get("parts") or []))
             if is_bar:
-                out.append(f"<td{attr_s}>{inner}</td>")
+                out.append(
+                    f'<td{attr_s}><div class="exercise-program-bar-box">{inner}</div></td>'
+                )
             else:
                 date_html = (
                     f'<span class="exercise-program-cell-date">{date_label}</span>'
                     if date_label
                     else ""
                 )
-                box = f'<div class="exercise-program-cell-box">{inner}</div>'
+                box = (
+                    f'<div class="exercise-program-cell-box">{inner}</div>'
+                    if inner
+                    else ""
+                )
                 out.append(f"<td{attr_s}>{date_html}{box}</td>")
         out.append("</tr>")
     out.append("</tbody></table></div>")

@@ -17,6 +17,8 @@ from app.exercise_program_table import (
 def _build_sample_pptx() -> bytes:
     prs = Presentation()
     slides = [
+        ("القصد", "قصد التمرين المستورد من الملف."),
+        ("المشاركون في التمرين", "لواء 1\nلواء 2"),
         ("الفكرة العامة", "نص الفكرة العامة للتمرين."),
         ("الفكرة الخاصة", "نص الفكرة الخاصة."),
         ("البرنامج", "جدول البرنامج التفصيلي."),
@@ -27,6 +29,32 @@ def _build_sample_pptx() -> bytes:
         slide = prs.slides.add_slide(layout)
         slide.shapes.title.text = title
         slide.placeholders[1].text = body
+    buf = BytesIO()
+    prs.save(buf)
+    return buf.getvalue()
+
+
+def _build_info_slide_pptx() -> bytes:
+    """شريحة «معلومات التمرين» بعناوين فرعية للقصد والمشاركين."""
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    slide.shapes.title.text = "معلومات التمرين"
+    slide.placeholders[1].text = (
+        "القصد\n"
+        "تحقيق الجاهزية القتالية.\n\n"
+        "المشاركون في التمرين\n"
+        "مجموعة لواء 1\n"
+        "وحدات الدعم"
+    )
+    for title, body in [
+        ("الفكرة العامة", "نص عام."),
+        ("الفكرة الخاصة", "نص خاص."),
+        ("البرنامج", "برنامج."),
+        ("الخريطة", "خريطة."),
+    ]:
+        s = prs.slides.add_slide(prs.slide_layouts[1])
+        s.shapes.title.text = title
+        s.placeholders[1].text = body
     buf = BytesIO()
     prs.save(buf)
     return buf.getvalue()
@@ -152,10 +180,22 @@ def test_parse_exercise_pptx_by_slide_titles():
     out = parse_exercise_pptx_bytes(data)
     assert out["ok"] is True
     fields = out["fields"]
+    assert "قصد التمرين" in fields["exercise_purpose"]
+    assert "لواء 1" in fields["exercise_participants"]
     assert "الفكرة العامة" in fields["general_idea_text"] or "نص الفكرة العامة" in fields["general_idea_text"]
     assert "الفكرة الخاصة" in fields["specific_idea_text"] or "نص الفكرة الخاصة" in fields["specific_idea_text"]
     assert "البرنامج" in fields["program_text"] or "جدول البرنامج" in fields["program_text"]
     assert "الخريطة" in fields["map_text"] or "وصف الخريطة" in fields["map_text"]
+
+
+def test_parse_info_fields_from_info_slide():
+    data = _build_info_slide_pptx()
+    out = parse_exercise_pptx_bytes(data)
+    assert out["ok"] is True
+    fields = out["fields"]
+    assert "الجاهزية" in fields["exercise_purpose"]
+    assert "مجموعة لواء 1" in fields["exercise_participants"]
+    assert "وحدات الدعم" in fields["exercise_participants"]
 
 
 def test_parse_program_table_from_pptx():
@@ -176,6 +216,7 @@ def test_parse_program_table_from_pptx():
 
 if __name__ == "__main__":
     test_parse_exercise_pptx_by_slide_titles()
+    test_parse_info_fields_from_info_slide()
     test_parse_program_table_from_pptx()
     test_parse_program_table_overlay_shapes()
     print("ok")

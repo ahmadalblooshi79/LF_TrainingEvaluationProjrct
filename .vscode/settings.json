@@ -12,5 +12,8 @@
     "VIRTUAL_ENV": "${workspaceFolder}\\.venv",
     "PATH": "${workspaceFolder}\\.venv\\Scripts;${env:PATH}"
   },
-  "terminal.integrated.sendKeybindingsToShell": true
+  "terminal.integrated.sendKeybindingsToShell": true,
+  "cursorpyright.analysis.extraPaths": [
+    "${workspaceFolder}"
+  ]
 }

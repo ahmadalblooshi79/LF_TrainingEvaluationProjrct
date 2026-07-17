@@ -11332,6 +11332,11 @@ html {
 .exercise-workspace-empty {
   margin: 0;
 }
+.exercise-info-imported-text {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.55;
+}
 .exercise-workspace-hint {
   margin: 0.5rem 0 0;
   font-size: 0.9rem;
@@ -11351,6 +11356,7 @@ html {
 }
 .exercise-program-table-preview {
   overflow-x: auto;
+  padding: 0.25rem;
 }
 .exercise-program-empty-hint {
   margin: 0;
@@ -11365,78 +11371,103 @@ html {
 }
 .exercise-program-calendar-wrap {
   min-width: 42rem;
+  padding: 0.55rem;
+  border: 2px solid #111;
+  background: #fff;
+}
+.exercise-program-calendar-heading {
+  min-height: 2.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .exercise-program-calendar-title {
-  margin: 0 0 0.65rem;
+  margin: 0 0 0.45rem;
   text-align: center;
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: #c00000;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #d00000;
   text-decoration: underline;
-  text-underline-offset: 0.2rem;
+  text-underline-offset: 0.12rem;
 }
 .exercise-program-calendar {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 0.78rem;
-  line-height: 1.4;
+  direction: rtl;
+  font-size: 0.74rem;
+  line-height: 1.25;
+  color: #050505;
 }
 .exercise-program-calendar th,
 .exercise-program-calendar td {
-  border: 1px solid #7a7a7a;
+  border: 1px solid #222;
   vertical-align: top;
-  padding: 0.2rem 0.3rem;
+  padding: 0.16rem 0.22rem;
 }
 .exercise-program-calendar th {
-  background: #e4e4e4;
-  font-weight: 700;
+  background: #dedede;
+  font-weight: 800;
   text-align: center;
-  padding: 0.35rem 0.25rem;
+  padding: 0.25rem 0.2rem;
 }
 .exercise-program-calendar tr.week-blue td {
-  background: #dce8f4;
+  background: #adc3e1;
 }
 .exercise-program-calendar tr.week-beige td {
-  background: #f5f0e6;
+  background: #f8e5d7;
 }
 .exercise-program-calendar tr.week-grey td {
-  background: #ebe8e4;
+  background: #e3e3e3;
 }
 .exercise-program-calendar td {
   position: relative;
-  min-height: 3.5rem;
-  height: 3.8rem;
+  min-height: 3.4rem;
+  height: 3.6rem;
 }
 .exercise-program-cell-date {
   position: absolute;
   top: 0.12rem;
-  left: 0.3rem;
-  font-size: 0.72rem;
-  color: #333;
+  right: 0.28rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #111;
   line-height: 1;
+  direction: ltr;
 }
 .exercise-program-cell-box {
-  margin-top: 1rem;
-  padding: 0.15rem 0.3rem;
-  border: 1px solid #888;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.45);
+  margin-top: 0.85rem;
+  padding: 0.16rem 0.25rem;
+  border: 2px solid #111;
+  border-radius: 0.55rem;
+  background: rgba(255, 255, 255, 0.18);
   min-height: 1.6rem;
-  line-height: 1.35;
-  font-size: 0.76rem;
+  line-height: 1.25;
+  font-size: 0.7rem;
+  text-align: center;
+  font-weight: 600;
 }
 .exercise-program-bar-cell {
   text-align: center;
   vertical-align: middle;
   height: auto;
   min-height: 1.6rem;
-  padding: 0.3rem 0.45rem;
+  padding: 0.12rem;
   font-weight: 600;
 }
+.exercise-program-bar-box {
+  width: 100%;
+  min-height: 1.35rem;
+  padding: 0.12rem 0.35rem;
+  border: 2px solid #111;
+  border-radius: 0.45rem;
+  background: transparent;
+  text-align: center;
+  line-height: 1.25;
+}
 .exercise-program-text-red {
-  color: #c00000;
-  font-weight: 600;
+  color: #f00000;
+  font-weight: 700;
 }
 @media (max-width: 960px) {
   .exercise-info-layout__row--top,
