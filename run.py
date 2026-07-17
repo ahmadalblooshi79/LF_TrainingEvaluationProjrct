@@ -203,7 +203,7 @@ def main() -> None:
     print(f"  Python: {sys.executable}", flush=True)
     print_server_access_info(host=HOST, port=PORT)
     if getattr(sys, "frozen", False):
-        from waitress import serve
+        from waitress import serve  # type: ignore[import-untyped,reportMissingModuleSource]
 
         serve(app, host=HOST, port=PORT, threads=8)
         return

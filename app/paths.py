@@ -19,7 +19,7 @@ def app_bundle_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-# جذر المشروع (مجلد run.py) أو مجلد الحزمة بعد PyInstaller
+# جذر المشروع (مجلد run.py)
 APP_DIR = app_bundle_dir()
 
 

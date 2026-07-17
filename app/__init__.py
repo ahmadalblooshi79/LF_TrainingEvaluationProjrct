@@ -150,10 +150,6 @@ def create_app() -> Flask:
     from app import views
     app.register_blueprint(views.bp)
 
-    from app.mobile_api import mobile_bp
-
-    app.register_blueprint(mobile_bp)
-
     @app.template_global()
     def report_phase_max_input_name(unit_key, phase_key):
         return views._report_phase_max_field_name(unit_key or "", phase_key or "")

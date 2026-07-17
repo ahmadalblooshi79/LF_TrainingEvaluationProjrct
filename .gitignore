@@ -19,13 +19,14 @@ _transcript_snippets.txt
 app/static/images/
 !app/static/images/crests/
 !app/static/images/crests/**
-# مخرجات بناء Setup / APK — لا تُرفع
+# مخرجات بناء محلية
 dist/
 build/
-android-webview/
-*.spec
-packaging/*.7z
-packaging/advanced_installer/*.aip
-packaging/staging/
-dist/LF_TrainingEvaluation_Server/
-dist/LF_TrainingEvaluation_Setup.exe
+# Flutter
+flutter_app/.dart_tool/
+flutter_app/.flutter-plugins
+flutter_app/.flutter-plugins-dependencies
+flutter_app/.packages
+flutter_app/build/
+flutter_app/.pub-cache/
+flutter_app/.pub/

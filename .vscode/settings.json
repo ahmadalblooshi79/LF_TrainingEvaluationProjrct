@@ -1,14 +1,16 @@
 {
-  "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-  "python.terminal.activateEnvironment": false,
+  "python.defaultInterpreterPath": "C:\\Users\\lab\\Documents\\GitHub\\LF_TrainingEvaluationProjrct\\.venv\\Scripts\\python.exe",
+  "python.terminal.activateEnvironment": true,
   "python.terminal.executeInFileDir": false,
   "python.analysis.extraPaths": [
     "${workspaceFolder}"
   ],
-  "cursorpyright.analysis.extraPaths": [
-    "${workspaceFolder}"
-  ],
+  "python.analysis.venvPath": "${workspaceFolder}",
+  "python.analysis.venv": ".venv",
   "terminal.integrated.env.windows": {
-    "PYTHONPATH": "${workspaceFolder}"
-  }
+    "PYTHONPATH": "${workspaceFolder}",
+    "VIRTUAL_ENV": "${workspaceFolder}\\.venv",
+    "PATH": "${workspaceFolder}\\.venv\\Scripts;${env:PATH}"
+  },
+  "terminal.integrated.sendKeybindingsToShell": true
 }
