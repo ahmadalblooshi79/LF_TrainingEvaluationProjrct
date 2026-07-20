@@ -255,6 +255,7 @@ def _evaluation_sheet_view_context(fspath: Path) -> dict:
     return {
         "preview_error": sheet.get("error"),
         "sheet_title": sheet.get("sheet_title") or "",
+        "eval_doc_title": (sheet.get("eval_doc_title") or "").strip(),
         "header_row": sheet.get("header_row") or [],
         "body_rows": sheet.get("body_rows") or [],
         "eval_structured": es,
@@ -8313,6 +8314,518 @@ def planner_hub_section(slug: str):
     )
 
 
+@bp.route("/planner/evaluation-lists", methods=["GET"])
+def planner_evaluation_lists_home():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/planner/evaluation-lists")
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _admin_current_workspace_exercise(db, user)
+    units = list(UNIT_LEVELS)
+    phase_tabs = evaluation_unit_home_phase_tabs(db, ex, units)
+    return render_template(
+        "judge_evaluation_lists_home.html",
+        **_ctx(
+            user,
+            has_exercise=ex is not None,
+            exercise=ex,
+            unit_levels=units,
+            phase_tabs=phase_tabs,
+            active_phase_key=_evaluation_list_home_active_phase(phase_tabs),
+            unit_list_endpoint="views.planner_evaluation_lists",
+            **_hub_back_ctx_for_request_path(),
+        ),
+    )
+
+
+@bp.route("/planner/evaluation-lists/<unit_key>", methods=["GET"])
+def planner_evaluation_lists(unit_key: str):
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/planner/evaluation-lists/{unit_key}")
+    if not can_access_planner_hub(user):
+        abort(403)
+    unit = _require_unit_level_row(unit_key)
+    from flask import g
+
+    db = g.db
+    ex = _admin_current_workspace_exercise(db, user)
+    if ex is None:
+        return redirect("/planner/evaluation-lists")
+    phase_key = _evaluation_list_phase_from_request()
+    items = (
+        db.query(EvaluationListPdfItem)
+        .filter(EvaluationListPdfItem.exercise_id == ex.id, EvaluationListPdfItem.unit_level_key == unit_key)
+        .order_by(
+            _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
+            EvaluationListPdfItem.sort_order,
+            EvaluationListPdfItem.id,
+        )
+        .all()
+    )
+    items = filter_evaluation_items_by_phase(items, phase_key)
+    item_ids = [int(it.id) for it in items]
+    canonical_by_item = _evaluation_canonical_map_for_items(db, ex.id, item_ids)
+
+    evaluation_lists_rows: list[dict] = []
+    for it in items:
+        s = canonical_by_item.get(int(it.id))
+        evaluation_lists_rows.append(
+            build_evaluation_list_row(
+                item=it,
+                saved=s,
+                exercise=ex,
+                open_href=url_for(
+                    "views.planner_evaluation_list_file_viewer",
+                    unit_key=unit_key,
+                    item_id=it.id,
+                    **_evaluation_list_phase_url_kwargs(phase_key),
+                ),
+            )
+        )
+    list_close_href = (
+        url_for("views.planner_evaluation_lists_home", **_evaluation_list_phase_url_kwargs(phase_key))
+        if phase_key
+        else url_for("views.planner_evaluation_lists_home")
+    )
+    return render_template(
+        "judge_evaluation_lists.html",
+        **_ctx(
+            user,
+            exercise=ex,
+            unit=unit,
+            unit_key=unit_key,
+            items=items,
+            evaluation_lists_rows=evaluation_lists_rows,
+            eval_lists_parent_href=list_close_href,
+            subpage_close_fallback=list_close_href,
+            phase_key=phase_key,
+            phase_label=_phase_label_ar(phase_key) if phase_key else "",
+            **_hub_back_ctx_for_request_path(),
+        ),
+    )
+
+
+@bp.route("/planner/evaluation-lists/<unit_key>/view/<int:item_id>", methods=["GET"])
+def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/planner/evaluation-lists/{unit_key}/view/{item_id}")
+    if not can_access_planner_hub(user):
+        abort(403)
+    unit = _require_unit_level_row(unit_key)
+    from flask import g
+
+    db = g.db
+    row = db.get(EvaluationListPdfItem, item_id)
+    current_exercise = _admin_current_workspace_exercise(db, user)
+    if not row or row.unit_level_key != unit_key or current_exercise is None or row.exercise_id != current_exercise.id:
+        abort(404)
+    list_url = _evaluation_list_unit_href(
+        "views.planner_evaluation_lists", unit_key, _evaluation_list_resolved_phase(row)
+    )
+    if not (row.pdf_relpath or "").strip():
+        return redirect(list_url)
+    fspath = _evaluation_list_file_abspath(row.pdf_relpath)
+    if fspath is None:
+        return redirect(list_url)
+    ev = _evaluation_sheet_view_context(fspath)
+
+    saved_payload = {}
+    saved_updated_at = None
+    saved_is_approved = False
+    saved_approved_at = None
+    saved_row_id = None
+    canon = _evaluation_canonical_saved_row(db, current_exercise.id, row.id)
+
+    def _load_payload(sr: EvaluationListSavedResult | None) -> dict:
+        if not sr or not (sr.payload_json or "").strip():
+            return {}
+        try:
+            p = json.loads(sr.payload_json)
+        except Exception:
+            return {}
+        return p if isinstance(p, dict) else {}
+
+    if canon is not None:
+        saved_payload = _load_payload(canon)
+        saved_updated_at = canon.updated_at
+        saved_is_approved = bool(getattr(canon, "is_approved", False))
+        saved_approved_at = getattr(canon, "approved_at", None)
+        saved_row_id = canon.id
+    saved_payload = _saved_payload_aligned_with_eval_rows(saved_payload, ev.get("eval_rows"))
+
+    unit_label = (unit.get("label") or "").strip() if isinstance(unit, dict) else ""
+    shown_date = getattr(current_exercise, "planned_start", None) or getattr(current_exercise, "created_at", None)
+
+    commander_name = "—"
+    commander_row = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == current_exercise.id,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.TRAINEE.value,
+            ExerciseRosterRow.unit_level_key == unit_key,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .first()
+    )
+    if commander_row is not None:
+        commander_name = (commander_row.full_name or "").strip() or commander_name
+
+    judge_name = "—"
+    judge_row = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == current_exercise.id,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+            ExerciseRosterRow.unit_level_key == unit_key,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .first()
+    )
+    if judge_row is not None:
+        judge_name = (judge_row.full_name or "").strip() or judge_name
+
+    phase_key = _evaluation_list_resolved_phase(row)
+    eval_save_url = url_for(
+        "views.planner_evaluation_list_save_results",
+        unit_key=unit_key,
+        item_id=item_id,
+        **_evaluation_list_phase_url_kwargs(phase_key),
+    )
+    eval_approve_url = url_for(
+        "views.planner_evaluation_list_approve",
+        unit_key=unit_key,
+        item_id=item_id,
+        **_evaluation_list_phase_url_kwargs(phase_key),
+    )
+    wf = _eval_list_viewer_ctx(user, canon)
+    crit_edit = bool(
+        not saved_is_approved and can_save_evaluation_results(user)
+    )
+    wf["eval_can_edit"] = crit_edit
+
+    return render_template(
+        "judge_evaluation_list_viewer.html",
+        **_ctx(
+            user,
+            unit_key=unit_key,
+            item_id=item_id,
+            item_title=row.text or "تقييم",
+            evaluation_item_id=row.id,
+            saved_row_id=saved_row_id,
+            saved_payload=saved_payload,
+            saved_updated_at=saved_updated_at,
+            **wf,
+            **ev,
+            **_eval_crit_media_sheet_ctx(
+                db,
+                user,
+                exercise=current_exercise,
+                list_item_id=int(row.id),
+                bundle_action_eval_id=None,
+                eval_can_edit=crit_edit,
+            ),
+            unit_label=unit_label or "—",
+            shown_date=shown_date,
+            commander_name=commander_name or "—",
+            judge_name=judge_name or "—",
+            has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
+            eval_save_url=eval_save_url,
+            eval_approve_url=eval_approve_url,
+            eval_export_url=url_for(
+                "views.planner_evaluation_list_export",
+                unit_key=unit_key,
+                item_id=item_id,
+                **_evaluation_list_phase_url_kwargs(phase_key),
+            ),
+            eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
+            subpage_close_fallback=_evaluation_list_unit_href(
+                "views.planner_evaluation_lists", unit_key, phase_key
+            ),
+            **_hub_back_ctx_for_request_path(),
+        ),
+    )
+
+
+@bp.route(
+    "/planner/evaluation-lists/<unit_key>/view/<int:item_id>/save-results",
+    methods=["POST"],
+)
+def planner_evaluation_list_save_results(unit_key: str, item_id: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_access_planner_hub(user):
+        abort(403)
+    unit = _require_unit_level_row(unit_key)
+    from flask import g
+
+    db = g.db
+    item = db.get(EvaluationListPdfItem, item_id)
+    current_exercise = _admin_current_workspace_exercise(db, user)
+    if (
+        not item
+        or item.unit_level_key != unit_key
+        or current_exercise is None
+        or item.exercise_id != current_exercise.id
+    ):
+        abort(404)
+
+    raw = (request.form.get("payload_json") or "").strip()
+    if not raw:
+        return _evaluation_list_viewer_redirect(
+            "views.planner_evaluation_list_file_viewer", unit_key, item_id, item
+        )
+    if len(raw) > 250_000:
+        abort(400)
+    _evaluation_commit_payload_save(db, user=user, item=item, current_exercise=current_exercise, raw=raw)
+    return _evaluation_list_viewer_redirect(
+        "views.planner_evaluation_list_file_viewer", unit_key, item_id, item, eval_saved=1
+    )
+
+
+@bp.route(
+    "/planner/evaluation-lists/<unit_key>/view/<int:item_id>/approve",
+    methods=["POST"],
+)
+def planner_evaluation_list_approve(unit_key: str, item_id: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_access_planner_hub(user):
+        abort(403)
+    if not can_approve_evaluation_results(user):
+        abort(403)
+    unit = _require_unit_level_row(unit_key)
+    from flask import g
+
+    db = g.db
+    item = db.get(EvaluationListPdfItem, item_id)
+    current_exercise = _admin_current_workspace_exercise(db, user)
+    if (
+        not item
+        or item.unit_level_key != unit_key
+        or current_exercise is None
+        or item.exercise_id != current_exercise.id
+    ):
+        abort(404)
+
+    saved = _evaluation_canonical_saved_row(db, current_exercise.id, item.id)
+    if saved is None or not (saved.payload_json or "").strip():
+        abort(400)
+    if bool(getattr(saved, "is_approved", False)):
+        return _evaluation_list_viewer_redirect(
+            "views.planner_evaluation_list_file_viewer", unit_key, item_id, item
+        )
+    rows = _parse_saved_eval_rows(saved.payload_json)
+    if _evaluation_payload_has_empty_acquired_for_approve(rows):
+        return _evaluation_list_viewer_redirect(
+            "views.planner_evaluation_list_file_viewer",
+            unit_key,
+            item_id,
+            item,
+            eval_approve_incomplete=1,
+        )
+    if not _evaluation_saved_allows_judge_approve(saved):
+        return _evaluation_list_viewer_redirect(
+            "views.planner_evaluation_list_file_viewer",
+            unit_key,
+            item_id,
+            item,
+            eval_approve_grade_blocked=1,
+        )
+    saved.is_approved = True
+    saved.approved_by_id = getattr(user, "id", None)
+    saved.approved_at = datetime.utcnow()
+    db.commit()
+    return _evaluation_list_viewer_redirect(
+        "views.planner_evaluation_list_file_viewer", unit_key, item_id, item
+    )
+
+
+def _send_evaluation_list_export_xlsx(
+    *,
+    db,
+    user,
+    unit_key: str,
+    item_id: int,
+    current_exercise,
+    enforce_judge_scope: bool = False,
+):
+    """يبني ملف Excel من ملف القائمة المخزّن في النظام ويرسله للتنزيل."""
+    unit = _require_unit_level_row(unit_key)
+    row = db.get(EvaluationListPdfItem, item_id)
+    if (
+        not row
+        or row.unit_level_key != unit_key
+        or current_exercise is None
+        or row.exercise_id != current_exercise.id
+    ):
+        abort(404)
+    if enforce_judge_scope:
+        _enforce_judge_unit_scope(db, user, current_exercise, unit_key)
+    if not (row.pdf_relpath or "").strip():
+        abort(404)
+    fspath = _evaluation_list_file_abspath(row.pdf_relpath)
+    if fspath is None:
+        abort(404)
+
+    ev = _evaluation_sheet_view_context(fspath)
+    canon = _evaluation_canonical_saved_row(db, current_exercise.id, row.id)
+    saved_payload: dict = {}
+    if canon is not None and (canon.payload_json or "").strip():
+        try:
+            p = json.loads(canon.payload_json)
+            if isinstance(p, dict):
+                saved_payload = p
+        except Exception:
+            saved_payload = {}
+    saved_payload = _saved_payload_aligned_with_eval_rows(saved_payload, ev.get("eval_rows"))
+
+    unit_label = (unit.get("label") or "").strip() if isinstance(unit, dict) else ""
+    shown_date = getattr(current_exercise, "planned_start", None) or getattr(
+        current_exercise, "created_at", None
+    )
+    date_str = shown_date.strftime("%Y-%m-%d") if shown_date else ""
+
+    commander_name = "—"
+    commander_row = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == current_exercise.id,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.TRAINEE.value,
+            ExerciseRosterRow.unit_level_key == unit_key,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .first()
+    )
+    if commander_row is not None:
+        commander_name = (commander_row.full_name or "").strip() or commander_name
+
+    judge_name = "—"
+    judge_row = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == current_exercise.id,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+            ExerciseRosterRow.unit_level_key == unit_key,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .first()
+    )
+    if judge_row is not None:
+        judge_name = (judge_row.full_name or "").strip() or judge_name
+
+    from app.evaluation_list_export import (
+        build_evaluation_list_xlsx_bytes,
+        export_doc_title_from_list_page,
+        export_download_filename,
+    )
+
+    item_title = (row.text or "").strip()
+    doc_title = export_doc_title_from_list_page(
+        item_title,
+        fallback=(ev.get("eval_doc_title") or "").strip(),
+    )
+    try:
+        data = build_evaluation_list_xlsx_bytes(
+            fspath,
+            doc_title=doc_title,
+            unit_label=unit_label or "",
+            date_str=date_str,
+            commander_name=commander_name or "",
+            judge_name=judge_name or "",
+            eval_rows=ev.get("eval_rows") or [],
+            saved_rows=(saved_payload.get("rows") or []) if saved_payload else [],
+        )
+    except Exception:
+        abort(500)
+
+    return send_file(
+        io.BytesIO(data),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=export_download_filename(item_title or doc_title),
+    )
+
+
+@bp.route(
+    "/planner/evaluation-lists/<unit_key>/view/<int:item_id>/export.xlsx",
+    methods=["GET"],
+)
+def planner_evaluation_list_export(unit_key: str, item_id: int):
+    """تصدير قائمة التقييم إلى Excel — مساحة التخطيط."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/planner/evaluation-lists/{unit_key}/view/{item_id}/export.xlsx")
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    current_exercise = _admin_current_workspace_exercise(db, user)
+    return _send_evaluation_list_export_xlsx(
+        db=db,
+        user=user,
+        unit_key=unit_key,
+        item_id=item_id,
+        current_exercise=current_exercise,
+    )
+
+
+@bp.route(
+    "/judge/evaluation-lists/<unit_key>/view/<int:item_id>/export.xlsx",
+    methods=["GET"],
+)
+def judge_evaluation_list_export(unit_key: str, item_id: int):
+    """تصدير قائمة التقييم إلى Excel — مساحة المحكمين."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/judge/evaluation-lists/{unit_key}/view/{item_id}/export.xlsx")
+    if not can_access_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    current_exercise = _current_workspace_exercise(db, user)
+    return _send_evaluation_list_export_xlsx(
+        db=db,
+        user=user,
+        unit_key=unit_key,
+        item_id=item_id,
+        current_exercise=current_exercise,
+        enforce_judge_scope=True,
+    )
+
+
+@bp.route(
+    "/admin/evaluation-lists/<unit_key>/view/<int:item_id>/export.xlsx",
+    methods=["GET"],
+)
+def admin_evaluation_list_export(unit_key: str, item_id: int):
+    """تصدير قائمة التقييم إلى Excel — إدارة/كتالوج التخطيط."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/admin/evaluation-lists/{unit_key}/view/{item_id}/export.xlsx")
+    _require_planner_hub_catalog_access(user)
+    from flask import g
+
+    db = g.db
+    current_exercise = _admin_current_workspace_exercise(db, user)
+    return _send_evaluation_list_export_xlsx(
+        db=db,
+        user=user,
+        unit_key=unit_key,
+        item_id=item_id,
+        current_exercise=current_exercise,
+    )
+
+
 # مساحة المحكمين — عناصر الشريط (المعرّف، العنوان، أيقونة Font Awesome)
 JUDGE_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("planner-flow-materials", "مجرى الأحداث والمعاضل", "fa-table-list"),
@@ -11722,6 +12235,7 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
             saved_by_id=saved_by_id,
             eval_save_url=url_for("views.admin_evaluation_list_save_results", unit_key=unit_key, item_id=item_id),
             eval_approve_url=url_for("views.admin_evaluation_list_approve", unit_key=unit_key, item_id=item_id),
+            eval_export_url=url_for("views.admin_evaluation_list_export", unit_key=unit_key, item_id=item_id),
             **wf_admin,
             **ev,
             **_eval_crit_media_sheet_ctx(
@@ -12367,6 +12881,12 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
             has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
             eval_save_url=eval_save_url,
             eval_approve_url=eval_approve_url,
+            eval_export_url=url_for(
+                "views.judge_evaluation_list_export",
+                unit_key=unit_key,
+                item_id=item_id,
+                **_evaluation_list_phase_url_kwargs(phase_key),
+            ),
             eval_chief_approve_url="",
             eval_chief_reopen_url="",
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,

@@ -2530,6 +2530,8 @@ h2.h2-icon .fa-icon-title {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 0.4rem;
+  flex-wrap: wrap;
 }
 .dilemma-viewer-title {
   margin: 0 0 0.15rem;
@@ -5068,6 +5070,40 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 .dilemma-viewer-toolbar__actions .btn--subpage-close {
   padding: 0.24rem 0.55rem !important;
   font-size: 0.82rem !important;
+}
+.btn--eval-export {
+  padding: 0.24rem 0.65rem !important;
+  font-size: 0.82rem !important;
+  background: #1d6f42;
+  color: #fff !important;
+  border: 1px solid #155c35;
+  border-radius: 6px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+.btn--eval-export:hover {
+  background: #155c35;
+  color: #fff !important;
+}
+.eval-doc-title-banner {
+  margin: 0 0 0.35rem;
+  padding: 0.55rem 0.85rem;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: #1a1a2e;
+  background: linear-gradient(180deg, #f7f3ec 0%, #efe7da 100%);
+  border: 1px solid #d9cdb8;
+  border-radius: 8px;
+}
+.eval-list-page .eval-doc-title-banner {
+  margin: 0 0 0.25rem !important;
+  padding: 0.4rem 0.7rem !important;
+  font-size: 0.88rem !important;
 }
 .eval-list-page .eval-structured-layout__scroll {
   --eval-structured-thead-approx: 1.7rem;

@@ -10,6 +10,7 @@ from typing import Any
 from app.evaluation_list_columns import (
     annotate_evaluation_row_kinds,
     build_structured_rows,
+    extract_eval_doc_title_from_grid,
     import_body_end_row_index,
     normalize_ar_header,
     parse_max_cell,
@@ -103,9 +104,14 @@ def _load_evaluation_import_grid(path: Path, *, sheet_index: int = 0) -> dict[st
             anchor = _cell_to_str(ws.cell(merged.min_row, merged.min_col).value)
             if not anchor:
                 continue
-            # توسيع الدمج في أعمدة العناوين (ب–د) فقط — لا ننسخ التذييل إلى أعمدة العلامات
-            col_lo = max(1, merged.min_col)
-            col_hi = min(max_col, merged.max_col, 4)
+            # صف العنوان B1:J1 — توسيع كامل للنطاق
+            if merged.min_row == 1 and merged.max_row == 1 and merged.min_col <= 2:
+                col_lo = max(1, merged.min_col)
+                col_hi = min(max_col, merged.max_col)
+            else:
+                # توسيع الدمج في أعمدة العناوين (ب–د) فقط — لا ننسخ التذييل إلى أعمدة العلامات
+                col_lo = max(1, merged.min_col)
+                col_hi = min(max_col, merged.max_col, 4)
             for r in range(merged.min_row, merged.max_row + 1):
                 for c in range(col_lo, col_hi + 1):
                     if 1 <= r <= len(grid) and 1 <= c <= ncol:
@@ -175,6 +181,7 @@ def read_evaluation_list_sheet(path: Path, *, sheet_index: int = 0) -> dict[str,
             base = fallback
     out: dict[str, Any] = {
         "sheet_title": base.get("sheet_title") or "",
+        "eval_doc_title": "",
         "grid_rows": base.get("grid_rows") or [],
         "header_row": [],
         "body_rows": [],
@@ -201,6 +208,7 @@ def read_evaluation_list_sheet(path: Path, *, sheet_index: int = 0) -> dict[str,
     out["ncol"] = ncol
     out["header_row"] = grid[0]
     out["body_rows"] = grid[1:] if len(grid) > 1 else []
+    out["eval_doc_title"] = extract_eval_doc_title_from_grid(grid)
 
     rubric_i = _find_rubric_subheader_row_index(grid)
 

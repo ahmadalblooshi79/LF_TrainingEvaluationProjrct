@@ -179,6 +179,23 @@ EVAL_IMPORT_COL_PCT = 6  # G
 EVAL_IMPORT_COL_GRADE = 7  # H
 EVAL_IMPORT_COL_NOTES = 8  # I
 
+
+def extract_eval_doc_title_from_grid(grid: list[list[str]]) -> str:
+    """عنوان القائمة من الصف 1 العمود B (نطاق B1:J1 في القالب العسكري)."""
+    if not grid:
+        return ""
+    row0 = grid[0] if grid else []
+    if len(row0) > EVAL_IMPORT_COL_ELEMENTS:
+        t = normalize_ar_header(row0[EVAL_IMPORT_COL_ELEMENTS] or "")
+        if t:
+            return t
+    # احتياطي: أول خلية غير فارغة في الصف 1 ضمن B..J
+    for ci in range(EVAL_IMPORT_COL_ELEMENTS, min(len(row0), 10)):
+        t = normalize_ar_header(row0[ci] or "")
+        if t:
+            return t
+    return ""
+
 EVAL_IMPORT_SKIP_ROWS_1BASED = frozenset({1, 2, 3, 4, 7})
 
 EVAL_IMPORT_SKIP_ROW_KEYWORDS: tuple[str, ...] = (
