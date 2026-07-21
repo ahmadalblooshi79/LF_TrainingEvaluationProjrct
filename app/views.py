@@ -5867,6 +5867,31 @@ def _build_ibank_event_flow_table_context(db) -> dict:
     }
 
 
+def _extract_ibank_flow_dilemma_names(payload_json: str | None) -> dict[str, list[dict]]:
+    """مسميات صفوف المعاضل فقط (kind=dilemma) لكل يوم — للعرض في قوائم تقييم الإجراءات."""
+    days, _active = _parse_planner_flow_table_days(payload_json)
+    out: dict[str, list[dict]] = {}
+    for day in days:
+        day_id = str(day.get("id") or "").strip()
+        if not day_id:
+            continue
+        names: list[dict] = []
+        num = 0
+        for row in day.get("rows") or []:
+            if (row.get("kind") or "").strip().lower() != "dilemma":
+                continue
+            text = (row.get("text") or "").strip()
+            if not text:
+                continue
+            num += 1
+            from app.ibank_dilemma_folder_import import parse_dilemma_no_from_text
+
+            dno = parse_dilemma_no_from_text(text) or num
+            names.append({"num": num, "text": text, "dilemma_no": dno, "files": []})
+        out[day_id] = names
+    return out
+
+
 def _flow_table_fields_from_bundle(bundle: ExercisePlannerFlowBundle | None) -> dict:
     if bundle is None:
         return {
@@ -14794,6 +14819,8 @@ def admin_information_bank():
     active_action_eval_day = ""
     action_eval_trees_by_day: dict[str, list] = {}
     action_eval_day_root_ids: dict[str, int] = {}
+    ibank_action_eval_dilemmas_by_day: dict[str, list] = {}
+    ibank_action_eval_dilemma_tree: dict[str, list] = {}
     ibank_unit_labels = {
         (u.get("key") or "").strip(): (u.get("label") or "").strip()
         for u in UNIT_LEVELS
@@ -14851,6 +14878,28 @@ def admin_information_bank():
         db.rollback()
         current_app.logger.exception("information bank tree build failed: %s", exc)
     ibank_event_flow_ctx = _build_ibank_event_flow_table_context(db)
+    from app.ibank_action_eval_dilemma_tree import build_action_eval_dilemma_judge_tree
+
+    ex_id = int(current_exercise.id) if current_exercise else None
+    ibank_action_eval_dilemma_tree = build_action_eval_dilemma_judge_tree(
+        db, exercise_id=ex_id
+    )
+    ibank_action_eval_dilemmas_by_day = {
+        day_id: [
+            {
+                "num": n.get("num"),
+                "dilemma_no": n.get("dilemma_no"),
+                "text": n.get("text"),
+                "files": [
+                    {"node_id": f.get("node_id"), "name": f.get("name")}
+                    for j in (n.get("judges") or [])
+                    for f in (j.get("files") or [])
+                ],
+            }
+            for n in nodes
+        ]
+        for day_id, nodes in ibank_action_eval_dilemma_tree.items()
+    }
     err = (request.args.get("err") or "").strip()[:2000]
     ok = (request.args.get("ok") or "").strip()[:500]
     from flask import make_response
@@ -14872,6 +14921,8 @@ def admin_information_bank():
                 active_action_eval_day=active_action_eval_day,
                 action_eval_trees_by_day=action_eval_trees_by_day,
                 action_eval_day_root_ids=action_eval_day_root_ids,
+                ibank_action_eval_dilemmas_by_day=ibank_action_eval_dilemmas_by_day,
+                ibank_action_eval_dilemma_tree=ibank_action_eval_dilemma_tree,
                 training_phase_label=lambda key: _information_bank_training_phase_label(
                     db, key
                 ),
@@ -14909,6 +14960,103 @@ def admin_information_bank_action_eval_day_tabs():
         current_app.logger.exception("action eval day tabs sync failed: %s", exc)
         return jsonify({"ok": False, "error": "sync_failed"}), 500
     return jsonify({"ok": True, **payload})
+
+
+
+@bp.route("/admin/information-bank/action-eval/view/<int:node_id>", methods=["GET"])
+def admin_information_bank_action_eval_view(node_id: int):
+    """فتح قائمة تقييم الإجراءات (Excel) بنفس عارض قوائم التقييم."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/admin/information-bank/action-eval/view/{node_id}")
+    if not can_view_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.config import INFO_BANK_DIR
+    from app.info_bank_tree import node_file_abspath
+
+    db = g.db
+    node = db.get(InformationBankTreeNode, int(node_id))
+    if node is None or node.kind != "action_eval" or node.is_folder:
+        abort(404)
+    path = node_file_abspath(node.kind, node.file_relpath)
+    if path is None or not path.is_file():
+        abort(404)
+    if not str(node.name or "").lower().endswith((".xlsx", ".xlsm")):
+        return redirect(url_for("views.admin_information_bank_tree_file", node_id=node_id))
+
+    ev = _evaluation_sheet_view_context(path)
+    back_day = (request.args.get("day") or "").strip()
+    back_kw = {"tab": "action-eval"}
+    if back_day:
+        back_kw["day"] = back_day
+    back_url = url_for("views.admin_information_bank", **back_kw)
+    return render_template(
+        "judge_evaluation_list_viewer.html",
+        **_ctx(
+            user,
+            item_title=(node.name or "قائمة تقييم"),
+            unit_key="",
+            unit_label="—",
+            judge_name="—",
+            commander_name="—",
+            shown_date=None,
+            item_id=int(node_id),
+            saved_payload={},
+            saved_is_approved=False,
+            saved_approved_at=None,
+            eval_can_edit=False,
+            eval_save_url="",
+            show_eval_approve=False,
+            close_href=back_url,
+            **ev,
+            **_hub_back_ctx_for_request_path(),
+        ),
+    )
+
+
+@bp.route("/admin/information-bank/action-eval/import-dilemma-folders", methods=["POST"])
+def admin_information_bank_action_eval_import_dilemmas():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.ibank_dilemma_folder_import import import_dilemma_folders_from_path
+
+    db = g.db
+    root_path = (request.form.get("root_path") or "").strip()
+    if not root_path:
+        return _admin_information_bank_tree_redirect(
+            tab="action-eval", err="حدّد مسار مجلد المعاضل الخارجي."
+        )
+    try:
+        stats = import_dilemma_folders_from_path(db, root_path=root_path)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        return _admin_information_bank_tree_redirect(
+            tab="action-eval", err=str(exc) or "تعذّر الاستيراد."
+        )
+    except Exception as exc:
+        db.rollback()
+        current_app.logger.exception("dilemma folder import failed: %s", exc)
+        return _admin_information_bank_tree_redirect(
+            tab="action-eval", err="فشل استيراد مجلدات المعاضل."
+        )
+    unmatched_n = len(stats.get("unmatched") or [])
+    ok = (
+        f"المجلدات الخارجية: {stats.get('packs', 0)} — "
+        f"رُبطت {stats.get('matched', 0)} معضلة، "
+        f"إضافة {stats.get('files_added', 0)} ملفاً"
+        f" (تخطي {stats.get('files_skipped', 0)} موجود)"
+    )
+    if unmatched_n:
+        ok += f"، لم تُطابق {unmatched_n}."
+    else:
+        ok += "."
+    return _admin_information_bank_tree_redirect(tab="action-eval", ok=ok)
 
 
 @bp.route("/admin/information-bank/event-flow/save-flow-table", methods=["POST"])

@@ -620,13 +620,19 @@ def folder_resolved_unit_key(db: Session, node: InformationBankTreeNode) -> str:
         _effective_unit_key_for_node,
         _resolve_unit_key,
     )
+    from app.ibank_dilemma_folder_import import is_dilemma_folder_unit_key
 
-    uk = _resolve_unit_key((node.catalog_unit_key or "").strip(), db)
+    raw_uk = (node.catalog_unit_key or "").strip()
+    if is_dilemma_folder_unit_key(raw_uk):
+        return ""
+    uk = _resolve_unit_key(raw_uk, db)
     if uk:
         return uk
     if _is_nested_unit_folder(db, node):
         return ""
     eff = _effective_unit_key_for_node(db, node)
+    if is_dilemma_folder_unit_key(eff):
+        return ""
     return _resolve_unit_key(eff, db) or ""
 
 

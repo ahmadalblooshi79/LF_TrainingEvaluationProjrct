@@ -157,7 +157,7 @@
       </div>
 
       <div class="ibank-tabpane{% if active_tab == 'action-eval' %} is-active{% endif %}" data-tab-pane="action-eval" role="tabpanel">
-        {% with kind='action_eval', tree_nodes=tree_action_eval, ibank_tree_unit_levels=ibank_tree_unit_levels, ibank_judge_names_by_unit=ibank_judge_names_by_unit, ibank_action_eval_flow_days=ibank_action_eval_flow_days, active_action_eval_day=active_action_eval_day, action_eval_trees_by_day=action_eval_trees_by_day, action_eval_day_root_ids=action_eval_day_root_ids %}
+        {% with kind='action_eval', tree_nodes=tree_action_eval, ibank_tree_unit_levels=ibank_tree_unit_levels, ibank_judge_names_by_unit=ibank_judge_names_by_unit, ibank_action_eval_flow_days=ibank_action_eval_flow_days, active_action_eval_day=active_action_eval_day, action_eval_trees_by_day=action_eval_trees_by_day, action_eval_day_root_ids=action_eval_day_root_ids, ibank_action_eval_dilemmas_by_day=ibank_action_eval_dilemmas_by_day, ibank_action_eval_dilemma_tree=ibank_action_eval_dilemma_tree %}
         {% include 'admin_information_bank_tree_panel.html' %}
         {% endwith %}
       </div>
@@ -299,326 +299,264 @@
       var uploadTargetId = '';
       var parentInputs = page.querySelectorAll('.js-ibank-tree-parent-id, .js-ibank-tree-upload-parent');
       var dayInputs = page.querySelectorAll('.js-ibank-action-eval-day');
-      var labelEl = page.querySelector('.js-ibank-tree-target-label');
-      var folderNameInput = page.querySelector('.js-ibank-tree-folder-form input[name="folder_name"]');
-      var expStorageKey = 'ibank_tree_exp_' + kind;
-      var scrollStorageKey = 'ibank_tree_scroll_' + kind;
 
-      function getActivePane() {
-        if (!dayTabsMode) return page;
-        return page.querySelector('.ibank-action-eval-day-pane:not([hidden])');
-      }
-
-      function refreshTreeRefs() {
-        var pane = getActivePane() || page;
-        treeRoot = pane.querySelector('.js-ibank-tree');
-        treeScrollEl = pane.querySelector('.ibank-tree-scroll');
-      }
-
-      function updateStorageKeys() {
-        if (dayTabsMode && activeDayId) {
-          expStorageKey = 'ibank_tree_exp_' + kind + '_' + activeDayId;
-          scrollStorageKey = 'ibank_tree_scroll_' + kind + '_' + activeDayId;
-        } else {
-          expStorageKey = 'ibank_tree_exp_' + kind;
-          scrollStorageKey = 'ibank_tree_scroll_' + kind;
+      var dilemmasByDay = {};
+      if (dayTabsMode) {
+        var dilemmasRaw = page.querySelector('.js-ibank-action-eval-dilemmas-by-day');
+        try {
+          dilemmasByDay = dilemmasRaw && dilemmasRaw.textContent ? JSON.parse(dilemmasRaw.textContent) : {};
+        } catch (errDilemmas) {
+          dilemmasByDay = {};
         }
       }
 
-      function syncDayHiddenInputs() {
-        dayInputs.forEach(function (inp) {
-          inp.value = activeDayId || '';
-        });
+
+      var dilemmaTreeByDay = {};
+      (function () {
+        var el = page.querySelector('.js-ibank-action-eval-dilemma-tree');
+        try {
+          dilemmaTreeByDay = el && el.textContent ? JSON.parse(el.textContent) : {};
+        } catch (eTree) { dilemmaTreeByDay = {}; }
+      })();
+
+      function renderActionEvalDilemmas(dayId) {
+        renderActionEvalJudgeTree(dayId);
       }
 
-      function activeDayRootId() {
-        if (!dayTabsMode || !activeDayId) return '';
-        var raw = dayRootMap[activeDayId];
-        return raw !== undefined && raw !== null ? String(raw) : '';
-      }
-
-      function isDayRootId(id) {
-        if (!dayTabsMode || !id) return false;
-        var want = String(id);
-        return Object.keys(dayRootMap).some(function (k) {
-          return String(dayRootMap[k]) === want;
-        });
-      }
-
-      refreshTreeRefs();
-      updateStorageKeys();
-
-      function setFolderExpanded(li, open) {
-        li.setAttribute('aria-expanded', open ? 'true' : 'false');
-        var ch = li.querySelector(':scope > .ibank-tree-children');
-        if (ch) ch.hidden = !open;
-        var row = li.querySelector(':scope > .ibank-tree-row');
-        var bt = row && row.querySelector('.ibank-tree-toggle');
-        var ic = bt && bt.querySelector('i');
-        if (ic) ic.className = open ? 'fa-solid fa-caret-down' : 'fa-solid fa-caret-left';
-      }
-
-      function collapseAllFolders() {
-        var scope = getActivePane() || page;
-        scope.querySelectorAll('.ibank-tree-has-children').forEach(function (li) {
-          setFolderExpanded(li, false);
-        });
-      }
-
-      function saveTreeUiState() {
-        var scope = getActivePane() || page;
-        var expanded = [];
-        scope.querySelectorAll('.ibank-tree-has-children').forEach(function (li) {
-          if (li.getAttribute('aria-expanded') === 'true') {
-            expanded.push(String(li.getAttribute('data-node-id') || ''));
+      function renderActionEvalJudgeTree(dayId) {
+        if (!dayTabsMode) return;
+        var root = page.querySelector('.js-ibank-action-eval-judge-tree');
+        var wrap = page.querySelector('.ibank-action-eval-judge-tree-wrap');
+        if (!root) return;
+        var nodes = (dilemmaTreeByDay && dilemmaTreeByDay[dayId]) ? dilemmaTreeByDay[dayId] : [];
+        root.innerHTML = '';
+        renderActionEvalJumpNav(nodes);
+        if (!nodes.length) {
+          var empty = document.createElement('li');
+          empty.className = 'muted js-ibank-action-eval-dilemmas-empty';
+          empty.textContent = 'لا توجد معاضل في مجرى الأحداث لهذا اليوم.';
+          root.appendChild(empty);
+          bindActionEvalDilemmaNav();
+          return;
+        }
+        nodes.forEach(function (d, idx) {
+          var li = document.createElement('li');
+          li.className = 'ibank-aejt-dilemma';
+          var dno = String(d.dilemma_no != null ? d.dilemma_no : '');
+          li.setAttribute('data-dilemma-no', dno);
+          li.id = 'aejt-d' + dno;
+          var det = document.createElement('details');
+          det.className = 'js-ibank-aejt-dilemma';
+          det.open = false;
+          var sum = document.createElement('summary');
+          sum.className = 'ibank-aejt-dilemma__sum';
+          sum.innerHTML = '<span class="ibank-aejt-badge"></span> <strong class="ibank-aejt-dilemma__title"></strong>';
+          sum.querySelector('.ibank-aejt-badge').textContent = String(d.num != null ? d.num : '');
+          sum.querySelector('strong').textContent = d.text || '';
+          var nav = document.createElement('span');
+          nav.className = 'ibank-aejt-dilemma__nav';
+          if (idx > 0) {
+            var up = document.createElement('button');
+            up.type = 'button';
+            up.className = 'ibank-aejt-dilemma__step js-ibank-aejt-step';
+            up.setAttribute('data-step', '-1');
+            up.title = 'المعضلة السابقة';
+            up.textContent = '↑';
+            nav.appendChild(up);
           }
-        });
-        try {
-          sessionStorage.setItem(expStorageKey, JSON.stringify(expanded));
-        } catch (err) {}
-        if (treeScrollEl) {
-          try {
-            sessionStorage.setItem(scrollStorageKey, String(treeScrollEl.scrollTop || 0));
-          } catch (err2) {}
-        }
-      }
-
-      function restoreTreeUiState() {
-        refreshTreeRefs();
-        var scope = getActivePane() || page;
-        var raw = null;
-        try {
-          raw = sessionStorage.getItem(expStorageKey);
-        } catch (err) {}
-        if (raw) {
-          try {
-            var ids = JSON.parse(raw);
-            if (Array.isArray(ids)) {
-              ids.forEach(function (id) {
-                if (!id) return;
-                var li = scope.querySelector('[data-node-id="' + id + '"]');
-                if (li && li.classList.contains('ibank-tree-has-children')) {
-                  setFolderExpanded(li, true);
-                }
-              });
+          if (idx < nodes.length - 1) {
+            var down = document.createElement('button');
+            down.type = 'button';
+            down.className = 'ibank-aejt-dilemma__step js-ibank-aejt-step';
+            down.setAttribute('data-step', '1');
+            down.title = 'المعضلة التالية';
+            down.textContent = '↓';
+            nav.appendChild(down);
+          }
+          sum.appendChild(nav);
+          det.appendChild(sum);
+          var uj = document.createElement('ul');
+          uj.className = 'ibank-aejt-judges';
+          var judges = Array.isArray(d.judges) ? d.judges : [];
+          if (!judges.length) {
+            var none = document.createElement('li');
+            none.className = 'muted';
+            none.textContent = 'لا أصناف محكمين في عمود المكلف لهذه المعضلة.';
+            uj.appendChild(none);
+          }
+          judges.forEach(function (j) {
+            var jli = document.createElement('li');
+            jli.className = 'ibank-aejt-judge';
+            var jd = document.createElement('details');
+            jd.open = !!(j.files && j.files.length);
+            var js = document.createElement('summary');
+            js.className = 'ibank-aejt-judge__sum';
+            js.innerHTML = '<i class="fa-solid fa-user-tie" aria-hidden="true"></i> ';
+            var jLabel = document.createElement('span');
+            jLabel.className = 'ibank-aejt-judge__label';
+            jLabel.textContent = j.assignee_label || '';
+            js.appendChild(jLabel);
+            if (j.unit_label) {
+              var mu = document.createElement('span');
+              mu.className = 'muted ibank-aejt-judge__unit';
+              mu.textContent = ' (' + j.unit_label + ')';
+              js.appendChild(mu);
             }
-          } catch (err2) {
-            collapseAllFolders();
-          }
-        } else {
-          collapseAllFolders();
-        }
-        var st = null;
-        try {
-          st = sessionStorage.getItem(scrollStorageKey);
-        } catch (err3) {}
-        if (treeScrollEl && st !== null && st !== '') {
-          var top = parseInt(st, 10);
-          if (!isNaN(top)) {
-            requestAnimationFrame(function () {
-              treeScrollEl.scrollTop = top;
-            });
-          }
-        }
-      }
-
-      restoreTreeUiState();
-
-      if (treeScrollEl) {
-        treeScrollEl.addEventListener('scroll', function () {
-          clearTimeout(treeScrollEl._ibankScrollT);
-          treeScrollEl._ibankScrollT = setTimeout(saveTreeUiState, 120);
-        }, { passive: true });
-      }
-
-      function editingPending() {
-        if (folderNameInput && folderNameInput.value.trim()) return true;
-        var f = page.querySelector('.js-ibank-tree-files');
-        var d = page.querySelector('.js-ibank-tree-dir');
-        if (f && f.files && f.files.length > 0) return true;
-        if (d && d.files && d.files.length > 0) return true;
-        return false;
-      }
-
-      function defaultRootLabel() {
-        if (dayTabsMode) {
-          return 'اليوم الحالي — «إرفاق مجلد» لإدراج مستويات الوحدات، أو حدّد مجلداً ثم أرفق';
-        }
-        if (kind === 'action_eval') {
-          return 'الجذر — حدّد اليوم ثم «إرفاق مجلد» أو «إضافة مجلد» (اختياري)، واختر مستوى الوحدة من القائمة على المجلد';
-        }
-        if (isUnitEvalTree) {
-          return 'الجذر — حدّد مرحلة التمرين ثم «إرفاق مجلد» أو «إضافة مجلد» (اختياري)، واختر مستوى الوحدة من القائمة على المجلد';
-        }
-        return 'الجذر';
-      }
-
-      function uploadHasSubdirs(fileList) {
-        if (!fileList || !fileList.length) return false;
-        for (var i = 0; i < fileList.length; i++) {
-          var n = (fileList[i].webkitRelativePath || fileList[i].name || '').replace(/\\/g, '/');
-          if (n.indexOf('/') >= 0) return true;
-        }
-        return false;
-      }
-
-      function isPhaseRootLi(li) {
-        if (!li) return false;
-        if (dayTabsMode) return false;
-        var parentUl = li.parentElement;
-        return !!(parentUl && parentUl.classList.contains('ibank-tree-root'));
-      }
-
-      function isPhaseRootTarget(id) {
-        if (!id) return false;
-        if (isDayRootId(id)) return true;
-        var li = (getActivePane() || page).querySelector('[data-node-id="' + id + '"]');
-        return isPhaseRootLi(li);
-      }
-
-      function effectiveUploadTargetId(isDirForm) {
-        if (uploadTargetId) return uploadTargetId;
-        if (dayTabsMode && isDirForm) return activeDayRootId();
-        return '';
-      }
-
-      function folderHasUnitLevel(li) {
-        if (!isUnitEvalTree || !li) return true;
-        return Boolean((li.getAttribute('data-effective-unit-key') || '').trim());
-      }
-
-      function validateUnitEvalUpload(uploadId, isDirForm, files) {
-        if (!uploadId) {
-          window.alert(dayTabsMode && isDirForm
-            ? 'اختر يوماً ثم «إرفاق مجلد» (مجلد كامل لمستويات الوحدات).'
-            : 'حدّد مجلداً مستهدفاً في الشجرة (زر «تحديد»).');
-          return false;
-        }
-        var scope = getActivePane() || page;
-        var tgtLi = scope.querySelector('[data-node-id="' + uploadId + '"]');
-        if (isPhaseRootTarget(uploadId)) {
-          if (!isDirForm || !uploadHasSubdirs(files)) {
-            window.alert(kind === 'action_eval'
-              ? 'حدّد اليوم ثم «إرفاق مجلد» (مجلد كامل وليس ملفات متفرقة).'
-              : 'حدّد مرحلة التمرين ثم «إرفاق مجلد» (مجلد كامل وليس ملفات متفرقة).');
-            return false;
-          }
-          return true;
-        }
-        if (!folderHasUnitLevel(tgtLi)) {
-          if (isDirForm && uploadHasSubdirs(files)) return true;
-          window.alert('اختر مستوى الوحدة من القائمة على المجلد المرفق، أو ارفق مجلداً فرعياً.');
-          return false;
-        }
-        return true;
-      }
-
-      function submitUploadForm(form) {
-        if (typeof form.requestSubmit === 'function') {
-          form.requestSubmit();
-        } else {
-          form.submit();
-        }
-      }
-
-      function syncReorderControls() {
-        var scopeSel = getActivePane() || page;
-        scopeSel.querySelectorAll('.ibank-tree-node').forEach(function (li) {
-          var lid = String(li.getAttribute('data-node-id') || '');
-          var selected = Boolean(targetId) && lid === targetId;
-          li.classList.toggle('ibank-tree-node--target-selected', selected);
-          var reorder = li.querySelector('.js-ibank-tree-reorder');
-          if (reorder) {
-            var show = selected && li.getAttribute('data-is-phase-root') !== '1';
-            reorder.hidden = !show;
-            reorder.setAttribute('aria-hidden', show ? 'false' : 'true');
-          }
-        });
-        page.querySelectorAll('.js-ibank-tree-select-target').forEach(function (btn) {
-          btn.classList.toggle('is-active', String(btn.getAttribute('data-node-id')) === targetId);
-        });
-      }
-
-      function setTarget(id, name) {
-        targetId = id || '';
-        var scopeSel = getActivePane() || page;
-        var tgtLi = targetId ? scopeSel.querySelector('[data-node-id="' + targetId + '"]') : null;
-        var isFolder = !!(tgtLi && tgtLi.classList.contains('ibank-tree-node--folder'));
-        if (!targetId) {
-          uploadTargetId = '';
-        } else if (isFolder) {
-          uploadTargetId = targetId;
-        }
-        parentInputs.forEach(function (inp) { inp.value = uploadTargetId; });
-        if (labelEl) {
-          if (!targetId) {
-            labelEl.textContent = 'المستهدف: ' + defaultRootLabel();
-          } else {
-            var hint = (isUnitEvalTree && tgtLi && isFolder && !folderHasUnitLevel(tgtLi) && !isPhaseRootTarget(targetId))
-              ? ' — اختر مستوى الوحدة من القائمة على المجلد المرفق'
-              : (!isFolder ? ' — للتحريك' : '');
-            labelEl.textContent = 'المستهدف: ' + (name || '') + hint;
-          }
-        }
-        syncReorderControls();
-      }
-
-      function moveTreeNode(li, direction) {
-        var moveUrl = page.getAttribute('data-tree-move-url') || '';
-        if (!moveUrl || !li) return;
-        var nid = li.getAttribute('data-node-id') || '';
-        if (!nid) return;
-        var dir = direction === 'up' ? 'up' : 'down';
-        saveTreeUiState();
-        fetch(moveUrl, {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-            'X-Requested-With': 'XMLHttpRequest',
-          },
-          body: JSON.stringify({ kind: kind, node_id: parseInt(nid, 10), direction: dir }),
-        })
-          .then(function (r) {
-            return r.json().then(function (j) {
-              if (!r.ok || !j || !j.ok) {
-                return { ok: false, error: (j && j.error) || ('HTTP ' + r.status) };
-              }
-              return { ok: true };
-            });
-          })
-          .then(function (res) {
-            if (!res.ok) {
-              window.alert(res.error || 'تعذّر التحريك.');
-              return;
-            }
-            var parentUl = li.parentElement;
-            if (!parentUl) return;
-            if (dir === 'up') {
-              var prev = li.previousElementSibling;
-              if (prev && prev.classList.contains('ibank-tree-node')) {
-                parentUl.insertBefore(li, prev);
-              }
+            var jPerson = document.createElement('span');
+            jPerson.className = 'ibank-aejt-judge__person';
+            jPerson.innerHTML = '<i class="fa-solid fa-id-badge" aria-hidden="true"></i> ';
+            jPerson.appendChild(document.createTextNode(j.judge_person_name || '—'));
+            js.appendChild(jPerson);
+            jd.appendChild(js);
+            var files = Array.isArray(j.files) ? j.files : [];
+            if (!files.length) {
+              var ep = document.createElement('p');
+              ep.className = 'muted ibank-aejt-empty';
+              ep.textContent = 'لا يوجد ملف Excel مربوط بهذا المحكم.';
+              jd.appendChild(ep);
             } else {
-              var next = li.nextElementSibling;
-              if (next && next.classList.contains('ibank-tree-node')) {
-                parentUl.insertBefore(next, li);
-              }
+              var ful = document.createElement('ul');
+              ful.className = 'ibank-aejt-files';
+              files.forEach(function (f) {
+                var fli = document.createElement('li');
+                fli.className = 'ibank-aejt-file';
+                var fd = document.createElement('details');
+                fd.open = true;
+                var fs = document.createElement('summary');
+                fs.innerHTML = '<i class="fa-solid fa-file-excel" aria-hidden="true"></i> ';
+                fs.appendChild(document.createTextNode(f.name || ''));
+                if (f.procedure_title) {
+                  var pt = document.createElement('span');
+                  pt.className = 'muted';
+                  pt.textContent = ' — ' + f.procedure_title;
+                  fs.appendChild(pt);
+                }
+                fd.appendChild(fs);
+                var leaf = document.createElement('div');
+                leaf.className = 'ibank-aejt-leaf';
+                var a = document.createElement('a');
+                a.className = 'btn btn-ghost btn-sm-compact';
+                var href = f.open_href || ('/admin/information-bank/action-eval/view/' + String(f.node_id || ''));
+                if (dayId) href += (href.indexOf('?') >= 0 ? '&' : '?') + 'day=' + encodeURIComponent(dayId);
+                a.href = href;
+                a.innerHTML = '<i class="fa-solid fa-table" aria-hidden="true"></i> فتح التقييم';
+                leaf.appendChild(a);
+                fd.appendChild(leaf);
+                fli.appendChild(fd);
+                ful.appendChild(fli);
+              });
+              jd.appendChild(ful);
             }
-            saveTreeUiState();
-          })
-          .catch(function () {
-            window.alert('تعذّر التحريك.');
+            jli.appendChild(jd);
+            uj.appendChild(jli);
           });
+          det.appendChild(uj);
+          li.appendChild(det);
+          root.appendChild(li);
+        });
+        bindActionEvalDilemmaNav();
       }
 
-      function expandTopLevelFolders() {
-        var scope = getActivePane() || page;
-        scope.querySelectorAll('.ibank-tree-root > .ibank-tree-node--folder.ibank-tree-has-children').forEach(function (li) {
-          setFolderExpanded(li, true);
+      function renderActionEvalJumpNav(nodes) {
+        var wrap = page.querySelector('.ibank-action-eval-judge-tree-wrap');
+        if (!wrap) return;
+        var existing = wrap.querySelector('.js-ibank-aejt-jump');
+        if (existing) existing.remove();
+        if (!nodes || !nodes.length) return;
+        var nav = document.createElement('nav');
+        nav.className = 'ibank-aejt-jump js-ibank-aejt-jump';
+        nav.setAttribute('aria-label', 'الانتقال بين المعاضل');
+        var label = document.createElement('span');
+        label.className = 'ibank-aejt-jump__label';
+        label.textContent = 'المعاضل';
+        nav.appendChild(label);
+        var btns = document.createElement('div');
+        btns.className = 'ibank-aejt-jump__btns';
+        nodes.forEach(function (d) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'ibank-aejt-jump__btn js-ibank-aejt-jump-btn';
+          b.setAttribute('data-dilemma-no', String(d.dilemma_no != null ? d.dilemma_no : ''));
+          b.title = d.text || '';
+          b.textContent = 'م' + String(d.dilemma_no != null ? d.dilemma_no : '');
+          btns.appendChild(b);
         });
+        nav.appendChild(btns);
+        wrap.insertBefore(nav, wrap.firstChild);
       }
+
+      function focusActionEvalDilemma(dno, openIt) {
+        var root = page.querySelector('.js-ibank-action-eval-judge-tree');
+        var wrap = page.querySelector('.ibank-action-eval-judge-tree-wrap');
+        if (!root) return;
+        var li = root.querySelector('.ibank-aejt-dilemma[data-dilemma-no="' + String(dno) + '"]');
+        if (!li) return;
+        var det = li.querySelector('details.js-ibank-aejt-dilemma');
+        if (det && openIt) {
+          root.querySelectorAll('details.js-ibank-aejt-dilemma').forEach(function (other) {
+            if (other !== det) other.open = false;
+          });
+          det.open = true;
+        }
+        page.querySelectorAll('.js-ibank-aejt-jump-btn').forEach(function (btn) {
+          btn.classList.toggle('is-active', btn.getAttribute('data-dilemma-no') === String(dno));
+        });
+        if (wrap) {
+          var jump = wrap.querySelector('.ibank-aejt-jump');
+          var offset = jump ? jump.offsetHeight + 6 : 6;
+          var wrapRect = wrap.getBoundingClientRect();
+          var liRect = li.getBoundingClientRect();
+          var top = wrap.scrollTop + (liRect.top - wrapRect.top) - offset;
+          if (typeof wrap.scrollTo === 'function') {
+            wrap.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+          } else {
+            wrap.scrollTop = Math.max(0, top);
+          }
+        }
+      }
+
+      function bindActionEvalDilemmaNav() {
+        var wrap = page.querySelector('.ibank-action-eval-judge-tree-wrap');
+        var root = page.querySelector('.js-ibank-action-eval-judge-tree');
+        if (!wrap || wrap._aejtNavBound) return;
+        wrap._aejtNavBound = true;
+        wrap.addEventListener('click', function (ev) {
+          var jump = ev.target.closest('.js-ibank-aejt-jump-btn');
+          if (jump) {
+            ev.preventDefault();
+            focusActionEvalDilemma(jump.getAttribute('data-dilemma-no'), true);
+            return;
+          }
+          var step = ev.target.closest('.js-ibank-aejt-step');
+          if (step && root) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            var curLi = step.closest('.ibank-aejt-dilemma');
+            if (!curLi) return;
+            var items = Array.prototype.slice.call(root.querySelectorAll('.ibank-aejt-dilemma'));
+            var idx = items.indexOf(curLi);
+            var next = items[idx + parseInt(step.getAttribute('data-step') || '0', 10)];
+            if (next) focusActionEvalDilemma(next.getAttribute('data-dilemma-no'), true);
+          }
+        });
+        wrap.addEventListener('toggle', function (ev) {
+          var t = ev.target;
+          if (!t || !t.classList || !t.classList.contains('js-ibank-aejt-dilemma')) return;
+          if (!t.open) return;
+          var li = t.closest('.ibank-aejt-dilemma');
+          var dno = li ? li.getAttribute('data-dilemma-no') : '';
+          if (root) {
+            root.querySelectorAll('details.js-ibank-aejt-dilemma').forEach(function (other) {
+              if (other !== t) other.open = false;
+            });
+          }
+          page.querySelectorAll('.js-ibank-aejt-jump-btn').forEach(function (btn) {
+            btn.classList.toggle('is-active', btn.getAttribute('data-dilemma-no') === String(dno));
+          });
+          focusActionEvalDilemma(dno, false);
+        }, true);
+      }
+
 
       function activateDayTab(dayId) {
         if (!dayTabsMode || !dayId || dayId === activeDayId) return;
@@ -636,6 +574,7 @@
           pane.classList.toggle('is-active', on);
         });
         syncDayHiddenInputs();
+        renderActionEvalDilemmas(dayId);
         updateStorageKeys();
         refreshTreeRefs();
         setTarget('', '');
@@ -656,6 +595,7 @@
           });
         });
         syncDayHiddenInputs();
+        renderActionEvalDilemmas(activeDayId);
 
         function applyActionEvalDaysPayload(payload) {
           if (!dayTabsMode || !payload) return;

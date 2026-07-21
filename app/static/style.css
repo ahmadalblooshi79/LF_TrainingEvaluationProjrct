@@ -4046,6 +4046,80 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   margin: 0 0 0.32rem;
   font-size: 0.8rem;
 }
+.ibank-action-eval-dilemmas-panel {
+  margin: 0.75rem 0 1rem;
+}
+.ibank-action-eval-dilemmas-panel__title {
+  margin: 0 0 0.5rem;
+  font-size: 0.98rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.ibank-action-eval-dilemmas-panel__hint {
+  font-weight: 500;
+  font-size: 0.82rem;
+}
+.ibank-action-eval-dilemmas-wrap {
+  max-height: none;
+  overflow: visible;
+}
+.ibank-action-eval-dilemmas-table {
+  width: 100%;
+}
+.ibank-action-eval-dilemmas-import {
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 205, 210, 0.18);
+}
+.ibank-action-eval-dilemmas-import__label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+.ibank-action-eval-dilemmas-import__row {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.ibank-action-eval-dilemmas-import__input {
+  flex: 1 1 16rem;
+  min-width: 12rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+}
+.ibank-action-eval-dilemmas-import__hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+}
+.ibank-action-eval-dilemmas-col-files {
+  min-width: 10rem;
+  max-width: 18rem;
+}
+.ibank-action-eval-dilemmas-files {
+  margin: 0;
+  padding-inline-start: 1.1rem;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+.ibank-action-eval-dilemmas-files a {
+  text-decoration: none;
+}
+.ibank-action-eval-dilemmas-files a:hover {
+  text-decoration: underline;
+}
+.ibank-action-eval-dilemmas-col-num {
+  width: 4.5rem;
+  text-align: center;
+  white-space: nowrap;
+  font-weight: 700;
+}
 .ibank-action-eval-day-pane .ibank-tree-scroll {
   margin-top: 0;
 }
@@ -11406,103 +11480,143 @@ html {
   margin-top: 0.25rem;
 }
 .exercise-program-calendar-wrap {
-  min-width: 42rem;
-  padding: 0.55rem;
+  min-width: 48rem;
+  padding: 0.45rem 0.55rem 0.65rem;
   border: 2px solid #111;
   background: #fff;
 }
 .exercise-program-calendar-heading {
-  min-height: 2.2rem;
+  min-height: 1.8rem;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .exercise-program-calendar-title {
-  margin: 0 0 0.45rem;
+  margin: 0 0 0.35rem;
   text-align: center;
-  font-size: 0.95rem;
+  font-size: 1rem;
   font-weight: 800;
-  color: #d00000;
+  color: #c00000;
   text-decoration: underline;
-  text-underline-offset: 0.12rem;
+  text-underline-offset: 0.15rem;
 }
 .exercise-program-calendar {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
   direction: rtl;
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   line-height: 1.25;
   color: #050505;
 }
 .exercise-program-calendar th,
 .exercise-program-calendar td {
-  border: 1px solid #222;
+  border: 1px solid #1a1a1a;
   vertical-align: top;
-  padding: 0.16rem 0.22rem;
+  padding: 0.18rem 0.2rem;
 }
 .exercise-program-calendar th {
-  background: #dedede;
+  background: #e6e6e6;
   font-weight: 800;
   text-align: center;
-  padding: 0.25rem 0.2rem;
+  padding: 0.3rem 0.2rem;
 }
 .exercise-program-calendar tr.week-blue td {
-  background: #adc3e1;
+  background: #bdd7ee;
 }
 .exercise-program-calendar tr.week-beige td {
-  background: #f8e5d7;
+  background: #fce4d6;
 }
 .exercise-program-calendar tr.week-grey td {
-  background: #e3e3e3;
+  background: #e8e8e8;
 }
-.exercise-program-calendar td {
+.exercise-program-calendar tr.week-dates-row td {
+  height: 1.35rem;
+  min-height: 1.35rem;
+  padding: 0.12rem 0.2rem;
+  vertical-align: middle;
+}
+.exercise-program-calendar tr.week-phase-row td {
+  height: 2.6rem;
+  min-height: 2.6rem;
+  vertical-align: middle;
+}
+.exercise-program-calendar tr.week-acts-row td {
+  height: 3.2rem;
+  min-height: 3.2rem;
+  vertical-align: middle;
+}
+.exercise-program-calendar tr.week-days-row td {
+  height: 4.4rem;
+  min-height: 4.4rem;
+}
+.exercise-program-calendar tr.week-bar-row td {
+  height: auto;
+  min-height: 1.5rem;
+}
+.exercise-program-date-cell {
+  text-align: start;
+}
+.exercise-program-day-cell {
   position: relative;
-  min-height: 3.4rem;
-  height: 3.6rem;
+  vertical-align: middle;
+}
+.exercise-program-day-cell.is-merged-work {
+  vertical-align: middle;
+}
+.exercise-program-day-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.2rem;
+  min-height: 3.8rem;
 }
 .exercise-program-cell-date {
-  position: absolute;
-  top: 0.12rem;
-  right: 0.28rem;
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   font-weight: 700;
   color: #111;
-  line-height: 1;
+  line-height: 1.1;
   direction: ltr;
+  unicode-bidi: isolate;
+  text-align: start;
 }
 .exercise-program-cell-box {
-  margin-top: 0.85rem;
-  padding: 0.16rem 0.25rem;
-  border: 2px solid #111;
-  border-radius: 0.55rem;
-  background: rgba(255, 255, 255, 0.18);
-  min-height: 1.6rem;
+  flex: 1 1 auto;
+  padding: 0.18rem 0.28rem;
+  border: 1.5px solid #111;
+  border-radius: 0.45rem;
+  background: rgba(255, 255, 255, 0.45);
+  min-height: 1.7rem;
   line-height: 1.25;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   text-align: center;
   font-weight: 600;
+}
+.exercise-program-day-cell.is-merged-work .exercise-program-cell-box {
+  min-height: 2.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .exercise-program-bar-cell {
   text-align: center;
   vertical-align: middle;
-  height: auto;
-  min-height: 1.6rem;
-  padding: 0.12rem;
+  padding: 0.14rem 0.2rem;
   font-weight: 600;
 }
 .exercise-program-bar-box {
   width: 100%;
   min-height: 1.35rem;
-  padding: 0.12rem 0.35rem;
-  border: 2px solid #111;
-  border-radius: 0.45rem;
-  background: transparent;
+  padding: 0.18rem 0.4rem;
+  border: 1.5px solid #111;
+  border-radius: 0.35rem;
+  background: rgba(255, 255, 255, 0.22);
   text-align: center;
-  line-height: 1.25;
+  line-height: 1.3;
+  font-size: 0.7rem;
 }
 .exercise-program-text-red {
-  color: #f00000;
+  color: #c00000;
   font-weight: 700;
 }
 @media (max-width: 960px) {
@@ -11510,4 +11624,160 @@ html {
   .exercise-info-layout__row--bottom {
     grid-template-columns: 1fr;
   }
+}
+
+
+.ibank-action-eval-judge-tree-wrap {
+  max-height: min(78vh, 58rem);
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
+  background: #fff;
+  scroll-behavior: smooth;
+}
+.ibank-aejt-jump {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  margin: 0 0 0.45rem;
+  padding: 0.4rem 0.35rem;
+  background: #fff8f8;
+  border: 1px solid #ffcdd2;
+  border-radius: 8px;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.04);
+}
+.ibank-aejt-jump__label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #7f1d1d;
+}
+.ibank-aejt-jump__btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.ibank-aejt-jump__btn {
+  min-width: 2.1rem;
+  padding: 0.18rem 0.35rem;
+  border: 1px solid #ef9a9a;
+  border-radius: 5px;
+  background: #fff;
+  color: #b71c1c;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.ibank-aejt-jump__btn:hover,
+.ibank-aejt-jump__btn.is-active {
+  background: #e57373;
+  border-color: #e57373;
+  color: #fff;
+}
+.ibank-action-eval-judge-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ibank-aejt-dilemma {
+  margin: 0.28rem 0;
+  border: 1px solid #ffcdd2;
+  border-radius: 8px;
+  background: #fff5f5;
+  scroll-margin-top: 3.5rem;
+}
+.ibank-aejt-dilemma__sum {
+  cursor: pointer;
+  padding: 0.4rem 0.5rem;
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+.ibank-aejt-dilemma__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+.ibank-aejt-dilemma__nav {
+  display: inline-flex;
+  gap: 0.2rem;
+  flex-shrink: 0;
+}
+.ibank-aejt-dilemma__step {
+  width: 1.55rem;
+  height: 1.55rem;
+  padding: 0;
+  border: 1px solid #ef9a9a;
+  border-radius: 4px;
+  background: #fff;
+  color: #b71c1c;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.ibank-aejt-dilemma__step:hover {
+  background: #ffcdd2;
+}
+.ibank-aejt-badge {
+  display: inline-flex;
+  min-width: 1.6rem;
+  justify-content: center;
+  font-weight: 700;
+  background: #e57373;
+  color: #fff;
+  border-radius: 4px;
+  padding: 0.05rem 0.35rem;
+  flex-shrink: 0;
+}
+.ibank-aejt-judges,
+.ibank-aejt-files {
+  list-style: none;
+  margin: 0;
+  padding: 0 0.75rem 0.5rem 0.75rem;
+}
+.ibank-aejt-judge,
+.ibank-aejt-file {
+  margin: 0.25rem 0;
+  background: #fff;
+  border-radius: 6px;
+  border: 1px solid rgba(0,0,0,0.06);
+}
+.ibank-aejt-judge > details > summary,
+.ibank-aejt-file > details > summary {
+  cursor: pointer;
+  padding: 0.35rem 0.5rem;
+}
+.ibank-aejt-judge__sum {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.55rem;
+}
+.ibank-aejt-judge__person {
+  margin-inline-start: auto;
+  font-size: 0.9rem;
+  color: #37474f;
+  font-weight: 600;
+}
+.ibank-aejt-leaf {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.35rem 0.65rem 0.55rem;
+}
+.ibank-aejt-person {
+  font-size: 0.9rem;
+}
+.ibank-aejt-empty {
+  margin: 0;
+  padding: 0.35rem 0.65rem 0.55rem;
+  font-size: 0.85rem;
 }
