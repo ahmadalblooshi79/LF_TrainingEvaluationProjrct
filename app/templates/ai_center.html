@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}مركز الذكاء الاصطناعي المحلي{% endblock %}
+{% block content %}
+<div class="page-header" dir="rtl">
+  <h1><i class="fa-solid fa-microchip fa-icon-title" aria-hidden="true"></i> مركز الذكاء الاصطناعي المحلي</h1>
+  <div class="page-header__nav">
+    {% with subpage_close_fallback=url_for('views.dashboard') %}{% include 'partials/subpage_close.html' %}{% endwith %}
+  </div>
+</div>
+
+{% if error %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ error }}</p>
+{% endif %}
+{% if ok_msg %}
+<p class="form-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
+{% endif %}
+
+<section class="card" dir="rtl">
+  <h2 class="h2-in-card"><i class="fa-solid fa-heart-pulse fa-icon-title" aria-hidden="true"></i> حالة المحرك</h2>
+  <div class="table-wrap">
+    <table class="ibank-table" aria-label="حالة محرك الذكاء الاصطناعي">
+      <tbody>
+        <tr><th scope="row">الحالة</th><td>{% if settings.enabled %}مفعّل{% else %}غير مفعّل{% endif %}</td></tr>
+        <tr><th scope="row">المزود</th><td>{{ settings.provider }}</td></tr>
+        <tr><th scope="row">النموذج</th><td>{{ settings.model_name or '—' }}</td></tr>
+        <tr><th scope="row">حالة الاتصال</th><td>
+          {% if settings.last_connection_ok is none %}لم يُختبر بعد
+          {% elif settings.last_connection_ok %}ناجح{% else %}فشل{% endif %}
+        </td></tr>
+        <tr><th scope="row">آخر اختبار اتصال</th><td>{{ settings.last_connection_at or '—' }}</td></tr>
+        <tr><th scope="row">مدة آخر استجابة</th><td>{{ settings.last_response_display }}</td></tr>
+        <tr><th scope="row">آخر خطأ</th><td>{{ settings.last_error or '—' }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card"><i class="fa-solid fa-sliders fa-icon-title" aria-hidden="true"></i> إعدادات الاتصال</h2>
+  <form method="post" action="{{ url_for('views.ai_center_save_settings') }}" class="ai-center-settings-form">
+    <div class="form-grid" style="display:grid;gap:0.75rem;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));">
+      <label><input type="checkbox" name="enabled" value="1" {% if settings.enabled %}checked{% endif %}> تفعيل الذكاء الاصطناعي</label>
+      <label>المزود
+        <select name="provider">
+          <option value="ollama" {% if settings.provider == 'ollama' %}selected{% endif %}>Ollama</option>
+          <option value="lmstudio" {% if settings.provider == 'lmstudio' %}selected{% endif %}>LM Studio (لاحقاً)</option>
+          <option value="llamacpp" {% if settings.provider == 'llamacpp' %}selected{% endif %}>llama.cpp (لاحقاً)</option>
+        </select>
+      </label>
+      <label>عنوان الخادم المحلي
+        <input type="text" name="base_url" value="{{ settings.base_url }}" dir="ltr" required>
+      </label>
+      <label>اسم النموذج
+        <input type="text" name="model_name" id="ai-model-name" value="{{ settings.model_name }}" dir="ltr" list="ai-models-datalist">
+      </label>
+      <label>Temperature
+        <input type="number" name="temperature" value="{{ settings.temperature }}" step="0.1" min="0" max="2">
+      </label>
+      <label>Max Tokens
+        <input type="number" name="max_tokens" value="{{ settings.max_tokens }}" min="1">
+      </label>
+      <label>Timeout (ثوانٍ)
+        <input type="number" name="timeout_seconds" value="{{ settings.timeout_seconds }}" min="5">
+      </label>
+      <label>Retry Count
+        <input type="number" name="retry_count" value="{{ settings.retry_count }}" min="0" max="5">
+      </label>
+      <label>Context Window
+        <input type="number" name="context_window" value="{{ settings.context_window }}" min="512">
+      </label>
+      <label>لغة الاستجابة
+        <input type="text" name="response_language" value="{{ settings.response_language }}">
+      </label>
+      <label><input type="checkbox" name="structured_output" value="1" {% if settings.structured_output %}checked{% endif %}> Structured Output</label>
+      <label><input type="checkbox" name="allow_internal_network" value="1" {% if settings.allow_internal_network %}checked{% endif %}> السماح بالشبكة الداخلية</label>
+    </div>
+    <p class="muted" style="margin-top:0.75rem;">الإنترنت وTelemetry وتسجيل الـ Prompt متوقفة افتراضياً ولا تُفعَّل من هذه الصفحة.</p>
+    <p class="ibank-units-included-actions mt-tight" style="margin-top:0.85rem;">
+      {% if can_edit %}
+      <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ الإعدادات</button>
+      {% endif %}
+      {% if can_test %}
+      <button type="submit" class="btn btn-ghost" formaction="{{ url_for('views.ai_center_test_connection') }}" formmethod="post"><i class="fa-solid fa-plug" aria-hidden="true"></i> اختبار الاتصال</button>
+      <button type="submit" class="btn btn-ghost" formaction="{{ url_for('views.ai_center_refresh_models') }}" formmethod="post"><i class="fa-solid fa-rotate" aria-hidden="true"></i> تحديث قائمة النماذج</button>
+      {% endif %}
+    </p>
+  </form>
+</section>
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card"><i class="fa-solid fa-cubes fa-icon-title" aria-hidden="true"></i> النماذج المحلية</h2>
+  {% if models_error %}
+  <p class="form-error-banner" role="alert">{{ models_error }}</p>
+  {% endif %}
+  {% if models %}
+  <datalist id="ai-models-datalist">
+    {% for m in models %}<option value="{{ m.name }}"></option>{% endfor %}
+  </datalist>
+  <ul class="ai-center-models-list">
+    {% for m in models %}
+    <li>
+      <form method="post" action="{{ url_for('views.ai_center_select_model') }}" style="display:inline;">
+        <input type="hidden" name="model_name" value="{{ m.name }}">
+        <button type="submit" class="btn btn-ghost btn-sm {% if m.name == settings.model_name %}is-active{% endif %}">
+          <i class="fa-solid fa-check" aria-hidden="true"></i> {{ m.name }}
+        </button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">لا توجد نماذج محلية معروضة. شغّل Ollama وثبّت نموذجاً يدوياً ثم اضغط «تحديث قائمة النماذج».</p>
+  {% endif %}
+</section>
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card"><i class="fa-solid fa-comment-dots fa-icon-title" aria-hidden="true"></i> اختبار Prompt</h2>
+  <form method="post" action="{{ url_for('views.ai_center_test_prompt') }}">
+    <label for="ai-test-prompt">نص الاختبار</label>
+    <textarea id="ai-test-prompt" name="prompt" rows="4" maxlength="2000" required>{{ test_prompt_default }}</textarea>
+    {% if can_test %}
+    <p class="ibank-units-included-actions mt-tight">
+      <button type="submit" class="btn btn-primary"><i class="fa-solid fa-paper-plane" aria-hidden="true"></i> إرسال</button>
+    </p>
+    {% endif %}
+  </form>
+  {% if prompt_result %}
+  <div class="ai-center-prompt-result" style="margin-top:1rem;">
+    <p><strong>الحالة:</strong> {% if prompt_result.success %}نجاح{% else %}فشل{% endif %}</p>
+    <p><strong>النموذج:</strong> {{ prompt_result.model or '—' }}</p>
+    <p><strong>مدة الاستجابة:</strong> {{ prompt_result.response_time_display }}</p>
+    {% if prompt_result.error_message %}
+    <p class="form-error-banner" role="alert">{{ prompt_result.error_message }}</p>
+    {% endif %}
+    {% if prompt_result.text %}
+    <pre class="text-pre-wrap" style="white-space:pre-wrap;">{{ prompt_result.text }}</pre>
+    {% endif %}
+    {# سجل مطور: زمن طلب Ollama فقط (بدون واجهة أو حفظ DB) #}
+    <details class="ai-center-timing-debug" style="margin-top:0.75rem;">
+      <summary class="muted">تفاصيل التوقيت (للمطور)</summary>
+      <dl class="muted" dir="ltr" style="font-family:ui-monospace,monospace;font-size:0.85rem;margin:0.5rem 0 0;">
+        <dt>Start Time</dt><dd>{{ prompt_result.timing_start or '—' }}</dd>
+        <dt>End Time</dt><dd>{{ prompt_result.timing_end or '—' }}</dd>
+        <dt>Raw Milliseconds</dt><dd>{{ prompt_result.response_time_ms }}</dd>
+      </dl>
+      <input type="hidden" name="ai_timing_start" value="{{ prompt_result.timing_start or '' }}">
+      <input type="hidden" name="ai_timing_end" value="{{ prompt_result.timing_end or '' }}">
+      <input type="hidden" name="ai_timing_raw_ms" value="{{ prompt_result.response_time_ms }}">
+    </details>
+  </div>
+  {% endif %}
+</section>
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card"><i class="fa-solid fa-circle-info fa-icon-title" aria-hidden="true"></i> معلومات المحرك المحلي</h2>
+  <ul>
+    <li>المحرك يعمل محلياً فقط — بدون إنترنت وبدون مزودين سحابيين.</li>
+    <li>المزود الافتراضي: Ollama على <span dir="ltr">http://127.0.0.1:11434</span>.</li>
+    <li>لا يقوم النظام بتنزيل النماذج تلقائياً — ثبّتها يدوياً عبر Ollama.</li>
+    <li>LM Studio وllama.cpp مهيّآن للمرحلة اللاحقة.</li>
+    <li>وظائف التقارير الذكية وقاعدة المعرفة غير مفعّلة في هذه المرحلة.</li>
+  </ul>
+</section>
+{% endblock %}
