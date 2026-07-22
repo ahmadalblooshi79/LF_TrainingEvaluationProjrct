@@ -326,11 +326,10 @@
       function renderActionEvalJudgeTree(dayId) {
         if (!dayTabsMode) return;
         var root = page.querySelector('.js-ibank-action-eval-judge-tree');
-        var wrap = page.querySelector('.ibank-action-eval-judge-tree-wrap');
         if (!root) return;
         var nodes = (dilemmaTreeByDay && dilemmaTreeByDay[dayId]) ? dilemmaTreeByDay[dayId] : [];
         root.innerHTML = '';
-        renderActionEvalJumpNav(nodes);
+        clearActionEvalJumpNav();
         if (!nodes.length) {
           var empty = document.createElement('li');
           empty.className = 'muted js-ibank-action-eval-dilemmas-empty';
@@ -339,7 +338,7 @@
           bindActionEvalDilemmaNav();
           return;
         }
-        nodes.forEach(function (d, idx) {
+        nodes.forEach(function (d) {
           var li = document.createElement('li');
           li.className = 'ibank-aejt-dilemma';
           var dno = String(d.dilemma_no != null ? d.dilemma_no : '');
@@ -353,27 +352,6 @@
           sum.innerHTML = '<span class="ibank-aejt-badge"></span> <strong class="ibank-aejt-dilemma__title"></strong>';
           sum.querySelector('.ibank-aejt-badge').textContent = String(d.num != null ? d.num : '');
           sum.querySelector('strong').textContent = d.text || '';
-          var nav = document.createElement('span');
-          nav.className = 'ibank-aejt-dilemma__nav';
-          if (idx > 0) {
-            var up = document.createElement('button');
-            up.type = 'button';
-            up.className = 'ibank-aejt-dilemma__step js-ibank-aejt-step';
-            up.setAttribute('data-step', '-1');
-            up.title = 'المعضلة السابقة';
-            up.textContent = '↑';
-            nav.appendChild(up);
-          }
-          if (idx < nodes.length - 1) {
-            var down = document.createElement('button');
-            down.type = 'button';
-            down.className = 'ibank-aejt-dilemma__step js-ibank-aejt-step';
-            down.setAttribute('data-step', '1');
-            down.title = 'المعضلة التالية';
-            down.textContent = '↓';
-            nav.appendChild(down);
-          }
-          sum.appendChild(nav);
           det.appendChild(sum);
           var uj = document.createElement('ul');
           uj.className = 'ibank-aejt-judges';
@@ -405,7 +383,7 @@
             var jPerson = document.createElement('span');
             jPerson.className = 'ibank-aejt-judge__person';
             jPerson.innerHTML = '<i class="fa-solid fa-id-badge" aria-hidden="true"></i> ';
-            jPerson.appendChild(document.createTextNode(j.judge_person_name || '—'));
+            jPerson.appendChild(document.createTextNode(j.judge_person_name || '\u2014'));
             js.appendChild(jPerson);
             jd.appendChild(js);
             var files = Array.isArray(j.files) ? j.files : [];
@@ -428,7 +406,7 @@
                 if (f.procedure_title) {
                   var pt = document.createElement('span');
                   pt.className = 'muted';
-                  pt.textContent = ' — ' + f.procedure_title;
+                  pt.textContent = ' \u2014 ' + f.procedure_title;
                   fs.appendChild(pt);
                 }
                 fd.appendChild(fs);
@@ -457,32 +435,11 @@
         bindActionEvalDilemmaNav();
       }
 
-      function renderActionEvalJumpNav(nodes) {
+      function clearActionEvalJumpNav() {
         var wrap = page.querySelector('.ibank-action-eval-judge-tree-wrap');
         if (!wrap) return;
         var existing = wrap.querySelector('.js-ibank-aejt-jump');
         if (existing) existing.remove();
-        if (!nodes || !nodes.length) return;
-        var nav = document.createElement('nav');
-        nav.className = 'ibank-aejt-jump js-ibank-aejt-jump';
-        nav.setAttribute('aria-label', 'الانتقال بين المعاضل');
-        var label = document.createElement('span');
-        label.className = 'ibank-aejt-jump__label';
-        label.textContent = 'المعاضل';
-        nav.appendChild(label);
-        var btns = document.createElement('div');
-        btns.className = 'ibank-aejt-jump__btns';
-        nodes.forEach(function (d) {
-          var b = document.createElement('button');
-          b.type = 'button';
-          b.className = 'ibank-aejt-jump__btn js-ibank-aejt-jump-btn';
-          b.setAttribute('data-dilemma-no', String(d.dilemma_no != null ? d.dilemma_no : ''));
-          b.title = d.text || '';
-          b.textContent = 'م' + String(d.dilemma_no != null ? d.dilemma_no : '');
-          btns.appendChild(b);
-        });
-        nav.appendChild(btns);
-        wrap.insertBefore(nav, wrap.firstChild);
       }
 
       function focusActionEvalDilemma(dno, openIt) {
@@ -498,21 +455,15 @@
           });
           det.open = true;
         }
-        page.querySelectorAll('.js-ibank-aejt-jump-btn').forEach(function (btn) {
-          btn.classList.toggle('is-active', btn.getAttribute('data-dilemma-no') === String(dno));
-        });
-        if (wrap) {
-          var jump = wrap.querySelector('.ibank-aejt-jump');
-          var offset = jump ? jump.offsetHeight + 6 : 6;
-          var wrapRect = wrap.getBoundingClientRect();
-          var liRect = li.getBoundingClientRect();
-          var top = wrap.scrollTop + (liRect.top - wrapRect.top) - offset;
+        window.requestAnimationFrame(function () {
+          if (!wrap || !li) return;
+          var top = li.offsetTop - 8;
           if (typeof wrap.scrollTo === 'function') {
             wrap.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
           } else {
             wrap.scrollTop = Math.max(0, top);
           }
-        }
+        });
       }
 
       function bindActionEvalDilemmaNav() {
@@ -520,25 +471,6 @@
         var root = page.querySelector('.js-ibank-action-eval-judge-tree');
         if (!wrap || wrap._aejtNavBound) return;
         wrap._aejtNavBound = true;
-        wrap.addEventListener('click', function (ev) {
-          var jump = ev.target.closest('.js-ibank-aejt-jump-btn');
-          if (jump) {
-            ev.preventDefault();
-            focusActionEvalDilemma(jump.getAttribute('data-dilemma-no'), true);
-            return;
-          }
-          var step = ev.target.closest('.js-ibank-aejt-step');
-          if (step && root) {
-            ev.preventDefault();
-            ev.stopPropagation();
-            var curLi = step.closest('.ibank-aejt-dilemma');
-            if (!curLi) return;
-            var items = Array.prototype.slice.call(root.querySelectorAll('.ibank-aejt-dilemma'));
-            var idx = items.indexOf(curLi);
-            var next = items[idx + parseInt(step.getAttribute('data-step') || '0', 10)];
-            if (next) focusActionEvalDilemma(next.getAttribute('data-dilemma-no'), true);
-          }
-        });
         wrap.addEventListener('toggle', function (ev) {
           var t = ev.target;
           if (!t || !t.classList || !t.classList.contains('js-ibank-aejt-dilemma')) return;
@@ -550,9 +482,6 @@
               if (other !== t) other.open = false;
             });
           }
-          page.querySelectorAll('.js-ibank-aejt-jump-btn').forEach(function (btn) {
-            btn.classList.toggle('is-active', btn.getAttribute('data-dilemma-no') === String(dno));
-          });
           focusActionEvalDilemma(dno, false);
         }, true);
       }

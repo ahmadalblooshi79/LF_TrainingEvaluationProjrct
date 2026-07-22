@@ -24,43 +24,17 @@
         </nav>
       </div>
     </div>
-    <p class="muted ibank-action-eval-days-note" role="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> الأيام من تبويب <strong>مجرى الأحداث والمعاضل</strong> — عند إضافة يوم هناك يُنشأ تبويب مقابل هنا تلقائياً.</p>
     <script type="application/json" class="js-ibank-action-eval-day-roots">{{ action_eval_day_root_ids|default({})|tojson }}</script>
     <script type="application/json" class="js-ibank-action-eval-dilemmas-by-day">{{ ibank_action_eval_dilemmas_by_day|default({})|tojson }}</script>
         <section class="ibank-action-eval-dilemmas-panel" aria-label="قوائم تقييم الإجراءات حسب المعاضل">
       <h3 class="ibank-action-eval-dilemmas-panel__title">
         <i class="fa-solid fa-sitemap" aria-hidden="true"></i>
         قوائم تقييم الإجراءات حسب المعاضل
-        <span class="muted ibank-action-eval-dilemmas-panel__hint">معضلة ← محكم الوحدة ← ملف Excel ← اسم المحكم ← فتح التقييم</span>
       </h3>
-      {% if information_bank_can_manage %}
-      <form method="post" action="{{ url_for('views.admin_information_bank_action_eval_import_dilemmas') }}" class="ibank-action-eval-dilemmas-import" dir="rtl">
-        <input type="hidden" name="action_eval_day" value="{{ active_action_eval_day|default('') }}" class="js-ibank-action-eval-day">
-        <label class="ibank-action-eval-dilemmas-import__label" for="ibank-dilemma-root-path">مسار مجلدات المعاضل الخارجية</label>
-        <div class="ibank-action-eval-dilemmas-import__row">
-          <input type="text" id="ibank-dilemma-root-path" name="root_path" class="ibank-action-eval-dilemmas-import__input" value="C:\Users\W10User\Desktop" dir="ltr" required aria-label="مسار المجلد">
-          <button type="submit" class="btn btn-ghost btn-sm-compact" onclick="return confirm('استيراد وربط ملفات التقييم من المجلدات الخارجية (يN - مN) بالمعاضل؟');">
-            <i class="fa-solid fa-folder-tree" aria-hidden="true"></i>
-            استيراد وربط المعاضل
-          </button>
-        </div>
-        <p class="muted ibank-action-eval-dilemmas-import__hint">المطابقة بـ ي(اليوم) + م(رقم المعضلة)؛ ثم ربط الملفات بأصناف المحكمين من عمود المكلف.</p>
-      </form>
-      {% endif %}
       <script type="application/json" class="js-ibank-action-eval-dilemma-tree">{{ ibank_action_eval_dilemma_tree|default({})|tojson }}</script>
       <div class="ibank-action-eval-judge-tree-wrap" dir="rtl">
-        {% set _day_tree = (ibank_action_eval_dilemma_tree or {}).get(active_action_eval_day, []) %}
-        {% if _day_tree %}
-        <nav class="ibank-aejt-jump js-ibank-aejt-jump" aria-label="الانتقال بين المعاضل">
-          <span class="ibank-aejt-jump__label">المعاضل</span>
-          <div class="ibank-aejt-jump__btns">
-            {% for d in _day_tree %}
-            <button type="button" class="ibank-aejt-jump__btn js-ibank-aejt-jump-btn" data-dilemma-no="{{ d.dilemma_no }}" title="{{ d.text }}">م{{ d.dilemma_no }}</button>
-            {% endfor %}
-          </div>
-        </nav>
-        {% endif %}
         <ul class="ibank-action-eval-judge-tree js-ibank-action-eval-judge-tree" role="tree">
+          {% set _day_tree = (ibank_action_eval_dilemma_tree or {}).get(active_action_eval_day, []) %}
           {% if _day_tree %}
           {% for d in _day_tree %}
           <li class="ibank-aejt-dilemma" id="aejt-d{{ d.dilemma_no }}" data-dilemma-no="{{ d.dilemma_no }}">
@@ -68,14 +42,6 @@
               <summary class="ibank-aejt-dilemma__sum">
                 <span class="ibank-aejt-badge">{{ d.num }}</span>
                 <strong class="ibank-aejt-dilemma__title">{{ d.text }}</strong>
-                <span class="ibank-aejt-dilemma__nav">
-                  {% if not loop.first %}
-                  <button type="button" class="ibank-aejt-dilemma__step js-ibank-aejt-step" data-step="-1" title="المعضلة السابقة">↑</button>
-                  {% endif %}
-                  {% if not loop.last %}
-                  <button type="button" class="ibank-aejt-dilemma__step js-ibank-aejt-step" data-step="1" title="المعضلة التالية">↓</button>
-                  {% endif %}
-                </span>
               </summary>
               <ul class="ibank-aejt-judges">
                 {% for j in d.judges %}
