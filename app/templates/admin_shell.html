@@ -36,6 +36,10 @@
       <i class="fa-solid fa-users-gear" aria-hidden="true"></i>
       <span>إدارة المستخدمين</span>
     </a>
+    <a class="admin-action-btn{% if request.path.startswith('/admin/user-manual') %} admin-action-btn--active{% endif %}" href="{{ url_for('views.admin_user_manual') }}">
+      <i class="fa-solid fa-book-open" aria-hidden="true"></i>
+      <span>دليل المستخدم</span>
+    </a>
     {% if workspace_exercise %}
     <hr class="admin-shell__divider" aria-hidden="true">
     <button type="button" class="admin-action-btn admin-action-btn--finish" id="btn-finish-exercise" title="مسح التمرين من النظام — بنك المعلومات لا يتأثر">

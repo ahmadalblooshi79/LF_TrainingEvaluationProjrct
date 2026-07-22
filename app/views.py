@@ -16186,6 +16186,24 @@ def _library_redirect(*, tab: str, ok: str = "", err: str = ""):
     return redirect(url_for("views.library", **kw))
 
 
+@bp.route("/help", methods=["GET"])
+def help_center():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/help")
+    from app.help_knowledge import help_meta, help_tree
+
+    return render_template(
+        "help.html",
+        **_ctx(
+            user,
+            tree=help_tree(),
+            help_meta=help_meta(),
+            can_open_user_manual=can_manage_users(user),
+        ),
+    )
+
+
 @bp.route("/library", methods=["GET"])
 def library():
     user = get_current_user_optional()
@@ -16399,6 +16417,55 @@ def library_tree_file(node_id: int):
     else:
         mt = _mimetype_info_bank_event_flow(path)
     return send_file(path, mimetype=mt, as_attachment=False, download_name=path.name)
+
+
+@bp.route("/admin/user-manual")
+def admin_user_manual():
+    user = get_current_user_optional()
+    if not user or not can_manage_users(user):
+        abort(403)
+    from flask import g
+
+    from app.user_manual import MANUAL_SUBTITLE, MANUAL_TITLE, manual_sections
+
+    db = g.db
+    return render_template(
+        "admin_user_manual.html",
+        **_ctx(
+            user,
+            workspace_exercise=_admin_current_workspace_exercise(db, user),
+            manual_title=MANUAL_TITLE,
+            manual_subtitle=MANUAL_SUBTITLE,
+            sections=manual_sections(),
+            error=(request.args.get("err") or "").strip(),
+        ),
+    )
+
+
+@bp.route("/admin/user-manual/export.pdf")
+def admin_user_manual_export_pdf():
+    user = get_current_user_optional()
+    if not user or not can_manage_users(user):
+        abort(403)
+    try:
+        from app.user_manual_pdf import build_user_manual_pdf
+
+        data = build_user_manual_pdf()
+    except Exception as exc:
+        current_app.logger.exception("user manual pdf export failed: %s", exc)
+        return redirect(
+            url_for(
+                "views.admin_user_manual",
+            )
+            + "?err="
+            + quote("تعذّر تصدير دليل المستخدم إلى PDF.", safe="")
+        )
+    return send_file(
+        io.BytesIO(data),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name="دليل_المستخدم_نظام_إدارة_التمارين.pdf",
+    )
 
 
 @bp.route("/admin/users", methods=["GET", "POST"])

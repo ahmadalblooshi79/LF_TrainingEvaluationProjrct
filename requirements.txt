@@ -11,3 +11,6 @@ lxml>=3.1.0
 waitress>=3.0.0
 python-pptx>=1.0.0
 debugpy>=1.8.0
+reportlab>=4.0.0
+arabic-reshaper>=3.0.0
+python-bidi>=0.4.2

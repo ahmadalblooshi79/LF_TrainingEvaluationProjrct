@@ -1,0 +1,130 @@
+{% extends "admin_shell.html" %}
+{% block title %}دليل المستخدم{% endblock %}
+{% block admin_workspace %}
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<div class="page-header page-header--split user-manual-page-header">
+  <h1><i class="fa-solid fa-book-open fa-icon-title" aria-hidden="true"></i> دليل المستخدم</h1>
+  <div class="page-header__actions user-manual-page-header__actions">
+    <a class="btn user-manual-download-btn" href="{{ url_for('views.admin_user_manual_export_pdf') }}" download>
+      <i class="fa-solid fa-file-pdf" aria-hidden="true"></i>
+      تنزيل دليل المستخدم (PDF)
+    </a>
+  </div>
+</div>
+
+<article class="card user-manual-doc" dir="rtl" aria-label="محتوى دليل المستخدم">
+  <header class="user-manual-doc__intro">
+    <h2 class="user-manual-doc__title">{{ manual_title }}</h2>
+  </header>
+
+  <nav class="user-manual-toc" aria-label="فهرس المسارات">
+    <h3 class="user-manual-toc__title">فهرس المسارات التدريبية</h3>
+    <ol class="user-manual-toc__list">
+      {% for sec in sections %}
+      <li>
+        <a href="#{{ sec.id }}">{{ sec.title }}</a>
+        {% if sec.audience %}<span class="user-manual-toc__aud">{{ sec.audience }}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </nav>
+
+  {% for sec in sections %}
+  <section class="user-manual-section" id="{{ sec.id }}">
+    <header class="user-manual-section__head">
+      <h3 class="user-manual-section__title">{{ sec.title }}</h3>
+      {% if sec.audience %}
+      <span class="user-manual-badge">{{ sec.audience }}</span>
+      {% endif %}
+    </header>
+
+    {% if sec.intro %}
+    <p class="user-manual-section__intro">{{ sec.intro }}</p>
+    {% endif %}
+
+    {% if sec.images %}
+    <div class="user-manual-gallery" aria-label="صور تعليمية">
+      <div class="user-manual-gallery__head">
+        <span class="user-manual-gallery__label">
+          <i class="fa-solid fa-images" aria-hidden="true"></i>
+          صور توضيحية
+        </span>
+        <span class="user-manual-gallery__count">{{ sec.images|length }}</span>
+      </div>
+      <div class="user-manual-figures user-manual-figures--count-{{ sec.images|length }}">
+        {% for img in sec.images %}
+        <figure class="user-manual-figure">
+          <div class="user-manual-figure__frame">
+            <img class="user-manual-figure__img" src="{{ img.src }}" alt="{{ img.alt }}" loading="lazy">
+          </div>
+          {% if img.caption %}
+          <figcaption class="user-manual-figure__caption">
+            <span class="user-manual-figure__index" aria-hidden="true">{{ loop.index }}</span>
+            <span class="user-manual-figure__text">{{ img.caption }}</span>
+          </figcaption>
+          {% endif %}
+        </figure>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if sec.prerequisites %}
+    <div class="user-manual-box user-manual-box--pre">
+      <h4 class="user-manual-box__title"><i class="fa-solid fa-clipboard-check" aria-hidden="true"></i> قبل البدء</h4>
+      <ul>
+        {% for pre in sec.prerequisites %}
+        <li>{{ pre }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {% if sec.steps %}
+    <ol class="user-manual-steps">
+      {% for st in sec.steps %}
+      <li class="user-manual-step">
+        <div class="user-manual-step__num" aria-hidden="true">{{ st.n }}</div>
+        <div class="user-manual-step__body">
+          <h4 class="user-manual-step__title">{{ st.title }}</h4>
+          {% if st.where %}
+          <p class="user-manual-step__where">
+            <span class="user-manual-step__label">أين</span>
+            {{ st.where }}
+          </p>
+          {% endif %}
+          {% if st.detail %}
+          <p class="user-manual-step__detail">{{ st.detail }}</p>
+          {% endif %}
+          {% if st.action %}
+          <p class="user-manual-step__action">
+            <span class="user-manual-step__label">افعل</span>
+            {{ st.action }}
+          </p>
+          {% endif %}
+          {% if st.note %}
+          <p class="user-manual-step__note">
+            <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+            {{ st.note }}
+          </p>
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+
+    {% if sec.tips %}
+    <div class="user-manual-box user-manual-box--tips">
+      <h4 class="user-manual-box__title"><i class="fa-solid fa-lightbulb" aria-hidden="true"></i> نصائح</h4>
+      <ul>
+        {% for tip in sec.tips %}
+        <li>{{ tip }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </section>
+  {% endfor %}
+</article>
+{% endblock %}
