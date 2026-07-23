@@ -86,11 +86,15 @@
               <h3 class="exercise-info-panel__title">القصد</h3>
               <div class="exercise-info-panel__body">
                 {% if can_plan %}
-                <label for="exercise_purpose" class="sr-only">القصد</label>
-                <textarea id="exercise_purpose" name="exercise_purpose" rows="8" class="exercise-workspace-textarea exercise-info-panel__textarea" placeholder="القصد من التمرين">{{ ex.exercise_purpose or '' }}</textarea>
-                {% else %}
-                <div class="exercise-workspace-readonly exercise-info-panel__readonly">{{ ex.exercise_purpose or '—' }}</div>
+                <input type="hidden" id="exercise_purpose" name="exercise_purpose" value="{{ ex.exercise_purpose or '' }}">
                 {% endif %}
+                <div id="exercise_purpose_display" data-empty="لا يوجد قصد مسجّل بعد.">
+                  {% if ex.exercise_purpose %}
+                  <div class="exercise-info-imported-text">{{ ex.exercise_purpose }}</div>
+                  {% else %}
+                  <p class="muted exercise-workspace-empty">لا يوجد قصد مسجّل بعد.</p>
+                  {% endif %}
+                </div>
               </div>
             </section>
 
@@ -98,11 +102,15 @@
               <h3 class="exercise-info-panel__title">نوع ومستوى التمرين</h3>
               <div class="exercise-info-panel__body">
                 {% if can_plan %}
-                <label for="exercise_type_level_text" class="sr-only">نوع ومستوى التمرين</label>
-                <textarea id="exercise_type_level_text" name="exercise_type_level_text" rows="8" class="exercise-workspace-textarea exercise-info-panel__textarea" placeholder="نوع ومستوى التمرين">{{ exercise_type_level_display }}</textarea>
-                {% else %}
-                <div class="exercise-workspace-readonly exercise-info-panel__readonly">{{ exercise_type_level_display or '—' }}</div>
+                <input type="hidden" id="exercise_type_level_text" name="exercise_type_level_text" value="{{ ex.exercise_type_level_text or '' }}">
                 {% endif %}
+                <div id="exercise_type_level_text_display" data-empty="لا يوجد نوع ومستوى مسجّلان بعد.">
+                  {% if ex.exercise_type_level_text %}
+                  <div class="exercise-info-imported-text">{{ ex.exercise_type_level_text }}</div>
+                  {% else %}
+                  <p class="muted exercise-workspace-empty">لا يوجد نوع ومستوى مسجّلان بعد.</p>
+                  {% endif %}
+                </div>
               </div>
             </section>
           </div>
@@ -112,11 +120,15 @@
               <h3 class="exercise-info-panel__title">المشاركون في التمرين</h3>
               <div class="exercise-info-panel__body">
                 {% if can_plan %}
-                <label for="exercise_participants" class="sr-only">المشاركون في التمرين</label>
-                <textarea id="exercise_participants" name="exercise_participants" rows="10" class="exercise-workspace-textarea exercise-info-panel__textarea" placeholder="المشاركون في التمرين">{{ ex.exercise_participants or '' }}</textarea>
-                {% else %}
-                <div class="exercise-workspace-readonly exercise-info-panel__readonly">{{ ex.exercise_participants or '—' }}</div>
+                <input type="hidden" id="exercise_participants" name="exercise_participants" value="{{ ex.exercise_participants or '' }}">
                 {% endif %}
+                <div id="exercise_participants_display" data-empty="لا يوجد مشاركون مسجّلون بعد.">
+                  {% if ex.exercise_participants %}
+                  <div class="exercise-info-imported-text">{{ ex.exercise_participants }}</div>
+                  {% else %}
+                  <p class="muted exercise-workspace-empty">لا يوجد مشاركون مسجّلون بعد.</p>
+                  {% endif %}
+                </div>
               </div>
             </section>
 
@@ -365,7 +377,7 @@
     empty_file: "الملف فارغ.",
     bad_pptx: "يُقبل ملف PowerPoint (.pptx) فقط.",
     invalid_pptx: "ملف PowerPoint غير صالح.",
-    no_content: "لم يُعثر على أقسام مطابقة (الفكرة العامة، الفكرة الخاصة، البرنامج، الخريطة).",
+    no_content: "لم يُعثر على أقسام مطابقة (القصد، المشاركون، الفكرة العامة، الفكرة الخاصة، البرنامج، الخريطة).",
     missing_dependency: "مكتبة الاستيراد غير متوفرة على الخادم."
   };
 
@@ -408,16 +420,40 @@
             throw new Error(errMap[code] || "تعذّر الاستيراد.");
           }
           var fields = res.body.fields || {};
+          function fillTextField(id, value) {
+            var el = document.getElementById(id);
+            if (el && typeof value === "string") el.value = value;
+          }
+          function fillImportedDisplay(id, value) {
+            fillTextField(id, value);
+            var display = document.getElementById(id + "_display");
+            if (!display) return;
+            var text = (typeof value === "string" ? value : "").trim();
+            var emptyMsg = display.getAttribute("data-empty") || "—";
+            display.innerHTML = "";
+            if (text) {
+              var box = document.createElement("div");
+              box.className = "exercise-info-imported-text";
+              box.textContent = text;
+              display.appendChild(box);
+            } else {
+              var empty = document.createElement("p");
+              empty.className = "muted exercise-workspace-empty";
+              empty.textContent = emptyMsg;
+              display.appendChild(empty);
+            }
+          }
+          fillImportedDisplay("exercise_purpose", fields.exercise_purpose);
+          fillImportedDisplay("exercise_participants", fields.exercise_participants);
+          fillImportedDisplay("exercise_type_level_text", fields.exercise_type_level_text);
           if (typeof fields.general_idea_text === "string") {
             fillIdeaBox("general-idea-box", fields.general_idea_text);
           }
           if (typeof fields.specific_idea_text === "string") {
             fillIdeaBox("specific-idea-box", fields.specific_idea_text);
           }
-          var mapEl = document.getElementById("map_text");
-          if (mapEl && typeof fields.map_text === "string") mapEl.value = fields.map_text;
-          var programTextEl = document.getElementById("program_text");
-          if (programTextEl && typeof fields.program_text === "string") programTextEl.value = fields.program_text;
+          fillTextField("map_text", fields.map_text);
+          fillTextField("program_text", fields.program_text);
           if (programTableJsonEl && typeof fields.program_table_json === "string") {
             programTableJsonEl.value = fields.program_table_json;
           }

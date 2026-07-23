@@ -165,3 +165,120 @@ def can_use_visual_documentation(user: User) -> bool:
         or is_control(user)
         or is_planner(user)
     )
+
+
+# —— مركز الذكاء الاصطناعي المحلي ——
+
+
+def can_access_ai_center(user: User) -> bool:
+    """ai.center.view — افتراضياً إدارة النظام فقط."""
+    return is_system_admin(user)
+
+
+def can_view_ai_settings(user: User) -> bool:
+    """ai.settings.view"""
+    return can_access_ai_center(user)
+
+
+def can_edit_ai_settings(user: User) -> bool:
+    """ai.settings.edit"""
+    return is_system_admin(user)
+
+
+def can_test_ai_connection(user: User) -> bool:
+    """ai.connection.test"""
+    return is_system_admin(user)
+
+
+def can_view_ai_models(user: User) -> bool:
+    """ai.models.view"""
+    return can_access_ai_center(user)
+
+
+# —— Agentic AI Foundation ——
+
+
+def can_ai_center_view(user: User) -> bool:
+    """AI_CENTER_VIEW"""
+    return can_access_ai_center(user)
+
+
+def can_ai_agent_manage(user: User) -> bool:
+    """AI_AGENT_MANAGE"""
+    return is_system_admin(user)
+
+
+def can_ai_workflow_run(user: User) -> bool:
+    """AI_WORKFLOW_RUN"""
+    return is_system_admin(user)
+
+
+def can_ai_workflow_manage(user: User) -> bool:
+    """AI_WORKFLOW_MANAGE"""
+    return is_system_admin(user)
+
+
+def can_ai_prompt_manage(user: User) -> bool:
+    """AI_PROMPT_MANAGE"""
+    return is_system_admin(user)
+
+
+def can_ai_knowledge_manage(user: User) -> bool:
+    """AI_KNOWLEDGE_MANAGE"""
+    return is_system_admin(user)
+
+
+def can_ai_audit_view(user: User) -> bool:
+    """AI_AUDIT_VIEW"""
+    return is_system_admin(user)
+
+
+# —— مكتبة التقارير الذكية ——
+
+
+def can_view_ai_reports(user: User) -> bool:
+    return is_system_admin(user)
+
+
+def can_upload_ai_reports(user: User) -> bool:
+    return is_system_admin(user)
+
+
+def can_edit_ai_reports(user: User) -> bool:
+    return is_system_admin(user)
+
+
+def can_process_ai_reports(user: User) -> bool:
+    return is_system_admin(user)
+
+
+def can_review_ai_reports(user: User) -> bool:
+    return is_system_admin(user)
+
+
+def can_approve_ai_reports(user: User) -> bool:
+    return is_system_admin(user)
+
+
+def can_exclude_ai_reports(user: User) -> bool:
+    return is_system_admin(user)
+
+
+def can_archive_ai_reports(user: User) -> bool:
+    return is_system_admin(user)
+
+
+def can_delete_ai_reports(user: User) -> bool:
+    return is_system_admin(user)
+
+
+def can_view_ai_report_text(user: User) -> bool:
+    return is_system_admin(user)
+
+
+def can_review_ai_report_units(user: User) -> bool:
+    return is_system_admin(user)
+
+
+def can_review_ai_report_findings(user: User) -> bool:
+    return is_system_admin(user)

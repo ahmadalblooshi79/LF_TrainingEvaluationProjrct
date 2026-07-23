@@ -152,6 +152,24 @@ def _migrate_legacy_action_eval_phase_roots(db: Session, days: list[dict[str, st
     return changed
 
 
+def _purge_stale_action_eval_flow_day_root(
+    db: Session, root: InformationBankTreeNode
+) -> None:
+    """حذف جذر يوم محذوف من المجرى مع كل فروعه وقوائمه المنشورة (بدون كتم كتالوج)."""
+    descendants = _collect_descendants_post_order(db, int(root.id))
+    node_ids = {int(root.id)} | {int(ch.id) for ch in descendants}
+    from app.action_eval_ibank_sync import withdraw_action_eval_for_deleted_ibank_nodes
+
+    withdraw_action_eval_for_deleted_ibank_nodes(db, node_ids)
+    for ch in descendants:
+        if not ch.is_folder and ch.file_relpath:
+            unlink_node_file(ch.kind, ch.file_relpath)
+        db.delete(ch)
+    if not root.is_folder and root.file_relpath:
+        unlink_node_file(root.kind, root.file_relpath)
+    db.delete(root)
+
+
 def _ensure_action_eval_flow_day_roots(db: Session) -> bool:
     """مزامنة جذور شجرة قوائم تقييم الإجراءات مع أيام مجرى الأحداث والمعاضل."""
     days = ibank_event_flow_days(db)
@@ -185,7 +203,7 @@ def _ensure_action_eval_flow_day_roots(db: Session) -> bool:
             if not node.is_system:
                 node.is_system = True
                 changed = True
-    fallback = _find_flow_day_folder(db, days[0]["id"]) if days else None
+    stale_roots: list[InformationBankTreeNode] = []
     for root in (
         db.query(InformationBankTreeNode)
         .filter(
@@ -196,16 +214,10 @@ def _ensure_action_eval_flow_day_roots(db: Session) -> bool:
         .all()
     ):
         day_id = parse_flow_day_catalog_key((root.catalog_phase_key or "").strip())
-        if not day_id or day_id in valid_ids or fallback is None:
-            continue
-        for ch in (
-            db.query(InformationBankTreeNode)
-            .filter(InformationBankTreeNode.parent_id == int(root.id))
-            .all()
-        ):
-            ch.parent_id = int(fallback.id)
-            changed = True
-        db.delete(root)
+        if day_id and day_id not in valid_ids:
+            stale_roots.append(root)
+    for root in stale_roots:
+        _purge_stale_action_eval_flow_day_root(db, root)
         changed = True
     return changed
 
@@ -620,13 +632,19 @@ def folder_resolved_unit_key(db: Session, node: InformationBankTreeNode) -> str:
         _effective_unit_key_for_node,
         _resolve_unit_key,
     )
+    from app.ibank_dilemma_folder_import import is_dilemma_folder_unit_key
 
-    uk = _resolve_unit_key((node.catalog_unit_key or "").strip(), db)
+    raw_uk = (node.catalog_unit_key or "").strip()
+    if is_dilemma_folder_unit_key(raw_uk):
+        return ""
+    uk = _resolve_unit_key(raw_uk, db)
     if uk:
         return uk
     if _is_nested_unit_folder(db, node):
         return ""
     eff = _effective_unit_key_for_node(db, node)
+    if is_dilemma_folder_unit_key(eff):
+        return ""
     return _resolve_unit_key(eff, db) or ""
 
 
@@ -1195,10 +1213,29 @@ def ensure_information_bank_kind(db: Session, kind: str) -> None:
     """تهيئة/ترحيل/إصلاح شجرة نوع واحد فقط — دون لمس تبويبات أخرى."""
     if kind not in INFO_BANK_TREE_KINDS:
         return
+    # تجنّب إعادة الترحيل/الإصلاح في كل طلب — يُبطَل عند رفع/حذف/استيراد.
+    ensured = getattr(ensure_information_bank_kind, "_ensured", None)
+    if ensured is None:
+        ensured = set()
+        ensure_information_bank_kind._ensured = ensured  # type: ignore[attr-defined]
+    if kind in ensured:
+        return
     ensure_information_bank_tree(db, kind)
     migrate_legacy_flat_files(db, kind)
     if is_unit_eval_tree_kind(kind):
         repair_unit_eval_tree(db, kind)
+    ensured.add(kind)
+
+
+def invalidate_information_bank_kind_cache(kind: str | None = None) -> None:
+    """إبطال كاش تهيئة الشجرة بعد تعديل الملفات."""
+    ensured = getattr(ensure_information_bank_kind, "_ensured", None)
+    if ensured is None:
+        return
+    if kind:
+        ensured.discard(kind)
+    else:
+        ensured.clear()
 
 
 def ensure_all_information_bank_trees(db: Session) -> None:

@@ -24,11 +24,61 @@
         </nav>
       </div>
     </div>
-    <p class="muted ibank-action-eval-days-note" role="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> الأيام من تبويب <strong>مجرى الأحداث والمعاضل</strong> — عند إضافة يوم هناك يُنشأ تبويب مقابل هنا تلقائياً.</p>
     <script type="application/json" class="js-ibank-action-eval-day-roots">{{ action_eval_day_root_ids|default({})|tojson }}</script>
+    <script type="application/json" class="js-ibank-action-eval-dilemmas-by-day">{{ ibank_action_eval_dilemmas_by_day|default({})|tojson }}</script>
+        <section class="ibank-action-eval-dilemmas-panel" aria-label="قوائم تقييم الإجراءات حسب المعاضل">
+      <h3 class="ibank-action-eval-dilemmas-panel__title">
+        <i class="fa-solid fa-sitemap" aria-hidden="true"></i>
+        قوائم تقييم الإجراءات حسب المعاضل
+      </h3>
+      <script type="application/json" class="js-ibank-action-eval-dilemma-tree">{{ ibank_action_eval_dilemma_tree|default({})|tojson }}</script>
+      <div class="ibank-action-eval-judge-tree-wrap" dir="rtl">
+        <ul class="ibank-action-eval-judge-tree js-ibank-action-eval-judge-tree" role="tree">
+          {% set _day_tree = (ibank_action_eval_dilemma_tree or {}).get(active_action_eval_day, []) %}
+          {% if _day_tree %}
+          {% for d in _day_tree %}
+          <li class="ibank-aejt-dilemma" id="aejt-d{{ d.dilemma_no }}" data-dilemma-no="{{ d.dilemma_no }}">
+            <details class="js-ibank-aejt-dilemma">
+              <summary class="ibank-aejt-dilemma__sum">
+                <span class="ibank-aejt-badge">{{ d.num }}</span>
+                <strong class="ibank-aejt-dilemma__title">{{ d.text }}</strong>
+              </summary>
+              <ul class="ibank-aejt-judges">
+                {% for j in d.judges %}
+                <li class="ibank-aejt-judge">
+                  <div class="ibank-aejt-judge__row">
+                    <span class="ibank-aejt-judge__role">
+                      <i class="fa-solid fa-user-tie" aria-hidden="true"></i>
+                      <span class="ibank-aejt-judge__label">{{ j.assignee_label }}</span>
+                      {% if j.unit_label %}<span class="muted ibank-aejt-judge__unit">({{ j.unit_label }})</span>{% endif %}
+                    </span>
+                    <span class="ibank-aejt-judge__person">
+                      <i class="fa-solid fa-id-badge" aria-hidden="true"></i>
+                      {{ j.judge_person_name or '—' }}
+                    </span>
+                    <span class="ibank-aejt-judge__actions">
+                      {% for f in j.files %}
+                      <a class="btn btn-ghost btn-sm-compact" href="{{ f.open_href }}{% if active_action_eval_day %}?day={{ active_action_eval_day|urlencode }}{% endif %}" title="{{ f.name }}{% if f.procedure_title %} — {{ f.procedure_title }}{% endif %}">
+                        <i class="fa-solid fa-table" aria-hidden="true"></i> فتح التقييم
+                      </a>
+                      {% endfor %}
+                    </span>
+                  </div>
+                </li>
+                {% endfor %}
+              </ul>
+            </details>
+          </li>
+          {% endfor %}
+          {% else %}
+          <li class="muted js-ibank-action-eval-dilemmas-empty">لا توجد معاضل لهذا اليوم.</li>
+          {% endif %}
+        </ul>
+      </div>
+    </section>
     {% endif %}
 
-    {% if information_bank_can_manage %}
+    {% if information_bank_can_manage and kind != 'action_eval' %}
 
     <div class="ibank-tree-toolbar">
 
@@ -211,19 +261,13 @@
     {% endmacro %}
 
     {% if use_action_eval_day_tabs %}
+    {# شجرة المجلدات القديمة مخفية — الإدراج عبر استيراد مجلدات المعاضل فقط #}
     {% for day in ibank_action_eval_flow_days %}
-    <div class="ibank-action-eval-day-pane{% if day.id == active_action_eval_day %} is-active{% endif %}" data-day-id="{{ day.id }}" data-day-root-id="{{ action_eval_day_root_ids.get(day.id, '') }}"{% if day.id != active_action_eval_day %} hidden{% endif %}>
-      <div class="ibank-tree-scroll">
-        <ul class="ibank-tree-root js-ibank-tree" role="tree" aria-label="{{ tree_title }} — {{ day.label }}">
-          {{ render_nodes(action_eval_trees_by_day.get(day.id, [])) }}
-          {% if not action_eval_trees_by_day.get(day.id) %}
-          <li class="muted ibank-tree-empty">لا توجد عناصر بعد — أرفق مجلداً لمستويات الوحدات أو أضف مجلداً.</li>
-          {% endif %}
-        </ul>
-      </div>
+    <div class="ibank-action-eval-day-pane{% if day.id == active_action_eval_day %} is-active{% endif %}" data-day-id="{{ day.id }}" data-day-root-id="{{ action_eval_day_root_ids.get(day.id, '') }}" hidden aria-hidden="true">
+      <ul class="ibank-tree-root js-ibank-tree" role="tree" aria-hidden="true"></ul>
     </div>
     {% endfor %}
-    {% else %}
+    {% elif kind != 'action_eval' %}
     <div class="ibank-tree-scroll">
 
       <ul class="ibank-tree-root js-ibank-tree" role="tree" aria-label="{{ tree_title }}">

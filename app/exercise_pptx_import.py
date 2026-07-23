@@ -1,4 +1,8 @@
-"""استيراد الفكرة العامة/الخاصة والبرنامج والخريطة من عرض PowerPoint (.pptx)."""
+"""استيراد أقسام التمرين من عرض PowerPoint (.pptx).
+
+يشمل: معلومات التمرين (القصد، المشاركون، نوع/مستوى)، الفكرة العامة/الخاصة،
+البرنامج، والخريطة.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +14,9 @@ from io import BytesIO
 # مفاتيح التبويبات في صفحة التمرين الحالي
 TAB_KEYS = ("general", "specific", "program", "map")
 
+# حقول لوحة «معلومات التمرين»
+INFO_KEYS = ("purpose", "participants", "type_level")
+
 TAB_LABELS: dict[str, tuple[str, ...]] = {
     "general": ("الفكرة العامة", "فكرة عامة"),
     "specific": ("الفكرة الخاصة", "فكرة خاصة"),
@@ -17,12 +24,35 @@ TAB_LABELS: dict[str, tuple[str, ...]] = {
     "map": ("الخريطة", "خريطة التمرين", "خريطة"),
 }
 
+INFO_LABELS: dict[str, tuple[str, ...]] = {
+    "purpose": ("القصد من التمرين", "القصد"),
+    "participants": (
+        "المشاركون في التمرين",
+        "المشاركين في التمرين",
+        "المشاركون",
+        "المشاركين",
+    ),
+    "type_level": ("نوع ومستوى التمرين", "نوع ومستوى"),
+}
+
+# شريحة جامعة تُقسَّم داخلياً إلى حقول المعلومات
+INFO_SLIDE_LABELS = ("معلومات التمرين", "معلومات")
+
 FIELD_BY_TAB: dict[str, str] = {
     "general": "general_idea_text",
     "specific": "specific_idea_text",
     "program": "program_text",
     "map": "map_text",
 }
+
+FIELD_BY_INFO: dict[str, str] = {
+    "purpose": "exercise_purpose",
+    "participants": "exercise_participants",
+    "type_level": "exercise_type_level_text",
+}
+
+SECTION_LABELS: dict[str, tuple[str, ...]] = {**TAB_LABELS, **INFO_LABELS}
+FIELD_BY_SECTION: dict[str, str] = {**FIELD_BY_TAB, **FIELD_BY_INFO}
 
 _AR_TATWEEL = "\u0640"
 _NORM_RE = re.compile(r"\s+")
@@ -52,13 +82,13 @@ def _normalize_label(text: str) -> str:
     return s.strip().lower()
 
 
-def _match_tab_key(text: str) -> str | None:
+def _match_section_key(text: str) -> str | None:
     norm = _normalize_label(text)
     if not norm:
         return None
     best_key: str | None = None
     best_len = 0
-    for key, labels in TAB_LABELS.items():
+    for key, labels in SECTION_LABELS.items():
         for label in labels:
             ln = _normalize_label(label)
             if not ln:
@@ -68,6 +98,22 @@ def _match_tab_key(text: str) -> str | None:
                     best_key = key
                     best_len = len(ln)
     return best_key
+
+
+def _match_tab_key(text: str) -> str | None:
+    key = _match_section_key(text)
+    return key if key in TAB_LABELS else None
+
+
+def _is_info_slide_title(text: str) -> bool:
+    norm = _normalize_label(text)
+    if not norm:
+        return False
+    for label in INFO_SLIDE_LABELS:
+        ln = _normalize_label(label)
+        if norm == ln or ln in norm:
+            return True
+    return False
 
 
 def _shape_text(shape) -> str:
@@ -124,7 +170,7 @@ def _merge_field(fields: dict[str, str], key: str, chunk: str) -> None:
     chunk = (chunk or "").strip()
     if not chunk:
         return
-    field = FIELD_BY_TAB[key]
+    field = FIELD_BY_SECTION[key]
     if fields[field]:
         if chunk not in fields[field]:
             fields[field] = f"{fields[field].rstrip()}\n\n{chunk}"
@@ -141,7 +187,7 @@ def _parse_sections_in_text(text: str, fields: dict[str, str]) -> None:
             if buf:
                 buf.append("")
             continue
-        key = _match_tab_key(line)
+        key = _match_section_key(line)
         if key:
             if current and buf:
                 _merge_field(fields, current, "\n".join(buf).strip())
@@ -155,8 +201,9 @@ def _parse_sections_in_text(text: str, fields: dict[str, str]) -> None:
 
 
 def parse_exercise_pptx_bytes(data: bytes) -> dict:
-    """استخراج النصوص الأربعة وجدول البرنامج من ملف .pptx."""
+    """استخراج نصوص التبويبات وحقول المعلومات وجدول البرنامج من ملف .pptx."""
     empty_fields = {FIELD_BY_TAB[k]: "" for k in TAB_KEYS}
+    empty_fields.update({FIELD_BY_INFO[k]: "" for k in INFO_KEYS})
     empty_fields["program_table_json"] = ""
     if not is_pptx_bytes(data):
         return {"ok": False, "error": "bad_pptx", "fields": empty_fields, "warnings": []}
@@ -190,9 +237,16 @@ def parse_exercise_pptx_bytes(data: bytes) -> dict:
                 fields["program_table_json"] = dumps_program_table(table_data)
                 continue
 
-        title_key = _match_tab_key(title) if title else None
-        bodies = _slide_body_texts(slide, skip_title=title if title_key else "")
+        title_key = _match_section_key(title) if title else None
+        skip_title = title if (title_key or _is_info_slide_title(title)) else ""
+        bodies = _slide_body_texts(slide, skip_title=skip_title)
         body_joined = "\n\n".join(bodies).strip()
+
+        if title and _is_info_slide_title(title):
+            full_slide = "\n\n".join([t for t in [body_joined] if t]).strip()
+            if full_slide:
+                _parse_sections_in_text(full_slide, fields)
+            continue
 
         if title_key:
             _merge_field(fields, title_key, body_joined or title)
@@ -202,19 +256,22 @@ def parse_exercise_pptx_bytes(data: bytes) -> dict:
         if full_slide:
             _parse_sections_in_text(full_slide, fields)
             if not title and bodies:
-                first_key = _match_tab_key(bodies[0].split("\n", 1)[0])
+                first_key = _match_section_key(bodies[0].split("\n", 1)[0])
                 if first_key and len(bodies) == 1:
                     rest = "\n".join(bodies[0].splitlines()[1:]).strip()
                     if rest:
                         _merge_field(fields, first_key, rest)
 
-    filled = [
+    filled_tabs = [
         k
         for k in TAB_KEYS
         if (fields[FIELD_BY_TAB[k]] or "").strip()
         or (k == "program" and (fields.get("program_table_json") or "").strip())
     ]
-    if not filled:
+    filled_info = [
+        k for k in INFO_KEYS if (fields[FIELD_BY_INFO[k]] or "").strip()
+    ]
+    if not filled_tabs and not filled_info:
         return {
             "ok": False,
             "error": "no_content",

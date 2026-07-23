@@ -7,8 +7,9 @@ import json
 import re
 from typing import Any
 
-_DATE_RE = re.compile(r"^\s*(\d{1,2}/\d{1,2})\s*$")
-_DATE_PREFIX_RE = re.compile(r"^(\d{1,2}/\d{1,2})(?:\s+|$)")
+_DATE_RE = re.compile(r"^\s*(\d{1,2})\s*/\s*(\d{1,2})\s*$")
+_DATE_PREFIX_RE = re.compile(r"^(\d{1,2})\s*/\s*(\d{1,2})(?:\s+|$)")
+_TATWEEL_RE = re.compile("\u0640+")
 _AR_DAYS = (
     "الاثنين",
     "الإثنين",
@@ -133,22 +134,72 @@ def _cell_rowspan(table, row_idx: int, col_idx: int) -> int:
         return 1
 
 
+def _format_date_label(month_or_day_a: str, month_or_day_b: str) -> str:
+    """توحيد عرض التاريخ كـ m/d كما في جدول الأعمال."""
+    a = int(month_or_day_a)
+    b = int(month_or_day_b)
+    return f"{a}/{b}"
+
+
 def _split_date_and_parts(parts: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
     if not parts:
         return "", []
-    first = parts[0]["text"].strip()
+    first = _TATWEEL_RE.sub("", (parts[0].get("text") or "").strip())
     m = _DATE_RE.match(first)
     if m:
-        return m.group(1), parts[1:]
+        return _format_date_label(m.group(1), m.group(2)), parts[1:]
     m2 = _DATE_PREFIX_RE.match(first)
     if m2:
-        date_label = m2.group(1)
+        date_label = _format_date_label(m2.group(1), m2.group(2))
         rest = first[m2.end() :].strip()
         out = list(parts[1:])
         if rest:
             out.insert(0, {"text": rest, "red": bool(parts[0].get("red"))})
         return date_label, out
     return "", parts
+
+
+def _clean_part_text(text: str) -> str:
+    return _TATWEEL_RE.sub("", (text or "").strip())
+
+
+def _prepare_day_cell(cell: dict[str, Any]) -> dict[str, Any]:
+    """فصل التاريخ عن نص العمل داخل خلية اليوم."""
+    prepared = dict(cell)
+    parts = [
+        {"text": _clean_part_text(p.get("text") or ""), "red": bool(p.get("red"))}
+        for p in list(cell.get("parts") or [])
+        if _clean_part_text(p.get("text") or "")
+    ]
+    date_label = (cell.get("date") or "").strip()
+    if date_label:
+        m = _DATE_RE.match(_TATWEEL_RE.sub("", date_label))
+        if m:
+            date_label = _format_date_label(m.group(1), m.group(2))
+    if not date_label:
+        date_label, parts = _split_date_and_parts(parts)
+    prepared["date"] = date_label
+    prepared["parts"] = parts
+    prepared["is_bar"] = False
+    prepared["colspan"] = 1
+    return prepared
+
+
+def _date_sort_key(date_label: str) -> tuple[int, int]:
+    m = _DATE_RE.match((date_label or "").strip())
+    if not m:
+        return (99, 99)
+    # التواريخ في الجدول بصيغة شهر/يوم تقريباً (9/29 ثم 10/1).
+    return (int(m.group(1)), int(m.group(2)))
+
+
+def _sort_week_cells_by_date(cells: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """ترتيب خلايا الأسبوع زمنياً؛ إن تعذّر يُبقى كما هو."""
+    keyed = [( _date_sort_key(c.get("date") or ""), idx, c) for idx, c in enumerate(cells)]
+    if any(k == (99, 99) for k, _, _ in keyed):
+        return cells
+    keyed.sort(key=lambda item: (item[0], item[1]))
+    return [c for _, _, c in keyed]
 
 
 def _append_parts_unique(target: list[dict[str, Any]], extra: list[dict[str, Any]]) -> None:
@@ -508,6 +559,394 @@ def _render_parts_html(parts: list[dict[str, Any]]) -> str:
     return " ".join(chunks)
 
 
+# ترتيب الأيام المطلوب: الاثنين أولاً (يمين الجدول في RTL) حتى الأحد.
+_CANONICAL_DAY_ORDER = (
+    "الاثنين",
+    "الثلاثاء",
+    "الاربعاء",
+    "الخميس",
+    "الجمعة",
+    "السبت",
+    "الاحد",
+)
+
+
+def _canonical_day_index(label: str) -> int | None:
+    norm = _normalize_day(label)
+    for idx, day in enumerate(_CANONICAL_DAY_ORDER):
+        if norm == _normalize_day(day):
+            return idx
+    return None
+
+
+def _reorder_days_monday_first(
+    header: list[str], rows: list[dict[str, Any]], ncols: int
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """إعادة ترتيب أعمدة الأيام لتبدأ بالاثنين من اليمين."""
+    if len(header) != ncols:
+        return header, rows
+    day_indices = [_canonical_day_index(h) for h in header]
+    if any(idx is None for idx in day_indices):
+        return header, rows
+    # ترتيب الأعمدة تصاعدياً حسب اليوم القانوني (الاثنين=0 يظهر أولاً في RTL).
+    order = sorted(range(ncols), key=lambda c: day_indices[c])
+    if order == list(range(ncols)):
+        return header, rows
+
+    new_header = [header[c] for c in order]
+    new_rows: list[dict[str, Any]] = []
+    for row in rows:
+        cells = list(row.get("cells") or [])
+        is_bar_row = bool(cells) and all(cell.get("is_bar") for cell in cells)
+        if is_bar_row or len(cells) != ncols:
+            new_rows.append(row)
+            continue
+        row["cells"] = [cells[c] for c in order]
+        new_rows.append(row)
+    return new_header, new_rows
+
+
+def _prepare_bar_cell(cell: dict[str, Any], ncols: int) -> dict[str, Any]:
+    prepared = dict(cell)
+    parts = [
+        {"text": _clean_part_text(p.get("text") or ""), "red": bool(p.get("red"))}
+        for p in list(cell.get("parts") or [])
+        if _clean_part_text(p.get("text") or "")
+    ]
+    prepared["parts"] = parts
+    prepared["is_bar"] = True
+    prepared["colspan"] = max(int(cell.get("colspan") or ncols), ncols)
+    prepared["date"] = ""
+    return prepared
+
+
+_ORDER_TEXT_RE = re.compile(r"صرف\s*(?:ال)?أ?مر")
+
+
+def _bar_role(cell: dict[str, Any]) -> str:
+    """title = صف عنوان، week = شريط بعرض الأسبوع، phase = شريط مرحلة جزئي."""
+    text = _TATWEEL_RE.sub("", _parts_to_plain(list(cell.get("parts") or [])))
+    if text.startswith("ملخص") or "ملخص تمرين" in text[:24]:
+        return "title"
+    if text.startswith("تقييم الفصائل") or "تقييم الفصائل والسرايا" in text:
+        return "week"
+    if "الاستعداد لتقييم" in text or text.startswith("برنامج التمرين"):
+        return "week"
+    return "phase"
+
+
+def _split_order_and_task(
+    parts: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """فصل أوامر الصرف القصيرة عن بقية عمل اليوم."""
+    order_parts: list[dict[str, Any]] = []
+    task_parts: list[dict[str, Any]] = []
+    for part in parts:
+        text = _clean_part_text(part.get("text") or "")
+        if not text:
+            continue
+        if _ORDER_TEXT_RE.search(text) and len(text) <= 60:
+            order_parts.append({"text": text, "red": True})
+            continue
+        if _ORDER_TEXT_RE.search(text) and len(text) > 60:
+            m = _ORDER_TEXT_RE.search(text)
+            before = text[: m.start()].strip(" +|/،,")
+            after = text[m.start() :].strip()
+            if before:
+                task_parts.append({"text": before, "red": bool(part.get("red"))})
+            if after:
+                order_parts.append({"text": after, "red": True})
+            continue
+        task_parts.append({"text": text, "red": bool(part.get("red"))})
+    return order_parts, task_parts
+
+
+def _slots_to_cells(slots: list[Any], ncols: int) -> list[dict[str, Any]]:
+    cells: list[dict[str, Any]] = []
+    i = 0
+    while i < ncols:
+        slot = slots[i] if i < len(slots) else None
+        if slot == "SKIP":
+            i += 1
+            continue
+        if slot is None:
+            cells.append(
+                {
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "date": "",
+                    "parts": [],
+                    "is_bar": False,
+                }
+            )
+            i += 1
+            continue
+        span = max(1, int(slot.get("colspan") or 1))
+        cells.append(slot)
+        i += span
+    return cells
+
+
+def _place_span(
+    slots: list[Any],
+    occupied: list[bool],
+    start: int,
+    length: int,
+    parts: list[dict[str, Any]],
+) -> None:
+    slots[start] = {
+        "colspan": length,
+        "rowspan": 1,
+        "date": "",
+        "parts": parts,
+        "is_bar": False,
+        "merged_work": True,
+    }
+    for i in range(start, start + length):
+        occupied[i] = True
+        if i > start:
+            slots[i] = "SKIP"
+
+
+def _bar_span(
+    text: str, ncols: int
+) -> tuple[int, int] | None:
+    """مدى الشريط: أشرطة المراحل تمتد الإثنين → الأحد."""
+    t = _TATWEEL_RE.sub("", text or "")
+    if "ملخص" in t[:12]:
+        return None
+    # رفع الاستعداد / الاستعداد للتقييم / تقييم الفصائل / استلام المشبهات
+    return (0, ncols)
+
+
+def _expand_task_neighbors(detail_slots: list[Any], ncols: int) -> None:
+    """دمج محدود للمهام وفق الصورة (استلام يومين، دفاع سريع+تسليم يومين)."""
+    i = 0
+    while i < ncols:
+        slot = detail_slots[i]
+        if slot in (None, "SKIP") or not isinstance(slot, dict):
+            i += 1
+            continue
+        parts = list(slot.get("parts") or [])
+        if not parts or slot.get("merged_work"):
+            i += 1
+            continue
+        text = _parts_to_plain(parts)
+        if text.startswith("اعاد") or "تنظيم والتمركز" in text:
+            i += 1
+            continue
+        if _ORDER_TEXT_RE.search(text) and "استلام" not in text:
+            i += 1
+            continue
+
+        left, right = i, i
+        if text.startswith("استلام"):
+            # يُعالج كشريط مرحلة منفصل؛ لا يُوسَّع هنا
+            i += 1
+            continue
+        elif ("الدفاع السريع" in text and "تسليم" in text) and i > 0 and detail_slots[i - 1] is None:
+            left = i - 1
+        else:
+            i += 1
+            continue
+
+        length = right - left + 1
+        # للإاستلام: النص بدون أمر الصرف (الأمر يبقى في يومه إن أمكن)
+        use_parts = parts
+        if text.startswith("استلام"):
+            _o, task_parts = _split_order_and_task(parts)
+            use_parts = task_parts or parts
+            # أعد أمر الصرف على يوم الاستلام الأصلي إن دُمج لليمين
+            if _o and left == i and right > i:
+                # الأمر على نفس بداية الدمج (الثلاثاء)
+                pass
+            elif _o:
+                # احتفظ بالأمر مع المهمة في الخلية المدمجة
+                use_parts = task_parts + _o
+
+        for j in range(left, right + 1):
+            detail_slots[j] = None
+        detail_slots[left] = {
+            "colspan": length,
+            "rowspan": 1,
+            "date": "",
+            "parts": use_parts,
+            "is_bar": False,
+            "merged_work": True,
+        }
+        for j in range(left + 1, right + 1):
+            detail_slots[j] = "SKIP"
+        # إن وُجد أمر منفصل بعد تقسيم استلام، ضعه على الثلاثاء داخل النص المدمج
+        i = right + 1
+
+
+def _build_week_layers(
+    week_cells: list[dict[str, Any]],
+    bars: list[dict[str, Any]],
+    ncols: int,
+) -> tuple[list[list[dict[str, Any]]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """طبقات الأسبوع مطابقة للصورة: أشرطة مرحلة (قد تتعدد) + صناديق يومية."""
+    detail_slots: list[Any] = [None] * ncols
+    istelam_parts: list[dict[str, Any]] | None = None
+
+    for idx, cell in enumerate(week_cells[:ncols]):
+        order_parts, task_parts = _split_order_and_task(list(cell.get("parts") or []))
+        if task_parts and _parts_to_plain(task_parts).startswith("استلام"):
+            istelam_parts = task_parts
+            if order_parts:
+                detail_slots[idx] = {
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "date": "",
+                    "parts": order_parts,
+                    "is_bar": False,
+                }
+            continue
+        if task_parts or order_parts:
+            detail_slots[idx] = {
+                "colspan": 1,
+                "rowspan": 1,
+                "date": "",
+                "parts": task_parts + order_parts,
+                "is_bar": False,
+            }
+
+    _expand_task_neighbors(detail_slots, ncols)
+
+    # صفوف مرحلة متعددة (شريط طويل + شريط قصير فوقه كما في الصورة)
+    phase_layers: list[list[Any]] = []
+    phase_occ: list[list[bool]] = []
+
+    def _add_phase_bar(start: int, length: int, parts: list[dict[str, Any]]) -> None:
+        for slots, occupied in zip(phase_layers, phase_occ):
+            if not any(occupied[i] for i in range(start, start + length)):
+                _place_span(slots, occupied, start, length, parts)
+                return
+        slots = [None] * ncols
+        occupied = [False] * ncols
+        _place_span(slots, occupied, start, length, parts)
+        phase_layers.append(slots)
+        phase_occ.append(occupied)
+
+    scored: list[tuple[int, list[dict[str, Any]], str]] = []
+    for bar in bars:
+        text = _parts_to_plain(list(bar.get("parts") or []))
+        span = _bar_span(text, ncols)
+        if span is None:
+            continue
+        scored.append((span[1], list(bar.get("parts") or []), text))
+    if istelam_parts:
+        span = _bar_span("استلام", ncols)
+        if span:
+            scored.append((span[1], istelam_parts, "استلام"))
+    # الأطول أولاً
+    scored.sort(key=lambda item: -item[0])
+    for _ln, parts, _text in scored:
+        span = _bar_span(_parts_to_plain(parts) if not _text.startswith("استلام") else "استلام", ncols)
+        if not span:
+            continue
+        s, ln = span
+        _add_phase_bar(s, ln, parts)
+
+    phase_rows = [_slots_to_cells(slots, ncols) for slots in phase_layers]
+    return phase_rows, _slots_to_cells(detail_slots, ncols), []
+
+
+def _normalize_calendar_rows(
+    rows: list[dict[str, Any]], ncols: int
+) -> list[dict[str, Any]]:
+    """بناء أسابيع جدول الأعمال مطابقة للصورة المرجعية."""
+    weeks: list[dict[str, Any]] = []
+    leading_bars: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+
+    for row in rows:
+        cells = list(row.get("cells") or [])
+        bars = [_prepare_bar_cell(cell, ncols) for cell in cells if cell.get("is_bar")]
+        date_cells = [
+            _prepare_day_cell(cell) for cell in cells if not cell.get("is_bar")
+        ]
+
+        if date_cells:
+            week_cells = _sort_week_cells_by_date(date_cells)[:ncols]
+            while len(week_cells) < ncols:
+                week_cells.append(
+                    {
+                        "colspan": 1,
+                        "rowspan": 1,
+                        "date": "",
+                        "parts": [],
+                        "is_bar": False,
+                    }
+                )
+            current = {
+                "cells": week_cells,
+                "bars": list(leading_bars) + bars,
+            }
+            leading_bars = []
+            weeks.append(current)
+            continue
+
+        if current is not None:
+            current["bars"].extend(bars)
+        else:
+            leading_bars.extend(bars)
+
+    if leading_bars and weeks:
+        weeks[0]["bars"] = leading_bars + list(weeks[0].get("bars") or [])
+
+    normalized: list[dict[str, Any]] = []
+    week_bands = ("beige", "blue", "blue", "beige", "")
+    for week_index, week in enumerate(weeks):
+        band = week_bands[week_index] if week_index < len(week_bands) else ""
+        week_cells = list(week.get("cells") or [])
+        bars = list(week.get("bars") or [])
+        phase_rows, detail_cells, titles = _build_week_layers(week_cells, bars, ncols)
+
+        normalized.append(
+            {
+                "week_band": band,
+                "row_kind": "dates",
+                "cells": [
+                    {
+                        "colspan": 1,
+                        "rowspan": 1,
+                        "date": (c.get("date") or "").strip(),
+                        "parts": [],
+                        "is_bar": False,
+                    }
+                    for c in week_cells
+                ],
+            }
+        )
+        for phase_cells in phase_rows:
+            if any(c.get("parts") for c in phase_cells):
+                normalized.append(
+                    {"week_band": band, "row_kind": "phase", "cells": phase_cells}
+                )
+        if any(c.get("parts") for c in detail_cells):
+            normalized.append(
+                {
+                    "week_band": band,
+                    "row_kind": "activities",
+                    "cells": detail_cells,
+                }
+            )
+        for bar in titles:
+            normalized.append(
+                {"week_band": band, "row_kind": "bar", "cells": [bar]}
+            )
+
+    return normalized
+
+
+def _canonical_header(ncols: int) -> list[str]:
+    labels = ["الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد"]
+    if ncols <= len(labels):
+        return labels[:ncols]
+    return labels + [f"يوم {i}" for i in range(len(labels) + 1, ncols + 1)]
+
+
 def render_program_table_html(raw_json: str) -> str:
     data = loads_program_table(raw_json)
     if not data:
@@ -516,25 +955,50 @@ def render_program_table_html(raw_json: str) -> str:
     title = html.escape((data.get("title") or "برنامج التمرين").strip())
     header: list[str] = list(data.get("header") or [])
     rows: list[dict[str, Any]] = list(data.get("rows") or [])
+    ncols = len(header) or 7
+    rows = _normalize_calendar_rows(rows, ncols)
+    header = _canonical_header(ncols)
 
     out: list[str] = [
         '<div class="exercise-program-calendar-wrap">',
+        '<div class="exercise-program-calendar-heading">',
         f'<h3 class="exercise-program-calendar-title">{title}</h3>',
+        "</div>",
         '<table class="exercise-program-calendar" dir="rtl">',
     ]
 
-    if header:
-        out.append("<thead><tr>")
-        for h in header:
-            out.append(f"<th>{html.escape((h or '').strip())}</th>")
-        out.append("</tr></thead>")
+    out.append("<thead><tr>")
+    for h in header:
+        out.append(f"<th>{html.escape((h or '').strip())}</th>")
+    out.append("</tr></thead>")
 
     out.append("<tbody>")
     for row in rows:
         band = (row.get("week_band") or "").strip()
-        tr_cls = f' class="week-{band}"' if band else ""
+        cells = list(row.get("cells") or [])
+        row_kind = (row.get("row_kind") or "").strip()
+        is_bar_row = row_kind == "bar" or (
+            bool(cells) and all(cell.get("is_bar") for cell in cells)
+        )
+        is_dates_row = row_kind == "dates"
+        is_acts_row = row_kind == "activities"
+        is_phase_row = row_kind == "phase"
+        tr_classes = []
+        if band:
+            tr_classes.append(f"week-{band}")
+        if is_bar_row:
+            tr_classes.append("week-bar-row")
+        elif is_dates_row:
+            tr_classes.append("week-dates-row")
+        elif is_phase_row:
+            tr_classes.append("week-phase-row")
+        elif is_acts_row:
+            tr_classes.append("week-acts-row")
+        else:
+            tr_classes.append("week-days-row")
+        tr_cls = f' class="{" ".join(tr_classes)}"' if tr_classes else ""
         out.append(f"<tr{tr_cls}>")
-        for cell in row.get("cells") or []:
+        for cell in cells:
             colspan = int(cell.get("colspan") or 1)
             rowspan = int(cell.get("rowspan") or 1)
             attrs = []
@@ -543,21 +1007,36 @@ def render_program_table_html(raw_json: str) -> str:
             if rowspan > 1:
                 attrs.append(f'rowspan="{rowspan}"')
             is_bar = bool(cell.get("is_bar"))
+            merged_work = bool(cell.get("merged_work"))
+            classes = []
             if is_bar:
-                attrs.append('class="exercise-program-bar-cell"')
+                classes.append("exercise-program-bar-cell")
+            elif is_dates_row:
+                classes.append("exercise-program-date-cell")
+            else:
+                classes.append("exercise-program-day-cell")
+            if merged_work:
+                classes.append("is-merged-work")
+            if classes:
+                attrs.append(f'class="{" ".join(classes)}"')
             attr_s = (" " + " ".join(attrs)) if attrs else ""
             date_label = html.escape((cell.get("date") or "").strip())
             inner = _render_parts_html(list(cell.get("parts") or []))
             if is_bar:
-                out.append(f"<td{attr_s}>{inner}</td>")
+                out.append(
+                    f'<td{attr_s}><div class="exercise-program-bar-box">{inner}</div></td>'
+                )
+            elif is_dates_row:
+                out.append(
+                    f'<td{attr_s}><div class="exercise-program-cell-date">{date_label}</div></td>'
+                )
             else:
-                date_html = (
-                    f'<span class="exercise-program-cell-date">{date_label}</span>'
-                    if date_label
+                box = (
+                    f'<div class="exercise-program-cell-box">{inner}</div>'
+                    if inner
                     else ""
                 )
-                box = f'<div class="exercise-program-cell-box">{inner}</div>'
-                out.append(f"<td{attr_s}>{date_html}{box}</td>")
+                out.append(f"<td{attr_s}>{box}</td>")
         out.append("</tr>")
     out.append("</tbody></table></div>")
     return "".join(out)

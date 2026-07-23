@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}المساعدة{% endblock %}
+{% block body_class %}help-tree-page{% endblock %}
+{% block content %}
+<div class="page-header page-header--split help-tree-header">
+  <h1><i class="fa-solid fa-sitemap fa-icon-title" aria-hidden="true"></i> المساعدة</h1>
+  <p class="muted">تشجير عملي لإجراءات النظام مرتّبة حسب الدور والمهمة</p>
+  <div class="page-header__actions">
+    {% if can_open_user_manual %}
+    <a class="btn" href="{{ url_for('views.admin_user_manual') }}">
+      <i class="fa-solid fa-book-open" aria-hidden="true"></i>
+      دليل المستخدم التفصيلي
+    </a>
+    {% endif %}
+    <button type="button" class="btn btn-ghost btn-icon-nav help-tree-tool-btn" id="help-tree-expand-all" title="توسيع الكل" aria-label="توسيع الكل">
+      <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
+    </button>
+    <button type="button" class="btn btn-ghost btn-icon-nav help-tree-tool-btn" id="help-tree-collapse-all" title="طي الكل" aria-label="طي الكل">
+      <i class="fa-solid fa-folder" aria-hidden="true"></i>
+    </button>
+  </div>
+</div>
+
+<section class="card help-tree-shell" aria-label="تشجير المساعدة">
+  <ul class="help-tree" role="tree">
+    {% for branch in tree.branches %}
+    <li class="help-tree-node help-tree-node--branch" role="treeitem" aria-expanded="true" data-help-node>
+      <div class="help-tree-row help-tree-row--branch">
+        <button type="button" class="help-tree-toggle" aria-label="طي/توسيع {{ branch.title }}" data-help-toggle>
+          <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+        </button>
+        <span class="help-tree-icon help-tree-icon--branch" aria-hidden="true"><i class="fa-solid {{ branch.icon }}"></i></span>
+        <div class="help-tree-label">
+          <span class="help-tree-title">{{ branch.title }}</span>
+          <span class="help-tree-desc">{{ branch.desc }}</span>
+        </div>
+        <span class="help-tree-count">{{ branch.children|length }}</span>
+      </div>
+      <ul class="help-tree-children" role="group">
+        {% for proc in branch.children %}
+        <li class="help-tree-node help-tree-node--procedure" role="treeitem" aria-expanded="false" data-help-node id="help-{{ proc.id }}">
+          <div class="help-tree-row help-tree-row--procedure">
+            <button type="button" class="help-tree-toggle" aria-label="طي/توسيع {{ proc.title }}" data-help-toggle>
+              <i class="fa-solid fa-chevron-left" aria-hidden="true"></i>
+            </button>
+            <span class="help-tree-icon help-tree-icon--procedure" aria-hidden="true"><i class="fa-solid fa-list-check"></i></span>
+            <div class="help-tree-label">
+              <span class="help-tree-title">{{ proc.title }}</span>
+              {% if proc.audience %}<span class="help-tree-aud">{{ proc.audience }}</span>{% endif %}
+              {% if proc.intro %}<span class="help-tree-desc">{{ proc.intro }}</span>{% endif %}
+            </div>
+            {% if proc.steps_count %}<span class="help-tree-count">{{ proc.steps_count }} خطوات</span>{% endif %}
+          </div>
+          <ul class="help-tree-children" role="group" hidden>
+            {% for child in proc.children %}
+            {% if child.kind == 'prereq' or child.kind == 'tips' %}
+            <li class="help-tree-node help-tree-node--meta" role="treeitem">
+              <div class="help-tree-meta card">
+                <h3 class="help-tree-meta__title">
+                  <i class="fa-solid {% if child.kind == 'prereq' %}fa-clipboard-check{% else %}fa-lightbulb{% endif %}" aria-hidden="true"></i>
+                  {{ child.title }}
+                </h3>
+                <ul class="help-tree-meta__list">
+                  {% for it in child.item_list %}
+                  <li>{{ it }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            </li>
+            {% else %}
+            <li class="help-tree-node help-tree-node--step" role="treeitem" id="help-{{ child.id }}">
+              <article class="help-step card">
+                <header class="help-step__head">
+                  <span class="help-step__num" aria-hidden="true">{{ child.n }}</span>
+                  <h3 class="help-step__title">{{ child.title }}</h3>
+                </header>
+                {% if child.where %}
+                <p class="help-step__line"><span class="help-step__label">أين</span> {{ child.where }}</p>
+                {% endif %}
+                {% if child.detail %}
+                <p class="help-step__line help-step__detail">{{ child.detail }}</p>
+                {% endif %}
+                {% if child.action %}
+                <p class="help-step__line"><span class="help-step__label help-step__label--action">افعل</span> {{ child.action }}</p>
+                {% endif %}
+                {% if child.note %}
+                <p class="help-step__note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> {{ child.note }}</p>
+                {% endif %}
+              </article>
+            </li>
+            {% endif %}
+            {% endfor %}
+          </ul>
+        </li>
+        {% endfor %}
+      </ul>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<script>
+(function () {
+  function setExpanded(node, open) {
+    node.setAttribute("aria-expanded", open ? "true" : "false");
+    var kids = node.querySelector(":scope > .help-tree-children");
+    var btn = node.querySelector(":scope > .help-tree-row > [data-help-toggle] i");
+    if (kids) kids.hidden = !open;
+    if (btn) {
+      btn.classList.toggle("fa-chevron-down", open);
+      btn.classList.toggle("fa-chevron-left", !open);
+    }
+  }
+
+  document.querySelectorAll("[data-help-toggle]").forEach(function (btn) {
+    btn.addEventListener("click", function (e) {
+      e.preventDefault();
+      var node = btn.closest("[data-help-node]");
+      if (!node) return;
+      var open = node.getAttribute("aria-expanded") !== "true";
+      setExpanded(node, open);
+    });
+  });
+
+  var expandAll = document.getElementById("help-tree-expand-all");
+  var collapseAll = document.getElementById("help-tree-collapse-all");
+  if (expandAll) {
+    expandAll.addEventListener("click", function () {
+      document.querySelectorAll("[data-help-node]").forEach(function (n) { setExpanded(n, true); });
+    });
+  }
+  if (collapseAll) {
+    collapseAll.addEventListener("click", function () {
+      document.querySelectorAll("[data-help-node]").forEach(function (n) { setExpanded(n, false); });
+    });
+  }
+
+  // افتح الفرع الأول افتراضياً، وافتح إجراء إن جاء من رابط #help-...
+  var hash = (location.hash || "").replace(/^#/, "");
+  if (hash) {
+    var target = document.getElementById(hash);
+    if (target) {
+      var walk = target;
+      while (walk) {
+        if (walk.hasAttribute && walk.hasAttribute("data-help-node")) setExpanded(walk, true);
+        walk = walk.parentElement ? walk.parentElement.closest("[data-help-node]") : null;
+      }
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+})();
+</script>
+{% endblock %}

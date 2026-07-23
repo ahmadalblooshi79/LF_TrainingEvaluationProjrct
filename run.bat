@@ -41,8 +41,16 @@ exit /b %ERRORLEVEL%
 
 :find_python
 set "HOST_PY="
+if exist "%ProgramFiles%\Python314\python.exe" (
+  set "HOST_PY=%ProgramFiles%\Python314\python.exe"
+  goto :eof
+)
 if exist "%LocalAppData%\Programs\Python\Python314\python.exe" (
   set "HOST_PY=%LocalAppData%\Programs\Python\Python314\python.exe"
+  goto :eof
+)
+if exist "%LocalAppData%\Python\pythoncore-3.14-64\python.exe" (
+  set "HOST_PY=%LocalAppData%\Python\pythoncore-3.14-64\python.exe"
   goto :eof
 )
 where py >nul 2>&1

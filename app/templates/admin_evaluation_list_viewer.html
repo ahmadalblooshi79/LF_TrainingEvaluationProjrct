@@ -2,6 +2,10 @@
 {% block title %}معاينة تقييم — قوائم التقييم{% endblock %}
 {% block body_class %}eval-list-page-layout{% endblock %}
 {% block content %}
+{% set ns = namespace(export_href=eval_export_url|default('', true)) %}
+{% if not ns.export_href and unit_key is defined and item_id is defined %}
+  {% set ns.export_href = url_for('views.admin_evaluation_list_export', unit_key=unit_key, item_id=item_id) %}
+{% endif %}
 {% if header_row and eval_structured %}
 <div class="eval-list-page dilemma-viewer-page">
   <div class="eval-list-page__sticky-top">
@@ -10,9 +14,18 @@
         <h1 class="dilemma-viewer-title"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ item_title }}</h1>
       </div>
       <div class="dilemma-viewer-toolbar__actions">
+        {% if ns.export_href %}
+        <a class="btn btn--eval-export" href="{{ ns.export_href }}" title="تصدير قائمة التقييم إلى Excel">
+          <i class="fa-solid fa-file-excel" aria-hidden="true"></i> تصدير إلى Excel
+        </a>
+        {% endif %}
         {% include 'partials/subpage_close.html' %}
       </div>
     </div>
+
+    {% if eval_doc_title|default('') %}
+    <div class="eval-doc-title-banner" dir="rtl" role="heading" aria-level="2">{{ eval_doc_title }}</div>
+    {% endif %}
 
     <div class="eval-top-messages eval-banner-row--compact" dir="ltr">
       {% if saved_is_approved %}

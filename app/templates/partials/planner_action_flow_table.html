@@ -20,7 +20,7 @@
 {% endmacro %}
 
 <script type="application/json" id="pf-flow-days-json">{{ flow_table_days | tojson }}</script>
-<section class="card planner-flow-action-table-section" id="pf-flow-table-section" dir="rtl"   data-pf-script-ver="34"
+<section class="card planner-flow-action-table-section" id="pf-flow-table-section" dir="rtl"   data-pf-script-ver="36"
   data-active-day-id="{{ flow_table_active_day_id }}"
   {% if readonly_mode %}data-readonly="1"{% endif %}
   {% if not readonly_mode %}
@@ -64,17 +64,30 @@
   {% endif %}
 
   <div class="pf-flow-table-stack" id="pf-flow-table-stack">
-    <label class="pf-flow-day-note-wrap" id="pf-flow-day-note-wrap" for="pf-flow-day-note">
-      <textarea
+    {% set _pf_ex_title = (exercise.title if exercise is defined and exercise and exercise.title else (workspace_exercise.title if workspace_exercise is defined and workspace_exercise and workspace_exercise.title else '')) %}
+    {% set _pf_note_text = flow_table_active_day_note or '' %}
+    {% set _pf_note_lines = _pf_note_text.splitlines() if _pf_note_text else [''] %}
+    <div class="pf-flow-day-note-wrap" id="pf-flow-day-note-wrap">
+      <div
         class="pf-flow-day-note"
         id="pf-flow-day-note"
-        name="pf_flow_day_note"
-        rows="1"
         dir="rtl"
-        spellcheck="true"
-        {% if readonly_mode %}readonly{% endif %}
-        aria-label="نص اليوم">{{ flow_table_active_day_note }}</textarea>
-    </label>
+        role="textbox"
+        aria-multiline="true"
+        aria-label="نص اليوم — مجرى الأحداث ومسمى التمرين"
+        data-exercise-title="{{ _pf_ex_title }}"
+        {% if not readonly_mode %}contenteditable="true" spellcheck="true"{% else %}aria-readonly="true"{% endif %}
+      >{% for line in _pf_note_lines -%}
+{%- set _cls = 'pf-flow-day-note__title' if loop.first else 'pf-flow-day-note__sub' -%}
+{%- if line or loop.first -%}
+<span class="{{ _cls }}">{%- if _pf_ex_title and _pf_ex_title in line -%}
+{%- for part in line.split(_pf_ex_title) -%}
+{{- part -}}{%- if not loop.last -%}<strong class="pf-flow-day-note__ex">{{ _pf_ex_title }}</strong>{%- endif -%}
+{%- endfor -%}
+{%- else -%}{{ line }}{%- endif -%}</span>
+{%- elif not loop.first -%}<br>{%- endif -%}
+{%- endfor %}</div>
+    </div>
 
   <div class="table-wrap planner-flow-action-table-wrap" id="pf-flow-table-wrap">
 

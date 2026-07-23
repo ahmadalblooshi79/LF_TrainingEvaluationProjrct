@@ -1,5 +1,5 @@
 <script>
-/* planner-flow-table v31 */
+/* planner-flow-table v36 */
 (function () {
   'use strict';
 
@@ -269,11 +269,66 @@
       return -1;
     }
 
+    function dayNoteEscapeHtml(s) {
+      return String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function dayNotePlainText() {
+      if (!dayNoteEl) return '';
+      var raw = String(dayNoteEl.innerText || dayNoteEl.textContent || '');
+      return raw.replace(/\r\n/g, '\n').replace(/\u00a0/g, ' ');
+    }
+
+    function dayNoteFormatHtml(plain) {
+      var text = String(plain || '').replace(/\r\n/g, '\n');
+      var exTitle = String(dayNoteEl.getAttribute('data-exercise-title') || '').trim();
+      var lines = text.split('\n');
+      var htmlParts = [];
+      var i;
+      var line;
+      var esc;
+      var marked;
+      var cls;
+      for (i = 0; i < lines.length; i += 1) {
+        line = lines[i];
+        if (!line && i === lines.length - 1 && lines.length > 1) {
+          continue;
+        }
+        esc = dayNoteEscapeHtml(line);
+        if (exTitle && line.indexOf(exTitle) >= 0) {
+          marked = dayNoteEscapeHtml(exTitle);
+          esc = esc.split(marked).join(
+            '<strong class="pf-flow-day-note__ex">' + marked + '</strong>'
+          );
+        }
+        cls = i === 0 ? 'pf-flow-day-note__title' : 'pf-flow-day-note__sub';
+        if (!String(line || '').trim() && i > 0) {
+          htmlParts.push('<br>');
+        } else {
+          htmlParts.push('<span class="' + cls + '">' + esc + '</span>');
+        }
+      }
+      return htmlParts.join('') || '<br>';
+    }
+
+    function setDayNotePlain(plain) {
+      if (!dayNoteEl) return;
+      dayNoteEl.innerHTML = dayNoteFormatHtml(plain);
+    }
+
+    function getDayNotePlain() {
+      return dayNotePlainText().slice(0, 4000);
+    }
+
     function autoGrowDayNote() {
       if (!dayNoteEl) return;
       dayNoteEl.style.overflow = 'hidden';
-      dayNoteEl.style.height = '0px';
-      var minPx = 52;
+      dayNoteEl.style.height = 'auto';
+      var minPx = 76;
       var next = Math.max(dayNoteEl.scrollHeight, minPx);
       dayNoteEl.style.height = next + 'px';
     }
@@ -290,11 +345,28 @@
       if (!dayNoteEl) return;
       scheduleAutoGrowDayNote();
       dayNoteEl.addEventListener('input', autoGrowDayNote);
-      dayNoteEl.addEventListener('paste', function () {
-        setTimeout(autoGrowDayNote, 0);
+      dayNoteEl.addEventListener('paste', function (ev) {
+        if (readOnly) return;
+        ev.preventDefault();
+        var clip = (ev.clipboardData || window.clipboardData);
+        var text = clip ? String(clip.getData('text/plain') || '') : '';
+        if (document.queryCommandSupported && document.queryCommandSupported('insertText')) {
+          document.execCommand('insertText', false, text);
+        } else {
+          dayNoteEl.textContent = (dayNoteEl.textContent || '') + text;
+        }
+        setTimeout(function () {
+          autoGrowDayNote();
+          scheduleSave();
+        }, 0);
       });
       dayNoteEl.addEventListener('cut', function () {
         setTimeout(autoGrowDayNote, 0);
+      });
+      dayNoteEl.addEventListener('blur', function () {
+        if (readOnly) return;
+        setDayNotePlain(getDayNotePlain());
+        scheduleAutoGrowDayNote();
       });
       window.addEventListener('resize', autoGrowDayNote);
     }
@@ -302,7 +374,7 @@
     function applyDayNote() {
       if (!dayNoteEl) return;
       var idx = findDayIndex(activeDayId);
-      dayNoteEl.value = idx >= 0 ? daysState[idx].note || '' : '';
+      setDayNotePlain(idx >= 0 ? daysState[idx].note || '' : '');
       scheduleAutoGrowDayNote();
     }
 
@@ -311,7 +383,7 @@
       if (idx < 0) return;
       daysState[idx].rows = collectRows();
       if (dayNoteEl) {
-        daysState[idx].note = String(dayNoteEl.value || '').slice(0, 4000);
+        daysState[idx].note = getDayNotePlain();
       }
     }
 
@@ -516,8 +588,8 @@
       var domRows = collectRows();
       if (!domRows.length) return;
       bucket.rows = domRows;
-      if (dayNoteEl && !(bucket.note || '').trim() && (dayNoteEl.value || '').trim()) {
-        bucket.note = String(dayNoteEl.value || '').slice(0, 4000);
+      if (dayNoteEl && !(bucket.note || '').trim() && getDayNotePlain().trim()) {
+        bucket.note = getDayNotePlain();
       }
     }
 

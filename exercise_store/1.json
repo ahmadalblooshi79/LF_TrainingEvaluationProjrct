@@ -1,0 +1,728 @@
+{
+  "schema_version": 3,
+  "exported_at": "2026-07-16T04:19:13.646095",
+  "exercise": {
+    "id": 1,
+    "code": "EX-D949AD12",
+    "title": "1",
+    "description": "",
+    "exercise_type": "تمرين جاهزية المهمة",
+    "exercise_level": "مجموعة لواء",
+    "mission_label": "عملية تعرضيه",
+    "trained_unit": "1",
+    "location_label": "1",
+    "exercise_purpose": "",
+    "exercise_type_level_text": "",
+    "exercise_participants": "",
+    "general_idea_text": "",
+    "specific_idea_text": "",
+    "program_text": "",
+    "program_table_json": "",
+    "map_text": "",
+    "status": "draft",
+    "owner_id": 1,
+    "planned_start": "2026-07-14T09:59:00",
+    "planned_end": "2026-07-14T09:59:00",
+    "control_approved": false,
+    "created_at": "2026-07-14T05:59:17.339436",
+    "updated_at": "2026-07-14T05:59:17.339440"
+  },
+  "objectives": [
+    {
+      "id": 1,
+      "sort_order": 0,
+      "text": "1",
+      "created_at": "2026-07-14T05:59:23.465695"
+    }
+  ],
+  "trainee_unit_roster": [
+    {
+      "sort_order": 0,
+      "military_number": "21408",
+      "rank_ar": "ملازم/1",
+      "full_name": "حمد هلال خليفة الكتبي",
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "position_ar": "قيادة مجموعة اللواء",
+      "created_at": "2026-07-16T04:18:36.191860"
+    },
+    {
+      "sort_order": 1,
+      "military_number": "11817",
+      "rank_ar": "مقدم",
+      "full_name": "سالم القرين علي العامري",
+      "unit_level_key": "ul_recon",
+      "position_ar": "سرية الاستطلاع",
+      "created_at": "2026-07-16T04:18:36.191864"
+    },
+    {
+      "sort_order": 2,
+      "military_number": "15344",
+      "rank_ar": "نقيب",
+      "full_name": "عمران راشد عبيد الكتبي",
+      "unit_level_key": "ul_eng",
+      "position_ar": "سرية الهندسة",
+      "created_at": "2026-07-16T04:18:36.191866"
+    },
+    {
+      "sort_order": 3,
+      "military_number": "14614",
+      "rank_ar": "رائد",
+      "full_name": "عبدالله مطر عبيد الكتبي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:18:36.191882"
+    },
+    {
+      "sort_order": 4,
+      "military_number": "18948",
+      "rank_ar": "نقيب",
+      "full_name": "محمد جاسم محمد النقبي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:18:36.191884"
+    },
+    {
+      "sort_order": 5,
+      "military_number": "16609",
+      "rank_ar": "نقيب",
+      "full_name": "بلاع سالم الدوده العامري",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:18:36.191886"
+    },
+    {
+      "sort_order": 6,
+      "military_number": "11216",
+      "rank_ar": "عقيد ركن",
+      "full_name": "سعود صالح  راشدالظاهري",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:18:36.191887"
+    },
+    {
+      "sort_order": 7,
+      "military_number": "18531",
+      "rank_ar": "نقيب",
+      "full_name": "عبدالله علي سعيد الصريدي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:18:36.191889"
+    },
+    {
+      "sort_order": 8,
+      "military_number": "17315",
+      "rank_ar": "نقيب",
+      "full_name": "عبدالله علي سليمان الزعابي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:18:36.191903"
+    },
+    {
+      "sort_order": 9,
+      "military_number": "16011",
+      "rank_ar": "رائد",
+      "full_name": "سيف حمود محمد الشامسي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:18:36.191905"
+    },
+    {
+      "sort_order": 10,
+      "military_number": "15139",
+      "rank_ar": "رائد",
+      "full_name": "سلطان سيف حميد بن سميط",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:18:36.191907"
+    },
+    {
+      "sort_order": 11,
+      "military_number": "24148",
+      "rank_ar": "نقيب",
+      "full_name": "محمد سعيد الكعبي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:18:36.191908"
+    },
+    {
+      "sort_order": 12,
+      "military_number": "16619",
+      "rank_ar": "نقيب",
+      "full_name": "يوسف خليفه سعيد الكتبي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:18:36.191910"
+    },
+    {
+      "sort_order": 13,
+      "military_number": "15342",
+      "rank_ar": "رائد",
+      "full_name": "محمد خليفة حميد النعيمي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:18:36.191912"
+    },
+    {
+      "sort_order": 14,
+      "military_number": "10722",
+      "rank_ar": "عقيد ركن",
+      "full_name": "حميد محمد عبيد الدرعي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:18:36.191914"
+    },
+    {
+      "sort_order": 15,
+      "military_number": "10252",
+      "rank_ar": "عقيد ركن",
+      "full_name": "سلطان راشد بالرشاد الشامسي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:18:36.191916"
+    }
+  ],
+  "judge_unit_roster": [
+    {
+      "sort_order": 0,
+      "military_number": "206109",
+      "rank_ar": "وكيل/1",
+      "full_name": "أحمد عبدالله مبارك البلوشي",
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "position_ar": "قيادة مجموعة اللواء",
+      "created_at": "2026-07-16T04:19:13.233148"
+    },
+    {
+      "sort_order": 1,
+      "military_number": "654321",
+      "rank_ar": "وكيل/1",
+      "full_name": "عارف عيضة الجابري",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:19:13.233153"
+    },
+    {
+      "sort_order": 2,
+      "military_number": "456789",
+      "rank_ar": "وكيل/1",
+      "full_name": "عبدالله أحمد مبارك آل علي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:19:13.233155"
+    },
+    {
+      "sort_order": 3,
+      "military_number": "987654",
+      "rank_ar": "وكيل/1",
+      "full_name": "سعيد سالم سعيد الحنطوبي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:19:13.233156"
+    },
+    {
+      "sort_order": 4,
+      "military_number": "13439",
+      "rank_ar": "مقدم",
+      "full_name": "سعيد محمد سالم  العامري",
+      "unit_level_key": "ul_recon",
+      "position_ar": "سرية الاستطلاع",
+      "created_at": "2026-07-16T04:19:13.233158"
+    },
+    {
+      "sort_order": 5,
+      "military_number": "13248",
+      "rank_ar": "مقدم",
+      "full_name": "جابر محمد خاتم الشامسي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:19:13.233160"
+    },
+    {
+      "sort_order": 6,
+      "military_number": "18112",
+      "rank_ar": "نقيب",
+      "full_name": "سعيد مصبح  محمد الغفلي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:19:13.233162"
+    },
+    {
+      "sort_order": 7,
+      "military_number": "9288",
+      "rank_ar": "مقدم ركن",
+      "full_name": "مصبح مفتاح علي الخاطري",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:19:13.233164"
+    },
+    {
+      "sort_order": 8,
+      "military_number": "10683",
+      "rank_ar": "مقدم",
+      "full_name": "عبدالله محمد سلطان الحبسي",
+      "unit_level_key": "ul_eng",
+      "position_ar": "سرية الهندسة",
+      "created_at": "2026-07-16T04:19:13.233165"
+    },
+    {
+      "sort_order": 9,
+      "military_number": "9181",
+      "rank_ar": "عقيد",
+      "full_name": "سالم محمد سعيد العفاري",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:19:13.233167"
+    },
+    {
+      "sort_order": 10,
+      "military_number": "13202",
+      "rank_ar": "مقدم ركن",
+      "full_name": "حمد راشد سليمان الزيودي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:19:13.233169"
+    },
+    {
+      "sort_order": 11,
+      "military_number": "14965",
+      "rank_ar": "رائد",
+      "full_name": "راشد ضاوي  راشدالطنيجي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:19:13.233171"
+    },
+    {
+      "sort_order": 12,
+      "military_number": "7752",
+      "rank_ar": "مقدم",
+      "full_name": "علي سيف حامد الطنيجي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:19:13.233173"
+    },
+    {
+      "sort_order": 13,
+      "military_number": "19044",
+      "rank_ar": "نقيب",
+      "full_name": "أحمد حمد حمود الدرعي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:19:13.233174"
+    },
+    {
+      "sort_order": 14,
+      "military_number": "16654",
+      "rank_ar": "نقيب",
+      "full_name": "سالم جمعة محمد الكتبي",
+      "unit_level_key": "",
+      "position_ar": "",
+      "created_at": "2026-07-16T04:19:13.233176"
+    },
+    {
+      "sort_order": 15,
+      "military_number": "9574",
+      "rank_ar": "مقدم",
+      "full_name": "خليفة عبدالله سلطان السويدي",
+      "unit_level_key": "ul_brigade_grp_staff",
+      "position_ar": "هيئة ركن مجموعة اللواء",
+      "created_at": "2026-07-16T04:19:13.233178"
+    }
+  ],
+  "event_flows": [],
+  "problems": [],
+  "checklists": [],
+  "evaluation_notes": [],
+  "exercise_ref_links": [],
+  "dilemma_items": [],
+  "evaluation_list_items": [
+    {
+      "id": 1,
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "unit_level_label": "قيادة مجموعة اللواء",
+      "exercise_phase": "preparation",
+      "sort_order": 0,
+      "text": "01 تقييم رفع الحالة.xlsx",
+      "pdf_relpath": "ul_brigade_grp_cmd/ibn_218.xlsx",
+      "created_at": "2026-07-14T06:01:08.168302"
+    },
+    {
+      "id": 2,
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "unit_level_label": "قيادة مجموعة اللواء",
+      "exercise_phase": "preparation",
+      "sort_order": 1,
+      "text": "02 تقييم الحالة الفنية للآليات ( أ ).xlsx",
+      "pdf_relpath": "ul_brigade_grp_cmd/ibn_219.xlsx",
+      "created_at": "2026-07-14T06:01:08.168305"
+    },
+    {
+      "id": 3,
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "unit_level_label": "قيادة مجموعة اللواء",
+      "exercise_phase": "preparation",
+      "sort_order": 2,
+      "text": "2. تفتيش جاهزية الآليات (ب).xlsx",
+      "pdf_relpath": "ul_brigade_grp_cmd/ibn_220.xlsx",
+      "created_at": "2026-07-14T06:01:08.168307"
+    },
+    {
+      "id": 4,
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "unit_level_label": "قيادة مجموعة اللواء",
+      "exercise_phase": "preparation",
+      "sort_order": 3,
+      "text": "04 تقييم خطة الانتشار.xlsx",
+      "pdf_relpath": "ul_brigade_grp_cmd/ibn_221.xlsx",
+      "created_at": "2026-07-14T06:01:08.168309"
+    },
+    {
+      "id": 5,
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "unit_level_label": "قيادة مجموعة اللواء",
+      "exercise_phase": "preparation",
+      "sort_order": 4,
+      "text": "05 تقييم التحرك واحتلال مناطق الانتشار.xlsx",
+      "pdf_relpath": "ul_brigade_grp_cmd/ibn_222.xlsx",
+      "created_at": "2026-07-14T06:01:08.168311"
+    },
+    {
+      "id": 6,
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "unit_level_label": "قيادة مجموعة اللواء",
+      "exercise_phase": "preparation",
+      "sort_order": 5,
+      "text": "06 تقييم التنقل الإداري.xlsx",
+      "pdf_relpath": "ul_brigade_grp_cmd/ibn_223.xlsx",
+      "created_at": "2026-07-14T06:01:08.168313"
+    },
+    {
+      "id": 7,
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "unit_level_label": "قيادة مجموعة اللواء",
+      "exercise_phase": "preparation",
+      "sort_order": 6,
+      "text": "07 تقييم معسكرات التدريب الخارجية.xlsx",
+      "pdf_relpath": "ul_brigade_grp_cmd/ibn_224.xlsx",
+      "created_at": "2026-07-14T06:01:08.168314"
+    }
+  ],
+  "timeline_items": [],
+  "battle_unit_personnel": [],
+  "planner_flow_bundles": [],
+  "evaluation_list_saved_results": [
+    {
+      "id": 1,
+      "evaluation_item_id": 1,
+      "bundle_action_eval_id": null,
+      "exercise_id": 1,
+      "exercise_phase": "preparation",
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "payload_json": "{\"rows\":[{\"row_kind\":\"score\",\"element\":\"1.         استلام برقية رفع الحالة وتفهم القائد لمضمون البرقية في الوقت المحدد.\",\"max_val\":\"10\",\"acquired\":\"7.5\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"2.         إجراءات قائد الوحدة.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.    استلام المهمة وتفهم المطلوب في الوقت المحدد.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.   الرد بالاعتراف على البرقية حسب الوقت المحدد.\",\"max_val\":\"8\",\"acquired\":\"6.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.   تحرير برقية رفع الحالة وإرسالها إلى مستوى الأعلى والأدنى.\",\"max_val\":\"10\",\"acquired\":\"8\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.    الكشف من الخارطة.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.   إصدار أمر إنذاري والحصول على الاعتراف من المستوى الأدنى.\",\"max_val\":\"10\",\"acquired\":\"8\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.    تسجيل برقية رفع الحالة في سجل الحوادث.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ز.   عمل تقدير موقف للوقت من قبل القائد مع مراعاة ثلثي الوقت لعمل وإجراءات المرؤوسين وتشمل الإجراءات منذ استلام المهمة وحتى ساعة الصفر.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ح.   عمل تقدير موقف ذهني سريع من قبل القائد.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ط.   إنذار الوحدة بالمهمة ووسائل الإنذار المتوفرة.\",\"max_val\":\"6\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ي.   توضيح المطلوب للقادة المرؤوسين والإجابة على استفساراتهم.\",\"max_val\":\"8\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ك.   التقيد بأصول المخابرة في عملية إرسال البرقية.\",\"max_val\":\"6\",\"acquired\":\"4.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ل.   التقيد بواجبات الأركان الصغرى في كتابة الأمر الإنذاري.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"3.         التقييد بمشتملات الأمر الإنذاري. يسلم مكتوب لنائب قائد الوحدة ونسخة للمحكم ويشمل:\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.    ملخص عن العمليات المقبلة.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.   موقع ووقت اجتماع قسم الأمر.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.   تفاصيل عن منطقة التجمع.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.    تحديدات الحركة (حسب المهمة).\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.   منطقة التجمع.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.    حدود الكشف.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ز.   التعليمات الإدارية.\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"4.         وسائل الإنذار. التأكد من استخدام وسائل الإنذار المتوفرة (المسموعة، المرئية، الضوئية) حسب ما جاء في تعليمات التحول.\",\"max_val\":\"6\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"5.         التأكد من وصول البرقية إلى المرؤوسين وتفهمها من قبلهم.\",\"max_val\":\"6\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"6.         التأكد من إصدار الأوامر إلى المرؤوسين (شفهية، مكتوبة، بواسطة اللاسلكي).\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"7.         إجراءات التحـول.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.    تحرك الوحدات المرؤوسة لتنفيذ التحول حسب تعليمات والخطة الزمنية لرفع الحالة.\",\"max_val\":\"6\",\"acquired\":\"4.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.   توفر خطة مفصلة توضح الإجراءات وتوقيتاتها المحددة.\",\"max_val\":\"6\",\"acquired\":\"4.25\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.   التزام وتفهم مرتب الوحدة (الكتائب / السرايا / الفصائل) بتعليمات رفع الحالة وتنفيذهـا بطريقـة سليمـة وحسب الحالة المطلوبة.\",\"max_val\":\"6\",\"acquired\":\"4.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.    مدى التقيد بالتوقيتات المحددة في الخطة الزمنية.\",\"max_val\":\"6\",\"acquired\":\"4.25\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.   أسلوب وإجراءات تنفيذ الخطة الزمنية.\",\"max_val\":\"6\",\"acquired\":\"4.25\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.    التأكد من حماس وجديـة الضبـاط والرتـب الأخرى في تنفيـذ الواجبات ومـــدى تفهمهم لإجراءات رفع الحالة.\",\"max_val\":\"6\",\"acquired\":\"4.25\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ز.   التأكد من إجراءات تحميل / تعبئة الذخيرة (التقيد باحتياطات الأمان ومخطط التحميل).\",\"max_val\":\"6\",\"acquired\":\"4.25\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ح.   استلام المهمات الكيميائية.\",\"max_val\":\"6\",\"acquired\":\"4.25\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ط.   تعبئة وتحميل الوقود والمياه.\",\"max_val\":\"6\",\"acquired\":\"4.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ي.   تحميل الأرزاق لـ (48) ساعة.\",\"max_val\":\"6\",\"acquired\":\"4.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ك.   تحميل المهمات الإدارية والهندسية.\",\"max_val\":\"6\",\"acquired\":\"4.25\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ل.   تركيب الأسلحة والأجهزة واختبارها.\",\"max_val\":\"6\",\"acquired\":\"4.25\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"م.   وضع خطة للتحميل والتقيد بها أثناء عملية التحميل ومدى فعاليتها.\",\"max_val\":\"10\",\"acquired\":\"7.75\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"8.         جاهزية القوة.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.    اصطفاف القوة بالميدان في الوقت المحدد في تعليمات رفع حالات الاستعداد القتالي.\",\"max_val\":\"10\",\"acquired\":\"7\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.   التأكد من نسبة استكمال وجاهزية الضباط والأفراد من حيث (السلاح وملحقاته، حقائب الكتف، القلادة المعدنية، البطاقة، رخصة السواقة، حقيبة الميدان، مفكرة الميدان للضباط).\",\"max_val\":\"10\",\"acquired\":\"7.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.   مدى إلمام الضباط والرتب الأخرى باستخدام المعدات والآليات حسب تخصصاتهم.\",\"max_val\":\"8\",\"acquired\":\"6.25\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.    تعبئة وإدامة جداول الركوب والتحميل طبقاً لحالات الاستعداد القتالي ومطابقته للواقع.\",\"max_val\":\"8\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.   التأكد من عدم تحميل الآليات أكثر من حمولتها المقررة\",\"max_val\":\"8\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.    تعبئة وإدامة سجلات استلام الذخائر.\",\"max_val\":\"8\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"9.         الآليات.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.    التأكد من جاهزية الآليات من حيث (الوقود، المياه، العدة، سجل الآلية، شباك التمويه مع العصي، إلخ).\",\"max_val\":\"10\",\"acquired\":\"7\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.   التأكد من نسبة استكمال الأسلحة والمعدات.\",\"max_val\":\"8\",\"acquired\":\"6.25\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.   التأكد من نسبة استكمال الآليات المقاتلة ( أ ).\",\"max_val\":\"8\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.    توفير نقليات (ب) لحمل (ذخائر الخط الثاني).\",\"max_val\":\"8\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"10.     فـرش المتاع. حقيبة الميدان وتشمل:\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.    عدد (1) بدلة مموهه.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.   خـوذه.\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.   فوطه.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.    جراب.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.   ملابس داخلية.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.    ملابس رياضة (شورت، حذاء، فانله).\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ز.   أدوات الطعام.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ح.   أدوات الخياطة.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ط.   أدوات حلاقة + معجون وفرشاة أسنان.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ي.   كيس النوم.\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ك.   لباس مدني.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ل.   شماغ (عسكري / مدني).\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"م.   مشمع أرضي.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ن.   ترتيب ونظافة محتويات الحقيبة.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"11.     صندوق / آلية الوثائق.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.    توفر صندوق لحفظ الوثائق والسجلات والقرطاسية اللازمة.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.   وجود فهرس بمحتويات الصندوق ومطابقته مع الموجود.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.   توفر الخرائط والخطط الضرورية.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.    وجود الأوامر الثابتة لقيادته.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"هـ.   وجود قوائم التوزيع الشهرية.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"و.    وجود نموذج برقيــات.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ز.   توفر كشف بأرقام الهواتف الهامة (عسكرية، مدنية).\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ح.   وجود وإدامة سجل الوارد والصادر.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ط.   التأكد من إعداد وتجهيز آلية الوثائق.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ي.   توفر وصلاحية وسائل الاتصالات الإشارية بآلية الوثائق.\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ك.   توفر وصلاحية الإضاءة الرئيسة والبديلة بآلية الوثائق.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"12.     نظام المجموعات في السرية.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"أ.    التأكد من جماعة الكشف (قائد السرية مأمور إشارة، ممثلون عن الأسلحة والخدمات المساندة إن وجدوا، فردين حماية، ضابط الرصد).\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"ب.   التأكد من جماعة الأمـر (جماعـة كشف السرية، قـادة الفصائل).\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"جـ.   مدى فعالية الكشف وإصدار الأوامر.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"د.    التأكد من عمل جميع المجموعات في آنٍ واحد (التزامن في العمل) من خلال الخطة الزمنية.\",\"max_val\":\"6\",\"acquired\":\"4.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"13.     التأكد من الإشراف والمتابعة من المستوى الأعلى وقيادة المستوى نفسه.\",\"max_val\":\"8\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"14.     مدى كفاءة القائد القيادية والذهنية.\",\"max_val\":\"8\",\"acquired\":\"6\",\"notes\":\"\"}]}",
+      "total_pct": 76.48936170212765,
+      "grade_label": "جيد",
+      "saved_by_id": 1,
+      "is_approved": true,
+      "approved_by_id": 1,
+      "approved_at": "2026-07-14T06:16:05.031066",
+      "reopened_for_judge": false,
+      "is_chief_approved": false,
+      "chief_approved_by_id": null,
+      "chief_approved_at": null,
+      "is_control_approved": false,
+      "control_approved_by_id": null,
+      "control_approved_at": null,
+      "created_at": "2026-07-14T06:15:29.754782",
+      "updated_at": "2026-07-14T06:16:05.031723"
+    },
+    {
+      "id": 2,
+      "evaluation_item_id": 2,
+      "bundle_action_eval_id": null,
+      "exercise_id": 1,
+      "exercise_phase": "preparation",
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "payload_json": "{\"rows\":[{\"row_kind\":\"section\",\"element\":\"السجلات والوثائق\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"1.        استكمال المرتب من الآليات ونسبة الصلاحية.\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2.        وجود كشف معتمد من القائد بالمرتب والموجود ونسبة الصلاحية للآليات.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"3.        وجود وإدامة سجل تدوين إطلاق الذخائر من المدفع او الآلية.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"4.        وجود وإدامة سجلات الصيانة الدورية لكل آلية.\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"5.        وجود تعليمات وإجراءات الصيانة الدورية واللوحات الإرشادية.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"6.        وجود وإدامة السجلات الخاصة بكل آلية بواسطة الطاقم وتصديق الضابط المسئول بالإضافة لسندات الاستلام والتسليم وتصديقها وحفظها.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"7.        وجود وإدامة سجل تسليم واستلام الآليات.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"مجموعة الجسم\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"1.        الفحص الداخلي والخارجي (النظافة، النواقص، الأضرار، الصبغ، إلخ).\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2.        الصلاحية العامة لمجموعة الجنزير وعجلات الدوران ونعل الجنزير ومسامير التثبيت للفقرات والرفارف.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"3.        التأكد من صلاحية الإطارات ونظام ضغط الهواء ونفخ الإطارات.\",\"max_val\":\"6\",\"acquired\":\"5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"4.        وجود صناديق العدة والتأكد من محتوياتها وصلاحية الطفاية اليدوية.\",\"max_val\":\"6\",\"acquired\":\"4.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"5.        التأكد من صلاحية مقاعد غرفة الطاقم والأبواب الخارجية.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"6.        توفر أجهزة الرؤية وصلاحيتها.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"الزيوت / السوائل\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"1.        التأكد من مستـوى الزيـت / المياه (المحرك، نظام ناقل الحركـة، الفرامـل، المقــود، البطاريات، المبرد (الراديتر)، عمود ناقل الحركة (الدفرشن)، ونظام الهيدروليك.\",\"max_val\":\"10\",\"acquired\":\"7.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2.        التأكد من عدم تسرّب الزيت / المياه من الأجزاء.\",\"max_val\":\"6\",\"acquired\":\"4.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"3.        التقيد بتوقيتات تغيير الزيت / المياه.\",\"max_val\":\"6\",\"acquired\":\"4.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"4.        التأكد من التشحيم والتزييت.\",\"max_val\":\"6\",\"acquired\":\"4.25\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"مجموعة القوى (يتم التأكد من الحالة العامة للاتي):\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"1.        نظام المحرك.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2.        نظام ناقل الحركة.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"3.        نظام التبريد.\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"4.        نظام الفرامل.\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"5.        نظام التوجيه.\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"6.        نظام الوقود.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"7.        مولد الطاقة الرئيس / الإضافي.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"8.        نظام العادم ونظام الهواء المضغوط.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"البرج (يتم التأكد من التالي):\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"1.        الفحص الداخلي والخارجي.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2.        فحص المدفع الرئيس وتوابعه.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"3.        فحص الأسلحة الثانوية والأغطية المطاطية.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"4.        نظام إدارة المعركة.\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"5.        نظام القواذف الدخانية.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"6.        نظام الرؤية الليلية.\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"7.        نظام التعبئة.\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"8.        خادعات الصواريخ.\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"9.        نظام التعبئة الآلي.\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"10.    جهاز الاستقرار.\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"11.    جهـاز التسديـد الرئيس/ الاحتياطي.\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"12.    جهاز تسديد الآمـــر.\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"13.    الكاميرا.\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"14.    الحاسب الآلي.\",\"max_val\":\"5\",\"acquired\":\"3.75\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"أنظمة البيئة (يتم التأكد من الحالة العامة للآتي):\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"1.        نظام التكييف.\",\"max_val\":\"6\",\"acquired\":\"4.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2.        نظام الوقاية من أسلحة الدمار الشامل.\",\"max_val\":\"7\",\"acquired\":\"5.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"3.        نظام إطفاء الحريق.\",\"max_val\":\"6\",\"acquired\":\"5.25\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"المهمات الإضافية\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"1.        وجود وصلاحية قطع الغيار الاحتياطية.\",\"max_val\":\"10\",\"acquired\":\"8.25\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2.        وجود وصلاحية الأغطية شباك التمويه مع الركائز.\",\"max_val\":\"6\",\"acquired\":\"4.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"3.        وجود وصلاحية معدات مطابقة محاور المدفع (على مستوى سرية / قسم).\",\"max_val\":\"9\",\"acquired\":\"6.75\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"المستوى الفني للطاقم.\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"1.        التأكد من اكتمال الطاقم المؤهل (نسبة لعدد الآليات).\",\"max_val\":\"10\",\"acquired\":\"7\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2.        مدى إلمام الطاقم بواجباته والأجهزة والمعدات.\",\"max_val\":\"10\",\"acquired\":\"7.25\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"الأنظمة المساعـدة للآليات (يتم التأكد من الحالة العامة للآتي):\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"1.        وحدة القدرة المساعدة.\",\"max_val\":\"8\",\"acquired\":\"6.25\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2.        أعمدة الارتكاز (حواضن الرفع والخفض للآلية).\",\"max_val\":\"8\",\"acquired\":\"5.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"3.        الأنظمة الهيدروليكية.\",\"max_val\":\"8\",\"acquired\":\"6\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"4.        نظام الوقود الاحتياطي.\",\"max_val\":\"8\",\"acquired\":\"5.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"5.        نظام العوم.\",\"max_val\":\"10\",\"acquired\":\"7.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"مدى توفر ونظافة المواقف المغطاة الخاصة للآليات\",\"max_val\":\"10\",\"acquired\":\"7.5\",\"notes\":\"\"},{\"row_kind\":\"section\",\"element\":\"خزانات تجميع ماء التكييف\",\"max_val\":\"\",\"acquired\":\"\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"1.        مدى إلمام الطاقم بمكان خزان المياه.\",\"max_val\":\"6\",\"acquired\":\"4.75\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"2.        وجود الخزان + مصفي المياه (الفلتر).\",\"max_val\":\"8\",\"acquired\":\"6.25\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"3.        درجة نظافة المياه (خالي من الشوائب / إزالة الأملاح من الوصلات + محبس المياه).\",\"max_val\":\"5\",\"acquired\":\"3.5\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"4.        عدم وجود تسربات من الفلتر / الخزان / محبس المياه وأنابيب التوصيل.\",\"max_val\":\"5\",\"acquired\":\"4\",\"notes\":\"\"},{\"row_kind\":\"score\",\"element\":\"5.        التأكد من عدم ارتخاء براغي قواعد التثبيت.\",\"max_val\":\"5\",\"acquired\":\"4.25\",\"notes\":\"\"}]}",
+      "total_pct": 75.14285714285714,
+      "grade_label": "جيد",
+      "saved_by_id": 1,
+      "is_approved": false,
+      "approved_by_id": null,
+      "approved_at": null,
+      "reopened_for_judge": false,
+      "is_chief_approved": false,
+      "chief_approved_by_id": null,
+      "chief_approved_at": null,
+      "is_control_approved": false,
+      "control_approved_by_id": null,
+      "control_approved_at": null,
+      "created_at": "2026-07-15T02:51:08.568642",
+      "updated_at": "2026-07-15T02:51:08.568648"
+    }
+  ],
+  "judge_trainee_assignments": [
+    {
+      "id": 17,
+      "judge_user_id": 8,
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "trainee_name": "حمد هلال خليفة الكتبي",
+      "trainee_military_number": "21408",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-07-16T04:19:13.262434"
+    },
+    {
+      "id": 18,
+      "judge_user_id": 9,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-07-16T04:19:13.284539"
+    },
+    {
+      "id": 19,
+      "judge_user_id": 10,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-07-16T04:19:13.310322"
+    },
+    {
+      "id": 20,
+      "judge_user_id": 11,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-07-16T04:19:13.332338"
+    },
+    {
+      "id": 21,
+      "judge_user_id": 12,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-07-16T04:19:13.356631"
+    },
+    {
+      "id": 22,
+      "judge_user_id": 13,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-07-16T04:19:13.378122"
+    },
+    {
+      "id": 23,
+      "judge_user_id": 14,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-07-16T04:19:13.400488"
+    },
+    {
+      "id": 24,
+      "judge_user_id": 15,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-07-16T04:19:13.424875"
+    },
+    {
+      "id": 25,
+      "judge_user_id": 16,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-07-16T04:19:13.447185"
+    },
+    {
+      "id": 26,
+      "judge_user_id": 17,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-07-16T04:19:13.471846"
+    },
+    {
+      "id": 27,
+      "judge_user_id": 18,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-07-16T04:19:13.494367"
+    },
+    {
+      "id": 28,
+      "judge_user_id": 19,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-07-16T04:19:13.516955"
+    },
+    {
+      "id": 29,
+      "judge_user_id": 20,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-07-16T04:19:13.540671"
+    },
+    {
+      "id": 30,
+      "judge_user_id": 21,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-07-16T04:19:13.562255"
+    },
+    {
+      "id": 31,
+      "judge_user_id": 22,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-07-16T04:19:13.583797"
+    },
+    {
+      "id": 32,
+      "judge_user_id": 23,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-07-16T04:19:13.607582"
+    }
+  ],
+  "analyst_evaluation_criteria_units": [
+    {
+      "id": 1,
+      "sort_order": 0,
+      "label": "قيادة مجموعة اللواء",
+      "created_at": "2026-07-14T07:28:04.742539",
+      "updated_at": "2026-07-14T07:28:04.742543"
+    }
+  ],
+  "analyst_evaluation_criteria_phase_items": [
+    {
+      "id": 1,
+      "criteria_unit_id": 1,
+      "phase_key": "preparation",
+      "sort_order": 0,
+      "criteria_text": "01 تقييم رفع الحالة.xlsx",
+      "allocated_mark": 2.0,
+      "created_at": "2026-07-15T02:54:33.891983",
+      "updated_at": "2026-07-15T02:54:33.891990"
+    },
+    {
+      "id": 2,
+      "criteria_unit_id": 1,
+      "phase_key": "preparation",
+      "sort_order": 1,
+      "criteria_text": "02 تقييم الحالة الفنية للآليات ( أ ).xlsx",
+      "allocated_mark": 3.0,
+      "created_at": "2026-07-15T02:54:33.891992",
+      "updated_at": "2026-07-15T02:54:33.891994"
+    },
+    {
+      "id": 3,
+      "criteria_unit_id": 1,
+      "phase_key": "preparation",
+      "sort_order": 2,
+      "criteria_text": "2. تفتيش جاهزية الآليات (ب).xlsx",
+      "allocated_mark": 4.0,
+      "created_at": "2026-07-15T02:54:33.891996",
+      "updated_at": "2026-07-15T02:54:33.891998"
+    },
+    {
+      "id": 4,
+      "criteria_unit_id": 1,
+      "phase_key": "preparation",
+      "sort_order": 3,
+      "criteria_text": "04 تقييم خطة الانتشار.xlsx",
+      "allocated_mark": 5.0,
+      "created_at": "2026-07-15T02:54:33.892000",
+      "updated_at": "2026-07-15T02:54:33.892002"
+    },
+    {
+      "id": 5,
+      "criteria_unit_id": 1,
+      "phase_key": "preparation",
+      "sort_order": 4,
+      "criteria_text": "05 تقييم التحرك واحتلال مناطق الانتشار.xlsx",
+      "allocated_mark": 2.0,
+      "created_at": "2026-07-15T02:54:33.892004",
+      "updated_at": "2026-07-15T02:54:33.892006"
+    },
+    {
+      "id": 6,
+      "criteria_unit_id": 1,
+      "phase_key": "preparation",
+      "sort_order": 5,
+      "criteria_text": "06 تقييم التنقل الإداري.xlsx",
+      "allocated_mark": 2.0,
+      "created_at": "2026-07-15T02:54:33.892008",
+      "updated_at": "2026-07-15T02:54:33.892009"
+    },
+    {
+      "id": 7,
+      "criteria_unit_id": 1,
+      "phase_key": "preparation",
+      "sort_order": 6,
+      "criteria_text": "07 تقييم معسكرات التدريب الخارجية.xlsx",
+      "allocated_mark": 2.0,
+      "created_at": "2026-07-15T02:54:33.892011",
+      "updated_at": "2026-07-15T02:54:33.892013"
+    }
+  ],
+  "analyst_evaluation_criteria_results": [],
+  "judge_incomplete_task_status": [],
+  "evaluation_criterion_media": [],
+  "visual_documents": [],
+  "chat_rooms": [],
+  "exercise_notifications": [],
+  "archive_files": {
+    "bundle_dir": "1_files",
+    "entries": [
+      {
+        "bucket": "evaluation_list_xlsx",
+        "relpath": "ul_brigade_grp_cmd/ibn_221.xlsx"
+      },
+      {
+        "bucket": "evaluation_list_xlsx",
+        "relpath": "ul_brigade_grp_cmd/ibn_220.xlsx"
+      },
+      {
+        "bucket": "evaluation_list_xlsx",
+        "relpath": "ul_brigade_grp_cmd/ibn_223.xlsx"
+      },
+      {
+        "bucket": "evaluation_list_xlsx",
+        "relpath": "ul_brigade_grp_cmd/ibn_222.xlsx"
+      },
+      {
+        "bucket": "evaluation_list_xlsx",
+        "relpath": "ul_brigade_grp_cmd/ibn_224.xlsx"
+      },
+      {
+        "bucket": "evaluation_list_xlsx",
+        "relpath": "ul_brigade_grp_cmd/ibn_218.xlsx"
+      },
+      {
+        "bucket": "evaluation_list_xlsx",
+        "relpath": "ul_brigade_grp_cmd/ibn_219.xlsx"
+      }
+    ],
+    "file_count": 7
+  }
+}

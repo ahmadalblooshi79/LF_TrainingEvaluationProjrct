@@ -131,6 +131,23 @@ from app.permissions import (
     can_view_information_bank,
     can_view_notifications_log,
     can_use_visual_documentation,
+    can_access_ai_center,
+    can_view_ai_settings,
+    can_edit_ai_settings,
+    can_test_ai_connection,
+    can_view_ai_models,
+    can_view_ai_reports,
+    can_upload_ai_reports,
+    can_edit_ai_reports,
+    can_process_ai_reports,
+    can_review_ai_reports,
+    can_approve_ai_reports,
+    can_exclude_ai_reports,
+    can_archive_ai_reports,
+    can_delete_ai_reports,
+    can_view_ai_report_text,
+    can_review_ai_report_units,
+    can_review_ai_report_findings,
     is_analyst,
     is_chief_judge,
     is_control,
@@ -195,6 +212,7 @@ from app.battle_organization import BATTLE_ORG_DEMO_ROOT
 from app.ai_service import suggest_instructions_or_notes
 from app.info_bank_access import (
     INFO_BANK_GATE_SESSION_KEY,
+    INFO_BANK_PATH_PREFIX,
     clear_information_bank_gate,
     information_bank_gate_ok,
     is_ibank_included_save_request,
@@ -255,6 +273,7 @@ def _evaluation_sheet_view_context(fspath: Path) -> dict:
     return {
         "preview_error": sheet.get("error"),
         "sheet_title": sheet.get("sheet_title") or "",
+        "eval_doc_title": (sheet.get("eval_doc_title") or "").strip(),
         "header_row": sheet.get("header_row") or [],
         "body_rows": sheet.get("body_rows") or [],
         "eval_structured": es,
@@ -4708,6 +4727,17 @@ def dashboard():
     dashboard_cards.sort(
         key=lambda c: _DASHBOARD_CARD_ORDER_RANK.get(c["role_key"], 99)
     )
+    if can_access_ai_center(user):
+        dashboard_cards.append(
+            {
+                "role_key": "ai_center",
+                "title_ar": "مركز الذكاء الاصطناعي",
+                "duties_ar": "إعداد وتشغيل الذكاء الاصطناعي المحلي وإدارة خصائص التقارير الذكية.",
+                "href": "/ai-center",
+                "aria_label": "فتح مركز الذكاء الاصطناعي المحلي",
+                "hint": "محرك محلي بدون إنترنت",
+            }
+        )
     return render_template(
         "dashboard.html",
         **_ctx(
@@ -5864,6 +5894,31 @@ def _build_ibank_event_flow_table_context(db) -> dict:
         "flow_table_rows": flow_table_rows,
         "flow_table_active_day_note": flow_table_active_day_note,
     }
+
+
+def _extract_ibank_flow_dilemma_names(payload_json: str | None) -> dict[str, list[dict]]:
+    """مسميات صفوف المعاضل فقط (kind=dilemma) لكل يوم — للعرض في قوائم تقييم الإجراءات."""
+    days, _active = _parse_planner_flow_table_days(payload_json)
+    out: dict[str, list[dict]] = {}
+    for day in days:
+        day_id = str(day.get("id") or "").strip()
+        if not day_id:
+            continue
+        names: list[dict] = []
+        num = 0
+        for row in day.get("rows") or []:
+            if (row.get("kind") or "").strip().lower() != "dilemma":
+                continue
+            text = (row.get("text") or "").strip()
+            if not text:
+                continue
+            num += 1
+            from app.ibank_dilemma_folder_import import parse_dilemma_no_from_text
+
+            dno = parse_dilemma_no_from_text(text) or num
+            names.append({"num": num, "text": text, "dilemma_no": dno, "files": []})
+        out[day_id] = names
+    return out
 
 
 def _flow_table_fields_from_bundle(bundle: ExercisePlannerFlowBundle | None) -> dict:
@@ -7982,8 +8037,9 @@ def _action_eval_lists_redirect(
 
 def _render_planner_action_eval_lists(db, user: User):
     from app.action_eval_ibank_sync import (
-        build_action_eval_display_groups,
+        build_action_eval_dilemma_publish_groups,
         collect_flow_day_tabs_for_exercise,
+        effective_action_eval_phase_keys,
     )
     from app.evaluation_list_ibank_sync import (
         roster_eval_display_unit_keys,
@@ -7993,17 +8049,19 @@ def _render_planner_action_eval_lists(db, user: User):
     from app.exercise_phase_catalog import default_exercise_phase_key
     from app.planning_catalog_sync import sync_planning_catalogs_from_db
 
-    sync_planning_catalogs_from_db(db, force=True)
+    sync_planning_catalogs_from_db(db)
     current_exercise = _current_workspace_exercise(db, user)
     error = (request.args.get("err") or "").strip()
     ok_msg = (request.args.get("ok") or "").strip()
     page_note = ""
     judge_roster = {"total": 0, "with_unit": 0, "without_names": []}
-    eval_groups: list[dict] = []
+    eval_dilemma_groups: list[dict] = []
     roster_unit_count = 0
     judge_unit_count = 0
     published_count = 0
     flow_unit_count = 0
+    ibank_unit_count = 0
+    dilemma_count = 0
     selected_phase = normalize_exercise_phase(
         (request.args.get("phase") or "").strip() or default_exercise_phase_key()
     )
@@ -8027,44 +8085,38 @@ def _render_planner_action_eval_lists(db, user: User):
                 break
         if selected_day_id and not selected_day_label:
             selected_day_label = selected_day_id
-        eval_groups, meta = build_action_eval_display_groups(
+        eval_dilemma_groups, meta = build_action_eval_dilemma_publish_groups(
             db,
             exercise_id=ex_id,
             phase_key=selected_phase or None,
             flow_day_id=selected_day_id or None,
         )
+        if not selected_phase:
+            selected_phase = str(meta.get("phase_key") or "").strip()
+        if not selected_phase:
+            for pk in effective_action_eval_phase_keys(db, roster_units=set()):
+                if (pk or "").strip():
+                    selected_phase = pk
+                    break
         flow_unit_count = int(meta.get("flow_units") or 0)
-        published_count = sum(
-            1
-            for g in eval_groups
-            for fg in g.get("list_folder_groups") or []
-            for r in fg.get("rows") or []
-            if r.get("published")
-        )
+        ibank_unit_count = int(meta.get("ibank_units") or 0)
+        dilemma_count = int(meta.get("dilemmas") or 0)
+        published_count = int(meta.get("published") or 0)
         day_label = selected_day_label or "اليوم/1"
-        if flow_unit_count:
-            page_note = (
-                f"تُستخرج مستويات الوحدة من أصناف المحكمين في عمود «المكلف بالإجراء والمتابعة» "
-                f"بجدول المجرى لـ{day_label} ({flow_unit_count} مستوى). استخدم «سحب من المجرى» "
-                f"بعد تعديل المجرى، ثم حدّد القوائم و«نشر القوائم» يدوياً — "
-                f"{published_count} منشورة في هذا اليوم."
-            )
-        else:
-            page_note = (
-                f"أدخل أصناف المحكمين في عمود «المكلف بالإجراء والمتابعة» "
-                f"لـ{day_label} في جدول مجرى الأحداث والمعاضل ثم ارجع لهذه الصفحة."
-            )
+        page_note = ""
 
     return render_template(
         "planner_action_eval_lists.html",
         **_ctx(
             user,
-            eval_groups=eval_groups,
+            eval_dilemma_groups=eval_dilemma_groups,
+            eval_groups=eval_dilemma_groups,
             page_note=page_note,
             roster_unit_count=roster_unit_count,
             judge_unit_count=judge_unit_count,
             judge_roster=judge_roster,
             published_count=published_count,
+            dilemma_count=dilemma_count,
             selected_phase=selected_phase,
             selected_day_id=selected_day_id,
             selected_day_label=selected_day_label,
@@ -8074,6 +8126,7 @@ def _render_planner_action_eval_lists(db, user: User):
             ok_msg=ok_msg,
             flow_days_empty=current_exercise is not None and not day_options,
             flow_unit_count=flow_unit_count if current_exercise is not None else 0,
+            ibank_unit_count=ibank_unit_count if current_exercise is not None else 0,
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -8111,11 +8164,13 @@ def planner_action_eval_lists_publish_phase():
     if not phase_key:
         return _action_eval_lists_redirect(err="لا توجد مرحلة تمرين مرتبطة بالمجرى.")
     selections = _parse_eval_list_publish_selections(request.form)
+    dilemmas = _parse_eval_list_publish_dilemmas(request.form)
     stats = publish_phase_action_eval_lists_from_ibank(
         db,
         exercise_id=int(ex.id),
         phase_key=phase_key,
         selections_by_unit=selections,
+        dilemma_by_unit_node=dilemmas or None,
         flow_day_id=flow_day_id or None,
     )
     db.commit()
@@ -8148,12 +8203,30 @@ def planner_action_eval_lists_publish_one(unit_key: str, node_id: int):
         return _action_eval_lists_redirect(err="لا يوجد تمرين حالي.")
     if not phase_key:
         return _action_eval_lists_redirect(err="لا توجد مرحلة تمرين مرتبطة بالمجرى.")
+    dilemma_index = 0
+    try:
+        dilemma_index = int((request.form.get("dilemma_index") or "0").strip() or "0")
+    except (TypeError, ValueError):
+        dilemma_index = 0
+    if dilemma_index <= 0:
+        from app.action_eval_ibank_sync import collect_ibank_action_eval_files_for_phase_unit
+
+        for src in collect_ibank_action_eval_files_for_phase_unit(
+            db,
+            phase_key=phase_key,
+            unit_key=unit_key,
+            flow_day_id=flow_day_id or None,
+        ):
+            if int(src.get("node_id") or 0) == int(node_id):
+                dilemma_index = int(src.get("dilemma_no") or 0)
+                break
     publish_single_action_eval_from_ibank(
         db,
         exercise_id=int(ex.id),
         phase_key=phase_key,
         unit_key=unit_key,
         node_id=int(node_id),
+        dilemma_index=dilemma_index,
         flow_day_id=flow_day_id or None,
     )
     db.commit()
@@ -8310,6 +8383,518 @@ def planner_hub_section(slug: str):
             section_slug=slug,
             **_hub_back_ctx_for_request_path(),
         ),
+    )
+
+
+@bp.route("/planner/evaluation-lists", methods=["GET"])
+def planner_evaluation_lists_home():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/planner/evaluation-lists")
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _admin_current_workspace_exercise(db, user)
+    units = list(UNIT_LEVELS)
+    phase_tabs = evaluation_unit_home_phase_tabs(db, ex, units)
+    return render_template(
+        "judge_evaluation_lists_home.html",
+        **_ctx(
+            user,
+            has_exercise=ex is not None,
+            exercise=ex,
+            unit_levels=units,
+            phase_tabs=phase_tabs,
+            active_phase_key=_evaluation_list_home_active_phase(phase_tabs),
+            unit_list_endpoint="views.planner_evaluation_lists",
+            **_hub_back_ctx_for_request_path(),
+        ),
+    )
+
+
+@bp.route("/planner/evaluation-lists/<unit_key>", methods=["GET"])
+def planner_evaluation_lists(unit_key: str):
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/planner/evaluation-lists/{unit_key}")
+    if not can_access_planner_hub(user):
+        abort(403)
+    unit = _require_unit_level_row(unit_key)
+    from flask import g
+
+    db = g.db
+    ex = _admin_current_workspace_exercise(db, user)
+    if ex is None:
+        return redirect("/planner/evaluation-lists")
+    phase_key = _evaluation_list_phase_from_request()
+    items = (
+        db.query(EvaluationListPdfItem)
+        .filter(EvaluationListPdfItem.exercise_id == ex.id, EvaluationListPdfItem.unit_level_key == unit_key)
+        .order_by(
+            _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
+            EvaluationListPdfItem.sort_order,
+            EvaluationListPdfItem.id,
+        )
+        .all()
+    )
+    items = filter_evaluation_items_by_phase(items, phase_key)
+    item_ids = [int(it.id) for it in items]
+    canonical_by_item = _evaluation_canonical_map_for_items(db, ex.id, item_ids)
+
+    evaluation_lists_rows: list[dict] = []
+    for it in items:
+        s = canonical_by_item.get(int(it.id))
+        evaluation_lists_rows.append(
+            build_evaluation_list_row(
+                item=it,
+                saved=s,
+                exercise=ex,
+                open_href=url_for(
+                    "views.planner_evaluation_list_file_viewer",
+                    unit_key=unit_key,
+                    item_id=it.id,
+                    **_evaluation_list_phase_url_kwargs(phase_key),
+                ),
+            )
+        )
+    list_close_href = (
+        url_for("views.planner_evaluation_lists_home", **_evaluation_list_phase_url_kwargs(phase_key))
+        if phase_key
+        else url_for("views.planner_evaluation_lists_home")
+    )
+    return render_template(
+        "judge_evaluation_lists.html",
+        **_ctx(
+            user,
+            exercise=ex,
+            unit=unit,
+            unit_key=unit_key,
+            items=items,
+            evaluation_lists_rows=evaluation_lists_rows,
+            eval_lists_parent_href=list_close_href,
+            subpage_close_fallback=list_close_href,
+            phase_key=phase_key,
+            phase_label=_phase_label_ar(phase_key) if phase_key else "",
+            **_hub_back_ctx_for_request_path(),
+        ),
+    )
+
+
+@bp.route("/planner/evaluation-lists/<unit_key>/view/<int:item_id>", methods=["GET"])
+def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/planner/evaluation-lists/{unit_key}/view/{item_id}")
+    if not can_access_planner_hub(user):
+        abort(403)
+    unit = _require_unit_level_row(unit_key)
+    from flask import g
+
+    db = g.db
+    row = db.get(EvaluationListPdfItem, item_id)
+    current_exercise = _admin_current_workspace_exercise(db, user)
+    if not row or row.unit_level_key != unit_key or current_exercise is None or row.exercise_id != current_exercise.id:
+        abort(404)
+    list_url = _evaluation_list_unit_href(
+        "views.planner_evaluation_lists", unit_key, _evaluation_list_resolved_phase(row)
+    )
+    if not (row.pdf_relpath or "").strip():
+        return redirect(list_url)
+    fspath = _evaluation_list_file_abspath(row.pdf_relpath)
+    if fspath is None:
+        return redirect(list_url)
+    ev = _evaluation_sheet_view_context(fspath)
+
+    saved_payload = {}
+    saved_updated_at = None
+    saved_is_approved = False
+    saved_approved_at = None
+    saved_row_id = None
+    canon = _evaluation_canonical_saved_row(db, current_exercise.id, row.id)
+
+    def _load_payload(sr: EvaluationListSavedResult | None) -> dict:
+        if not sr or not (sr.payload_json or "").strip():
+            return {}
+        try:
+            p = json.loads(sr.payload_json)
+        except Exception:
+            return {}
+        return p if isinstance(p, dict) else {}
+
+    if canon is not None:
+        saved_payload = _load_payload(canon)
+        saved_updated_at = canon.updated_at
+        saved_is_approved = bool(getattr(canon, "is_approved", False))
+        saved_approved_at = getattr(canon, "approved_at", None)
+        saved_row_id = canon.id
+    saved_payload = _saved_payload_aligned_with_eval_rows(saved_payload, ev.get("eval_rows"))
+
+    unit_label = (unit.get("label") or "").strip() if isinstance(unit, dict) else ""
+    shown_date = getattr(current_exercise, "planned_start", None) or getattr(current_exercise, "created_at", None)
+
+    commander_name = "—"
+    commander_row = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == current_exercise.id,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.TRAINEE.value,
+            ExerciseRosterRow.unit_level_key == unit_key,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .first()
+    )
+    if commander_row is not None:
+        commander_name = (commander_row.full_name or "").strip() or commander_name
+
+    judge_name = "—"
+    judge_row = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == current_exercise.id,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+            ExerciseRosterRow.unit_level_key == unit_key,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .first()
+    )
+    if judge_row is not None:
+        judge_name = (judge_row.full_name or "").strip() or judge_name
+
+    phase_key = _evaluation_list_resolved_phase(row)
+    eval_save_url = url_for(
+        "views.planner_evaluation_list_save_results",
+        unit_key=unit_key,
+        item_id=item_id,
+        **_evaluation_list_phase_url_kwargs(phase_key),
+    )
+    eval_approve_url = url_for(
+        "views.planner_evaluation_list_approve",
+        unit_key=unit_key,
+        item_id=item_id,
+        **_evaluation_list_phase_url_kwargs(phase_key),
+    )
+    wf = _eval_list_viewer_ctx(user, canon)
+    crit_edit = bool(
+        not saved_is_approved and can_save_evaluation_results(user)
+    )
+    wf["eval_can_edit"] = crit_edit
+
+    return render_template(
+        "judge_evaluation_list_viewer.html",
+        **_ctx(
+            user,
+            unit_key=unit_key,
+            item_id=item_id,
+            item_title=row.text or "تقييم",
+            evaluation_item_id=row.id,
+            saved_row_id=saved_row_id,
+            saved_payload=saved_payload,
+            saved_updated_at=saved_updated_at,
+            **wf,
+            **ev,
+            **_eval_crit_media_sheet_ctx(
+                db,
+                user,
+                exercise=current_exercise,
+                list_item_id=int(row.id),
+                bundle_action_eval_id=None,
+                eval_can_edit=crit_edit,
+            ),
+            unit_label=unit_label or "—",
+            shown_date=shown_date,
+            commander_name=commander_name or "—",
+            judge_name=judge_name or "—",
+            has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
+            eval_save_url=eval_save_url,
+            eval_approve_url=eval_approve_url,
+            eval_export_url=url_for(
+                "views.planner_evaluation_list_export",
+                unit_key=unit_key,
+                item_id=item_id,
+                **_evaluation_list_phase_url_kwargs(phase_key),
+            ),
+            eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
+            subpage_close_fallback=_evaluation_list_unit_href(
+                "views.planner_evaluation_lists", unit_key, phase_key
+            ),
+            **_hub_back_ctx_for_request_path(),
+        ),
+    )
+
+
+@bp.route(
+    "/planner/evaluation-lists/<unit_key>/view/<int:item_id>/save-results",
+    methods=["POST"],
+)
+def planner_evaluation_list_save_results(unit_key: str, item_id: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_access_planner_hub(user):
+        abort(403)
+    unit = _require_unit_level_row(unit_key)
+    from flask import g
+
+    db = g.db
+    item = db.get(EvaluationListPdfItem, item_id)
+    current_exercise = _admin_current_workspace_exercise(db, user)
+    if (
+        not item
+        or item.unit_level_key != unit_key
+        or current_exercise is None
+        or item.exercise_id != current_exercise.id
+    ):
+        abort(404)
+
+    raw = (request.form.get("payload_json") or "").strip()
+    if not raw:
+        return _evaluation_list_viewer_redirect(
+            "views.planner_evaluation_list_file_viewer", unit_key, item_id, item
+        )
+    if len(raw) > 250_000:
+        abort(400)
+    _evaluation_commit_payload_save(db, user=user, item=item, current_exercise=current_exercise, raw=raw)
+    return _evaluation_list_viewer_redirect(
+        "views.planner_evaluation_list_file_viewer", unit_key, item_id, item, eval_saved=1
+    )
+
+
+@bp.route(
+    "/planner/evaluation-lists/<unit_key>/view/<int:item_id>/approve",
+    methods=["POST"],
+)
+def planner_evaluation_list_approve(unit_key: str, item_id: int):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_access_planner_hub(user):
+        abort(403)
+    if not can_approve_evaluation_results(user):
+        abort(403)
+    unit = _require_unit_level_row(unit_key)
+    from flask import g
+
+    db = g.db
+    item = db.get(EvaluationListPdfItem, item_id)
+    current_exercise = _admin_current_workspace_exercise(db, user)
+    if (
+        not item
+        or item.unit_level_key != unit_key
+        or current_exercise is None
+        or item.exercise_id != current_exercise.id
+    ):
+        abort(404)
+
+    saved = _evaluation_canonical_saved_row(db, current_exercise.id, item.id)
+    if saved is None or not (saved.payload_json or "").strip():
+        abort(400)
+    if bool(getattr(saved, "is_approved", False)):
+        return _evaluation_list_viewer_redirect(
+            "views.planner_evaluation_list_file_viewer", unit_key, item_id, item
+        )
+    rows = _parse_saved_eval_rows(saved.payload_json)
+    if _evaluation_payload_has_empty_acquired_for_approve(rows):
+        return _evaluation_list_viewer_redirect(
+            "views.planner_evaluation_list_file_viewer",
+            unit_key,
+            item_id,
+            item,
+            eval_approve_incomplete=1,
+        )
+    if not _evaluation_saved_allows_judge_approve(saved):
+        return _evaluation_list_viewer_redirect(
+            "views.planner_evaluation_list_file_viewer",
+            unit_key,
+            item_id,
+            item,
+            eval_approve_grade_blocked=1,
+        )
+    saved.is_approved = True
+    saved.approved_by_id = getattr(user, "id", None)
+    saved.approved_at = datetime.utcnow()
+    db.commit()
+    return _evaluation_list_viewer_redirect(
+        "views.planner_evaluation_list_file_viewer", unit_key, item_id, item
+    )
+
+
+def _send_evaluation_list_export_xlsx(
+    *,
+    db,
+    user,
+    unit_key: str,
+    item_id: int,
+    current_exercise,
+    enforce_judge_scope: bool = False,
+):
+    """يبني ملف Excel من ملف القائمة المخزّن في النظام ويرسله للتنزيل."""
+    unit = _require_unit_level_row(unit_key)
+    row = db.get(EvaluationListPdfItem, item_id)
+    if (
+        not row
+        or row.unit_level_key != unit_key
+        or current_exercise is None
+        or row.exercise_id != current_exercise.id
+    ):
+        abort(404)
+    if enforce_judge_scope:
+        _enforce_judge_unit_scope(db, user, current_exercise, unit_key)
+    if not (row.pdf_relpath or "").strip():
+        abort(404)
+    fspath = _evaluation_list_file_abspath(row.pdf_relpath)
+    if fspath is None:
+        abort(404)
+
+    ev = _evaluation_sheet_view_context(fspath)
+    canon = _evaluation_canonical_saved_row(db, current_exercise.id, row.id)
+    saved_payload: dict = {}
+    if canon is not None and (canon.payload_json or "").strip():
+        try:
+            p = json.loads(canon.payload_json)
+            if isinstance(p, dict):
+                saved_payload = p
+        except Exception:
+            saved_payload = {}
+    saved_payload = _saved_payload_aligned_with_eval_rows(saved_payload, ev.get("eval_rows"))
+
+    unit_label = (unit.get("label") or "").strip() if isinstance(unit, dict) else ""
+    shown_date = getattr(current_exercise, "planned_start", None) or getattr(
+        current_exercise, "created_at", None
+    )
+    date_str = shown_date.strftime("%Y-%m-%d") if shown_date else ""
+
+    commander_name = "—"
+    commander_row = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == current_exercise.id,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.TRAINEE.value,
+            ExerciseRosterRow.unit_level_key == unit_key,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .first()
+    )
+    if commander_row is not None:
+        commander_name = (commander_row.full_name or "").strip() or commander_name
+
+    judge_name = "—"
+    judge_row = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == current_exercise.id,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+            ExerciseRosterRow.unit_level_key == unit_key,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .first()
+    )
+    if judge_row is not None:
+        judge_name = (judge_row.full_name or "").strip() or judge_name
+
+    from app.evaluation_list_export import (
+        build_evaluation_list_xlsx_bytes,
+        export_doc_title_from_list_page,
+        export_download_filename,
+    )
+
+    item_title = (row.text or "").strip()
+    doc_title = export_doc_title_from_list_page(
+        item_title,
+        fallback=(ev.get("eval_doc_title") or "").strip(),
+    )
+    try:
+        data = build_evaluation_list_xlsx_bytes(
+            fspath,
+            doc_title=doc_title,
+            unit_label=unit_label or "",
+            date_str=date_str,
+            commander_name=commander_name or "",
+            judge_name=judge_name or "",
+            eval_rows=ev.get("eval_rows") or [],
+            saved_rows=(saved_payload.get("rows") or []) if saved_payload else [],
+        )
+    except Exception:
+        abort(500)
+
+    return send_file(
+        io.BytesIO(data),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=export_download_filename(item_title or doc_title),
+    )
+
+
+@bp.route(
+    "/planner/evaluation-lists/<unit_key>/view/<int:item_id>/export.xlsx",
+    methods=["GET"],
+)
+def planner_evaluation_list_export(unit_key: str, item_id: int):
+    """تصدير قائمة التقييم إلى Excel — مساحة التخطيط."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/planner/evaluation-lists/{unit_key}/view/{item_id}/export.xlsx")
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    current_exercise = _admin_current_workspace_exercise(db, user)
+    return _send_evaluation_list_export_xlsx(
+        db=db,
+        user=user,
+        unit_key=unit_key,
+        item_id=item_id,
+        current_exercise=current_exercise,
+    )
+
+
+@bp.route(
+    "/judge/evaluation-lists/<unit_key>/view/<int:item_id>/export.xlsx",
+    methods=["GET"],
+)
+def judge_evaluation_list_export(unit_key: str, item_id: int):
+    """تصدير قائمة التقييم إلى Excel — مساحة المحكمين."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/judge/evaluation-lists/{unit_key}/view/{item_id}/export.xlsx")
+    if not can_access_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    current_exercise = _current_workspace_exercise(db, user)
+    return _send_evaluation_list_export_xlsx(
+        db=db,
+        user=user,
+        unit_key=unit_key,
+        item_id=item_id,
+        current_exercise=current_exercise,
+        enforce_judge_scope=True,
+    )
+
+
+@bp.route(
+    "/admin/evaluation-lists/<unit_key>/view/<int:item_id>/export.xlsx",
+    methods=["GET"],
+)
+def admin_evaluation_list_export(unit_key: str, item_id: int):
+    """تصدير قائمة التقييم إلى Excel — إدارة/كتالوج التخطيط."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/admin/evaluation-lists/{unit_key}/view/{item_id}/export.xlsx")
+    _require_planner_hub_catalog_access(user)
+    from flask import g
+
+    db = g.db
+    current_exercise = _admin_current_workspace_exercise(db, user)
+    return _send_evaluation_list_export_xlsx(
+        db=db,
+        user=user,
+        unit_key=unit_key,
+        item_id=item_id,
+        current_exercise=current_exercise,
     )
 
 
@@ -8592,6 +9177,19 @@ def api_system_heartbeat():
         return jsonify({"ok": False, "error": "unauthorized"}), 401
     from flask import g
 
+    # كاش قصير جداً لكل مستخدم — يقلل ضغط SQLite عند نبضات متعددة متزامنة
+    import time as _time
+
+    cache_holder = api_system_heartbeat.__dict__.setdefault("_cache", {})
+    uid = int(user.id)
+    now = _time.monotonic()
+    hit = cache_holder.get(uid)
+    if hit and (now - hit[0]) < 1.0:
+        resp = jsonify(hit[1])
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        return resp
+
     db = g.db
     parts: list[str] = []
 
@@ -8718,15 +9316,21 @@ def api_system_heartbeat():
         )
 
     version = "|".join(parts)
-    resp = jsonify(
-        {
-            "ok": True,
-            "version": version,
-            "unread_notifications": int(unread),
-            "exercise_id": ex_id,
-            "server_time": datetime.utcnow().isoformat(),
-        }
-    )
+    payload = {
+        "ok": True,
+        "version": version,
+        "unread_notifications": int(unread),
+        "exercise_id": ex_id,
+        "server_time": datetime.utcnow().isoformat(),
+    }
+    cache_holder = api_system_heartbeat.__dict__.setdefault("_cache", {})
+    cache_holder[uid] = (now, payload)
+    # حدّ أقصى بسيط لمنع نمو غير محدود
+    if len(cache_holder) > 200:
+        oldest = sorted(cache_holder.items(), key=lambda kv: kv[1][0])[:50]
+        for k, _ in oldest:
+            cache_holder.pop(k, None)
+    resp = jsonify(payload)
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
     return resp
@@ -9301,6 +9905,23 @@ def _subpage_close_ctx(parent_href: str | None = None, **extra) -> dict:
     return ctx
 
 
+def _safe_same_origin_return_path(raw: str | None, *, default: str) -> str:
+    """مسار عودة داخلي آمن (?next=) — يمنع الروابط الخارجية وjavascript:."""
+    val = (raw or "").strip()
+    if not val:
+        return default
+    if "://" in val or val.startswith("//") or "\\" in val:
+        return default
+    if not val.startswith("/"):
+        return default
+    low = val.lower()
+    if low.startswith("/\\") or "javascript:" in low or "data:" in low or "vbscript:" in low:
+        return default
+    if any(ch in val for ch in ("\n", "\r", "\x00")):
+        return default
+    return val[:800]
+
+
 def _role_hub_preserve_link_kwargs() -> dict:
     kw: dict = {}
     if _request_from_control_hub():
@@ -9567,12 +10188,47 @@ def _build_control_evaluation_lists_status(db, user: User) -> dict:
                     "unit_label": label_for_unit_level_key(uk) or uk or "—",
                     "rows": unit_rows,
                     "total_count": n_assigned,
+                    "is_all": False,
                     "judge_name": judge_name_by_unit.get(uk, "—"),
                     "trainee_name": trainee_name_by_unit.get(uk, "—"),
                     "n_assigned": n_assigned,
                     "n_done": n_done,
                     "n_not_done": n_assigned - n_done,
                 }
+            )
+        if unit_tabs:
+            all_rows: list[dict] = []
+            for ut in unit_tabs:
+                all_rows.extend(ut["rows"])
+            n_all = len(all_rows)
+            n_all_done = sum(1 for r in all_rows if r.get("status_done"))
+            unit_tabs.insert(
+                0,
+                {
+                    "unit_key": "all",
+                    "unit_label": "الكل",
+                    "rows": all_rows,
+                    "total_count": n_all,
+                    "is_all": True,
+                    "judge_name": "—",
+                    "trainee_name": "—",
+                    "n_assigned": n_all,
+                    "n_done": n_all_done,
+                    "n_not_done": n_all - n_all_done,
+                    "unit_groups": [
+                        {
+                            "unit_key": ut["unit_key"],
+                            "unit_label": ut["unit_label"],
+                            "rows": ut["rows"],
+                            "judge_name": ut["judge_name"],
+                            "trainee_name": ut["trainee_name"],
+                            "n_assigned": ut["n_assigned"],
+                            "n_done": ut["n_done"],
+                            "n_not_done": ut["n_not_done"],
+                        }
+                        for ut in unit_tabs
+                    ],
+                },
             )
         phase_tabs.append(
             {
@@ -11722,6 +12378,7 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
             saved_by_id=saved_by_id,
             eval_save_url=url_for("views.admin_evaluation_list_save_results", unit_key=unit_key, item_id=item_id),
             eval_approve_url=url_for("views.admin_evaluation_list_approve", unit_key=unit_key, item_id=item_id),
+            eval_export_url=url_for("views.admin_evaluation_list_export", unit_key=unit_key, item_id=item_id),
             **wf_admin,
             **ev,
             **_eval_crit_media_sheet_ctx(
@@ -12367,6 +13024,12 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
             has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
             eval_save_url=eval_save_url,
             eval_approve_url=eval_approve_url,
+            eval_export_url=url_for(
+                "views.judge_evaluation_list_export",
+                unit_key=unit_key,
+                item_id=item_id,
+                **_evaluation_list_phase_url_kwargs(phase_key),
+            ),
             eval_chief_approve_url="",
             eval_chief_reopen_url="",
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
@@ -13082,6 +13745,25 @@ def _parse_eval_list_publish_selections(form) -> dict[str, set[int]]:
     return dict(out)
 
 
+def _parse_eval_list_publish_dilemmas(form) -> dict[tuple[str, int], int]:
+    """تحليل unit_key:node_id:dilemma_no من حقول publish_dilemma."""
+    out: dict[tuple[str, int], int] = {}
+    for raw in form.getlist("publish_dilemma"):
+        part = (raw or "").strip()
+        bits = part.split(":")
+        if len(bits) < 3:
+            continue
+        uk = bits[0].strip()
+        try:
+            nid = int(bits[1].strip())
+            dno = int(bits[2].strip())
+        except (TypeError, ValueError):
+            continue
+        if uk and nid > 0 and dno > 0:
+            out[(uk, nid)] = dno
+    return out
+
+
 def _render_admin_evaluation_lists(
     db,
     user: User,
@@ -13132,26 +13814,7 @@ def _render_admin_evaluation_lists(
             for r in g.get("list_rows") or []
             if r.get("published")
         )
-        if judge_unit_count:
-            page_note = (
-                f"«نسخ الكل» يحدّث القوائم من البنك دون نشر. حدّد بالـ checkbox ثم «نشر القوائم». "
-                f"{judge_unit_count} مستوى وحدة (محكمين)، "
-                f"{published_count} قائمة منشورة في هذه المرحلة."
-            )
-        elif roster_unit_count:
-            page_note = (
-                f"وُجد {roster_unit_count} مستوى وحدة — "
-                f"عيّن مستوى الوحدة للمحكمين ثم انشر القوائم المختارة."
-            )
-        elif int(judge_roster.get("total") or 0) > 0:
-            page_note = (
-                f"يوجد {judge_roster['total']} محكم(ين) بدون مستوى وحدة — "
-                f"افتح قائمة المحكمين واختر مستوى الوحدة لكل محكم."
-            )
-        else:
-            page_note = (
-                "أضف المحكمين مع مستوى الوحدة، ثم اختر المرحلة والقوائم للنشر."
-            )
+        page_note = ""
 
     return render_template(
         "admin_evaluation_lists.html",
@@ -14098,15 +14761,28 @@ def admin_information_bank_gate():
 
     db = g.db
     nxt = (request.args.get("next") or request.form.get("next") or "/admin/information-bank").strip()
-    if not nxt.startswith("/"):
+    if not nxt.startswith("/") or nxt.startswith("//"):
         nxt = "/admin/information-bank"
+    if is_information_bank_path(nxt) and (
+        nxt.startswith(INFO_BANK_PATH_PREFIX + "/gate")
+        or nxt.startswith(INFO_BANK_PATH_PREFIX + "/exit")
+    ):
+        nxt = "/admin/information-bank"
+
+    def _open_gate_and_redirect():
+        session[INFO_BANK_GATE_SESSION_KEY] = True
+        session.modified = True
+        return redirect(nxt)
+
+    # إدارة النظام: نفس استثناء before_request — لا حاجة لإعادة كلمة المرور هنا.
+    if can_manage_information_bank(user):
+        return _open_gate_and_redirect()
+
     err = ""
     if request.method == "POST":
         pwd = (request.form.get("password") or "").strip()
         if _verify_system_admin_password(db, pwd):
-            session[INFO_BANK_GATE_SESSION_KEY] = True
-            session.modified = True
-            return redirect(nxt)
+            return _open_gate_and_redirect()
         err = "كلمة المرور غير صحيحة. أدخل كلمة مرور حساب إدارة النظام."
     if _information_bank_gate_ok():
         return redirect(nxt)
@@ -14274,6 +14950,8 @@ def admin_information_bank():
     active_action_eval_day = ""
     action_eval_trees_by_day: dict[str, list] = {}
     action_eval_day_root_ids: dict[str, int] = {}
+    ibank_action_eval_dilemmas_by_day: dict[str, list] = {}
+    ibank_action_eval_dilemma_tree: dict[str, list] = {}
     ibank_unit_labels = {
         (u.get("key") or "").strip(): (u.get("label") or "").strip()
         for u in UNIT_LEVELS
@@ -14331,6 +15009,28 @@ def admin_information_bank():
         db.rollback()
         current_app.logger.exception("information bank tree build failed: %s", exc)
     ibank_event_flow_ctx = _build_ibank_event_flow_table_context(db)
+    from app.ibank_action_eval_dilemma_tree import build_action_eval_dilemma_judge_tree
+
+    ex_id = int(current_exercise.id) if current_exercise else None
+    ibank_action_eval_dilemma_tree = build_action_eval_dilemma_judge_tree(
+        db, exercise_id=ex_id
+    )
+    ibank_action_eval_dilemmas_by_day = {
+        day_id: [
+            {
+                "num": n.get("num"),
+                "dilemma_no": n.get("dilemma_no"),
+                "text": n.get("text"),
+                "files": [
+                    {"node_id": f.get("node_id"), "name": f.get("name")}
+                    for j in (n.get("judges") or [])
+                    for f in (j.get("files") or [])
+                ],
+            }
+            for n in nodes
+        ]
+        for day_id, nodes in ibank_action_eval_dilemma_tree.items()
+    }
     err = (request.args.get("err") or "").strip()[:2000]
     ok = (request.args.get("ok") or "").strip()[:500]
     from flask import make_response
@@ -14352,6 +15052,8 @@ def admin_information_bank():
                 active_action_eval_day=active_action_eval_day,
                 action_eval_trees_by_day=action_eval_trees_by_day,
                 action_eval_day_root_ids=action_eval_day_root_ids,
+                ibank_action_eval_dilemmas_by_day=ibank_action_eval_dilemmas_by_day,
+                ibank_action_eval_dilemma_tree=ibank_action_eval_dilemma_tree,
                 training_phase_label=lambda key: _information_bank_training_phase_label(
                     db, key
                 ),
@@ -14391,6 +15093,109 @@ def admin_information_bank_action_eval_day_tabs():
     return jsonify({"ok": True, **payload})
 
 
+
+@bp.route("/admin/information-bank/action-eval/view/<int:node_id>", methods=["GET"])
+def admin_information_bank_action_eval_view(node_id: int):
+    """فتح قائمة تقييم الإجراءات (Excel) بنفس عارض قوائم التقييم."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/admin/information-bank/action-eval/view/{node_id}")
+    if not can_view_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.config import INFO_BANK_DIR
+    from app.info_bank_tree import node_file_abspath
+
+    db = g.db
+    node = db.get(InformationBankTreeNode, int(node_id))
+    if node is None or node.kind != "action_eval" or node.is_folder:
+        abort(404)
+    path = node_file_abspath(node.kind, node.file_relpath)
+    if path is None or not path.is_file():
+        abort(404)
+    if not str(node.name or "").lower().endswith((".xlsx", ".xlsm")):
+        return redirect(url_for("views.admin_information_bank_tree_file", node_id=node_id))
+
+    ev = _evaluation_sheet_view_context(path)
+    back_day = (request.args.get("day") or "").strip()
+    back_kw = {"tab": "action-eval"}
+    if back_day:
+        back_kw["day"] = back_day
+    default_back = url_for("views.admin_information_bank", **back_kw)
+    back_url = _safe_same_origin_return_path(
+        request.args.get("next") or request.args.get("return_to"),
+        default=default_back,
+    )
+    return render_template(
+        "judge_evaluation_list_viewer.html",
+        **_ctx(
+            user,
+            item_title=(node.name or "قائمة تقييم"),
+            unit_key="",
+            unit_label="—",
+            judge_name="—",
+            commander_name="—",
+            shown_date=None,
+            item_id=int(node_id),
+            saved_payload={},
+            saved_is_approved=False,
+            saved_approved_at=None,
+            eval_can_edit=False,
+            eval_save_url="",
+            show_eval_approve=False,
+            close_href=back_url,
+            eval_close_href=back_url,
+            subpage_close_fallback=back_url,
+            **ev,
+            **_hub_back_ctx_for_request_path(),
+        ),
+    )
+
+
+@bp.route("/admin/information-bank/action-eval/import-dilemma-folders", methods=["POST"])
+def admin_information_bank_action_eval_import_dilemmas():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.ibank_dilemma_folder_import import import_dilemma_folders_from_path
+
+    db = g.db
+    root_path = (request.form.get("root_path") or "").strip()
+    if not root_path:
+        return _admin_information_bank_tree_redirect(
+            tab="action-eval", err="حدّد مسار مجلد المعاضل الخارجي."
+        )
+    try:
+        stats = import_dilemma_folders_from_path(db, root_path=root_path)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        return _admin_information_bank_tree_redirect(
+            tab="action-eval", err=str(exc) or "تعذّر الاستيراد."
+        )
+    except Exception as exc:
+        db.rollback()
+        current_app.logger.exception("dilemma folder import failed: %s", exc)
+        return _admin_information_bank_tree_redirect(
+            tab="action-eval", err="فشل استيراد مجلدات المعاضل."
+        )
+    unmatched_n = len(stats.get("unmatched") or [])
+    ok = (
+        f"المجلدات الخارجية: {stats.get('packs', 0)} — "
+        f"رُبطت {stats.get('matched', 0)} معضلة، "
+        f"إضافة {stats.get('files_added', 0)} ملفاً"
+        f" (تخطي {stats.get('files_skipped', 0)} موجود)"
+    )
+    if unmatched_n:
+        ok += f"، لم تُطابق {unmatched_n}."
+    else:
+        ok += "."
+    return _admin_information_bank_tree_redirect(tab="action-eval", ok=ok)
+
+
 @bp.route("/admin/information-bank/event-flow/save-flow-table", methods=["POST"])
 def admin_information_bank_event_flow_save():
     user = get_current_user_optional()
@@ -14400,15 +15205,27 @@ def admin_information_bank_event_flow_save():
         return jsonify({"ok": False, "error": "forbidden"}), 403
     from flask import g
 
+    from app.ibank_action_eval_dilemma_tree import invalidate_action_eval_dilemma_tree_cache
+    from app.info_bank_tree import (
+        ensure_information_bank_kind,
+        ibank_event_flow_days,
+        invalidate_information_bank_kind_cache,
+    )
+
     db = g.db
     payload = request.get_json(silent=True)
     doc = _normalize_planner_flow_table_document(payload)
+    old_day_ids = {d["id"] for d in ibank_event_flow_days(db)}
+    new_day_ids = {d["id"] for d in doc["days"]}
+    removed_day_ids = old_day_ids - new_day_ids
     row = _get_or_create_ibank_event_flow_table(db)
     row.flow_table_json = json.dumps(doc, ensure_ascii=False)
     row.updated_at = datetime.utcnow()
-    from app.info_bank_tree import ensure_information_bank_kind
-
+    # إعادة مزامنة جذور قوائم التقييم: حذف أيام المجرى المحذوفة وقوائمها المنشورة
+    invalidate_information_bank_kind_cache("action_eval")
     ensure_information_bank_kind(db, "action_eval")
+    if removed_day_ids:
+        invalidate_action_eval_dilemma_tree_cache()
     db.commit()
     active_rows = next(
         (d["rows"] for d in doc["days"] if d["id"] == doc["active_day_id"]),
@@ -14420,6 +15237,7 @@ def admin_information_bank_event_flow_save():
             "ok": True,
             "day_count": len(doc["days"]),
             "row_count": len(active_rows),
+            "removed_day_count": len(removed_day_ids),
             "action_eval": action_eval,
         }
     )
@@ -14840,6 +15658,12 @@ def admin_information_bank_tree_upload():
     added, errors = upload_files_to_parent(db, kind=kind, parent_id=parent_id, file_storages=files)
     if added:
         db.commit()
+        if kind == "action_eval":
+            from app.ibank_action_eval_dilemma_tree import invalidate_action_eval_dilemma_tree_cache
+            from app.info_bank_tree import invalidate_information_bank_kind_cache
+
+            invalidate_action_eval_dilemma_tree_cache()
+            invalidate_information_bank_kind_cache("action_eval")
     else:
         db.rollback()
     err_q = " ".join(errors)[:2000] if errors else ""
@@ -14867,8 +15691,15 @@ def admin_information_bank_tree_delete(node_id: int):
     if row is None:
         abort(404)
     tab = kind_tab(row.kind)
+    kind_deleted = (row.kind or "").strip()
     delete_node(db, row)
     db.commit()
+    if kind_deleted == "action_eval":
+        from app.ibank_action_eval_dilemma_tree import invalidate_action_eval_dilemma_tree_cache
+        from app.info_bank_tree import invalidate_information_bank_kind_cache
+
+        invalidate_action_eval_dilemma_tree_cache()
+        invalidate_information_bank_kind_cache("action_eval")
     if (
         request.accept_mimetypes.best_match(["application/json", "text/html"])
         == "application/json"
@@ -15518,6 +16349,24 @@ def _library_redirect(*, tab: str, ok: str = "", err: str = ""):
     return redirect(url_for("views.library", **kw))
 
 
+@bp.route("/help", methods=["GET"])
+def help_center():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/help")
+    from app.help_knowledge import help_meta, help_tree
+
+    return render_template(
+        "help.html",
+        **_ctx(
+            user,
+            tree=help_tree(),
+            help_meta=help_meta(),
+            can_open_user_manual=can_manage_users(user),
+        ),
+    )
+
+
 @bp.route("/library", methods=["GET"])
 def library():
     user = get_current_user_optional()
@@ -15731,6 +16580,55 @@ def library_tree_file(node_id: int):
     else:
         mt = _mimetype_info_bank_event_flow(path)
     return send_file(path, mimetype=mt, as_attachment=False, download_name=path.name)
+
+
+@bp.route("/admin/user-manual")
+def admin_user_manual():
+    user = get_current_user_optional()
+    if not user or not can_manage_users(user):
+        abort(403)
+    from flask import g
+
+    from app.user_manual import MANUAL_SUBTITLE, MANUAL_TITLE, manual_sections
+
+    db = g.db
+    return render_template(
+        "admin_user_manual.html",
+        **_ctx(
+            user,
+            workspace_exercise=_admin_current_workspace_exercise(db, user),
+            manual_title=MANUAL_TITLE,
+            manual_subtitle=MANUAL_SUBTITLE,
+            sections=manual_sections(),
+            error=(request.args.get("err") or "").strip(),
+        ),
+    )
+
+
+@bp.route("/admin/user-manual/export.pdf")
+def admin_user_manual_export_pdf():
+    user = get_current_user_optional()
+    if not user or not can_manage_users(user):
+        abort(403)
+    try:
+        from app.user_manual_pdf import build_user_manual_pdf
+
+        data = build_user_manual_pdf()
+    except Exception as exc:
+        current_app.logger.exception("user manual pdf export failed: %s", exc)
+        return redirect(
+            url_for(
+                "views.admin_user_manual",
+            )
+            + "?err="
+            + quote("تعذّر تصدير دليل المستخدم إلى PDF.", safe="")
+        )
+    return send_file(
+        io.BytesIO(data),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name="دليل_المستخدم_نظام_إدارة_التمارين.pdf",
+    )
 
 
 @bp.route("/admin/users", methods=["GET", "POST"])
@@ -16211,6 +17109,770 @@ def api_ai_suggest():
     context = (request.form.get("context") or "").strip()
     out = suggest_instructions_or_notes(purpose=purpose, context=context)
     return jsonify({"ok": True, "text": out})
+
+
+# ——————————————————————————————————————————————————————————————
+# مركز الذكاء الاصطناعي المحلي (المرحلة الأولى — Ollama)
+# ——————————————————————————————————————————————————————————————
+
+_AI_TEST_PROMPT_DEFAULT = "اكتب جملة عربية رسمية قصيرة عن أهمية التدريب."
+
+
+def _ai_center_render(user, *, error=None, ok_msg=None, prompt_result=None, models=None, models_error=None):
+    from flask import g
+
+    from app.ai_local_engine.services.ai_service import AIService
+
+    db = g.db
+    svc = AIService(db)
+    settings = svc.get_settings()
+    if models is None:
+        models = []
+        if settings.enabled and can_view_ai_models(user):
+            try:
+                models = svc.list_models()
+            except Exception as exc:
+                from app.ai_local_engine.exceptions import AILocalEngineError
+
+                models_error = (
+                    exc.user_message if isinstance(exc, AILocalEngineError) else "تعذر قراءة قائمة النماذج."
+                )
+    return render_template(
+        "ai_center.html",
+        **_ctx(
+            user,
+            settings=settings,
+            models=models or [],
+            models_error=models_error,
+            error=error,
+            ok_msg=ok_msg,
+            prompt_result=prompt_result,
+            test_prompt_default=_AI_TEST_PROMPT_DEFAULT,
+            can_edit=can_edit_ai_settings(user),
+            can_test=can_test_ai_connection(user),
+        ),
+    )
+
+
+@bp.route("/ai-center")
+def ai_center():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/ai-center")
+    if not can_access_ai_center(user):
+        abort(403)
+    return _ai_center_render(user)
+
+
+@bp.route("/ai-center/settings", methods=["POST"])
+def ai_center_save_settings():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/ai-center")
+    if not can_edit_ai_settings(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_local_engine.exceptions import AILocalEngineError
+    from app.ai_local_engine.services.ai_service import AIService
+
+    payload = {
+        "enabled": request.form.get("enabled") == "1",
+        "provider": (request.form.get("provider") or "ollama").strip(),
+        "base_url": (request.form.get("base_url") or "").strip(),
+        "model_name": (request.form.get("model_name") or "").strip(),
+        "temperature": request.form.get("temperature"),
+        "max_tokens": request.form.get("max_tokens"),
+        "timeout_seconds": request.form.get("timeout_seconds"),
+        "retry_count": request.form.get("retry_count"),
+        "context_window": request.form.get("context_window"),
+        "response_language": (request.form.get("response_language") or "ar").strip(),
+        "structured_output": request.form.get("structured_output") == "1",
+        "allow_internal_network": request.form.get("allow_internal_network") == "1",
+    }
+    try:
+        AIService(g.db).save_settings(payload, user_id=user.id)
+        return _ai_center_render(user, ok_msg="تم حفظ إعدادات الذكاء الاصطناعي المحلي.")
+    except AILocalEngineError as exc:
+        return _ai_center_render(user, error=exc.user_message)
+
+
+@bp.route("/ai-center/test-connection", methods=["POST"])
+def ai_center_test_connection():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/ai-center")
+    if not can_test_ai_connection(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_local_engine.exceptions import AILocalEngineError
+    from app.ai_local_engine.services.ai_service import AIService
+
+    try:
+        result = AIService(g.db).test_connection()
+        if result.success:
+            return _ai_center_render(user, ok_msg=result.text or "الاتصال ناجح.")
+        return _ai_center_render(user, error=result.error_message or "فشل اختبار الاتصال.")
+    except AILocalEngineError as exc:
+        return _ai_center_render(user, error=exc.user_message)
+
+
+@bp.route("/ai-center/refresh-models", methods=["POST"])
+def ai_center_refresh_models():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/ai-center")
+    if not can_view_ai_models(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_local_engine.exceptions import AILocalEngineError
+    from app.ai_local_engine.services.ai_service import AIService
+
+    try:
+        models = AIService(g.db).list_models()
+        return _ai_center_render(
+            user,
+            models=models,
+            ok_msg=f"تم تحديث القائمة — {len(models)} نموذجاً.",
+        )
+    except AILocalEngineError as exc:
+        return _ai_center_render(user, models=[], models_error=exc.user_message, error=exc.user_message)
+
+
+@bp.route("/ai-center/select-model", methods=["POST"])
+def ai_center_select_model():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/ai-center")
+    if not can_edit_ai_settings(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_local_engine.exceptions import AILocalEngineError
+    from app.ai_local_engine.services.ai_service import AIService
+
+    name = (request.form.get("model_name") or "").strip()
+    try:
+        AIService(g.db).save_settings({"model_name": name}, user_id=user.id)
+        return _ai_center_render(user, ok_msg=f"تم اختيار النموذج: {name}")
+    except AILocalEngineError as exc:
+        return _ai_center_render(user, error=exc.user_message)
+
+
+@bp.route("/ai-center/test-prompt", methods=["POST"])
+def ai_center_test_prompt():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/ai-center")
+    if not can_test_ai_connection(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_local_engine.exceptions import AILocalEngineError
+    from app.ai_local_engine.services.ai_service import AIService
+
+    prompt = (request.form.get("prompt") or "").strip() or _AI_TEST_PROMPT_DEFAULT
+    try:
+        result = AIService(g.db).test_prompt(prompt)
+        if result.success:
+            return _ai_center_render(user, ok_msg="اكتمل اختبار الـ Prompt.", prompt_result=result)
+        return _ai_center_render(
+            user,
+            error=result.error_message or "فشل اختبار الـ Prompt.",
+            prompt_result=result,
+        )
+    except AILocalEngineError as exc:
+        return _ai_center_render(user, error=exc.user_message)
+
+
+def _api_ai_user_or_error(*, need_edit=False, need_test=False, need_models=False):
+    user = get_current_user_optional()
+    if not user:
+        return None, (jsonify({"ok": False, "error": "unauthorized", "error_message": "يلزم تسجيل الدخول."}), 401)
+    if not can_access_ai_center(user):
+        return None, (jsonify({"ok": False, "error": "forbidden", "error_message": "غير مصرح."}), 403)
+    if need_edit and not can_edit_ai_settings(user):
+        return None, (jsonify({"ok": False, "error": "forbidden", "error_message": "غير مصرح بالتعديل."}), 403)
+    if need_test and not can_test_ai_connection(user):
+        return None, (jsonify({"ok": False, "error": "forbidden", "error_message": "غير مصرح بالاختبار."}), 403)
+    if need_models and not can_view_ai_models(user):
+        return None, (jsonify({"ok": False, "error": "forbidden", "error_message": "غير مصرح بعرض النماذج."}), 403)
+    return user, None
+
+
+@bp.route("/api/ai/settings", methods=["GET"])
+def api_ai_settings_get():
+    user, err = _api_ai_user_or_error()
+    if err:
+        return err
+    if not can_view_ai_settings(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    from flask import g
+
+    from app.ai_local_engine.services.ai_service import AIService
+
+    return jsonify({"ok": True, "settings": AIService(g.db).get_settings().to_dict()})
+
+
+@bp.route("/api/ai/settings", methods=["PUT"])
+def api_ai_settings_put():
+    user, err = _api_ai_user_or_error(need_edit=True)
+    if err:
+        return err
+    from flask import g
+
+    from app.ai_local_engine.exceptions import AILocalEngineError
+    from app.ai_local_engine.services.ai_service import AIService
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        settings = AIService(g.db).save_settings(payload, user_id=user.id)
+        return jsonify({"ok": True, "settings": settings.to_dict()})
+    except AILocalEngineError as exc:
+        return jsonify({"ok": False, "error": exc.error_code, "error_message": exc.user_message}), 400
+
+
+@bp.route("/api/ai/test-connection", methods=["POST"])
+def api_ai_test_connection():
+    user, err = _api_ai_user_or_error(need_test=True)
+    if err:
+        return err
+    from flask import g
+
+    from app.ai_local_engine.exceptions import AILocalEngineError
+    from app.ai_local_engine.services.ai_service import AIService
+
+    try:
+        result = AIService(g.db).test_connection()
+        return jsonify({"ok": result.success, **result.to_public_dict()})
+    except AILocalEngineError as exc:
+        return jsonify({"ok": False, "error": exc.error_code, "error_message": exc.user_message}), 400
+
+
+@bp.route("/api/ai/models", methods=["GET"])
+def api_ai_models():
+    user, err = _api_ai_user_or_error(need_models=True)
+    if err:
+        return err
+    from flask import g
+
+    from app.ai_local_engine.exceptions import AILocalEngineError
+    from app.ai_local_engine.services.ai_service import AIService
+
+    try:
+        models = AIService(g.db).list_models()
+        return jsonify({"ok": True, "models": models})
+    except AILocalEngineError as exc:
+        return jsonify({"ok": False, "error": exc.error_code, "error_message": exc.user_message}), 400
+
+
+@bp.route("/api/ai/test-prompt", methods=["POST"])
+def api_ai_test_prompt():
+    user, err = _api_ai_user_or_error(need_test=True)
+    if err:
+        return err
+    from flask import g
+
+    from app.ai_local_engine.exceptions import AILocalEngineError
+    from app.ai_local_engine.services.ai_service import AIService
+
+    data = request.get_json(silent=True) or {}
+    prompt = (data.get("prompt") or request.form.get("prompt") or "").strip()
+    try:
+        result = AIService(g.db).test_prompt(prompt or _AI_TEST_PROMPT_DEFAULT)
+        return jsonify({"ok": result.success, **result.to_public_dict()})
+    except AILocalEngineError as exc:
+        return jsonify({"ok": False, "error": exc.error_code, "error_message": exc.user_message}), 400
+
+
+@bp.route("/api/ai/health", methods=["GET"])
+def api_ai_health():
+    user, err = _api_ai_user_or_error()
+    if err:
+        return err
+    from flask import g
+
+    from app.ai_local_engine.services.health_service import HealthService
+
+    status = HealthService(g.db).check(probe_model=False)
+    return jsonify({"ok": True, "health": status.to_dict()})
+
+
+# تسجيل مسارات Agentic AI Foundation (AI Center فقط)
+from app.ai_agentic.routes import register_agentic_routes
+
+register_agentic_routes(
+    bp,
+    get_current_user_optional=get_current_user_optional,
+    abort=abort,
+    _ctx=_ctx,
+)
+
+
+# ——————————————————————————————————————————————————————————————
+# مكتبة التقارير الذكية (المرحلة الثانية)
+# ——————————————————————————————————————————————————————————————
+
+
+def _ai_report_meta_from_form() -> dict:
+    return {
+        "report_title": (request.form.get("report_title") or "").strip(),
+        "exercise_name": (request.form.get("exercise_name") or "").strip(),
+        "exercise_type": (request.form.get("exercise_type") or "").strip(),
+        "report_type": (request.form.get("report_type") or "other").strip(),
+        "report_year": request.form.get("report_year"),
+        "report_language": (request.form.get("report_language") or "ar").strip(),
+        "classification_level": (request.form.get("classification_level") or "").strip(),
+        "report_quality": (request.form.get("report_quality") or "").strip(),
+        "is_approved": request.form.get("is_approved") == "1",
+        "allow_learning": request.form.get("allow_learning") == "1",
+        "main_unit_name": (request.form.get("main_unit_name") or "").strip(),
+        "main_unit_level": (request.form.get("main_unit_level") or "").strip(),
+        "admin_notes": (request.form.get("admin_notes") or "").strip(),
+    }
+
+
+@bp.route("/ai-center/report-library")
+def ai_report_library():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/ai-center/report-library")
+    if not can_view_ai_reports(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_report_library.constants import PROCESSING_STATUSES
+    from app.ai_report_library.models import AIReportSource
+
+    q = (request.args.get("q") or "").strip()
+    status_filter = (request.args.get("status") or "").strip()
+    query = g.db.query(AIReportSource).filter(AIReportSource.is_active.is_(True))
+    if status_filter:
+        query = query.filter(AIReportSource.processing_status == status_filter)
+    if q:
+        like = f"%{q}%"
+        query = query.filter(
+            (AIReportSource.report_title.like(like))
+            | (AIReportSource.exercise_name.like(like))
+            | (AIReportSource.main_unit_name.like(like))
+            | (AIReportSource.original_file_name.like(like))
+        )
+    reports = query.order_by(AIReportSource.id.desc()).limit(200).all()
+    return render_template(
+        "ai_report_library.html",
+        **_ctx(
+            user,
+            reports=reports,
+            q=q,
+            status_filter=status_filter,
+            status_options=PROCESSING_STATUSES,
+            can_upload=can_upload_ai_reports(user),
+            can_process=can_process_ai_reports(user),
+            error=request.args.get("err"),
+            ok_msg=request.args.get("ok"),
+        ),
+    )
+
+
+@bp.route("/ai-center/report-library/upload", methods=["GET", "POST"])
+def ai_report_upload():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/ai-center/report-library/upload")
+    if not can_upload_ai_reports(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_report_library.constants import REPORT_TYPES, UNIT_LEVELS
+    from app.ai_report_library.security_upload import ReportUploadError
+    from app.ai_report_library.services.processing_pipeline import process_report
+    from app.ai_report_library.services.storage_service import find_by_checksum, store_new_report
+    from app.ai_report_library.security_upload import sha256_bytes
+
+    if request.method == "GET":
+        return render_template(
+            "ai_report_upload.html",
+            **_ctx(user, report_types=REPORT_TYPES, unit_levels=UNIT_LEVELS),
+        )
+
+    up = request.files.get("file")
+    if up is None or not (up.filename or "").strip():
+        return render_template(
+            "ai_report_upload.html",
+            **_ctx(user, report_types=REPORT_TYPES, unit_levels=UNIT_LEVELS, error="اختر ملفاً."),
+        )
+    raw = up.read()
+    meta = _ai_report_meta_from_form()
+    if not meta["report_title"]:
+        meta["report_title"] = Path(up.filename).stem
+    force = request.form.get("force_new_version") == "1"
+    try:
+        if not force:
+            existing = find_by_checksum(g.db, sha256_bytes(raw))
+            if existing:
+                return render_template(
+                    "ai_report_upload.html",
+                    **_ctx(
+                        user,
+                        report_types=REPORT_TYPES,
+                        unit_levels=UNIT_LEVELS,
+                        duplicate=existing,
+                        error="هذا التقرير موجود مسبقاً في مكتبة التقارير.",
+                    ),
+                )
+        row = store_new_report(
+            g.db,
+            file_bytes=raw,
+            original_filename=up.filename,
+            meta=meta,
+            user_id=user.id,
+            force_new_version=force,
+        )
+        if request.form.get("process_now") == "1" and can_process_ai_reports(user):
+            process_report(g.db, row.id, use_qwen=True)
+        return redirect(url_for("views.ai_report_detail", public_id=row.public_id, ok="تم رفع التقرير."))
+    except ReportUploadError as exc:
+        return render_template(
+            "ai_report_upload.html",
+            **_ctx(user, report_types=REPORT_TYPES, unit_levels=UNIT_LEVELS, error=exc.user_message),
+        )
+
+
+@bp.route("/ai-center/report-library/bulk-upload", methods=["GET", "POST"])
+def ai_report_bulk_upload():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/ai-center/report-library/bulk-upload")
+    if not can_upload_ai_reports(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_report_library.constants import MAX_BULK_FILES
+    from app.ai_report_library.security_upload import ReportUploadError
+    from app.ai_report_library.services.processing_pipeline import process_report
+    from app.ai_report_library.services.storage_service import store_new_report
+
+    if request.method == "GET":
+        return render_template("ai_report_bulk_upload.html", **_ctx(user))
+
+    files = request.files.getlist("files") or []
+    if not files:
+        return render_template("ai_report_bulk_upload.html", **_ctx(user, error="اختر ملفاً واحداً على الأقل."))
+    files = files[:MAX_BULK_FILES]
+    shared = {
+        "report_year": request.form.get("report_year"),
+        "exercise_type": (request.form.get("exercise_type") or "").strip(),
+        "report_language": (request.form.get("report_language") or "ar").strip(),
+        "classification_level": (request.form.get("classification_level") or "").strip(),
+        "allow_learning": request.form.get("allow_learning") == "1",
+        "report_type": "other",
+    }
+    results = []
+    for f in files:
+        name = f.filename or "file"
+        try:
+            raw = f.read()
+            meta = dict(shared)
+            meta["report_title"] = Path(name).stem
+            row = store_new_report(
+                g.db,
+                file_bytes=raw,
+                original_filename=name,
+                meta=meta,
+                user_id=user.id,
+                force_new_version=False,
+            )
+            if request.form.get("process_now") == "1" and can_process_ai_reports(user):
+                process_report(g.db, row.id, use_qwen=False)
+            results.append({"ok": True, "name": name, "message": "تم الرفع", "public_id": row.public_id})
+        except ReportUploadError as exc:
+            results.append({"ok": False, "name": name, "message": exc.user_message, "public_id": None})
+        except Exception as exc:
+            results.append({"ok": False, "name": name, "message": str(exc), "public_id": None})
+    return render_template("ai_report_bulk_upload.html", **_ctx(user, results=results))
+
+
+@bp.route("/ai-center/report-library/<public_id>")
+def ai_report_detail(public_id: str):
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/ai-center/report-library/{public_id}")
+    if not can_view_ai_reports(user):
+        abort(403)
+    from flask import g
+    from pathlib import Path as P
+
+    from app.ai_report_library.models import (
+        AIReportFinding,
+        AIReportFindingUnit,
+        AIReportProcessingLog,
+        AIReportSection,
+        AIReportSource,
+        AIReportTable,
+        AIReportUnit,
+    )
+    from app.ai_report_library.paths import report_extracted_dir
+
+    report = g.db.query(AIReportSource).filter_by(public_id=public_id).first()
+    if not report:
+        abort(404)
+    sections = g.db.query(AIReportSection).filter_by(report_id=report.id).order_by(AIReportSection.section_order).all()
+    units = g.db.query(AIReportUnit).filter_by(report_id=report.id).order_by(AIReportUnit.unit_order).all()
+    tables = g.db.query(AIReportTable).filter_by(report_id=report.id).order_by(AIReportTable.table_order).all()
+    findings = g.db.query(AIReportFinding).filter_by(report_id=report.id).order_by(AIReportFinding.order_number).all()
+    logs = g.db.query(AIReportProcessingLog).filter_by(report_id=report.id).order_by(AIReportProcessingLog.id).all()
+
+    findings_by_unit: dict[int, list] = {u.id: [] for u in units}
+    linked_ids: set[int] = set()
+    for f in findings:
+        links = g.db.query(AIReportFindingUnit).filter_by(finding_id=f.id).all()
+        if not links:
+            continue
+        for link in links:
+            findings_by_unit.setdefault(link.report_unit_id, []).append(f)
+            linked_ids.add(f.id)
+    general_findings = [f for f in findings if f.id not in linked_ids]
+
+    original_text = ""
+    cleaned_text = ""
+    ex = report_extracted_dir(report.public_id)
+    if (ex / "full_original.txt").is_file():
+        original_text = (ex / "full_original.txt").read_text(encoding="utf-8", errors="replace")
+    if (ex / "full_cleaned.txt").is_file():
+        cleaned_text = (ex / "full_cleaned.txt").read_text(encoding="utf-8", errors="replace")
+
+    return render_template(
+        "ai_report_detail.html",
+        **_ctx(
+            user,
+            report=report,
+            sections=sections,
+            units=units,
+            tables=tables,
+            findings_by_unit=findings_by_unit,
+            general_findings=general_findings,
+            logs=logs,
+            original_text=original_text,
+            cleaned_text=cleaned_text,
+            can_process=can_process_ai_reports(user),
+            can_exclude=can_exclude_ai_reports(user),
+            can_archive=can_archive_ai_reports(user),
+            can_view_text=can_view_ai_report_text(user),
+            ok_msg=request.args.get("ok"),
+            error=request.args.get("err"),
+        ),
+    )
+
+
+@bp.route("/ai-center/report-library/<public_id>/download")
+def ai_report_download(public_id: str):
+    user = get_current_user_optional()
+    if not user or not can_view_ai_reports(user):
+        abort(403)
+    from flask import g
+    from pathlib import Path as P
+
+    from app.ai_report_library.models import AIReportSource
+
+    report = g.db.query(AIReportSource).filter_by(public_id=public_id).first()
+    if not report:
+        abort(404)
+    path = P(report.stored_file_path)
+    if not path.is_file():
+        abort(404)
+    return send_file(path, as_attachment=True, download_name=report.original_file_name or path.name)
+
+
+@bp.route("/ai-center/report-library/<public_id>/process", methods=["POST"])
+def ai_report_process(public_id: str):
+    user = get_current_user_optional()
+    if not user or not can_process_ai_reports(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_report_library.models import AIReportSource
+    from app.ai_report_library.services.processing_pipeline import process_report
+
+    report = g.db.query(AIReportSource).filter_by(public_id=public_id).first()
+    if not report:
+        abort(404)
+    process_report(g.db, report.id, use_qwen=True)
+    return redirect(url_for("views.ai_report_detail", public_id=public_id, ok="اكتملت المعالجة."))
+
+
+@bp.route("/ai-center/report-library/<public_id>/exclude", methods=["POST"])
+def ai_report_exclude(public_id: str):
+    user = get_current_user_optional()
+    if not user or not can_exclude_ai_reports(user):
+        abort(403)
+    from flask import g
+    from datetime import datetime
+
+    from app.ai_report_library.models import AIReportSource
+
+    report = g.db.query(AIReportSource).filter_by(public_id=public_id).first()
+    if not report:
+        abort(404)
+    report.allow_learning = False
+    report.processing_status = "excluded"
+    report.updated_at = datetime.utcnow()
+    g.db.commit()
+    return redirect(url_for("views.ai_report_detail", public_id=public_id, ok="تم استبعاد التقرير من التعلم."))
+
+
+@bp.route("/ai-center/report-library/<public_id>/archive", methods=["POST"])
+def ai_report_archive(public_id: str):
+    user = get_current_user_optional()
+    if not user or not can_archive_ai_reports(user):
+        abort(403)
+    from flask import g
+    from datetime import datetime
+
+    from app.ai_report_library.models import AIReportSource
+    from app.ai_report_library.services.storage_service import archive_report_files
+
+    report = g.db.query(AIReportSource).filter_by(public_id=public_id).first()
+    if not report:
+        abort(404)
+    archive_report_files(report)
+    report.processing_status = "archived"
+    report.is_active = False
+    report.updated_at = datetime.utcnow()
+    g.db.commit()
+    return redirect(url_for("views.ai_report_library", ok="تمت الأرشفة."))
+
+
+@bp.route("/ai-center/report-library/<public_id>/review", methods=["GET"])
+def ai_report_review(public_id: str):
+    user = get_current_user_optional()
+    if not user or not can_review_ai_report_findings(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_report_library.constants import FINDING_TYPES, REVIEW_STATUSES, SCOPE_TYPES
+    from app.ai_report_library.models import AIReportFinding, AIReportSource, AIReportUnit
+
+    report = g.db.query(AIReportSource).filter_by(public_id=public_id).first()
+    if not report:
+        abort(404)
+    findings = g.db.query(AIReportFinding).filter_by(report_id=report.id).order_by(AIReportFinding.order_number).all()
+    units = g.db.query(AIReportUnit).filter_by(report_id=report.id).order_by(AIReportUnit.unit_order).all()
+    return render_template(
+        "ai_report_review.html",
+        **_ctx(
+            user,
+            report=report,
+            findings=findings,
+            units=units,
+            finding_types=FINDING_TYPES,
+            scope_types=SCOPE_TYPES,
+            review_statuses=REVIEW_STATUSES,
+            ok_msg=request.args.get("ok"),
+            error=request.args.get("err"),
+        ),
+    )
+
+
+@bp.route("/ai-center/report-library/<public_id>/findings/<int:finding_id>", methods=["POST"])
+def ai_report_finding_update(public_id: str, finding_id: int):
+    user = get_current_user_optional()
+    if not user or not can_review_ai_report_findings(user):
+        abort(403)
+    from flask import g
+    from datetime import datetime
+
+    from app.ai_report_library.models import (
+        AIReportCorrection,
+        AIReportFinding,
+        AIReportFindingUnit,
+        AIReportSource,
+    )
+
+    report = g.db.query(AIReportSource).filter_by(public_id=public_id).first()
+    if not report:
+        abort(404)
+    finding = g.db.query(AIReportFinding).filter_by(id=finding_id, report_id=report.id).first()
+    if not finding:
+        abort(404)
+    old = f"{finding.finding_type}|{finding.scope_type}|{finding.review_status}"
+    finding.finding_type = (request.form.get("finding_type") or finding.finding_type).strip()
+    finding.scope_type = (request.form.get("scope_type") or finding.scope_type).strip()
+    finding.review_status = (request.form.get("review_status") or finding.review_status).strip()
+    finding.updated_at = datetime.utcnow()
+    unit_id = (request.form.get("unit_id") or "").strip()
+    if unit_id.isdigit():
+        g.db.query(AIReportFindingUnit).filter_by(finding_id=finding.id).delete()
+        g.db.add(
+            AIReportFindingUnit(
+                finding_id=finding.id,
+                report_unit_id=int(unit_id),
+                relation_type="brigade_level" if finding.scope_type == "brigade" else "primary",
+                confidence_score=1.0,
+                created_at=datetime.utcnow(),
+            )
+        )
+    g.db.add(
+        AIReportCorrection(
+            report_id=report.id,
+            entity_type="finding",
+            entity_id=finding.id,
+            original_value=old,
+            corrected_value=f"{finding.finding_type}|{finding.scope_type}|{finding.review_status}",
+            correction_type="manual_review",
+            corrected_by=user.id,
+            corrected_at=datetime.utcnow(),
+            approved_for_future_learning=True,
+        )
+    )
+    g.db.commit()
+    return redirect(url_for("views.ai_report_review", public_id=public_id, ok="تم حفظ التعديل."))
+
+
+@bp.route("/api/ai/reports", methods=["GET"])
+def api_ai_reports_list():
+    user = get_current_user_optional()
+    if not user or not can_view_ai_reports(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    from flask import g
+
+    from app.ai_report_library.models import AIReportSource
+
+    rows = g.db.query(AIReportSource).order_by(AIReportSource.id.desc()).limit(100).all()
+    return jsonify(
+        {
+            "ok": True,
+            "reports": [
+                {
+                    "public_id": r.public_id,
+                    "title": r.report_title,
+                    "status": r.processing_status,
+                    "units": r.units_count,
+                    "strengths": r.strengths_count,
+                    "weaknesses": r.weaknesses_count,
+                }
+                for r in rows
+            ],
+        }
+    )
+
+
+@bp.route("/api/ai/reports/<public_id>/process", methods=["POST"])
+def api_ai_report_process(public_id: str):
+    user = get_current_user_optional()
+    if not user or not can_process_ai_reports(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    from flask import g
+
+    from app.ai_report_library.models import AIReportSource
+    from app.ai_report_library.services.processing_pipeline import process_report
+
+    report = g.db.query(AIReportSource).filter_by(public_id=public_id).first()
+    if not report:
+        return jsonify({"ok": False, "error": "not_found"}), 404
+    row = process_report(g.db, report.id, use_qwen=True)
+    return jsonify({"ok": True, "status": row.processing_status, "error": row.processing_error})
 
 
 # ——————————————————————————————————————————————————————————————

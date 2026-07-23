@@ -1,0 +1,35 @@
+[
+  {
+    "original_title": "المقدمة",
+    "normalized_section_type": "introduction",
+    "section_order": 0,
+    "original_text": "هذا تمرين تدريبي.\nالكتيبة الأولى",
+    "confidence_score": 0.95,
+    "detection_source": "rules",
+    "review_status": "auto_detected",
+    "page_start": null,
+    "cleaned_text": "هذا تمرين تدريبي.\nالكتيبة الأولى"
+  },
+  {
+    "original_title": "نقاط القوة",
+    "normalized_section_type": "strengths",
+    "section_order": 1,
+    "original_text": "1. أظهرت الكتيبة الأولى قدرة جيدة على الانتشار ضمن التوقيت المحدد.",
+    "confidence_score": 0.95,
+    "detection_source": "rules",
+    "review_status": "auto_detected",
+    "page_start": null,
+    "cleaned_text": "1. أظهرت الكتيبة الأولى قدرة جيدة على الانتشار ضمن التوقيت المحدد."
+  },
+  {
+    "original_title": "نقاط الضعف",
+    "normalized_section_type": "weaknesses",
+    "section_order": 2,
+    "original_text": "1. لوحظ تأخر في تمرير البلاغات إلى مركز عمليات اللواء.",
+    "confidence_score": 0.95,
+    "detection_source": "rules",
+    "review_status": "auto_detected",
+    "page_start": null,
+    "cleaned_text": "1. لوحظ تأخر في تمرير البلاغات إلى مركز عمليات اللواء."
+  }
+]

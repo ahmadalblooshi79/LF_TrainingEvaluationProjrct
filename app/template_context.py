@@ -71,6 +71,7 @@ def inject_header_exercise():
         "header_nav_dashboard_active": False,
         "header_nav_admin_active": False,
         "header_nav_library_active": False,
+        "header_nav_help_active": False,
         "header_nav_chat_active": False,
         "header_nav_exercise_info_active": False,
         "header_nav_notifications_active": False,
@@ -91,6 +92,7 @@ def inject_header_exercise():
     base["header_nav_dashboard_active"] = _header_nav_path_active("/dashboard", path=req_path)
     base["header_nav_admin_active"] = req_path.startswith("/admin")
     base["header_nav_library_active"] = _header_nav_path_active("/library", path=req_path)
+    base["header_nav_help_active"] = _header_nav_path_active("/help", path=req_path)
     base["header_nav_chat_active"] = _header_nav_path_active("/chat-rooms", path=req_path)
     base["header_nav_exercise_info_active"] = req_path.startswith("/exercises/")
     base["header_nav_notifications_active"] = _header_nav_path_active("/notifications", path=req_path)
