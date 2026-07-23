@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}إضافة عدة تقارير{% endblock %}
+{% block content %}
+<div class="page-header" dir="rtl">
+  <h1><i class="fa-solid fa-files fa-icon-title" aria-hidden="true"></i> إضافة عدة تقارير</h1>
+  <div class="page-header__nav">
+    {% with subpage_close_fallback=url_for('views.ai_report_library') %}{% include 'partials/subpage_close.html' %}{% endwith %}
+  </div>
+</div>
+{% if error %}<p class="form-error-banner" role="alert">{{ error }}</p>{% endif %}
+{% if results %}
+<section class="card" dir="rtl">
+  <h2 class="h2-in-card">نتائج الرفع</h2>
+  <ul>
+    {% for item in results %}
+    <li>{% if item.ok %}<span class="form-ok-banner" style="display:inline;">نجاح</span>{% else %}<span class="form-error-banner" style="display:inline;">فشل</span>{% endif %}
+      {{ item.name }} — {{ item.message }}
+      {% if item.public_id %}<a href="{{ url_for('views.ai_report_detail', public_id=item.public_id) }}">فتح</a>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+<section class="card mt-1" dir="rtl">
+  <form method="post" enctype="multipart/form-data">
+    <label>ملفات متعددة (.docx / .pdf)
+      <input type="file" name="files" accept=".docx,.pdf" multiple required>
+    </label>
+    <div class="form-grid" style="display:grid;gap:0.65rem;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));margin-top:0.75rem;">
+      <label>السنة المشتركة <input type="number" name="report_year"></label>
+      <label>نوع التمرين المشترك <input name="exercise_type"></label>
+      <label>اللغة <input name="report_language" value="ar"></label>
+      <label>درجة السرية <input name="classification_level"></label>
+      <label><input type="checkbox" name="allow_learning" value="1" checked> السماح بالتعلم</label>
+      <label><input type="checkbox" name="process_now" value="1" checked> معالجة فورية</label>
+    </div>
+    <p class="muted">فشل ملف واحد لا يوقف بقية الملفات.</p>
+    <p class="ibank-units-included-actions mt-tight">
+      <button type="submit" class="btn btn-primary"><i class="fa-solid fa-upload" aria-hidden="true"></i> رفع الدفعة</button>
+    </p>
+  </form>
+</section>
+{% endblock %}

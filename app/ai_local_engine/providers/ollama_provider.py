@@ -191,8 +191,15 @@ class OllamaProvider(BaseAIProvider):
         model = ""
         timing: RequestTiming | None = None
         try:
+            ctx = dict(request.context or {})
             # التحقق من النموذج خارج نافذة قياس زمن التوليد
-            model = self._ensure_model(request.model_name or "")
+            # يمكن تخطي list_models عند معرفة الاسم مسبقاً (مثل اختبار الصحة السريع)
+            if ctx.get("skip_model_ensure"):
+                model = (request.model_name or "").strip()
+                if not model:
+                    raise AIModelNotFoundError("لم يُحدد اسم النموذج.")
+            else:
+                model = self._ensure_model(request.model_name or "")
             messages: list[dict[str, str]] = []
             if (request.system_prompt or "").strip():
                 messages.append({"role": "system", "content": request.system_prompt.strip()})
@@ -212,6 +219,9 @@ class OllamaProvider(BaseAIProvider):
                 "messages": messages,
                 "stream": False,
             }
+            # Qwen3 / نماذج التفكير: تعطيل التفكير المطول عند الطلب
+            if "think" in ctx:
+                body["think"] = bool(ctx.get("think"))
             if options:
                 body["options"] = options
 

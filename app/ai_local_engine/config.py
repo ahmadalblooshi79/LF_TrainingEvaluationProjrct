@@ -50,5 +50,14 @@ AI_TELEMETRY = _bool_env("AI_TELEMETRY", False)
 AI_LOG_PROMPTS = _bool_env("AI_LOG_PROMPTS", False)
 AI_LOG_RESPONSES = _bool_env("AI_LOG_RESPONSES", False)
 
+# وضع المحرك: legacy | agentic | hybrid (القيمة الافتراضية hybrid)
+_AI_ENGINE_MODE_RAW = (os.getenv("AI_ENGINE_MODE") or "hybrid").strip().lower()
+AI_ENGINE_MODE = _AI_ENGINE_MODE_RAW if _AI_ENGINE_MODE_RAW in ("legacy", "agentic", "hybrid") else "hybrid"
+AI_AGENTIC_ENABLED = _bool_env("AI_AGENTIC_ENABLED", True)
+AI_DEFAULT_MODEL = (os.getenv("AI_DEFAULT_MODEL") or AI_MODEL_NAME or "").strip()
+AI_DEFAULT_TIMEOUT = _int_env("AI_DEFAULT_TIMEOUT", AI_TIMEOUT_SECONDS)
+AI_DEFAULT_MAX_RETRIES = _int_env("AI_DEFAULT_MAX_RETRIES", AI_RETRY_COUNT)
+AI_SAVE_RAW_RESPONSES = _bool_env("AI_SAVE_RAW_RESPONSES", False)
+
 ALLOWED_PROVIDERS = frozenset({"ollama", "lmstudio", "llamacpp"})
 MAX_TEST_PROMPT_CHARS = 2000

@@ -131,6 +131,23 @@ from app.permissions import (
     can_view_information_bank,
     can_view_notifications_log,
     can_use_visual_documentation,
+    can_access_ai_center,
+    can_view_ai_settings,
+    can_edit_ai_settings,
+    can_test_ai_connection,
+    can_view_ai_models,
+    can_view_ai_reports,
+    can_upload_ai_reports,
+    can_edit_ai_reports,
+    can_process_ai_reports,
+    can_review_ai_reports,
+    can_approve_ai_reports,
+    can_exclude_ai_reports,
+    can_archive_ai_reports,
+    can_delete_ai_reports,
+    can_view_ai_report_text,
+    can_review_ai_report_units,
+    can_review_ai_report_findings,
     is_analyst,
     is_chief_judge,
     is_control,
@@ -4709,6 +4726,17 @@ def dashboard():
     dashboard_cards.sort(
         key=lambda c: _DASHBOARD_CARD_ORDER_RANK.get(c["role_key"], 99)
     )
+    if can_access_ai_center(user):
+        dashboard_cards.append(
+            {
+                "role_key": "ai_center",
+                "title_ar": "مركز الذكاء الاصطناعي",
+                "duties_ar": "إعداد وتشغيل الذكاء الاصطناعي المحلي وإدارة خصائص التقارير الذكية.",
+                "href": "/ai-center",
+                "aria_label": "فتح مركز الذكاء الاصطناعي المحلي",
+                "hint": "محرك محلي بدون إنترنت",
+            }
+        )
     return render_template(
         "dashboard.html",
         **_ctx(
@@ -16946,6 +16974,770 @@ def api_ai_suggest():
     context = (request.form.get("context") or "").strip()
     out = suggest_instructions_or_notes(purpose=purpose, context=context)
     return jsonify({"ok": True, "text": out})
+
+
+# ——————————————————————————————————————————————————————————————
+# مركز الذكاء الاصطناعي المحلي (المرحلة الأولى — Ollama)
+# ——————————————————————————————————————————————————————————————
+
+_AI_TEST_PROMPT_DEFAULT = "اكتب جملة عربية رسمية قصيرة عن أهمية التدريب."
+
+
+def _ai_center_render(user, *, error=None, ok_msg=None, prompt_result=None, models=None, models_error=None):
+    from flask import g
+
+    from app.ai_local_engine.services.ai_service import AIService
+
+    db = g.db
+    svc = AIService(db)
+    settings = svc.get_settings()
+    if models is None:
+        models = []
+        if settings.enabled and can_view_ai_models(user):
+            try:
+                models = svc.list_models()
+            except Exception as exc:
+                from app.ai_local_engine.exceptions import AILocalEngineError
+
+                models_error = (
+                    exc.user_message if isinstance(exc, AILocalEngineError) else "تعذر قراءة قائمة النماذج."
+                )
+    return render_template(
+        "ai_center.html",
+        **_ctx(
+            user,
+            settings=settings,
+            models=models or [],
+            models_error=models_error,
+            error=error,
+            ok_msg=ok_msg,
+            prompt_result=prompt_result,
+            test_prompt_default=_AI_TEST_PROMPT_DEFAULT,
+            can_edit=can_edit_ai_settings(user),
+            can_test=can_test_ai_connection(user),
+        ),
+    )
+
+
+@bp.route("/ai-center")
+def ai_center():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/ai-center")
+    if not can_access_ai_center(user):
+        abort(403)
+    return _ai_center_render(user)
+
+
+@bp.route("/ai-center/settings", methods=["POST"])
+def ai_center_save_settings():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/ai-center")
+    if not can_edit_ai_settings(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_local_engine.exceptions import AILocalEngineError
+    from app.ai_local_engine.services.ai_service import AIService
+
+    payload = {
+        "enabled": request.form.get("enabled") == "1",
+        "provider": (request.form.get("provider") or "ollama").strip(),
+        "base_url": (request.form.get("base_url") or "").strip(),
+        "model_name": (request.form.get("model_name") or "").strip(),
+        "temperature": request.form.get("temperature"),
+        "max_tokens": request.form.get("max_tokens"),
+        "timeout_seconds": request.form.get("timeout_seconds"),
+        "retry_count": request.form.get("retry_count"),
+        "context_window": request.form.get("context_window"),
+        "response_language": (request.form.get("response_language") or "ar").strip(),
+        "structured_output": request.form.get("structured_output") == "1",
+        "allow_internal_network": request.form.get("allow_internal_network") == "1",
+    }
+    try:
+        AIService(g.db).save_settings(payload, user_id=user.id)
+        return _ai_center_render(user, ok_msg="تم حفظ إعدادات الذكاء الاصطناعي المحلي.")
+    except AILocalEngineError as exc:
+        return _ai_center_render(user, error=exc.user_message)
+
+
+@bp.route("/ai-center/test-connection", methods=["POST"])
+def ai_center_test_connection():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/ai-center")
+    if not can_test_ai_connection(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_local_engine.exceptions import AILocalEngineError
+    from app.ai_local_engine.services.ai_service import AIService
+
+    try:
+        result = AIService(g.db).test_connection()
+        if result.success:
+            return _ai_center_render(user, ok_msg=result.text or "الاتصال ناجح.")
+        return _ai_center_render(user, error=result.error_message or "فشل اختبار الاتصال.")
+    except AILocalEngineError as exc:
+        return _ai_center_render(user, error=exc.user_message)
+
+
+@bp.route("/ai-center/refresh-models", methods=["POST"])
+def ai_center_refresh_models():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/ai-center")
+    if not can_view_ai_models(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_local_engine.exceptions import AILocalEngineError
+    from app.ai_local_engine.services.ai_service import AIService
+
+    try:
+        models = AIService(g.db).list_models()
+        return _ai_center_render(
+            user,
+            models=models,
+            ok_msg=f"تم تحديث القائمة — {len(models)} نموذجاً.",
+        )
+    except AILocalEngineError as exc:
+        return _ai_center_render(user, models=[], models_error=exc.user_message, error=exc.user_message)
+
+
+@bp.route("/ai-center/select-model", methods=["POST"])
+def ai_center_select_model():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/ai-center")
+    if not can_edit_ai_settings(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_local_engine.exceptions import AILocalEngineError
+    from app.ai_local_engine.services.ai_service import AIService
+
+    name = (request.form.get("model_name") or "").strip()
+    try:
+        AIService(g.db).save_settings({"model_name": name}, user_id=user.id)
+        return _ai_center_render(user, ok_msg=f"تم اختيار النموذج: {name}")
+    except AILocalEngineError as exc:
+        return _ai_center_render(user, error=exc.user_message)
+
+
+@bp.route("/ai-center/test-prompt", methods=["POST"])
+def ai_center_test_prompt():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/ai-center")
+    if not can_test_ai_connection(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_local_engine.exceptions import AILocalEngineError
+    from app.ai_local_engine.services.ai_service import AIService
+
+    prompt = (request.form.get("prompt") or "").strip() or _AI_TEST_PROMPT_DEFAULT
+    try:
+        result = AIService(g.db).test_prompt(prompt)
+        if result.success:
+            return _ai_center_render(user, ok_msg="اكتمل اختبار الـ Prompt.", prompt_result=result)
+        return _ai_center_render(
+            user,
+            error=result.error_message or "فشل اختبار الـ Prompt.",
+            prompt_result=result,
+        )
+    except AILocalEngineError as exc:
+        return _ai_center_render(user, error=exc.user_message)
+
+
+def _api_ai_user_or_error(*, need_edit=False, need_test=False, need_models=False):
+    user = get_current_user_optional()
+    if not user:
+        return None, (jsonify({"ok": False, "error": "unauthorized", "error_message": "يلزم تسجيل الدخول."}), 401)
+    if not can_access_ai_center(user):
+        return None, (jsonify({"ok": False, "error": "forbidden", "error_message": "غير مصرح."}), 403)
+    if need_edit and not can_edit_ai_settings(user):
+        return None, (jsonify({"ok": False, "error": "forbidden", "error_message": "غير مصرح بالتعديل."}), 403)
+    if need_test and not can_test_ai_connection(user):
+        return None, (jsonify({"ok": False, "error": "forbidden", "error_message": "غير مصرح بالاختبار."}), 403)
+    if need_models and not can_view_ai_models(user):
+        return None, (jsonify({"ok": False, "error": "forbidden", "error_message": "غير مصرح بعرض النماذج."}), 403)
+    return user, None
+
+
+@bp.route("/api/ai/settings", methods=["GET"])
+def api_ai_settings_get():
+    user, err = _api_ai_user_or_error()
+    if err:
+        return err
+    if not can_view_ai_settings(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    from flask import g
+
+    from app.ai_local_engine.services.ai_service import AIService
+
+    return jsonify({"ok": True, "settings": AIService(g.db).get_settings().to_dict()})
+
+
+@bp.route("/api/ai/settings", methods=["PUT"])
+def api_ai_settings_put():
+    user, err = _api_ai_user_or_error(need_edit=True)
+    if err:
+        return err
+    from flask import g
+
+    from app.ai_local_engine.exceptions import AILocalEngineError
+    from app.ai_local_engine.services.ai_service import AIService
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        settings = AIService(g.db).save_settings(payload, user_id=user.id)
+        return jsonify({"ok": True, "settings": settings.to_dict()})
+    except AILocalEngineError as exc:
+        return jsonify({"ok": False, "error": exc.error_code, "error_message": exc.user_message}), 400
+
+
+@bp.route("/api/ai/test-connection", methods=["POST"])
+def api_ai_test_connection():
+    user, err = _api_ai_user_or_error(need_test=True)
+    if err:
+        return err
+    from flask import g
+
+    from app.ai_local_engine.exceptions import AILocalEngineError
+    from app.ai_local_engine.services.ai_service import AIService
+
+    try:
+        result = AIService(g.db).test_connection()
+        return jsonify({"ok": result.success, **result.to_public_dict()})
+    except AILocalEngineError as exc:
+        return jsonify({"ok": False, "error": exc.error_code, "error_message": exc.user_message}), 400
+
+
+@bp.route("/api/ai/models", methods=["GET"])
+def api_ai_models():
+    user, err = _api_ai_user_or_error(need_models=True)
+    if err:
+        return err
+    from flask import g
+
+    from app.ai_local_engine.exceptions import AILocalEngineError
+    from app.ai_local_engine.services.ai_service import AIService
+
+    try:
+        models = AIService(g.db).list_models()
+        return jsonify({"ok": True, "models": models})
+    except AILocalEngineError as exc:
+        return jsonify({"ok": False, "error": exc.error_code, "error_message": exc.user_message}), 400
+
+
+@bp.route("/api/ai/test-prompt", methods=["POST"])
+def api_ai_test_prompt():
+    user, err = _api_ai_user_or_error(need_test=True)
+    if err:
+        return err
+    from flask import g
+
+    from app.ai_local_engine.exceptions import AILocalEngineError
+    from app.ai_local_engine.services.ai_service import AIService
+
+    data = request.get_json(silent=True) or {}
+    prompt = (data.get("prompt") or request.form.get("prompt") or "").strip()
+    try:
+        result = AIService(g.db).test_prompt(prompt or _AI_TEST_PROMPT_DEFAULT)
+        return jsonify({"ok": result.success, **result.to_public_dict()})
+    except AILocalEngineError as exc:
+        return jsonify({"ok": False, "error": exc.error_code, "error_message": exc.user_message}), 400
+
+
+@bp.route("/api/ai/health", methods=["GET"])
+def api_ai_health():
+    user, err = _api_ai_user_or_error()
+    if err:
+        return err
+    from flask import g
+
+    from app.ai_local_engine.services.health_service import HealthService
+
+    status = HealthService(g.db).check(probe_model=False)
+    return jsonify({"ok": True, "health": status.to_dict()})
+
+
+# تسجيل مسارات Agentic AI Foundation (AI Center فقط)
+from app.ai_agentic.routes import register_agentic_routes
+
+register_agentic_routes(
+    bp,
+    get_current_user_optional=get_current_user_optional,
+    abort=abort,
+    _ctx=_ctx,
+)
+
+
+# ——————————————————————————————————————————————————————————————
+# مكتبة التقارير الذكية (المرحلة الثانية)
+# ——————————————————————————————————————————————————————————————
+
+
+def _ai_report_meta_from_form() -> dict:
+    return {
+        "report_title": (request.form.get("report_title") or "").strip(),
+        "exercise_name": (request.form.get("exercise_name") or "").strip(),
+        "exercise_type": (request.form.get("exercise_type") or "").strip(),
+        "report_type": (request.form.get("report_type") or "other").strip(),
+        "report_year": request.form.get("report_year"),
+        "report_language": (request.form.get("report_language") or "ar").strip(),
+        "classification_level": (request.form.get("classification_level") or "").strip(),
+        "report_quality": (request.form.get("report_quality") or "").strip(),
+        "is_approved": request.form.get("is_approved") == "1",
+        "allow_learning": request.form.get("allow_learning") == "1",
+        "main_unit_name": (request.form.get("main_unit_name") or "").strip(),
+        "main_unit_level": (request.form.get("main_unit_level") or "").strip(),
+        "admin_notes": (request.form.get("admin_notes") or "").strip(),
+    }
+
+
+@bp.route("/ai-center/report-library")
+def ai_report_library():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/ai-center/report-library")
+    if not can_view_ai_reports(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_report_library.constants import PROCESSING_STATUSES
+    from app.ai_report_library.models import AIReportSource
+
+    q = (request.args.get("q") or "").strip()
+    status_filter = (request.args.get("status") or "").strip()
+    query = g.db.query(AIReportSource).filter(AIReportSource.is_active.is_(True))
+    if status_filter:
+        query = query.filter(AIReportSource.processing_status == status_filter)
+    if q:
+        like = f"%{q}%"
+        query = query.filter(
+            (AIReportSource.report_title.like(like))
+            | (AIReportSource.exercise_name.like(like))
+            | (AIReportSource.main_unit_name.like(like))
+            | (AIReportSource.original_file_name.like(like))
+        )
+    reports = query.order_by(AIReportSource.id.desc()).limit(200).all()
+    return render_template(
+        "ai_report_library.html",
+        **_ctx(
+            user,
+            reports=reports,
+            q=q,
+            status_filter=status_filter,
+            status_options=PROCESSING_STATUSES,
+            can_upload=can_upload_ai_reports(user),
+            can_process=can_process_ai_reports(user),
+            error=request.args.get("err"),
+            ok_msg=request.args.get("ok"),
+        ),
+    )
+
+
+@bp.route("/ai-center/report-library/upload", methods=["GET", "POST"])
+def ai_report_upload():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/ai-center/report-library/upload")
+    if not can_upload_ai_reports(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_report_library.constants import REPORT_TYPES, UNIT_LEVELS
+    from app.ai_report_library.security_upload import ReportUploadError
+    from app.ai_report_library.services.processing_pipeline import process_report
+    from app.ai_report_library.services.storage_service import find_by_checksum, store_new_report
+    from app.ai_report_library.security_upload import sha256_bytes
+
+    if request.method == "GET":
+        return render_template(
+            "ai_report_upload.html",
+            **_ctx(user, report_types=REPORT_TYPES, unit_levels=UNIT_LEVELS),
+        )
+
+    up = request.files.get("file")
+    if up is None or not (up.filename or "").strip():
+        return render_template(
+            "ai_report_upload.html",
+            **_ctx(user, report_types=REPORT_TYPES, unit_levels=UNIT_LEVELS, error="اختر ملفاً."),
+        )
+    raw = up.read()
+    meta = _ai_report_meta_from_form()
+    if not meta["report_title"]:
+        meta["report_title"] = Path(up.filename).stem
+    force = request.form.get("force_new_version") == "1"
+    try:
+        if not force:
+            existing = find_by_checksum(g.db, sha256_bytes(raw))
+            if existing:
+                return render_template(
+                    "ai_report_upload.html",
+                    **_ctx(
+                        user,
+                        report_types=REPORT_TYPES,
+                        unit_levels=UNIT_LEVELS,
+                        duplicate=existing,
+                        error="هذا التقرير موجود مسبقاً في مكتبة التقارير.",
+                    ),
+                )
+        row = store_new_report(
+            g.db,
+            file_bytes=raw,
+            original_filename=up.filename,
+            meta=meta,
+            user_id=user.id,
+            force_new_version=force,
+        )
+        if request.form.get("process_now") == "1" and can_process_ai_reports(user):
+            process_report(g.db, row.id, use_qwen=True)
+        return redirect(url_for("views.ai_report_detail", public_id=row.public_id, ok="تم رفع التقرير."))
+    except ReportUploadError as exc:
+        return render_template(
+            "ai_report_upload.html",
+            **_ctx(user, report_types=REPORT_TYPES, unit_levels=UNIT_LEVELS, error=exc.user_message),
+        )
+
+
+@bp.route("/ai-center/report-library/bulk-upload", methods=["GET", "POST"])
+def ai_report_bulk_upload():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/ai-center/report-library/bulk-upload")
+    if not can_upload_ai_reports(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_report_library.constants import MAX_BULK_FILES
+    from app.ai_report_library.security_upload import ReportUploadError
+    from app.ai_report_library.services.processing_pipeline import process_report
+    from app.ai_report_library.services.storage_service import store_new_report
+
+    if request.method == "GET":
+        return render_template("ai_report_bulk_upload.html", **_ctx(user))
+
+    files = request.files.getlist("files") or []
+    if not files:
+        return render_template("ai_report_bulk_upload.html", **_ctx(user, error="اختر ملفاً واحداً على الأقل."))
+    files = files[:MAX_BULK_FILES]
+    shared = {
+        "report_year": request.form.get("report_year"),
+        "exercise_type": (request.form.get("exercise_type") or "").strip(),
+        "report_language": (request.form.get("report_language") or "ar").strip(),
+        "classification_level": (request.form.get("classification_level") or "").strip(),
+        "allow_learning": request.form.get("allow_learning") == "1",
+        "report_type": "other",
+    }
+    results = []
+    for f in files:
+        name = f.filename or "file"
+        try:
+            raw = f.read()
+            meta = dict(shared)
+            meta["report_title"] = Path(name).stem
+            row = store_new_report(
+                g.db,
+                file_bytes=raw,
+                original_filename=name,
+                meta=meta,
+                user_id=user.id,
+                force_new_version=False,
+            )
+            if request.form.get("process_now") == "1" and can_process_ai_reports(user):
+                process_report(g.db, row.id, use_qwen=False)
+            results.append({"ok": True, "name": name, "message": "تم الرفع", "public_id": row.public_id})
+        except ReportUploadError as exc:
+            results.append({"ok": False, "name": name, "message": exc.user_message, "public_id": None})
+        except Exception as exc:
+            results.append({"ok": False, "name": name, "message": str(exc), "public_id": None})
+    return render_template("ai_report_bulk_upload.html", **_ctx(user, results=results))
+
+
+@bp.route("/ai-center/report-library/<public_id>")
+def ai_report_detail(public_id: str):
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/ai-center/report-library/{public_id}")
+    if not can_view_ai_reports(user):
+        abort(403)
+    from flask import g
+    from pathlib import Path as P
+
+    from app.ai_report_library.models import (
+        AIReportFinding,
+        AIReportFindingUnit,
+        AIReportProcessingLog,
+        AIReportSection,
+        AIReportSource,
+        AIReportTable,
+        AIReportUnit,
+    )
+    from app.ai_report_library.paths import report_extracted_dir
+
+    report = g.db.query(AIReportSource).filter_by(public_id=public_id).first()
+    if not report:
+        abort(404)
+    sections = g.db.query(AIReportSection).filter_by(report_id=report.id).order_by(AIReportSection.section_order).all()
+    units = g.db.query(AIReportUnit).filter_by(report_id=report.id).order_by(AIReportUnit.unit_order).all()
+    tables = g.db.query(AIReportTable).filter_by(report_id=report.id).order_by(AIReportTable.table_order).all()
+    findings = g.db.query(AIReportFinding).filter_by(report_id=report.id).order_by(AIReportFinding.order_number).all()
+    logs = g.db.query(AIReportProcessingLog).filter_by(report_id=report.id).order_by(AIReportProcessingLog.id).all()
+
+    findings_by_unit: dict[int, list] = {u.id: [] for u in units}
+    linked_ids: set[int] = set()
+    for f in findings:
+        links = g.db.query(AIReportFindingUnit).filter_by(finding_id=f.id).all()
+        if not links:
+            continue
+        for link in links:
+            findings_by_unit.setdefault(link.report_unit_id, []).append(f)
+            linked_ids.add(f.id)
+    general_findings = [f for f in findings if f.id not in linked_ids]
+
+    original_text = ""
+    cleaned_text = ""
+    ex = report_extracted_dir(report.public_id)
+    if (ex / "full_original.txt").is_file():
+        original_text = (ex / "full_original.txt").read_text(encoding="utf-8", errors="replace")
+    if (ex / "full_cleaned.txt").is_file():
+        cleaned_text = (ex / "full_cleaned.txt").read_text(encoding="utf-8", errors="replace")
+
+    return render_template(
+        "ai_report_detail.html",
+        **_ctx(
+            user,
+            report=report,
+            sections=sections,
+            units=units,
+            tables=tables,
+            findings_by_unit=findings_by_unit,
+            general_findings=general_findings,
+            logs=logs,
+            original_text=original_text,
+            cleaned_text=cleaned_text,
+            can_process=can_process_ai_reports(user),
+            can_exclude=can_exclude_ai_reports(user),
+            can_archive=can_archive_ai_reports(user),
+            can_view_text=can_view_ai_report_text(user),
+            ok_msg=request.args.get("ok"),
+            error=request.args.get("err"),
+        ),
+    )
+
+
+@bp.route("/ai-center/report-library/<public_id>/download")
+def ai_report_download(public_id: str):
+    user = get_current_user_optional()
+    if not user or not can_view_ai_reports(user):
+        abort(403)
+    from flask import g
+    from pathlib import Path as P
+
+    from app.ai_report_library.models import AIReportSource
+
+    report = g.db.query(AIReportSource).filter_by(public_id=public_id).first()
+    if not report:
+        abort(404)
+    path = P(report.stored_file_path)
+    if not path.is_file():
+        abort(404)
+    return send_file(path, as_attachment=True, download_name=report.original_file_name or path.name)
+
+
+@bp.route("/ai-center/report-library/<public_id>/process", methods=["POST"])
+def ai_report_process(public_id: str):
+    user = get_current_user_optional()
+    if not user or not can_process_ai_reports(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_report_library.models import AIReportSource
+    from app.ai_report_library.services.processing_pipeline import process_report
+
+    report = g.db.query(AIReportSource).filter_by(public_id=public_id).first()
+    if not report:
+        abort(404)
+    process_report(g.db, report.id, use_qwen=True)
+    return redirect(url_for("views.ai_report_detail", public_id=public_id, ok="اكتملت المعالجة."))
+
+
+@bp.route("/ai-center/report-library/<public_id>/exclude", methods=["POST"])
+def ai_report_exclude(public_id: str):
+    user = get_current_user_optional()
+    if not user or not can_exclude_ai_reports(user):
+        abort(403)
+    from flask import g
+    from datetime import datetime
+
+    from app.ai_report_library.models import AIReportSource
+
+    report = g.db.query(AIReportSource).filter_by(public_id=public_id).first()
+    if not report:
+        abort(404)
+    report.allow_learning = False
+    report.processing_status = "excluded"
+    report.updated_at = datetime.utcnow()
+    g.db.commit()
+    return redirect(url_for("views.ai_report_detail", public_id=public_id, ok="تم استبعاد التقرير من التعلم."))
+
+
+@bp.route("/ai-center/report-library/<public_id>/archive", methods=["POST"])
+def ai_report_archive(public_id: str):
+    user = get_current_user_optional()
+    if not user or not can_archive_ai_reports(user):
+        abort(403)
+    from flask import g
+    from datetime import datetime
+
+    from app.ai_report_library.models import AIReportSource
+    from app.ai_report_library.services.storage_service import archive_report_files
+
+    report = g.db.query(AIReportSource).filter_by(public_id=public_id).first()
+    if not report:
+        abort(404)
+    archive_report_files(report)
+    report.processing_status = "archived"
+    report.is_active = False
+    report.updated_at = datetime.utcnow()
+    g.db.commit()
+    return redirect(url_for("views.ai_report_library", ok="تمت الأرشفة."))
+
+
+@bp.route("/ai-center/report-library/<public_id>/review", methods=["GET"])
+def ai_report_review(public_id: str):
+    user = get_current_user_optional()
+    if not user or not can_review_ai_report_findings(user):
+        abort(403)
+    from flask import g
+
+    from app.ai_report_library.constants import FINDING_TYPES, REVIEW_STATUSES, SCOPE_TYPES
+    from app.ai_report_library.models import AIReportFinding, AIReportSource, AIReportUnit
+
+    report = g.db.query(AIReportSource).filter_by(public_id=public_id).first()
+    if not report:
+        abort(404)
+    findings = g.db.query(AIReportFinding).filter_by(report_id=report.id).order_by(AIReportFinding.order_number).all()
+    units = g.db.query(AIReportUnit).filter_by(report_id=report.id).order_by(AIReportUnit.unit_order).all()
+    return render_template(
+        "ai_report_review.html",
+        **_ctx(
+            user,
+            report=report,
+            findings=findings,
+            units=units,
+            finding_types=FINDING_TYPES,
+            scope_types=SCOPE_TYPES,
+            review_statuses=REVIEW_STATUSES,
+            ok_msg=request.args.get("ok"),
+            error=request.args.get("err"),
+        ),
+    )
+
+
+@bp.route("/ai-center/report-library/<public_id>/findings/<int:finding_id>", methods=["POST"])
+def ai_report_finding_update(public_id: str, finding_id: int):
+    user = get_current_user_optional()
+    if not user or not can_review_ai_report_findings(user):
+        abort(403)
+    from flask import g
+    from datetime import datetime
+
+    from app.ai_report_library.models import (
+        AIReportCorrection,
+        AIReportFinding,
+        AIReportFindingUnit,
+        AIReportSource,
+    )
+
+    report = g.db.query(AIReportSource).filter_by(public_id=public_id).first()
+    if not report:
+        abort(404)
+    finding = g.db.query(AIReportFinding).filter_by(id=finding_id, report_id=report.id).first()
+    if not finding:
+        abort(404)
+    old = f"{finding.finding_type}|{finding.scope_type}|{finding.review_status}"
+    finding.finding_type = (request.form.get("finding_type") or finding.finding_type).strip()
+    finding.scope_type = (request.form.get("scope_type") or finding.scope_type).strip()
+    finding.review_status = (request.form.get("review_status") or finding.review_status).strip()
+    finding.updated_at = datetime.utcnow()
+    unit_id = (request.form.get("unit_id") or "").strip()
+    if unit_id.isdigit():
+        g.db.query(AIReportFindingUnit).filter_by(finding_id=finding.id).delete()
+        g.db.add(
+            AIReportFindingUnit(
+                finding_id=finding.id,
+                report_unit_id=int(unit_id),
+                relation_type="brigade_level" if finding.scope_type == "brigade" else "primary",
+                confidence_score=1.0,
+                created_at=datetime.utcnow(),
+            )
+        )
+    g.db.add(
+        AIReportCorrection(
+            report_id=report.id,
+            entity_type="finding",
+            entity_id=finding.id,
+            original_value=old,
+            corrected_value=f"{finding.finding_type}|{finding.scope_type}|{finding.review_status}",
+            correction_type="manual_review",
+            corrected_by=user.id,
+            corrected_at=datetime.utcnow(),
+            approved_for_future_learning=True,
+        )
+    )
+    g.db.commit()
+    return redirect(url_for("views.ai_report_review", public_id=public_id, ok="تم حفظ التعديل."))
+
+
+@bp.route("/api/ai/reports", methods=["GET"])
+def api_ai_reports_list():
+    user = get_current_user_optional()
+    if not user or not can_view_ai_reports(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    from flask import g
+
+    from app.ai_report_library.models import AIReportSource
+
+    rows = g.db.query(AIReportSource).order_by(AIReportSource.id.desc()).limit(100).all()
+    return jsonify(
+        {
+            "ok": True,
+            "reports": [
+                {
+                    "public_id": r.public_id,
+                    "title": r.report_title,
+                    "status": r.processing_status,
+                    "units": r.units_count,
+                    "strengths": r.strengths_count,
+                    "weaknesses": r.weaknesses_count,
+                }
+                for r in rows
+            ],
+        }
+    )
+
+
+@bp.route("/api/ai/reports/<public_id>/process", methods=["POST"])
+def api_ai_report_process(public_id: str):
+    user = get_current_user_optional()
+    if not user or not can_process_ai_reports(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    from flask import g
+
+    from app.ai_report_library.models import AIReportSource
+    from app.ai_report_library.services.processing_pipeline import process_report
+
+    report = g.db.query(AIReportSource).filter_by(public_id=public_id).first()
+    if not report:
+        return jsonify({"ok": False, "error": "not_found"}), 404
+    row = process_report(g.db, report.id, use_qwen=True)
+    return jsonify({"ok": True, "status": row.processing_status, "error": row.processing_error})
 
 
 # ——————————————————————————————————————————————————————————————

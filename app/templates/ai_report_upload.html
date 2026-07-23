@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}إضافة تقرير — مكتبة التقارير{% endblock %}
+{% block content %}
+<div class="page-header" dir="rtl">
+  <h1><i class="fa-solid fa-file-circle-plus fa-icon-title" aria-hidden="true"></i> إضافة تقرير</h1>
+  <div class="page-header__nav">
+    {% with subpage_close_fallback=url_for('views.ai_report_library') %}{% include 'partials/subpage_close.html' %}{% endwith %}
+  </div>
+</div>
+{% if error %}<p class="form-error-banner" role="alert">{{ error }}</p>{% endif %}
+{% if duplicate %}
+<p class="form-error-banner" role="alert">
+  هذا التقرير موجود مسبقاً في مكتبة التقارير.
+  <a href="{{ url_for('views.ai_report_detail', public_id=duplicate.public_id) }}">فتح التقرير الموجود</a>
+</p>
+{% endif %}
+
+<section class="card" dir="rtl">
+  <form method="post" enctype="multipart/form-data" action="{{ url_for('views.ai_report_upload') }}">
+    <label>ملف التقرير (.docx / .pdf)
+      <input type="file" name="file" accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required>
+    </label>
+    <div class="form-grid" style="display:grid;gap:0.65rem;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));margin-top:0.75rem;">
+      <label>عنوان التقرير <input name="report_title" required></label>
+      <label>اسم التمرين <input name="exercise_name"></label>
+      <label>نوع التمرين <input name="exercise_type"></label>
+      <label>نوع التقرير
+        <select name="report_type">
+          {% for k,v in report_types %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>السنة <input type="number" name="report_year" min="1990" max="2100"></label>
+      <label>اللغة <input name="report_language" value="ar"></label>
+      <label>درجة السرية <input name="classification_level"></label>
+      <label>جودة التقرير <input name="report_quality"></label>
+      <label>الوحدة الرئيسية <input name="main_unit_name"></label>
+      <label>مستوى الوحدة
+        <select name="main_unit_level">
+          <option value="">—</option>
+          {% for k,v in unit_levels %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+        </select>
+      </label>
+      <label><input type="checkbox" name="is_approved" value="1"> التقرير معتمد</label>
+      <label><input type="checkbox" name="allow_learning" value="1" checked> السماح باستخدامه في التعلم</label>
+      <label><input type="checkbox" name="force_new_version" value="1"> رفع نسخة جديدة رغم تطابق checksum</label>
+    </div>
+    <label style="display:block;margin-top:0.75rem;">ملاحظات إدارية
+      <textarea name="admin_notes" rows="3"></textarea>
+    </label>
+    <p class="ibank-units-included-actions mt-tight">
+      <button type="submit" class="btn btn-primary"><i class="fa-solid fa-upload" aria-hidden="true"></i> رفع وبدء الحفظ</button>
+      <label style="margin-inline-start:0.75rem;"><input type="checkbox" name="process_now" value="1" checked> معالجة فورية بعد الرفع</label>
+    </p>
+  </form>
+</section>
+{% endblock %}

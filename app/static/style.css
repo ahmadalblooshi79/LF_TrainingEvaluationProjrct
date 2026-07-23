@@ -1183,17 +1183,16 @@ main > .page-header__nav.catalog-tools-back:first-child {
   flex: 1;
 }
 
-/* الصفحة الرئيسية — كل الأزرار في صفّ واحد، بطاقات مربعة كبيرة بنفس الحجم */
+/* الصفحة الرئيسية — بطاقات مربعة؛ تُلفّ عند الحاجة حتى لا تُخفى بطاقة سابعة (مركز الذكاء الاصطناعي) */
 .role-grid.role-grid--pyramid {
   --dash-card-size: clamp(11rem, 16vw, 15rem) !important;
   --dash-card-gap: clamp(0.8rem, 1.2vw, 1.4rem) !important;
   display: flex !important;
-  flex-wrap: nowrap !important;
+  flex-wrap: wrap !important;
   justify-content: center !important;
   align-items: stretch !important;
   gap: var(--dash-card-gap) !important;
-  /* العرض الأقصى = خمس بطاقات + أربع فجوات → صفّ واحد لكل الأزرار */
-  max-width: calc(5 * var(--dash-card-size) + 4 * var(--dash-card-gap)) !important;
+  max-width: calc(7 * var(--dash-card-size) + 6 * var(--dash-card-gap)) !important;
   margin-inline: auto !important;
   grid-template-columns: none !important;
 }
@@ -1211,7 +1210,7 @@ main > .page-header__nav.catalog-tools-back:first-child {
   .role-grid.role-grid--pyramid {
     --dash-card-size: clamp(8.5rem, 17vw, 12rem) !important;
     flex-wrap: wrap !important;
-    max-width: calc(5 * var(--dash-card-size) + 4 * var(--dash-card-gap)) !important;
+    max-width: calc(7 * var(--dash-card-size) + 6 * var(--dash-card-gap)) !important;
   }
 }
 @media (max-width: 700px) {
@@ -1532,8 +1531,9 @@ body.page-dashboard main > .role-grid.role-grid--pyramid {
   flex: 0 0 auto !important;
   position: relative;
   z-index: 2;
-  --dash-card-size: clamp(8.8rem, 12.8vw, 12rem) !important;
-  --dash-card-gap: clamp(0.64rem, 0.96vw, 1.12rem) !important;
+  --dash-card-size: clamp(7.6rem, 11vw, 10.5rem) !important;
+  --dash-card-gap: clamp(0.55rem, 0.85vw, 1rem) !important;
+  max-width: calc(7 * var(--dash-card-size) + 6 * var(--dash-card-gap)) !important;
 }
 body.page-dashboard .role-grid.role-grid--pyramid .dashboard-role-card {
   padding-block: 0.72rem !important;
@@ -12451,4 +12451,20 @@ body.help-tree-page main {
   .help-tree-children {
     padding-inline-start: 0.7rem;
   }
+}
+
+/* مركز الذكاء الاصطناعي — مؤشر اختبار Prompt جارٍ */
+.ai-center-prompt-progress {
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.ai-center-prompt-progress[hidden] {
+  display: none !important;
+}
+.ai-center-prompt-form .js-ai-prompt-submit.is-busy,
+.ai-center-prompt-form .js-ai-prompt-submit:disabled {
+  opacity: 0.85;
+  cursor: wait;
 }

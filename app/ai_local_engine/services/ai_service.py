@@ -292,6 +292,32 @@ class AIService:
         )
         return result
 
+    def send_request(
+        self,
+        agent_name: str,
+        system_prompt: str,
+        user_prompt: str,
+        model: str | None = None,
+        parameters: dict[str, Any] | None = None,
+        run_id: int | None = None,
+        timeout: float | None = None,
+        *,
+        prompt_version: str | None = None,
+    ) -> dict[str, Any]:
+        """واجهة Gateway موحدة — تفويض إلى AIGatewayService دون كسر الاستدعاءات الحالية."""
+        from app.ai_agentic.services.ai_gateway_service import AIGatewayService
+
+        return AIGatewayService(self.db).send_request(
+            agent_name=agent_name,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            model=model,
+            parameters=parameters,
+            run_id=run_id,
+            timeout=timeout,
+            prompt_version=prompt_version,
+        ).to_dict(include_raw=False)
+
     @staticmethod
     def _safe_log(action: str, *, provider: str, model: str, ok: bool, **extra: Any) -> None:
         # لا يسجّل محتوى Prompt أو Response

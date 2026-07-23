@@ -115,12 +115,19 @@
 
 <section class="card mt-1" dir="rtl">
   <h2 class="h2-in-card"><i class="fa-solid fa-comment-dots fa-icon-title" aria-hidden="true"></i> اختبار Prompt</h2>
-  <form method="post" action="{{ url_for('views.ai_center_test_prompt') }}">
+  <form method="post" action="{{ url_for('views.ai_center_test_prompt') }}" id="ai-test-prompt-form" class="ai-center-prompt-form">
     <label for="ai-test-prompt">نص الاختبار</label>
     <textarea id="ai-test-prompt" name="prompt" rows="4" maxlength="2000" required>{{ test_prompt_default }}</textarea>
     {% if can_test %}
     <p class="ibank-units-included-actions mt-tight">
-      <button type="submit" class="btn btn-primary"><i class="fa-solid fa-paper-plane" aria-hidden="true"></i> إرسال</button>
+      <button type="submit" class="btn btn-primary js-ai-prompt-submit" id="ai-prompt-submit-btn">
+        <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
+        <span class="js-ai-prompt-submit-label">إرسال</span>
+      </button>
+    </p>
+    <p class="ai-center-prompt-progress form-ok-banner" id="ai-prompt-progress" role="status" aria-live="polite" hidden>
+      <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+      الاختبار جاري — Test in progress…
     </p>
     {% endif %}
   </form>
@@ -152,13 +159,56 @@
 </section>
 
 <section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card"><i class="fa-solid fa-folder-open fa-icon-title" aria-hidden="true"></i> مكتبة التقارير الذكية</h2>
+  <p class="muted">رفع التقارير السابقة المعتمدة (Word/PDF)، قراءتها، واستخراج الأقسام والوحدات ونقاط القوة والضعف للمراجعة.</p>
+  <p class="ibank-units-included-actions mt-tight">
+    <a class="btn btn-primary" href="{{ url_for('views.ai_report_library') }}">
+      <i class="fa-solid fa-book" aria-hidden="true"></i> فتح مكتبة التقارير
+    </a>
+  </p>
+</section>
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card"><i class="fa-solid fa-diagram-project fa-icon-title" aria-hidden="true"></i> Agentic AI Management</h2>
+  <p class="muted">إدارة الوكلاء، تشغيلات المسارات، واختبار صحة النظام (System Health) عبر AI Gateway المحلي.</p>
+  <p class="ibank-units-included-actions mt-tight">
+    <a class="btn btn-primary" href="{{ url_for('views.ai_agentic_management') }}">
+      <i class="fa-solid fa-robot" aria-hidden="true"></i> فتح إدارة Agentic AI
+    </a>
+  </p>
+</section>
+
+<section class="card mt-1" dir="rtl">
   <h2 class="h2-in-card"><i class="fa-solid fa-circle-info fa-icon-title" aria-hidden="true"></i> معلومات المحرك المحلي</h2>
   <ul>
     <li>المحرك يعمل محلياً فقط — بدون إنترنت وبدون مزودين سحابيين.</li>
     <li>المزود الافتراضي: Ollama على <span dir="ltr">http://127.0.0.1:11434</span>.</li>
     <li>لا يقوم النظام بتنزيل النماذج تلقائياً — ثبّتها يدوياً عبر Ollama.</li>
-    <li>LM Studio وllama.cpp مهيّآن للمرحلة اللاحقة.</li>
-    <li>وظائف التقارير الذكية وقاعدة المعرفة غير مفعّلة في هذه المرحلة.</li>
+    <li>LM Studio وllama.cpp مهيّآن للمرحلة اللاحقة وغير مفعّلين حالياً.</li>
+    <li>قاعدة المعرفة وEmbeddings وإنشاء التقارير مؤجّلة للمرحلة الثالثة.</li>
   </ul>
 </section>
+<script>
+(function () {
+  var form = document.getElementById("ai-test-prompt-form");
+  if (!form) return;
+  var btn = form.querySelector(".js-ai-prompt-submit");
+  var label = form.querySelector(".js-ai-prompt-submit-label");
+  var progress = document.getElementById("ai-prompt-progress");
+  var ta = document.getElementById("ai-test-prompt");
+  form.addEventListener("submit", function () {
+    if (!btn) return;
+    if (ta && !(ta.value || "").trim()) return;
+    btn.disabled = true;
+    btn.setAttribute("aria-busy", "true");
+    btn.classList.add("is-busy");
+    if (label) label.textContent = "جاري الاختبار…";
+    var icon = btn.querySelector("i");
+    if (icon) {
+      icon.className = "fa-solid fa-spinner fa-spin";
+    }
+    if (progress) progress.hidden = false;
+  });
+})();
+</script>
 {% endblock %}
