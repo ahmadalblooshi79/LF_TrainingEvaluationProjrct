@@ -26,10 +26,16 @@ from app.database import (
     ensure_information_bank_unit_brigade_group_column,
     ensure_information_bank_unit_label_migrations,
     ensure_analyst_final_eval_manual_tables,
+    ensure_ai_settings_table,
+    ensure_ai_report_library_tables,
+    ensure_ai_agentic_foundation_tables,
 )
 
 # تسجيل النماذج لضمان اكتمال metadata
 import app.models  # noqa: F401
+import app.ai_local_engine.models  # noqa: F401
+import app.ai_report_library.models  # noqa: F401
+import app.ai_agentic.models  # noqa: F401
 
 
 def create_app() -> Flask:
@@ -73,6 +79,9 @@ def create_app() -> Flask:
         ensure_information_bank_unit_brigade_group_column()
         ensure_information_bank_unit_label_migrations()
         ensure_analyst_final_eval_manual_tables()
+        ensure_ai_settings_table()
+        ensure_ai_report_library_tables()
+        ensure_ai_agentic_foundation_tables()
         from app.seed import seed_all
         db = SessionLocal()
         try:

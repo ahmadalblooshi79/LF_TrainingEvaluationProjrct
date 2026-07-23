@@ -1,0 +1,376 @@
+{% extends "base.html" %}
+{% block title %}إدارة Agentic AI{% endblock %}
+{% block content %}
+<div class="page-header" dir="rtl">
+  <h1><i class="fa-solid fa-diagram-project fa-icon-title" aria-hidden="true"></i> إدارة Agentic AI</h1>
+  <div class="page-header__nav">
+    {% with subpage_close_fallback=url_for('views.ai_center') %}{% include 'partials/subpage_close.html' %}{% endwith %}
+  </div>
+</div>
+
+{% if error %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ error }}</p>
+{% endif %}
+{% if ok_msg %}
+<p class="form-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
+{% endif %}
+
+{% if health_result %}
+<section class="card" dir="rtl" style="border-color: {% if health_result.status == 'نجاح' %}#2e7d32{% else %}#c62828{% endif %};">
+  <h2 class="h2-in-card"><i class="fa-solid fa-clipboard-check fa-icon-title" aria-hidden="true"></i> نتيجة اختبار الصحة</h2>
+  <div class="table-wrap">
+    <table class="ibank-table" aria-label="نتيجة Health Test">
+      <tbody>
+        <tr><th scope="row">الحالة</th><td>{{ health_result.status }}</td></tr>
+        <tr><th scope="row">النموذج</th><td dir="ltr">{{ health_result.model }}</td></tr>
+        <tr><th scope="row">المدة</th><td>{{ health_result.duration }}</td></tr>
+        <tr><th scope="row">وقت استجابة Ollama</th><td>{{ health_result.gateway_duration }}</td></tr>
+        <tr><th scope="row">المحاولات</th><td dir="ltr">{{ health_result.attempts }}</td></tr>
+        <tr><th scope="row">حالة النموذج</th><td>{% if health_result.warmup == '1' %}Cold (تحميل أول){% else %}Warm{% endif %}</td></tr>
+        <tr><th scope="row">Ollama</th><td>{{ health_result.ollama }}</td></tr>
+        <tr><th scope="row">Run ID</th><td dir="ltr">{{ health_result.run_id }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card"><i class="fa-solid fa-heart-pulse fa-icon-title" aria-hidden="true"></i> حالة النظام</h2>
+  <div class="table-wrap">
+    <table class="ibank-table" aria-label="حالة Agentic">
+      <tbody>
+        <tr><th scope="row">وضع المحرك (Engine Mode)</th><td dir="ltr">{{ engine_mode }}</td></tr>
+        <tr><th scope="row">Agentic مفعّل للتشغيل</th><td>{% if agentic_enabled %}نعم{% else %}لا{% endif %}</td></tr>
+        <tr><th scope="row">حالة Ollama / المحرك المحلي</th><td>
+          {% if health.server_reachable %}متصل{% else %}غير متصل{% endif %}
+        </td></tr>
+        <tr><th scope="row">النموذج الحالي</th><td dir="ltr">{{ settings.model_name or '—' }}</td></tr>
+        <tr><th scope="row">المحرك المحلي مفعّل</th><td>{% if settings.enabled %}نعم{% else %}لا{% endif %}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  {% if can_run_workflows %}
+  <form method="post" action="{{ url_for('views.ai_agentic_system_health_form') }}" class="ibank-units-included-actions mt-tight" id="ai-health-form">
+    <button type="submit" class="btn btn-primary" id="ai-health-submit">
+      <i class="fa-solid fa-stethoscope" aria-hidden="true"></i> تشغيل System Health Test
+    </button>
+  </form>
+  {% endif %}
+</section>
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card"><i class="fa-solid fa-robot fa-icon-title" aria-hidden="true"></i> الوكلاء المسجّلون</h2>
+  <div class="table-wrap">
+    <table class="ibank-table" aria-label="قائمة الوكلاء">
+      <thead>
+        <tr>
+          <th scope="col">الاسم</th>
+          <th scope="col">الإصدار</th>
+          <th scope="col">النموذج</th>
+          <th scope="col">حالة التفعيل</th>
+          <th scope="col">آخر نتيجة</th>
+          <th scope="col">آخر تشغيل</th>
+          {% if can_manage_agents %}<th scope="col">إجراء</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in agents %}
+        <tr>
+          <td>
+            <div>{{ a.display_name_ar or a.display_name }}</div>
+            <div class="muted" dir="ltr" style="font-size:0.85em;">{{ a.agent_key }}</div>
+          </td>
+          <td dir="ltr">{{ a.version }}</td>
+          <td dir="ltr">
+            {{ a.model_name or '—' }}
+            {% if a.model_source == 'default' and a.model_name %}
+            <span class="muted" style="font-size:0.85em;">(افتراضي)</span>
+            {% endif %}
+          </td>
+          <td>{% if a.enabled %}مفعّل{% else %}معطّل{% endif %}</td>
+          <td>{{ a.last_run_label or 'لم يُشغَّل' }}</td>
+          <td dir="ltr">{{ a.last_run_at or '—' }}</td>
+          {% if can_manage_agents %}
+          <td>
+            {% if a.enabled %}
+            <form method="post" action="{{ url_for('views.api_ai_agent_disable', agent_key=a.agent_key) }}" style="display:inline;" onsubmit="return agentToggle(event, this);">
+              <button type="submit" class="btn btn-ghost">تعطيل</button>
+            </form>
+            {% else %}
+            <form method="post" action="{{ url_for('views.api_ai_agent_enable', agent_key=a.agent_key) }}" style="display:inline;" onsubmit="return agentToggle(event, this);">
+              <button type="submit" class="btn btn-ghost">تفعيل</button>
+            </form>
+            {% endif %}
+          </td>
+          {% endif %}
+        </tr>
+        {% else %}
+        <tr><td colspan="7">لا يوجد وكلاء مسجّلون.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card"><i class="fa-solid fa-list-check fa-icon-title" aria-hidden="true"></i> تشغيلات المسارات (Workflow Runs)</h2>
+  <div class="table-wrap">
+    <table class="ibank-table" aria-label="تشغيلات المسارات">
+      <thead>
+        <tr>
+          <th scope="col">Run ID</th>
+          <th scope="col">المسار</th>
+          <th scope="col">الحالة</th>
+          <th scope="col">الوكيل الحالي</th>
+          <th scope="col">التقدم</th>
+          <th scope="col">البداية</th>
+          <th scope="col">المدة</th>
+          <th scope="col">إجراءات</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for w in workflows %}
+        <tr>
+          <td dir="ltr">{{ w.id }}</td>
+          <td>{{ w.workflow_name }} <span class="muted" dir="ltr">({{ w.workflow_key }})</span></td>
+          <td dir="ltr">{{ w.status }}</td>
+          <td dir="ltr">{{ w.current_agent_key or '—' }}</td>
+          <td dir="ltr">{{ w.progress_percent }}%</td>
+          <td dir="ltr">{{ w.started_at or '—' }}</td>
+          <td>{{ w.duration_display or '—' }}</td>
+          <td class="ibank-units-included-actions">
+            <button type="button" class="btn btn-ghost" onclick="openWorkflowDetails({{ w.id }})">عرض التفاصيل</button>
+            {% if can_manage_workflows %}
+              {% if w.status == 'RUNNING' %}
+              <button type="button" class="btn btn-ghost" onclick="wfAction({{ w.id }}, 'pause')">إيقاف مؤقت</button>
+              <button type="button" class="btn btn-ghost" onclick="wfAction({{ w.id }}, 'cancel')">إلغاء</button>
+              {% elif w.status == 'PAUSED' %}
+              <button type="button" class="btn btn-ghost" onclick="wfAction({{ w.id }}, 'resume')">استئناف</button>
+              <button type="button" class="btn btn-ghost" onclick="wfAction({{ w.id }}, 'cancel')">إلغاء</button>
+              {% elif w.status in ['FAILED', 'CANCELLED', 'COMPLETED_WITH_WARNINGS'] %}
+              <button type="button" class="btn btn-ghost" onclick="wfAction({{ w.id }}, 'retry')">إعادة محاولة</button>
+              {% endif %}
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8">لا توجد تشغيلات بعد.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card"><i class="fa-solid fa-triangle-exclamation fa-icon-title" aria-hidden="true"></i> أحدث الأحداث / الأخطاء</h2>
+  <div class="table-wrap">
+    <table class="ibank-table" aria-label="أحداث النظام">
+      <thead>
+        <tr>
+          <th scope="col">الشدة</th>
+          <th scope="col">المكوّن</th>
+          <th scope="col">النوع</th>
+          <th scope="col">الرسالة</th>
+          <th scope="col">الوقت</th>
+          <th scope="col">تفاصيل</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in recent_events %}
+        <tr>
+          <td dir="ltr">{{ e.severity }}</td>
+          <td dir="ltr">{{ e.component }}</td>
+          <td dir="ltr">{{ e.event_type }}</td>
+          <td>{{ e.message }}</td>
+          <td dir="ltr">{{ e.created_at }}</td>
+          <td>
+            {% if e.details_json %}
+            <button type="button" class="btn btn-ghost" onclick='showEventDetails({{ e.id }}, {{ (e.details_json or "")|tojson }})'>عرض</button>
+            {% else %}
+            —
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">لا توجد أحداث أو أخطاء مسجلة.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<dialog id="wf-details-dialog" class="ai-agentic-dialog" dir="rtl">
+  <form method="dialog" class="ai-agentic-dialog__header">
+    <h2 class="h2-in-card" style="margin:0;">تفاصيل Workflow</h2>
+    <button type="submit" class="btn btn-ghost" value="cancel" aria-label="إغلاق">إغلاق</button>
+  </form>
+  <div id="wf-details-body" class="ai-agentic-dialog__body muted">جاري التحميل…</div>
+</dialog>
+
+<dialog id="event-details-dialog" class="ai-agentic-dialog" dir="rtl">
+  <form method="dialog" class="ai-agentic-dialog__header">
+    <h2 class="h2-in-card" style="margin:0;">تفاصيل الحدث</h2>
+    <button type="submit" class="btn btn-ghost" value="cancel">إغلاق</button>
+  </form>
+  <pre id="event-details-body" class="ai-agentic-dialog__body" style="white-space:pre-wrap;direction:ltr;text-align:left;"></pre>
+</dialog>
+
+<style>
+.ai-agentic-dialog {
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 0;
+  max-width: min(960px, 96vw);
+  width: 96vw;
+  max-height: 90vh;
+}
+.ai-agentic-dialog::backdrop { background: rgba(0,0,0,.35); }
+.ai-agentic-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #ddd;
+  margin: 0;
+}
+.ai-agentic-dialog__body {
+  padding: 1rem;
+  overflow: auto;
+  max-height: calc(90vh - 4rem);
+  color: inherit;
+}
+</style>
+
+<script>
+(function () {
+  var form = document.getElementById("ai-health-form");
+  var btn = document.getElementById("ai-health-submit");
+  if (form && btn) {
+    form.addEventListener("submit", function () {
+      btn.disabled = true;
+      btn.setAttribute("aria-busy", "true");
+      var icon = btn.querySelector("i");
+      if (icon) icon.className = "fa-solid fa-spinner fa-spin";
+    });
+  }
+})();
+
+function agentToggle(ev, form) {
+  ev.preventDefault();
+  fetch(form.action, { method: "POST", headers: { "Accept": "application/json" }, credentials: "same-origin" })
+    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    .then(function (x) {
+      if (x.ok && x.j.ok) { location.reload(); }
+      else { alert((x.j && x.j.error_message) || "فشل التحديث"); }
+    })
+    .catch(function () { alert("فشل الطلب"); });
+  return false;
+}
+function wfAction(runId, action) {
+  var url = "/api/ai/workflows/" + runId + "/" + action;
+  fetch(url, { method: "POST", headers: { "Accept": "application/json" }, credentials: "same-origin" })
+    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    .then(function (x) {
+      if (x.ok && x.j.ok) { location.reload(); }
+      else { alert((x.j && x.j.error_message) || "فشلت العملية"); }
+    })
+    .catch(function () { alert("فشل الطلب"); });
+}
+function esc(s) {
+  if (s === null || s === undefined || s === "") return "—";
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+function openWorkflowDetails(runId) {
+  var dlg = document.getElementById("wf-details-dialog");
+  var body = document.getElementById("wf-details-body");
+  body.innerHTML = "جاري التحميل…";
+  if (dlg && dlg.showModal) dlg.showModal();
+  fetch("/api/ai/workflows/" + runId + "/details", { headers: { "Accept": "application/json" }, credentials: "same-origin" })
+    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    .then(function (x) {
+      if (!x.ok || !x.j.ok) {
+        body.innerHTML = "<p class='form-error-banner'>" + esc((x.j && x.j.error_message) || "تعذر التحميل") + "</p>";
+        return;
+      }
+      var w = x.j.workflow || {};
+      var runs = x.j.agent_runs || [];
+      var audits = x.j.audit_logs || [];
+      var html = "";
+      html += "<h3 class='h2-in-card'>ملخص المسار</h3><div class='table-wrap'><table class='ibank-table'><tbody>";
+      var rows = [
+        ["Run ID", w.id], ["Workflow Name", w.workflow_name], ["Workflow Key", w.workflow_key],
+        ["Status", w.status], ["Progress", (w.progress_percent != null ? w.progress_percent + "%" : "—")],
+        ["Requested By", w.requested_by_user_id], ["Source Type", w.source_type], ["Source ID", w.source_id],
+        ["Current Agent", w.current_agent_key], ["Started At", w.started_at], ["Completed At", w.completed_at],
+        ["Duration", w.duration_display || w.duration_ms], ["Model", w.model_name],
+        ["Prompt Version", w.prompt_version], ["Knowledge Version", w.knowledge_version],
+        ["Error", w.error_message], ["Metadata", w.metadata ? JSON.stringify(w.metadata) : "—"]
+      ];
+      rows.forEach(function (pair) {
+        html += "<tr><th scope='row'>" + esc(pair[0]) + "</th><td dir='ltr'>" + esc(pair[1]) + "</td></tr>";
+      });
+      html += "</tbody></table></div>";
+
+      html += "<h3 class='h2-in-card'>Agent Runs</h3><div class='table-wrap'><table class='ibank-table'><thead><tr>";
+      ["Sequence","Agent Name","Agent Key","Status","Attempt","Started","Completed","Duration","Model","Prompt","Input","Output","Warnings","Errors"].forEach(function (h) {
+        html += "<th>" + h + "</th>";
+      });
+      html += "</tr></thead><tbody>";
+      if (!runs.length) html += "<tr><td colspan='14'>لا توجد Agent Runs</td></tr>";
+      runs.forEach(function (ar) {
+        html += "<tr>";
+        html += "<td dir='ltr'>" + esc(ar.sequence_number) + "</td>";
+        html += "<td>" + esc(ar.agent_name) + "</td>";
+        html += "<td dir='ltr'>" + esc(ar.agent_key) + "</td>";
+        html += "<td dir='ltr'>" + esc(ar.status) + "</td>";
+        html += "<td dir='ltr'>" + esc(ar.attempt_number) + "</td>";
+        html += "<td dir='ltr'>" + esc(ar.started_at) + "</td>";
+        html += "<td dir='ltr'>" + esc(ar.completed_at) + "</td>";
+        html += "<td>" + esc(ar.duration_display || ar.duration_ms) + "</td>";
+        html += "<td dir='ltr'>" + esc(ar.model_name) + "</td>";
+        html += "<td dir='ltr'>" + esc(ar.prompt_version) + "</td>";
+        html += "<td>" + esc(ar.input_summary) + "</td>";
+        html += "<td>" + esc(ar.output_summary) + "</td>";
+        html += "<td dir='ltr'>" + esc(ar.warnings ? JSON.stringify(ar.warnings) : "—") + "</td>";
+        html += "<td dir='ltr'>" + esc(ar.error ? JSON.stringify(ar.error) : "—") + "</td>";
+        html += "</tr>";
+      });
+      html += "</tbody></table></div>";
+
+      html += "<h3 class='h2-in-card'>سجل الإجراءات (Audit)</h3><div class='table-wrap'><table class='ibank-table'><thead><tr>";
+      ["الوقت","الإجراء","الكيان","المعرّف","المستخدم"].forEach(function (h) { html += "<th>" + h + "</th>"; });
+      html += "</tr></thead><tbody>";
+      if (!audits.length) html += "<tr><td colspan='5'>لا توجد سجلات تدقيق مرتبطة</td></tr>";
+      audits.forEach(function (a) {
+        html += "<tr><td dir='ltr'>" + esc(a.created_at) + "</td><td dir='ltr'>" + esc(a.action_type) +
+          "</td><td dir='ltr'>" + esc(a.entity_type) + "</td><td dir='ltr'>" + esc(a.entity_id) +
+          "</td><td dir='ltr'>" + esc(a.user_id) + "</td></tr>";
+      });
+      html += "</tbody></table></div>";
+      body.innerHTML = html;
+    })
+    .catch(function () {
+      body.innerHTML = "<p class='form-error-banner'>فشل تحميل التفاصيل</p>";
+    });
+}
+function showEventDetails(id, detailsJson) {
+  var dlg = document.getElementById("event-details-dialog");
+  var body = document.getElementById("event-details-body");
+  var text = detailsJson;
+  try {
+    if (typeof detailsJson === "string") text = JSON.stringify(JSON.parse(detailsJson), null, 2);
+    else text = JSON.stringify(detailsJson, null, 2);
+  } catch (e) {
+    text = String(detailsJson || "");
+  }
+  body.textContent = text || "—";
+  if (dlg && dlg.showModal) dlg.showModal();
+}
+</script>
+{% endblock %}

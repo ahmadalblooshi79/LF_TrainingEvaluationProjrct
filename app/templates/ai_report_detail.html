@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}تفاصيل التقرير — {{ report.report_title }}{% endblock %}
+{% block content %}
+<div class="page-header" dir="rtl">
+  <h1><i class="fa-solid fa-file-lines fa-icon-title" aria-hidden="true"></i> {{ report.report_title }}</h1>
+  <div class="page-header__nav">
+    {% with subpage_close_fallback=url_for('views.ai_report_library') %}{% include 'partials/subpage_close.html' %}{% endwith %}
+  </div>
+</div>
+{% if error %}<p class="form-error-banner" role="alert">{{ error }}</p>{% endif %}
+{% if ok_msg %}<p class="form-ok-banner" role="status">{{ ok_msg }}</p>{% endif %}
+
+<section class="card" dir="rtl">
+  <p class="ibank-units-included-actions mt-tight">
+    {% if can_process %}
+    <form method="post" action="{{ url_for('views.ai_report_process', public_id=report.public_id) }}" style="display:inline;">
+      <button class="btn btn-primary" type="submit"><i class="fa-solid fa-gears" aria-hidden="true"></i> إعادة المعالجة</button>
+    </form>
+    {% endif %}
+    {% if can_exclude %}
+    <form method="post" action="{{ url_for('views.ai_report_exclude', public_id=report.public_id) }}" style="display:inline;">
+      <button class="btn btn-ghost" type="submit">استبعاد من التعلم</button>
+    </form>
+    {% endif %}
+    {% if can_archive %}
+    <form method="post" action="{{ url_for('views.ai_report_archive', public_id=report.public_id) }}" style="display:inline;" onsubmit="return confirm('أرشفة التقرير؟');">
+      <button class="btn btn-ghost" type="submit">أرشفة</button>
+    </form>
+    {% endif %}
+    <a class="btn btn-ghost" href="{{ url_for('views.ai_report_download', public_id=report.public_id) }}"><i class="fa-solid fa-download" aria-hidden="true"></i> تنزيل الأصل</a>
+    <a class="btn btn-ghost" href="{{ url_for('views.ai_report_review', public_id=report.public_id) }}">مراجعة النقاط</a>
+  </p>
+</section>
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card">1) معلومات التقرير</h2>
+  <table class="ibank-table"><tbody>
+    <tr><th>الحالة</th><td>{{ report.processing_status }}</td></tr>
+    <tr><th>التمرين</th><td>{{ report.exercise_name or '—' }}</td></tr>
+    <tr><th>النوع</th><td>{{ report.report_type }}</td></tr>
+    <tr><th>السنة</th><td>{{ report.report_year or '—' }}</td></tr>
+    <tr><th>اللغة</th><td>{{ report.report_language }}</td></tr>
+    <tr><th>معتمد</th><td>{% if report.is_approved %}نعم{% else %}لا{% endif %}</td></tr>
+    <tr><th>التعلم</th><td>{% if report.allow_learning %}مسموح{% else %}مستبعد{% endif %}</td></tr>
+    <tr><th>الصفحات / الكلمات</th><td>{{ report.page_count or '—' }} / {{ report.word_count or '—' }}</td></tr>
+    <tr><th>الخطأ</th><td>{{ report.processing_error or '—' }}</td></tr>
+    <tr><th>Checksum</th><td dir="ltr"><code>{{ report.checksum }}</code></td></tr>
+  </tbody></table>
+</section>
+
+{% if can_view_text %}
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card">3) النص المستخرج</h2>
+  <details><summary>النص الأصلي</summary><pre class="text-pre-wrap" style="max-height:18rem;overflow:auto;">{{ original_text }}</pre></details>
+  <details open><summary>النص المنظف</summary><pre class="text-pre-wrap" style="max-height:18rem;overflow:auto;">{{ cleaned_text }}</pre></details>
+</section>
+{% endif %}
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card">4) الأقسام ({{ sections|length }})</h2>
+  <ul>
+    {% for s in sections %}
+    <li><strong>{{ s.original_title }}</strong> — {{ s.normalized_section_type }} (ثقة {{ '%.0f'|format(s.confidence_score*100) }}٪)</li>
+    {% else %}<li class="muted">لا أقسام</li>{% endfor %}
+  </ul>
+</section>
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card">5) الوحدات</h2>
+  <ul>
+    {% for u in units %}
+    <li>{% if u.is_brigade_level %}★ {% endif %}{{ u.normalized_unit_name }} <span class="muted">({{ u.unit_level }})</span></li>
+    {% else %}<li class="muted">لا وحدات مكتشفة</li>{% endfor %}
+  </ul>
+</section>
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card">6) نقاط القوة والضعف</h2>
+  {% for u in units %}
+  <h3>{{ u.normalized_unit_name }}</h3>
+  <ul>
+    {% for f in findings_by_unit.get(u.id, []) %}
+    <li><strong>{{ f.finding_type }}</strong>: {{ f.cleaned_text }} <span class="muted">({{ f.scope_type }})</span></li>
+    {% else %}
+    <li class="muted">لا نقاط مربوطة</li>
+    {% endfor %}
+  </ul>
+  {% endfor %}
+  {% if general_findings %}
+  <h3>نقاط عامة / غير مربوطة</h3>
+  <ul>
+    {% for f in general_findings %}
+    <li><strong>{{ f.finding_type }}</strong>: {{ f.cleaned_text }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card">7) الجداول ({{ tables|length }})</h2>
+  {% for t in tables %}
+  <details>
+    <summary>جدول {{ loop.index }} — صفحة {{ t.page_number or '—' }}</summary>
+    <pre class="text-pre-wrap">{{ t.original_text }}</pre>
+  </details>
+  {% else %}<p class="muted">لا جداول</p>{% endfor %}
+</section>
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card">8) سجل المعالجة</h2>
+  <table class="ibank-table">
+    <thead><tr><th>الخطوة</th><th>الحالة</th><th>المدة (ms)</th><th>تحذير/خطأ</th></tr></thead>
+    <tbody>
+      {% for log in logs %}
+      <tr>
+        <td>{{ log.processing_step }}</td>
+        <td>{{ log.status }}</td>
+        <td>{{ log.duration_ms or '—' }}</td>
+        <td>{{ log.warning_message or log.error_message or '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">لا سجل</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

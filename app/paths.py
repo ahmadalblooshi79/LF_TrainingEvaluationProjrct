@@ -51,6 +51,12 @@ def ensure_data_directories(root: Path) -> None:
         "instance/information_bank",
         "instance/library",
         "instance/planner_flow_bundles",
+        "instance/ai_reports",
+        "instance/ai_reports/originals",
+        "instance/ai_reports/extracted",
+        "instance/ai_reports/failed",
+        "instance/ai_reports/archived",
+        "instance/ai_reports/temp",
     )
     root.mkdir(parents=True, exist_ok=True)
     for rel in subdirs:

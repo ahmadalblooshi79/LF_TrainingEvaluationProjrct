@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}مراجعة النقاط — {{ report.report_title }}{% endblock %}
+{% block content %}
+<div class="page-header" dir="rtl">
+  <h1><i class="fa-solid fa-clipboard-check fa-icon-title" aria-hidden="true"></i> مراجعة نقاط القوة والضعف</h1>
+  <div class="page-header__nav">
+    {% with subpage_close_fallback=url_for('views.ai_report_detail', public_id=report.public_id) %}{% include 'partials/subpage_close.html' %}{% endwith %}
+  </div>
+</div>
+{% if ok_msg %}<p class="form-ok-banner" role="status">{{ ok_msg }}</p>{% endif %}
+{% if error %}<p class="form-error-banner" role="alert">{{ error }}</p>{% endif %}
+
+<section class="card" dir="rtl">
+  {% for f in findings %}
+  <article class="ai-finding-card" style="border-bottom:1px solid var(--border-light);padding:0.75rem 0;">
+    <p><strong>#{{ f.id }}</strong> — {{ f.finding_type }} — نطاق: {{ f.scope_type }} — ثقة: {{ '%.0f'|format(f.confidence_score*100) }}٪ — {{ f.review_status }}</p>
+    <p>{{ f.cleaned_text }}</p>
+    <form method="post" action="{{ url_for('views.ai_report_finding_update', public_id=report.public_id, finding_id=f.id) }}" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:end;">
+      <label>النوع
+        <select name="finding_type">
+          {% for t in finding_types %}<option value="{{ t }}" {% if f.finding_type==t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>النطاق
+        <select name="scope_type">
+          {% for t in scope_types %}<option value="{{ t }}" {% if f.scope_type==t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>الحالة
+        <select name="review_status">
+          {% for t in review_statuses %}<option value="{{ t }}" {% if f.review_status==t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>وحدة أساسية
+        <select name="unit_id">
+          <option value="">—</option>
+          {% for u in units %}
+          <option value="{{ u.id }}">{{ u.normalized_unit_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="btn btn-primary btn-sm">حفظ التعديل</button>
+    </form>
+  </article>
+  {% else %}
+  <p class="muted">لا نقاط للمراجعة.</p>
+  {% endfor %}
+</section>
+{% endblock %}

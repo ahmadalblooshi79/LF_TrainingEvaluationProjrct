@@ -477,6 +477,63 @@ def ensure_analyst_final_eval_manual_tables() -> None:
         )
 
 
+def ensure_ai_settings_table() -> None:
+    """جدول إعدادات محرك الذكاء الاصطناعي المحلي."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS ai_settings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    enabled BOOLEAN NOT NULL DEFAULT 1,
+                    provider VARCHAR(64) NOT NULL DEFAULT 'ollama',
+                    base_url VARCHAR(512) NOT NULL DEFAULT 'http://127.0.0.1:11434',
+                    model_name VARCHAR(256) NOT NULL DEFAULT '',
+                    temperature FLOAT NOT NULL DEFAULT 0.2,
+                    max_tokens INTEGER NOT NULL DEFAULT 4096,
+                    timeout_seconds INTEGER NOT NULL DEFAULT 300,
+                    retry_count INTEGER NOT NULL DEFAULT 2,
+                    context_window INTEGER NOT NULL DEFAULT 8192,
+                    response_language VARCHAR(16) NOT NULL DEFAULT 'ar',
+                    structured_output BOOLEAN NOT NULL DEFAULT 1,
+                    allow_internal_network BOOLEAN NOT NULL DEFAULT 0,
+                    last_connection_ok BOOLEAN,
+                    last_connection_at DATETIME,
+                    last_response_ms INTEGER,
+                    last_error TEXT,
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    updated_by INTEGER
+                )
+                """
+            )
+        )
+
+
+def ensure_ai_report_library_tables() -> None:
+    """جداول مكتبة التقارير الذكية — تُنشأ أيضاً عبر create_all."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    # الاعتماد على create_all للنماذج المسجّلة؛ هذا الإجراء يضمن المجلدات فقط عند الحاجة
+    from app.ai_report_library.paths import ensure_ai_report_dirs
+
+    ensure_ai_report_dirs()
+
+
+def ensure_ai_agentic_foundation_tables() -> None:
+    """جداول Agentic AI Foundation + بذرة System Health Agent."""
+    from app.ai_agentic.migration import ensure_agentic_tables, seed_system_health_defaults
+
+    ensure_agentic_tables()
+    db = SessionLocal()
+    try:
+        seed_system_health_defaults(db)
+    finally:
+        db.close()
+
+
 def get_db():
     db = SessionLocal()
     try:
