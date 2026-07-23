@@ -23,8 +23,8 @@ ROUTES_GET = [
     "/control/",
 ]
 
+# evaluation-lists home is GET-only; publish actions use other POST endpoints.
 ROUTES_POST = [
-    ("/admin/evaluation-lists/", {}),
     ("/admin/dilemmas/", {}),
 ]
 

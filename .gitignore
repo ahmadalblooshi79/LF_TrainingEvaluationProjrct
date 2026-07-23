@@ -19,10 +19,9 @@ _transcript_snippets.txt
 app/static/images/
 !app/static/images/crests/
 !app/static/images/crests/**
-# مخرجات بناء Setup / APK — لا تُرفع
+# مخرجات بناء Setup — لا تُرفع
 dist/
 build/
-android-webview/
 *.spec
 packaging/*.7z
 packaging/advanced_installer/*.aip

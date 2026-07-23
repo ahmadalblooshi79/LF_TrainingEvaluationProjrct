@@ -2,13 +2,19 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "تشغيل التطبيق (run.py)",
+      "name": "LF Training Evaluation",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/run.py",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "pythonArgs": ["-Xfrozen_modules=off"],
+      "env": {
+        "LF_OPEN_BROWSER": "0",
+        "FLASK_DEBUG": "0",
+        "PYTHONPATH": "${workspaceFolder}"
+      },
       "justMyCode": true
     }
   ]
