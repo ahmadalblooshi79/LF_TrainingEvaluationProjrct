@@ -73,8 +73,8 @@ OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 # فترات استطلاع التحديث التلقائي (ms) — أسرع في وضع التنصيب على السيرفر
-_HEARTBEAT_DEFAULT = 2000 if is_installed_mode() else 3000
-_HEARTBEAT_FAST_DEFAULT = 1000 if is_installed_mode() else 1500
+_HEARTBEAT_DEFAULT = 4000 if is_installed_mode() else 5000
+_HEARTBEAT_FAST_DEFAULT = 2000 if is_installed_mode() else 2500
 HEARTBEAT_POLL_MS = _int_env("LF_HEARTBEAT_POLL_MS", _HEARTBEAT_DEFAULT)
 HEARTBEAT_FAST_POLL_MS = _int_env("LF_HEARTBEAT_FAST_POLL_MS", _HEARTBEAT_FAST_DEFAULT)
 

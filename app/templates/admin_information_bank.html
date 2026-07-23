@@ -172,8 +172,43 @@
 
   <script>
   (function () {
-    var card = document.currentScript && document.currentScript.parentElement;
+    var card = document.querySelector("section.ibank-card--tabbed") || document.querySelector(".ibank-card--tabbed");
+    if (!card) {
+      card = document.currentScript && document.currentScript.parentElement;
+    }
     if (!card) return;
+
+    var IBANK_UNCHECK_PROMPT = "أدخل كلمة مرور إدارة النظام لإلغاء الإدراج في التمرين:";
+
+    function willRemoveIncluded(boxes) {
+      return Array.prototype.some.call(boxes || [], function (cb) {
+        if (!cb || !cb.checked) return false;
+        var row = cb.closest("tr");
+        return row && row.getAttribute("data-was-included") === "1";
+      });
+    }
+
+    function ensureUncheckPassword(pwdInputId) {
+      var uncheckPwd = document.getElementById(pwdInputId || "ibank-uncheck-password");
+      if (!uncheckPwd) return true;
+      if (uncheckPwd.value.trim()) return true;
+      var pwd = window.prompt(IBANK_UNCHECK_PROMPT);
+      if (!pwd) return false;
+      uncheckPwd.value = pwd;
+      return true;
+    }
+
+    // Must be set before DOMContentLoaded so select_all_controls.js can use it.
+    window.LFSelectAllIbankOptions = {
+      onBeforeUncheck: function (boxes) {
+        if (!willRemoveIncluded(boxes)) return true;
+        var anyPhase = Array.prototype.some.call(boxes || [], function (cb) {
+          return (cb.getAttribute("name") || "") === "included_phase_keys";
+        });
+        return ensureUncheckPassword(anyPhase ? "ibank-phases-uncheck-password" : "ibank-uncheck-password");
+      },
+    };
+
     var removedTabIds = ['units-bg-3', 'units-bg-4', 'units-bg-5'];
     var removedLabelRe = /لواء\s*زايد|لواء\s*الظفرة|لواء\s*راشد/i;
     removedTabIds.forEach(function (tabId) {
@@ -224,6 +259,10 @@
       } catch (urlErr) {}
       if (id === 'action-eval' && window.ibankFetchActionEvalDays) {
         window.ibankFetchActionEvalDays();
+      }
+      // Re-sync header masters after tab switch
+      if (window.LFSelectAll && typeof window.LFSelectAll.autoBind === "function") {
+        try { window.LFSelectAll.bindIbankIncluded(card, window.LFSelectAllIbankOptions || {}); } catch (_re) {}
       }
     }
     var ibankSubmitting = false;
@@ -333,7 +372,7 @@
         if (!nodes.length) {
           var empty = document.createElement('li');
           empty.className = 'muted js-ibank-action-eval-dilemmas-empty';
-          empty.textContent = 'لا توجد معاضل في مجرى الأحداث لهذا اليوم.';
+          empty.textContent = 'لا توجد معاضل لهذا اليوم.';
           root.appendChild(empty);
           bindActionEvalDilemmaNav();
           return;
@@ -356,76 +395,50 @@
           var uj = document.createElement('ul');
           uj.className = 'ibank-aejt-judges';
           var judges = Array.isArray(d.judges) ? d.judges : [];
-          if (!judges.length) {
-            var none = document.createElement('li');
-            none.className = 'muted';
-            none.textContent = 'لا أصناف محكمين في عمود المكلف لهذه المعضلة.';
-            uj.appendChild(none);
-          }
           judges.forEach(function (j) {
             var jli = document.createElement('li');
             jli.className = 'ibank-aejt-judge';
-            var jd = document.createElement('details');
-            jd.open = !!(j.files && j.files.length);
-            var js = document.createElement('summary');
-            js.className = 'ibank-aejt-judge__sum';
-            js.innerHTML = '<i class="fa-solid fa-user-tie" aria-hidden="true"></i> ';
+            var row = document.createElement('div');
+            row.className = 'ibank-aejt-judge__row';
+
+            var role = document.createElement('span');
+            role.className = 'ibank-aejt-judge__role';
+            role.innerHTML = '<i class="fa-solid fa-user-tie" aria-hidden="true"></i> ';
             var jLabel = document.createElement('span');
             jLabel.className = 'ibank-aejt-judge__label';
             jLabel.textContent = j.assignee_label || '';
-            js.appendChild(jLabel);
+            role.appendChild(jLabel);
             if (j.unit_label) {
               var mu = document.createElement('span');
               mu.className = 'muted ibank-aejt-judge__unit';
               mu.textContent = ' (' + j.unit_label + ')';
-              js.appendChild(mu);
+              role.appendChild(mu);
             }
+            row.appendChild(role);
+
             var jPerson = document.createElement('span');
             jPerson.className = 'ibank-aejt-judge__person';
             jPerson.innerHTML = '<i class="fa-solid fa-id-badge" aria-hidden="true"></i> ';
             jPerson.appendChild(document.createTextNode(j.judge_person_name || '\u2014'));
-            js.appendChild(jPerson);
-            jd.appendChild(js);
+            row.appendChild(jPerson);
+
+            var actions = document.createElement('span');
+            actions.className = 'ibank-aejt-judge__actions';
             var files = Array.isArray(j.files) ? j.files : [];
-            if (!files.length) {
-              var ep = document.createElement('p');
-              ep.className = 'muted ibank-aejt-empty';
-              ep.textContent = 'لا يوجد ملف Excel مربوط بهذا المحكم.';
-              jd.appendChild(ep);
-            } else {
-              var ful = document.createElement('ul');
-              ful.className = 'ibank-aejt-files';
-              files.forEach(function (f) {
-                var fli = document.createElement('li');
-                fli.className = 'ibank-aejt-file';
-                var fd = document.createElement('details');
-                fd.open = true;
-                var fs = document.createElement('summary');
-                fs.innerHTML = '<i class="fa-solid fa-file-excel" aria-hidden="true"></i> ';
-                fs.appendChild(document.createTextNode(f.name || ''));
-                if (f.procedure_title) {
-                  var pt = document.createElement('span');
-                  pt.className = 'muted';
-                  pt.textContent = ' \u2014 ' + f.procedure_title;
-                  fs.appendChild(pt);
-                }
-                fd.appendChild(fs);
-                var leaf = document.createElement('div');
-                leaf.className = 'ibank-aejt-leaf';
-                var a = document.createElement('a');
-                a.className = 'btn btn-ghost btn-sm-compact';
-                var href = f.open_href || ('/admin/information-bank/action-eval/view/' + String(f.node_id || ''));
-                if (dayId) href += (href.indexOf('?') >= 0 ? '&' : '?') + 'day=' + encodeURIComponent(dayId);
-                a.href = href;
-                a.innerHTML = '<i class="fa-solid fa-table" aria-hidden="true"></i> فتح التقييم';
-                leaf.appendChild(a);
-                fd.appendChild(leaf);
-                fli.appendChild(fd);
-                ful.appendChild(fli);
-              });
-              jd.appendChild(ful);
-            }
-            jli.appendChild(jd);
+            files.forEach(function (f) {
+              var a = document.createElement('a');
+              a.className = 'btn btn-ghost btn-sm-compact';
+              var href = f.open_href || ('/admin/information-bank/action-eval/view/' + String(f.node_id || ''));
+              if (dayId) href += (href.indexOf('?') >= 0 ? '&' : '?') + 'day=' + encodeURIComponent(dayId);
+              a.href = href;
+              var tip = f.name || '';
+              if (f.procedure_title) tip += (tip ? ' — ' : '') + f.procedure_title;
+              if (tip) a.title = tip;
+              a.innerHTML = '<i class="fa-solid fa-table" aria-hidden="true"></i> فتح التقييم';
+              actions.appendChild(a);
+            });
+            row.appendChild(actions);
+            jli.appendChild(row);
             uj.appendChild(jli);
           });
           det.appendChild(uj);
@@ -837,157 +850,81 @@
       });
     });
 
-    var IBANK_UNCHECK_PROMPT = 'أدخل كلمة مرور إدارة النظام لإلغاء الإدراج في التمرين:';
-
-    function bindIncludedTable(formId, pwdInputId) {
+    function bindIncludedSaveForm(formId, pwdInputId) {
       var includedForm = document.getElementById(formId);
       var uncheckPwd = document.getElementById(pwdInputId);
       if (!includedForm) return;
-      var pane = includedForm.closest('.ibank-tabpane') || card;
-      var rowSelector = 'input.ibank-included-cb[form="' + formId + '"]';
 
       function rowChecks() {
-        return Array.prototype.slice.call(pane.querySelectorAll(rowSelector));
-      }
-
-      function syncHeaderCheckAll() {
-        var header = pane.querySelector('.ibank-included-check-all[data-form-id="' + formId + '"]');
-        if (!header) return;
-        var boxes = rowChecks();
-        if (!boxes.length) {
-          header.checked = false;
-          header.indeterminate = false;
-          return;
-        }
-        var n = boxes.filter(function (b) { return b.checked; }).length;
-        header.checked = (n === boxes.length);
-        header.indeterminate = (n > 0 && n < boxes.length);
+        return Array.prototype.slice.call(card.querySelectorAll('input.ibank-included-cb[form="' + formId + '"]'));
       }
 
       function needsUncheckPassword() {
         return rowChecks().some(function (cb) {
-          var row = cb.closest('tr');
-          return row && row.getAttribute('data-was-included') === '1' && !cb.checked;
+          var row = cb.closest("tr");
+          return row && row.getAttribute("data-was-included") === "1" && !cb.checked;
         });
       }
-
-      function willRemoveIncludedOnBulkUncheck(boxesToUncheck) {
-        return boxesToUncheck.some(function (cb) {
-          var row = cb.closest('tr');
-          return row && row.getAttribute('data-was-included') === '1' && cb.checked;
-        });
-      }
-
-      function ensureUncheckPassword() {
-        if (!uncheckPwd || uncheckPwd.value.trim()) return true;
-        var pwd = window.prompt(IBANK_UNCHECK_PROMPT);
-        if (!pwd) return false;
-        uncheckPwd.value = pwd;
-        return true;
-      }
-
-      rowChecks().forEach(function (cb) {
-        cb.addEventListener('change', syncHeaderCheckAll);
-      });
-      syncHeaderCheckAll();
-
-      var headerAll = pane.querySelector('.ibank-included-check-all[data-form-id="' + formId + '"]');
-      if (headerAll) {
-        headerAll.addEventListener('change', function () {
-          if (headerAll.checked) {
-            rowChecks().forEach(function (cb) { cb.checked = true; });
-            syncHeaderCheckAll();
-            return;
-          }
-          var boxes = rowChecks();
-          if (willRemoveIncludedOnBulkUncheck(boxes)) {
-            if (!ensureUncheckPassword()) {
-              headerAll.checked = true;
-              syncHeaderCheckAll();
-              return;
-            }
-          }
-          boxes.forEach(function (cb) { cb.checked = false; });
-          syncHeaderCheckAll();
-        });
-      }
-
-      pane.querySelectorAll('.ibank-included-select-all[data-form-id="' + formId + '"]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          rowChecks().forEach(function (cb) { cb.checked = true; });
-          syncHeaderCheckAll();
-        });
-      });
-
-      pane.querySelectorAll('.ibank-included-deselect-all[data-form-id="' + formId + '"]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          var boxes = rowChecks().filter(function (cb) { return cb.checked; });
-          if (!boxes.length) return;
-          if (willRemoveIncludedOnBulkUncheck(boxes)) {
-            if (!ensureUncheckPassword()) return;
-          }
-          boxes.forEach(function (cb) { cb.checked = false; });
-          syncHeaderCheckAll();
-        });
-      });
 
       function showIncludedSaveStatus(msg, isError) {
-        var statusEl = includedForm.querySelector('.ibank-included-save-status');
+        var statusEl = includedForm.querySelector(".ibank-included-save-status");
         if (!statusEl) return;
         statusEl.hidden = false;
-        statusEl.className = 'ibank-included-save-status ' + (isError ? 'form-error-banner' : 'form-ok-banner');
-        statusEl.innerHTML = '<i class="fa-solid ' + (isError ? 'fa-circle-exclamation' : 'fa-check') + '" aria-hidden="true"></i> ' + msg;
+        statusEl.className = "ibank-included-save-status " + (isError ? "form-error-banner" : "form-ok-banner");
+        statusEl.innerHTML = '<i class="fa-solid ' + (isError ? "fa-circle-exclamation" : "fa-check") + '" aria-hidden="true"></i> ' + msg;
       }
 
       function markRowsSavedFromChecks() {
         rowChecks().forEach(function (cb) {
-          var row = cb.closest('tr');
-          if (row) row.setAttribute('data-was-included', cb.checked ? '1' : '0');
+          var row = cb.closest("tr");
+          if (row) row.setAttribute("data-was-included", cb.checked ? "1" : "0");
         });
-        if (uncheckPwd) uncheckPwd.value = '';
-        syncHeaderCheckAll();
+        if (uncheckPwd) uncheckPwd.value = "";
+        if (window.LFSelectAll) {
+          try { window.LFSelectAll.bindIbankIncluded(card, window.LFSelectAllIbankOptions || {}); } catch (_e) {}
+        }
       }
 
-      includedForm.addEventListener('submit', function (ev) {
+      includedForm.addEventListener("submit", function (ev) {
         ev.preventDefault();
-        if (needsUncheckPassword() && !ensureUncheckPassword()) {
+        if (needsUncheckPassword() && !ensureUncheckPassword(pwdInputId)) {
           return;
         }
-        var saveBtn = includedForm.querySelector('.ibank-included-save-btn');
-        var prevHtml = saveBtn ? saveBtn.innerHTML : '';
+        var saveBtn = includedForm.querySelector(".ibank-included-save-btn");
+        var prevHtml = saveBtn ? saveBtn.innerHTML : "";
         if (saveBtn) {
           saveBtn.disabled = true;
           saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> جاري الحفظ…';
         }
         var fd = new FormData(includedForm);
         fetch(includedForm.action, {
-          method: 'POST',
+          method: "POST",
           body: fd,
-          credentials: 'same-origin',
-          redirect: 'manual',
-          headers: { 'X-IBank-Included-Save': '1', 'Accept': 'application/json' }
+          credentials: "same-origin",
+          redirect: "manual",
+          headers: { "X-IBank-Included-Save": "1", Accept: "application/json" },
         })
           .then(function (r) {
-            var ct = (r.headers.get('content-type') || '').toLowerCase();
-            if (r.status === 302 || r.status === 301 || r.type === 'opaqueredirect') {
-              throw new Error('انتهت جلسة بنك المعلومات. أعد الدخول من إدارة النظام بكلمة مرور إدارة النظام.');
+            var ct = (r.headers.get("content-type") || "").toLowerCase();
+            if (r.status === 302 || r.status === 301 || r.type === "opaqueredirect") {
+              throw new Error("انتهت جلسة بنك المعلومات. أعد الدخول من إدارة النظام بكلمة مرور إدارة النظام.");
             }
-            if (!ct.includes('application/json')) {
-              throw new Error('تعذر حفظ التحديدات — استجابة غير متوقعة من الخادم.');
+            if (!ct.includes("application/json")) {
+              throw new Error("تعذر حفظ التحديدات — استجابة غير متوقعة من الخادم.");
             }
             return r.json().then(function (data) {
               if (!r.ok || !data.ok) {
-                throw new Error((data && data.error) || 'تعذر حفظ التحديدات.');
+                throw new Error((data && data.error) || "تعذر حفظ التحديدات.");
               }
               return data;
             });
           })
           .then(function (data) {
             markRowsSavedFromChecks();
-            showIncludedSaveStatus(data.message || 'تم الحفظ.', false);
+            showIncludedSaveStatus(data.message || "تم الحفظ.", false);
           })
           .catch(function (err) {
-            showIncludedSaveStatus(err.message || 'تعذر حفظ التحديدات.', true);
+            showIncludedSaveStatus(err.message || "تعذر حفظ التحديدات.", true);
           })
           .finally(function () {
             if (saveBtn) {
@@ -997,8 +934,8 @@
           });
       });
     }
-    bindIncludedTable('ibank-units-included-form', 'ibank-uncheck-password');
-    bindIncludedTable('ibank-phases-included-form', 'ibank-phases-uncheck-password');
+    bindIncludedSaveForm("ibank-units-included-form", "ibank-uncheck-password");
+    bindIncludedSaveForm("ibank-phases-included-form", "ibank-phases-uncheck-password");
 
     var editForm = document.getElementById('ibank-unit-edit-form');
     var editUrl = editForm ? editForm.getAttribute('action') : '';

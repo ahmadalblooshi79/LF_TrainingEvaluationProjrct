@@ -380,6 +380,15 @@ def import_dilemma_folders_from_path(
             if row is not None:
                 files_added += 1
 
+    try:
+        from app.ibank_action_eval_dilemma_tree import invalidate_action_eval_dilemma_tree_cache
+        from app.info_bank_tree import invalidate_information_bank_kind_cache
+
+        invalidate_action_eval_dilemma_tree_cache()
+        invalidate_information_bank_kind_cache("action_eval")
+    except Exception:
+        pass
+
     return {
         "packs": len(packs),
         "folders": folders_touched,

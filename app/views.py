@@ -195,6 +195,7 @@ from app.battle_organization import BATTLE_ORG_DEMO_ROOT
 from app.ai_service import suggest_instructions_or_notes
 from app.info_bank_access import (
     INFO_BANK_GATE_SESSION_KEY,
+    INFO_BANK_PATH_PREFIX,
     clear_information_bank_gate,
     information_bank_gate_ok,
     is_ibank_included_save_request,
@@ -8008,8 +8009,9 @@ def _action_eval_lists_redirect(
 
 def _render_planner_action_eval_lists(db, user: User):
     from app.action_eval_ibank_sync import (
-        build_action_eval_display_groups,
+        build_action_eval_dilemma_publish_groups,
         collect_flow_day_tabs_for_exercise,
+        effective_action_eval_phase_keys,
     )
     from app.evaluation_list_ibank_sync import (
         roster_eval_display_unit_keys,
@@ -8019,17 +8021,19 @@ def _render_planner_action_eval_lists(db, user: User):
     from app.exercise_phase_catalog import default_exercise_phase_key
     from app.planning_catalog_sync import sync_planning_catalogs_from_db
 
-    sync_planning_catalogs_from_db(db, force=True)
+    sync_planning_catalogs_from_db(db)
     current_exercise = _current_workspace_exercise(db, user)
     error = (request.args.get("err") or "").strip()
     ok_msg = (request.args.get("ok") or "").strip()
     page_note = ""
     judge_roster = {"total": 0, "with_unit": 0, "without_names": []}
-    eval_groups: list[dict] = []
+    eval_dilemma_groups: list[dict] = []
     roster_unit_count = 0
     judge_unit_count = 0
     published_count = 0
     flow_unit_count = 0
+    ibank_unit_count = 0
+    dilemma_count = 0
     selected_phase = normalize_exercise_phase(
         (request.args.get("phase") or "").strip() or default_exercise_phase_key()
     )
@@ -8053,44 +8057,38 @@ def _render_planner_action_eval_lists(db, user: User):
                 break
         if selected_day_id and not selected_day_label:
             selected_day_label = selected_day_id
-        eval_groups, meta = build_action_eval_display_groups(
+        eval_dilemma_groups, meta = build_action_eval_dilemma_publish_groups(
             db,
             exercise_id=ex_id,
             phase_key=selected_phase or None,
             flow_day_id=selected_day_id or None,
         )
+        if not selected_phase:
+            selected_phase = str(meta.get("phase_key") or "").strip()
+        if not selected_phase:
+            for pk in effective_action_eval_phase_keys(db, roster_units=set()):
+                if (pk or "").strip():
+                    selected_phase = pk
+                    break
         flow_unit_count = int(meta.get("flow_units") or 0)
-        published_count = sum(
-            1
-            for g in eval_groups
-            for fg in g.get("list_folder_groups") or []
-            for r in fg.get("rows") or []
-            if r.get("published")
-        )
+        ibank_unit_count = int(meta.get("ibank_units") or 0)
+        dilemma_count = int(meta.get("dilemmas") or 0)
+        published_count = int(meta.get("published") or 0)
         day_label = selected_day_label or "اليوم/1"
-        if flow_unit_count:
-            page_note = (
-                f"تُستخرج مستويات الوحدة من أصناف المحكمين في عمود «المكلف بالإجراء والمتابعة» "
-                f"بجدول المجرى لـ{day_label} ({flow_unit_count} مستوى). استخدم «سحب من المجرى» "
-                f"بعد تعديل المجرى، ثم حدّد القوائم و«نشر القوائم» يدوياً — "
-                f"{published_count} منشورة في هذا اليوم."
-            )
-        else:
-            page_note = (
-                f"أدخل أصناف المحكمين في عمود «المكلف بالإجراء والمتابعة» "
-                f"لـ{day_label} في جدول مجرى الأحداث والمعاضل ثم ارجع لهذه الصفحة."
-            )
+        page_note = ""
 
     return render_template(
         "planner_action_eval_lists.html",
         **_ctx(
             user,
-            eval_groups=eval_groups,
+            eval_dilemma_groups=eval_dilemma_groups,
+            eval_groups=eval_dilemma_groups,
             page_note=page_note,
             roster_unit_count=roster_unit_count,
             judge_unit_count=judge_unit_count,
             judge_roster=judge_roster,
             published_count=published_count,
+            dilemma_count=dilemma_count,
             selected_phase=selected_phase,
             selected_day_id=selected_day_id,
             selected_day_label=selected_day_label,
@@ -8100,6 +8098,7 @@ def _render_planner_action_eval_lists(db, user: User):
             ok_msg=ok_msg,
             flow_days_empty=current_exercise is not None and not day_options,
             flow_unit_count=flow_unit_count if current_exercise is not None else 0,
+            ibank_unit_count=ibank_unit_count if current_exercise is not None else 0,
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -8137,11 +8136,13 @@ def planner_action_eval_lists_publish_phase():
     if not phase_key:
         return _action_eval_lists_redirect(err="لا توجد مرحلة تمرين مرتبطة بالمجرى.")
     selections = _parse_eval_list_publish_selections(request.form)
+    dilemmas = _parse_eval_list_publish_dilemmas(request.form)
     stats = publish_phase_action_eval_lists_from_ibank(
         db,
         exercise_id=int(ex.id),
         phase_key=phase_key,
         selections_by_unit=selections,
+        dilemma_by_unit_node=dilemmas or None,
         flow_day_id=flow_day_id or None,
     )
     db.commit()
@@ -8174,12 +8175,30 @@ def planner_action_eval_lists_publish_one(unit_key: str, node_id: int):
         return _action_eval_lists_redirect(err="لا يوجد تمرين حالي.")
     if not phase_key:
         return _action_eval_lists_redirect(err="لا توجد مرحلة تمرين مرتبطة بالمجرى.")
+    dilemma_index = 0
+    try:
+        dilemma_index = int((request.form.get("dilemma_index") or "0").strip() or "0")
+    except (TypeError, ValueError):
+        dilemma_index = 0
+    if dilemma_index <= 0:
+        from app.action_eval_ibank_sync import collect_ibank_action_eval_files_for_phase_unit
+
+        for src in collect_ibank_action_eval_files_for_phase_unit(
+            db,
+            phase_key=phase_key,
+            unit_key=unit_key,
+            flow_day_id=flow_day_id or None,
+        ):
+            if int(src.get("node_id") or 0) == int(node_id):
+                dilemma_index = int(src.get("dilemma_no") or 0)
+                break
     publish_single_action_eval_from_ibank(
         db,
         exercise_id=int(ex.id),
         phase_key=phase_key,
         unit_key=unit_key,
         node_id=int(node_id),
+        dilemma_index=dilemma_index,
         flow_day_id=flow_day_id or None,
     )
     db.commit()
@@ -9130,6 +9149,19 @@ def api_system_heartbeat():
         return jsonify({"ok": False, "error": "unauthorized"}), 401
     from flask import g
 
+    # كاش قصير جداً لكل مستخدم — يقلل ضغط SQLite عند نبضات متعددة متزامنة
+    import time as _time
+
+    cache_holder = api_system_heartbeat.__dict__.setdefault("_cache", {})
+    uid = int(user.id)
+    now = _time.monotonic()
+    hit = cache_holder.get(uid)
+    if hit and (now - hit[0]) < 1.0:
+        resp = jsonify(hit[1])
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        return resp
+
     db = g.db
     parts: list[str] = []
 
@@ -9256,15 +9288,21 @@ def api_system_heartbeat():
         )
 
     version = "|".join(parts)
-    resp = jsonify(
-        {
-            "ok": True,
-            "version": version,
-            "unread_notifications": int(unread),
-            "exercise_id": ex_id,
-            "server_time": datetime.utcnow().isoformat(),
-        }
-    )
+    payload = {
+        "ok": True,
+        "version": version,
+        "unread_notifications": int(unread),
+        "exercise_id": ex_id,
+        "server_time": datetime.utcnow().isoformat(),
+    }
+    cache_holder = api_system_heartbeat.__dict__.setdefault("_cache", {})
+    cache_holder[uid] = (now, payload)
+    # حدّ أقصى بسيط لمنع نمو غير محدود
+    if len(cache_holder) > 200:
+        oldest = sorted(cache_holder.items(), key=lambda kv: kv[1][0])[:50]
+        for k, _ in oldest:
+            cache_holder.pop(k, None)
+    resp = jsonify(payload)
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
     return resp
@@ -9839,6 +9877,23 @@ def _subpage_close_ctx(parent_href: str | None = None, **extra) -> dict:
     return ctx
 
 
+def _safe_same_origin_return_path(raw: str | None, *, default: str) -> str:
+    """مسار عودة داخلي آمن (?next=) — يمنع الروابط الخارجية وjavascript:."""
+    val = (raw or "").strip()
+    if not val:
+        return default
+    if "://" in val or val.startswith("//") or "\\" in val:
+        return default
+    if not val.startswith("/"):
+        return default
+    low = val.lower()
+    if low.startswith("/\\") or "javascript:" in low or "data:" in low or "vbscript:" in low:
+        return default
+    if any(ch in val for ch in ("\n", "\r", "\x00")):
+        return default
+    return val[:800]
+
+
 def _role_hub_preserve_link_kwargs() -> dict:
     kw: dict = {}
     if _request_from_control_hub():
@@ -10105,12 +10160,47 @@ def _build_control_evaluation_lists_status(db, user: User) -> dict:
                     "unit_label": label_for_unit_level_key(uk) or uk or "—",
                     "rows": unit_rows,
                     "total_count": n_assigned,
+                    "is_all": False,
                     "judge_name": judge_name_by_unit.get(uk, "—"),
                     "trainee_name": trainee_name_by_unit.get(uk, "—"),
                     "n_assigned": n_assigned,
                     "n_done": n_done,
                     "n_not_done": n_assigned - n_done,
                 }
+            )
+        if unit_tabs:
+            all_rows: list[dict] = []
+            for ut in unit_tabs:
+                all_rows.extend(ut["rows"])
+            n_all = len(all_rows)
+            n_all_done = sum(1 for r in all_rows if r.get("status_done"))
+            unit_tabs.insert(
+                0,
+                {
+                    "unit_key": "all",
+                    "unit_label": "الكل",
+                    "rows": all_rows,
+                    "total_count": n_all,
+                    "is_all": True,
+                    "judge_name": "—",
+                    "trainee_name": "—",
+                    "n_assigned": n_all,
+                    "n_done": n_all_done,
+                    "n_not_done": n_all - n_all_done,
+                    "unit_groups": [
+                        {
+                            "unit_key": ut["unit_key"],
+                            "unit_label": ut["unit_label"],
+                            "rows": ut["rows"],
+                            "judge_name": ut["judge_name"],
+                            "trainee_name": ut["trainee_name"],
+                            "n_assigned": ut["n_assigned"],
+                            "n_done": ut["n_done"],
+                            "n_not_done": ut["n_not_done"],
+                        }
+                        for ut in unit_tabs
+                    ],
+                },
             )
         phase_tabs.append(
             {
@@ -13627,6 +13717,25 @@ def _parse_eval_list_publish_selections(form) -> dict[str, set[int]]:
     return dict(out)
 
 
+def _parse_eval_list_publish_dilemmas(form) -> dict[tuple[str, int], int]:
+    """تحليل unit_key:node_id:dilemma_no من حقول publish_dilemma."""
+    out: dict[tuple[str, int], int] = {}
+    for raw in form.getlist("publish_dilemma"):
+        part = (raw or "").strip()
+        bits = part.split(":")
+        if len(bits) < 3:
+            continue
+        uk = bits[0].strip()
+        try:
+            nid = int(bits[1].strip())
+            dno = int(bits[2].strip())
+        except (TypeError, ValueError):
+            continue
+        if uk and nid > 0 and dno > 0:
+            out[(uk, nid)] = dno
+    return out
+
+
 def _render_admin_evaluation_lists(
     db,
     user: User,
@@ -13677,26 +13786,7 @@ def _render_admin_evaluation_lists(
             for r in g.get("list_rows") or []
             if r.get("published")
         )
-        if judge_unit_count:
-            page_note = (
-                f"«نسخ الكل» يحدّث القوائم من البنك دون نشر. حدّد بالـ checkbox ثم «نشر القوائم». "
-                f"{judge_unit_count} مستوى وحدة (محكمين)، "
-                f"{published_count} قائمة منشورة في هذه المرحلة."
-            )
-        elif roster_unit_count:
-            page_note = (
-                f"وُجد {roster_unit_count} مستوى وحدة — "
-                f"عيّن مستوى الوحدة للمحكمين ثم انشر القوائم المختارة."
-            )
-        elif int(judge_roster.get("total") or 0) > 0:
-            page_note = (
-                f"يوجد {judge_roster['total']} محكم(ين) بدون مستوى وحدة — "
-                f"افتح قائمة المحكمين واختر مستوى الوحدة لكل محكم."
-            )
-        else:
-            page_note = (
-                "أضف المحكمين مع مستوى الوحدة، ثم اختر المرحلة والقوائم للنشر."
-            )
+        page_note = ""
 
     return render_template(
         "admin_evaluation_lists.html",
@@ -14643,15 +14733,28 @@ def admin_information_bank_gate():
 
     db = g.db
     nxt = (request.args.get("next") or request.form.get("next") or "/admin/information-bank").strip()
-    if not nxt.startswith("/"):
+    if not nxt.startswith("/") or nxt.startswith("//"):
         nxt = "/admin/information-bank"
+    if is_information_bank_path(nxt) and (
+        nxt.startswith(INFO_BANK_PATH_PREFIX + "/gate")
+        or nxt.startswith(INFO_BANK_PATH_PREFIX + "/exit")
+    ):
+        nxt = "/admin/information-bank"
+
+    def _open_gate_and_redirect():
+        session[INFO_BANK_GATE_SESSION_KEY] = True
+        session.modified = True
+        return redirect(nxt)
+
+    # إدارة النظام: نفس استثناء before_request — لا حاجة لإعادة كلمة المرور هنا.
+    if can_manage_information_bank(user):
+        return _open_gate_and_redirect()
+
     err = ""
     if request.method == "POST":
         pwd = (request.form.get("password") or "").strip()
         if _verify_system_admin_password(db, pwd):
-            session[INFO_BANK_GATE_SESSION_KEY] = True
-            session.modified = True
-            return redirect(nxt)
+            return _open_gate_and_redirect()
         err = "كلمة المرور غير صحيحة. أدخل كلمة مرور حساب إدارة النظام."
     if _information_bank_gate_ok():
         return redirect(nxt)
@@ -14991,7 +15094,11 @@ def admin_information_bank_action_eval_view(node_id: int):
     back_kw = {"tab": "action-eval"}
     if back_day:
         back_kw["day"] = back_day
-    back_url = url_for("views.admin_information_bank", **back_kw)
+    default_back = url_for("views.admin_information_bank", **back_kw)
+    back_url = _safe_same_origin_return_path(
+        request.args.get("next") or request.args.get("return_to"),
+        default=default_back,
+    )
     return render_template(
         "judge_evaluation_list_viewer.html",
         **_ctx(
@@ -15010,6 +15117,8 @@ def admin_information_bank_action_eval_view(node_id: int):
             eval_save_url="",
             show_eval_approve=False,
             close_href=back_url,
+            eval_close_href=back_url,
+            subpage_close_fallback=back_url,
             **ev,
             **_hub_back_ctx_for_request_path(),
         ),
@@ -15068,15 +15177,27 @@ def admin_information_bank_event_flow_save():
         return jsonify({"ok": False, "error": "forbidden"}), 403
     from flask import g
 
+    from app.ibank_action_eval_dilemma_tree import invalidate_action_eval_dilemma_tree_cache
+    from app.info_bank_tree import (
+        ensure_information_bank_kind,
+        ibank_event_flow_days,
+        invalidate_information_bank_kind_cache,
+    )
+
     db = g.db
     payload = request.get_json(silent=True)
     doc = _normalize_planner_flow_table_document(payload)
+    old_day_ids = {d["id"] for d in ibank_event_flow_days(db)}
+    new_day_ids = {d["id"] for d in doc["days"]}
+    removed_day_ids = old_day_ids - new_day_ids
     row = _get_or_create_ibank_event_flow_table(db)
     row.flow_table_json = json.dumps(doc, ensure_ascii=False)
     row.updated_at = datetime.utcnow()
-    from app.info_bank_tree import ensure_information_bank_kind
-
+    # إعادة مزامنة جذور قوائم التقييم: حذف أيام المجرى المحذوفة وقوائمها المنشورة
+    invalidate_information_bank_kind_cache("action_eval")
     ensure_information_bank_kind(db, "action_eval")
+    if removed_day_ids:
+        invalidate_action_eval_dilemma_tree_cache()
     db.commit()
     active_rows = next(
         (d["rows"] for d in doc["days"] if d["id"] == doc["active_day_id"]),
@@ -15088,6 +15209,7 @@ def admin_information_bank_event_flow_save():
             "ok": True,
             "day_count": len(doc["days"]),
             "row_count": len(active_rows),
+            "removed_day_count": len(removed_day_ids),
             "action_eval": action_eval,
         }
     )
@@ -15508,6 +15630,12 @@ def admin_information_bank_tree_upload():
     added, errors = upload_files_to_parent(db, kind=kind, parent_id=parent_id, file_storages=files)
     if added:
         db.commit()
+        if kind == "action_eval":
+            from app.ibank_action_eval_dilemma_tree import invalidate_action_eval_dilemma_tree_cache
+            from app.info_bank_tree import invalidate_information_bank_kind_cache
+
+            invalidate_action_eval_dilemma_tree_cache()
+            invalidate_information_bank_kind_cache("action_eval")
     else:
         db.rollback()
     err_q = " ".join(errors)[:2000] if errors else ""
@@ -15535,8 +15663,15 @@ def admin_information_bank_tree_delete(node_id: int):
     if row is None:
         abort(404)
     tab = kind_tab(row.kind)
+    kind_deleted = (row.kind or "").strip()
     delete_node(db, row)
     db.commit()
+    if kind_deleted == "action_eval":
+        from app.ibank_action_eval_dilemma_tree import invalidate_action_eval_dilemma_tree_cache
+        from app.info_bank_tree import invalidate_information_bank_kind_cache
+
+        invalidate_action_eval_dilemma_tree_cache()
+        invalidate_information_bank_kind_cache("action_eval")
     if (
         request.accept_mimetypes.best_match(["application/json", "text/html"])
         == "application/json"

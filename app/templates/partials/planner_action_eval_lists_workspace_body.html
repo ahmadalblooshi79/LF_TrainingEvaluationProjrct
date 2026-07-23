@@ -27,30 +27,27 @@
     <form method="post" action="{{ url_for('views.planner_action_eval_lists_pull_from_flow') }}" class="eval-lists-publish-all-form">
       <input type="hidden" name="phase_key" value="{{ selected_phase }}">
       <input type="hidden" name="flow_day_id" value="{{ selected_day_id }}">
-      <button type="submit" class="btn btn-ghost btn-sm" onclick="return confirm('سحب أصناف المحكمين من عمود المكلف بجدول المجرى لهذا اليوم؟\n\nلن يتم النشر — حدّد القوائم ثم اضغط «نشر القوائم».');">
+      <button type="submit" class="btn btn-ghost btn-xs" onclick="return confirm('سحب أصناف المحكمين من عمود المكلف بجدول المجرى لهذا اليوم؟\n\nلن يتم النشر — حدّد القوائم ثم اضغط «نشر القوائم».');">
         <i class="fa-solid fa-table-list" aria-hidden="true"></i>
         سحب من المجرى
       </button>
     </form>
     {% endif %}
-    {% if current_exercise and eval_groups %}
+    {% if current_exercise and eval_dilemma_groups %}
     <form method="post" action="{{ url_for('views.planner_action_eval_lists_sync_all') }}" class="eval-lists-publish-all-form">
       <input type="hidden" name="phase_key" value="{{ selected_phase }}">
       <input type="hidden" name="flow_day_id" value="{{ selected_day_id }}">
-      <button type="submit" class="btn btn-ghost btn-sm" onclick="return confirm('تحديث القوائم من بنك المعلومات وإلغاء نشر الكل؟\n\nستظهر جميع القوائم «غير منشورة» — حدّد ما تريد ثم اضغط «نشر القوائم».');">
+      <button type="submit" class="btn btn-ghost btn-xs" onclick="return confirm('تحديث القوائم من بنك المعلومات وإلغاء نشر الكل؟\n\nستظهر جميع القوائم «غير منشورة» — حدّد ما تريد ثم اضغط «نشر القوائم».');">
         <i class="fa-solid fa-cloud-arrow-down" aria-hidden="true"></i>
         نسخ الكل
       </button>
     </form>
     {% endif %}
   </div>
-  {% if page_note %}
-  <p class="muted eval-lists-sync-note" role="status"><i class="fa-solid fa-database" aria-hidden="true"></i> {{ page_note }}</p>
-  {% endif %}
 </section>
 
 <div id="action-eval-lists-root" data-day="{{ selected_day_id }}">
-{% if eval_groups %}
+{% if eval_dilemma_groups %}
 <form method="post" action="{{ url_for('views.planner_action_eval_lists_publish_phase') }}" class="eval-lists-phase-publish-form" id="action-eval-lists-phase-form" data-day="{{ selected_day_id }}">
   <input type="hidden" name="phase_key" value="{{ selected_phase }}">
   <input type="hidden" name="flow_day_id" value="{{ selected_day_id }}">
@@ -59,111 +56,156 @@
       <i class="fa-solid fa-calendar-day" aria-hidden="true"></i>
       {{ selected_day_label or 'اليوم/1' }}
     </h2>
-    <button type="submit" class="btn btn-primary btn-sm" id="action-eval-lists-publish-btn">
-      <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
-      نشر القوائم
-    </button>
+    <div class="eval-lists-publish-bar__actions">
+      <button type="button" class="btn btn-ghost btn-icon-nav eval-lists-tree-tool-btn" id="action-eval-expand-all" title="فتح الكل" aria-label="فتح الكل">
+        <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
+      </button>
+      <button type="button" class="btn btn-ghost btn-icon-nav eval-lists-tree-tool-btn" id="action-eval-collapse-all" title="طي الكل" aria-label="طي الكل">
+        <i class="fa-solid fa-folder" aria-hidden="true"></i>
+      </button>
+      <button type="submit" class="btn btn-primary btn-xs" id="action-eval-lists-publish-btn">
+        <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
+        نشر القوائم
+      </button>
+    </div>
   </div>
 
-  {% for group in eval_groups %}
-  <input type="hidden" name="publish_unit" value="{{ group.unit_key }}">
-  <section class="card eval-lists-unit-group eval-lists-unit-group--collapsed" data-unit="{{ group.unit_key }}">
-    <div class="eval-lists-unit-group__header">
-      <button type="button" class="eval-lists-unit-group__toggle js-eval-lists-unit-collapse" aria-expanded="false" aria-controls="action-eval-body-{{ loop.index }}">
-        <i class="fa-solid fa-chevron-down eval-lists-unit-group__chevron" aria-hidden="true"></i>
-        <span class="eval-lists-unit-group__title">
-          <span class="eval-lists-unit-group__seq" aria-hidden="true">{{ loop.index }}</span>
-          <i class="fa-solid fa-layer-group" aria-hidden="true"></i>
-          {{ group.unit_label }}
-          {% if group.ibank_source_count|default(0) > 0 %}
-          <span class="muted eval-lists-unit-meta">({{ group.ibank_source_count }} في البنك)</span>
-          {% endif %}
+  {% for dilemma in eval_dilemma_groups %}
+  <section class="card eval-lists-dilemma-group{% if not loop.first %} eval-lists-dilemma-group--collapsed{% endif %}" data-dilemma="{{ dilemma.dilemma_no }}">
+    <div class="eval-lists-dilemma-group__header">
+      <button type="button" class="eval-lists-dilemma-group__toggle js-eval-lists-dilemma-collapse" aria-expanded="{{ 'true' if loop.first else 'false' }}" aria-controls="action-eval-dilemma-{{ loop.index }}">
+        <i class="fa-solid fa-chevron-down eval-lists-dilemma-group__chevron" aria-hidden="true"></i>
+        <span class="eval-lists-dilemma-group__title">
+          <span class="eval-lists-dilemma-group__badge" aria-hidden="true">{{ dilemma.num or dilemma.dilemma_no }}</span>
+          <i class="fa-solid fa-sitemap" aria-hidden="true"></i>
+          {{ dilemma.text }}
+          <span class="muted eval-lists-unit-meta">({{ dilemma.judge_count }} محكم · {{ dilemma.file_count }} قائمة)</span>
         </span>
       </button>
       <div class="eval-lists-select-btns">
-        <button type="button" class="btn btn-ghost btn-sm js-eval-lists-select-unit" data-unit="{{ group.unit_key }}" data-action="all">تحديد الكل</button>
-        <button type="button" class="btn btn-ghost btn-sm js-eval-lists-select-unit" data-unit="{{ group.unit_key }}" data-action="none">إلغاء تحديد الكل</button>
+        <button type="button" class="btn btn-ghost btn-xs js-eval-lists-select-dilemma" data-dilemma="{{ dilemma.dilemma_no }}" data-action="all">تحديد الكل</button>
+        <button type="button" class="btn btn-ghost btn-xs js-eval-lists-select-dilemma" data-dilemma="{{ dilemma.dilemma_no }}" data-action="none">إلغاء تحديد الكل</button>
       </div>
     </div>
 
-    <div class="eval-lists-unit-group__body" id="action-eval-body-{{ loop.index }}">
-      <p class="eval-lists-roster-meta muted">
-        <span><i class="fa-solid fa-user-tie" aria-hidden="true"></i> <span class="eval-lists-roster-meta__role">(المحكم)</span> {{ group.judge_name }}</span>
-        <span class="eval-lists-roster-meta__sep" aria-hidden="true">|</span>
-        <span><i class="fa-solid fa-user-graduate" aria-hidden="true"></i> <span class="eval-lists-roster-meta__role">(المتدرب)</span> {{ group.trainee_name }}</span>
-      </p>
-      {% if group.assignee_labels %}
-      <p class="muted eval-lists-flow-assignee-meta">
-        <i class="fa-solid fa-list-ul" aria-hidden="true"></i>
-        من عمود المكلف بالمجرى:
-        {% for lbl in group.assignee_labels %}<span class="eval-lists-assignee-chip">{{ lbl }}</span>{% if not loop.last %}، {% endif %}{% endfor %}
-      </p>
+    <div class="eval-lists-dilemma-group__body" id="action-eval-dilemma-{{ loop.index }}">
+      {% for judge in dilemma.judges %}
+      {% if judge.unit_key %}
+      <input type="hidden" name="publish_unit" value="{{ judge.unit_key }}">
       {% endif %}
-
-      {% if group.list_folder_groups %}
-      <div class="eval-lists-folders">
-        {% for folder in group.list_folder_groups %}
-        <div class="eval-lists-folder-group" data-unit="{{ group.unit_key }}" data-folder="{{ folder.folder_key }}">
-          <div class="eval-lists-folder-group__header">
-            <button type="button" class="eval-lists-folder-group__toggle js-eval-lists-folder-collapse" aria-expanded="true">
-              <i class="fa-solid fa-chevron-down eval-lists-folder-group__chevron" aria-hidden="true"></i>
-              <i class="fa-solid fa-folder eval-lists-folder-group__icon" aria-hidden="true"></i>
-              <span class="eval-lists-folder-group__title">{{ folder.folder_name }}</span>
-              <span class="muted eval-lists-folder-group__count">({{ folder.rows|length }})</span>
-            </button>
-            <div class="eval-lists-select-btns">
-              <button type="button" class="btn btn-ghost btn-sm js-eval-lists-select-folder" data-unit="{{ group.unit_key }}" data-folder="{{ folder.folder_key }}" data-action="all">تحديد الكل</button>
-              <button type="button" class="btn btn-ghost btn-sm js-eval-lists-select-folder" data-unit="{{ group.unit_key }}" data-folder="{{ folder.folder_key }}" data-action="none">إلغاء تحديد الكل</button>
-            </div>
-          </div>
-          <div class="eval-lists-folder-group__body">
-            <ul class="eval-lists-rows" aria-label="{{ folder.folder_name }}">
-              {% for row in folder.rows %}
-              <li class="eval-lists-row{% if row.published %} eval-lists-row--published{% else %} eval-lists-row--unpublished{% endif %}">
-                <span class="eval-lists-row__seq" aria-hidden="true">{{ loop.index }}</span>
-                <label class="eval-lists-row__cb" title="تضمين في النشر" onclick="event.stopPropagation()">
-                  <input type="checkbox" class="eval-lists-publish-cb" name="publish_sel" value="{{ group.unit_key }}:{{ row.node_id }}" data-unit="{{ group.unit_key }}" data-folder="{{ folder.folder_key }}"{% if row.published %} checked{% endif %}>
-                </label>
-                <span class="eval-lists-row__title" title="{{ row.title }}">
-                  <i class="fa-solid fa-file-excel eval-lists-row__icon" aria-hidden="true"></i>
-                  <span class="eval-lists-row__name">{{ row.title }}</span>
-                  {% if row.published %}
-                  <span class="eval-lists-badge eval-lists-badge--published">منشورة</span>
-                  {% else %}
-                  <span class="eval-lists-badge eval-lists-badge--unpublished">غير منشورة</span>
-                  {% endif %}
-                </span>
-                <div class="eval-lists-row__actions" onclick="event.stopPropagation()">
-                  {% if row.published %}
-                  <button type="submit" class="btn btn-ghost btn-sm eval-lists-row__withdraw js-eval-lists-row-action"
-                    formaction="{{ url_for('views.planner_action_eval_lists_withdraw_one', unit_key=group.unit_key, node_id=row.node_id) }}"
-                    formmethod="post" title="سحب النشر">
-                    <i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i>
-                    <span class="eval-lists-row__btn-label">سحب</span>
-                  </button>
-                  <a class="btn btn-ghost btn-sm eval-lists-row__open js-eval-lists-row-action" href="{{ url_for('views.admin_information_bank_tree_file', node_id=row.node_id) }}" target="_blank" rel="noopener" title="فتح المعايير">
-                    <i class="fa-solid fa-table-list" aria-hidden="true"></i>
-                    <span class="eval-lists-row__btn-label">فتح</span>
-                  </a>
-                  {% else %}
-                  <button type="submit" class="btn btn-primary btn-sm eval-lists-row__publish js-eval-lists-row-action"
-                    formaction="{{ url_for('views.planner_action_eval_lists_publish_one', unit_key=group.unit_key, node_id=row.node_id) }}"
-                    formmethod="post" title="نشر القائمة">
-                    <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
-                    <span class="eval-lists-row__btn-label">نشر</span>
-                  </button>
-                  {% endif %}
-                </div>
-              </li>
-              {% endfor %}
-            </ul>
-          </div>
+      <div class="eval-lists-judge-branch{% if judge.rows and not (judge.rows|selectattr('published')|list|length == judge.rows|length) %} eval-lists-judge-branch--unpublished{% elif judge.rows %} eval-lists-judge-branch--published{% endif %}" data-dilemma="{{ dilemma.dilemma_no }}" data-unit="{{ judge.unit_key }}">
+        {% set _rows = judge.rows or [] %}
+        <div class="eval-lists-judge-branch__meta">
+          <span class="eval-lists-judge-branch__role" title="محكم المستوى">
+            <i class="fa-solid fa-user-tie" aria-hidden="true"></i>
+            <span class="eval-lists-roster-meta__role">محكم المستوى</span>
+            <strong>{{ judge.assignee_label or judge.unit_label or '—' }}</strong>
+          </span>
+          <span class="eval-lists-judge-branch__sep" aria-hidden="true">/</span>
+          <span class="eval-lists-judge-branch__person" title="اسم المحكم">
+            <i class="fa-solid fa-id-badge" aria-hidden="true"></i>
+            <span class="eval-lists-roster-meta__role">اسم المحكم</span>
+            {{ judge.judge_name or '—' }}
+          </span>
+          <span class="eval-lists-judge-branch__sep" aria-hidden="true">/</span>
+          <span class="eval-lists-judge-branch__person" title="اسم المتدرب">
+            <i class="fa-solid fa-user-graduate" aria-hidden="true"></i>
+            <span class="eval-lists-roster-meta__role">اسم المتدرب</span>
+            {{ judge.trainee_name or '—' }}
+          </span>
         </div>
-        {% endfor %}
+        <div class="eval-lists-judge-branch__tree">
+          <div class="eval-lists-judge-branch__unit-line">
+            <span class="eval-lists-judge-branch__tree-mark" aria-hidden="true"></span>
+            <span class="eval-lists-judge-branch__unit" title="محكم الوحدة">
+              <i class="fa-solid fa-sitemap" aria-hidden="true"></i>
+              <span class="eval-lists-roster-meta__role">محكم الوحدة</span>
+              <strong>{{ judge.unit_label or judge.assignee_label or '—' }}</strong>
+            </span>
+            {% if _rows %}
+            <span class="eval-lists-judge-branch__actions">
+              {% set _unpublished = _rows|rejectattr('published')|list %}
+              {% set _published = _rows|selectattr('published')|list %}
+              {% if _rows|length > 1 %}
+              <button type="button" class="btn btn-ghost btn-xs js-eval-lists-select-judge" data-dilemma="{{ dilemma.dilemma_no }}" data-unit="{{ judge.unit_key }}" data-action="all" title="تحديد كل قوائم هذا المحكم">تحديد الكل</button>
+              {% endif %}
+              {% if _unpublished %}
+                {% if _rows|length == 1 %}
+                {% set row0 = _unpublished[0] %}
+                <button type="submit" class="btn btn-primary btn-xs eval-lists-row__publish js-eval-lists-row-action"
+                  formaction="{{ url_for('views.planner_action_eval_lists_publish_one', unit_key=judge.unit_key, node_id=row0.node_id) }}"
+                  formmethod="post" title="نشر التقييم" data-dilemma-no="{{ row0.dilemma_no or dilemma.dilemma_no }}">
+                  <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
+                  <span class="eval-lists-row__btn-label">نشر</span>
+                </button>
+                {% else %}
+                <button type="button" class="btn btn-primary btn-xs eval-lists-row__publish js-eval-lists-publish-judge" data-dilemma="{{ dilemma.dilemma_no }}" data-unit="{{ judge.unit_key }}" title="نشر القوائم المحددة لهذا المحكم">
+                  <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
+                  <span class="eval-lists-row__btn-label">نشر</span>
+                </button>
+                {% endif %}
+              {% endif %}
+              {% if _published %}
+                {% if _published|length == 1 %}
+                {% set prow = _published[0] %}
+                <button type="submit" class="btn btn-ghost btn-xs eval-lists-row__withdraw js-eval-lists-row-action"
+                  formaction="{{ url_for('views.planner_action_eval_lists_withdraw_one', unit_key=judge.unit_key, node_id=prow.node_id) }}"
+                  formmethod="post" title="سحب النشر">
+                  <i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i>
+                  <span class="eval-lists-row__btn-label">سحب</span>
+                </button>
+                {% else %}
+                <button type="button" class="btn btn-ghost btn-xs eval-lists-row__withdraw js-eval-lists-withdraw-judge"
+                  data-dilemma="{{ dilemma.dilemma_no }}"
+                  data-unit="{{ judge.unit_key }}"
+                  data-node-ids="{% for prow in _published %}{{ prow.node_id }}{% if not loop.last %},{% endif %}{% endfor %}"
+                  title="سحب نشر كل القوائم المنشورة لهذا المحكم">
+                  <i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i>
+                  <span class="eval-lists-row__btn-label">سحب</span>
+                </button>
+                {% endif %}
+              {% endif %}
+            </span>
+            {% endif %}
+          </div>
+          {% if _rows %}
+          <ul class="eval-lists-judge-branch__files-tree" aria-label="ملفات Excel لمحكم الوحدة">
+            {% for row in _rows %}
+            <li class="eval-lists-judge-branch__file-node{% if row.published %} eval-lists-judge-branch__file-node--published{% else %} eval-lists-judge-branch__file-node--unpublished{% endif %}">
+              <span class="eval-lists-judge-branch__file-elbow" aria-hidden="true"></span>
+              <label class="eval-lists-row__cb" title="تضمين في النشر">
+                <input type="checkbox" class="eval-lists-publish-cb" name="publish_sel" value="{{ judge.unit_key }}:{{ row.node_id }}" data-dilemma="{{ dilemma.dilemma_no }}" data-unit="{{ judge.unit_key }}"{% if row.published %} checked{% endif %}>
+                {% if row.dilemma_no %}<input type="hidden" name="publish_dilemma" value="{{ judge.unit_key }}:{{ row.node_id }}:{{ row.dilemma_no }}">{% endif %}
+              </label>
+              <i class="fa-solid fa-file-excel eval-lists-row__icon" aria-hidden="true"></i>
+              <span class="eval-lists-row__name" title="{{ row.title }}">{{ row.title }}</span>
+              {% if row.published %}
+              <span class="eval-lists-badge eval-lists-badge--published">منشورة</span>
+              {% else %}
+              <span class="eval-lists-badge eval-lists-badge--unpublished">غير منشورة</span>
+              {% endif %}
+              <span class="eval-lists-judge-branch__file-actions">
+                {% if row.published %}
+                <button type="submit" class="btn btn-ghost btn-xs eval-lists-row__withdraw js-eval-lists-row-action"
+                  formaction="{{ url_for('views.planner_action_eval_lists_withdraw_one', unit_key=judge.unit_key, node_id=row.node_id) }}"
+                  formmethod="post" title="سحب نشر هذه القائمة">
+                  <i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i>
+                  <span class="eval-lists-row__btn-label">سحب</span>
+                </button>
+                {% endif %}
+                {% set _eval_back = url_for('views.planner_action_eval_lists_workspace', day=selected_day_id) if selected_day_id else url_for('views.planner_action_eval_lists_workspace') %}
+                <a class="btn btn-ghost btn-xs eval-lists-row__open js-eval-lists-row-action" href="{{ url_for('views.admin_information_bank_action_eval_view', node_id=row.node_id, next=_eval_back) }}" target="_blank" rel="noopener" title="فتح قائمة التقييم">
+                  <i class="fa-solid fa-table" aria-hidden="true"></i>
+                  <span class="eval-lists-row__btn-label">فتح</span>
+                </a>
+              </span>
+            </li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+        </div>
       </div>
-      {% else %}
-      <p class="muted eval-lists-empty">لا توجد ملفات في <a href="{{ url_for('views.admin_information_bank', tab='action-eval') }}">بنك المعلومات → قوائم تقييم الإجراءات</a>.</p>
-      {% endif %}
+      {% endfor %}
     </div>
   </section>
   {% endfor %}
@@ -171,11 +213,7 @@
 
 {% elif current_exercise %}
 <section class="card eval-lists-empty-card">
-  {% if flow_unit_count|default(0) == 0 %}
-  <p class="muted">لا توجد أصناف محكمين في عمود «المكلف بالإجراء والمتابعة» بجدول المجرى. افتح <a href="{{ url_for('views.planner_flow_bundle_workspace') }}">مجرى الأحداث والمعاضل</a> وأدخل أصناف المحكمين (مثل: محكم قيادة اللواء).</p>
-  {% else %}
-  <p class="muted">لا مجموعات في هذا اليوم. تحقق من <a href="{{ url_for('views.admin_information_bank', tab='action-eval') }}">بنك المعلومات → قوائم تقييم الإجراءات</a>.</p>
-  {% endif %}
+  <p class="muted">لا توجد معاضل في هذا اليوم.</p>
 </section>
 {% endif %}
 </div>
@@ -185,66 +223,40 @@
   const root = document.getElementById("action-eval-lists-root");
   const form = document.getElementById("action-eval-lists-phase-form");
   const publishBtn = document.getElementById("action-eval-lists-publish-btn");
-  const STORAGE_KEY = "action-eval-lists-expanded-v2";
+  const STORAGE_KEY = "action-eval-lists-dilemma-expanded-v1";
   const currentDay = (form && form.dataset.day) || (root && root.dataset.day) || "";
 
-  const expandedUnits = () => {
+  const expandedDilemmas = () => {
     const out = new Set();
-    document.querySelectorAll(".eval-lists-unit-group").forEach((sec) => {
-      if (!sec.classList.contains("eval-lists-unit-group--collapsed")) {
-        const uk = sec.getAttribute("data-unit") || "";
-        if (uk) out.add(uk);
+    document.querySelectorAll(".eval-lists-dilemma-group").forEach((sec) => {
+      if (!sec.classList.contains("eval-lists-dilemma-group--collapsed")) {
+        const d = sec.getAttribute("data-dilemma") || "";
+        if (d) out.add(d);
       }
     });
     return out;
   };
 
-  const expandedFolders = () => {
-    const out = new Set();
-    document.querySelectorAll(".eval-lists-folder-group").forEach((sec) => {
-      if (!sec.classList.contains("eval-lists-folder-group--collapsed")) {
-        const uk = sec.getAttribute("data-unit") || "";
-        const fk = sec.getAttribute("data-folder") || "";
-        if (uk && fk) out.add(`${uk}|${fk}`);
-      }
-    });
-    return out;
-  };
-
-  const saveExpandedState = (extraUnits = [], extraFolders = []) => {
-    const units = expandedUnits();
-    const folders = expandedFolders();
-    extraUnits.forEach((uk) => { if (uk) units.add(uk); });
-    extraFolders.forEach((key) => { if (key) folders.add(key); });
+  const saveExpandedState = (extra = []) => {
+    const dilemmas = expandedDilemmas();
+    extra.forEach((d) => { if (d) dilemmas.add(String(d)); });
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ day: currentDay, units: [...units], folders: [...folders] }));
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ day: currentDay, dilemmas: [...dilemmas] }));
     } catch (_err) { /* ignore */ }
   };
 
-  const setUnitExpanded = (uk, open) => {
-    const sec = document.querySelector(`.eval-lists-unit-group[data-unit="${uk}"]`);
+  const setDilemmaExpanded = (dno, open) => {
+    const sec = document.querySelector(`.eval-lists-dilemma-group[data-dilemma="${dno}"]`);
     if (!sec) return;
-    sec.classList.toggle("eval-lists-unit-group--collapsed", !open);
-    const btn = sec.querySelector(".js-eval-lists-unit-collapse");
-    if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
-  };
-
-  const setFolderExpanded = (uk, fk, open) => {
-    const sec = document.querySelector(`.eval-lists-folder-group[data-unit="${uk}"][data-folder="${fk}"]`);
-    if (!sec) return;
-    sec.classList.toggle("eval-lists-folder-group--collapsed", !open);
-    const btn = sec.querySelector(".js-eval-lists-folder-collapse");
+    sec.classList.toggle("eval-lists-dilemma-group--collapsed", !open);
+    const btn = sec.querySelector(".js-eval-lists-dilemma-collapse");
     if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
   };
 
   try {
     const saved = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || "null");
     if (saved && saved.day === currentDay) {
-      (saved.units || []).forEach((uk) => setUnitExpanded(uk, true));
-      (saved.folders || []).forEach((key) => {
-        const [uk, fk] = String(key).split("|");
-        if (uk && fk) setFolderExpanded(uk, fk, true);
-      });
+      (saved.dilemmas || []).forEach((d) => setDilemmaExpanded(d, true));
     }
   } catch (_err) { /* ignore */ }
 
@@ -262,11 +274,9 @@
 
   document.querySelectorAll(".js-eval-lists-row-action").forEach((el) => {
     el.addEventListener("click", () => {
-      const unitSec = el.closest(".eval-lists-unit-group");
-      const folderSec = el.closest(".eval-lists-folder-group");
-      const uk = unitSec && unitSec.getAttribute("data-unit");
-      const fk = folderSec && folderSec.getAttribute("data-folder");
-      saveExpandedState(uk ? [uk] : [], uk && fk ? [`${uk}|${fk}`] : []);
+      const dilSec = el.closest(".eval-lists-dilemma-group");
+      const d = dilSec && dilSec.getAttribute("data-dilemma");
+      saveExpandedState(d ? [d] : []);
     });
   });
 
@@ -275,43 +285,114 @@
     syncPublishBtn();
   };
 
-  document.querySelectorAll(".js-eval-lists-select-unit").forEach((btn) => {
+  document.querySelectorAll(".js-eval-lists-select-dilemma").forEach((btn) => {
     btn.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      const uk = btn.getAttribute("data-unit") || "";
-      applySelectAction(document.querySelectorAll(`.eval-lists-publish-cb[data-unit="${uk}"]`), btn.getAttribute("data-action") || "all");
+      const d = btn.getAttribute("data-dilemma") || "";
+      applySelectAction(document.querySelectorAll(`.eval-lists-publish-cb[data-dilemma="${d}"]`), btn.getAttribute("data-action") || "all");
     });
   });
 
-  document.querySelectorAll(".js-eval-lists-select-folder").forEach((btn) => {
+  document.querySelectorAll(".js-eval-lists-select-judge").forEach((btn) => {
     btn.addEventListener("click", (ev) => {
       ev.stopPropagation();
+      const d = btn.getAttribute("data-dilemma") || "";
       const uk = btn.getAttribute("data-unit") || "";
-      const fk = btn.getAttribute("data-folder") || "";
-      applySelectAction(document.querySelectorAll(`.eval-lists-publish-cb[data-unit="${uk}"][data-folder="${fk}"]`), btn.getAttribute("data-action") || "all");
+      applySelectAction(
+        document.querySelectorAll(`.eval-lists-publish-cb[data-dilemma="${d}"][data-unit="${uk}"]`),
+        btn.getAttribute("data-action") || "all"
+      );
     });
   });
 
-  document.querySelectorAll(".js-eval-lists-unit-collapse").forEach((btn) => {
+  document.querySelectorAll(".js-eval-lists-publish-judge").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (!form) return;
+      const d = btn.getAttribute("data-dilemma") || "";
+      const uk = btn.getAttribute("data-unit") || "";
+      const mine = [...document.querySelectorAll(`.eval-lists-publish-cb[data-dilemma="${d}"][data-unit="${uk}"]`)];
+      const selected = mine.filter((cb) => cb.checked);
+      if (!selected.length) {
+        window.alert("حدّد قائمة واحدة على الأقل للنشر.");
+        return;
+      }
+      const dilSec = btn.closest(".eval-lists-dilemma-group");
+      const dil = dilSec && dilSec.getAttribute("data-dilemma");
+      saveExpandedState(dil ? [dil] : []);
+      form.querySelectorAll(".eval-lists-publish-cb").forEach((cb) => {
+        const keep = cb.getAttribute("data-dilemma") === d
+          && cb.getAttribute("data-unit") === uk
+          && cb.checked;
+        cb.disabled = !keep;
+      });
+      if (typeof form.requestSubmit === "function") form.requestSubmit();
+      else form.submit();
+    });
+  });
+
+  document.querySelectorAll(".js-eval-lists-withdraw-judge").forEach((btn) => {
+    btn.addEventListener("click", async (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (!form) return;
+      const uk = btn.getAttribute("data-unit") || "";
+      const nodes = String(btn.getAttribute("data-node-ids") || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (!uk || !nodes.length) return;
+      if (!window.confirm(`سحب نشر ${nodes.length} قائمة لهذا المحكم؟`)) return;
+      const dilSec = btn.closest(".eval-lists-dilemma-group");
+      const dil = dilSec && dilSec.getAttribute("data-dilemma");
+      saveExpandedState(dil ? [dil] : []);
+      const phase = (form.querySelector('[name="phase_key"]') || {}).value || "";
+      const day = (form.querySelector('[name="flow_day_id"]') || {}).value || "";
+      btn.disabled = true;
+      try {
+        for (const nid of nodes) {
+          const fd = new FormData();
+          fd.append("phase_key", phase);
+          fd.append("flow_day_id", day);
+          await fetch(
+            `/planner/action-eval-lists/${encodeURIComponent(uk)}/ibank/${encodeURIComponent(nid)}/withdraw`,
+            { method: "POST", body: fd, credentials: "same-origin", redirect: "manual" }
+          );
+        }
+      } finally {
+        window.location.reload();
+      }
+    });
+  });
+
+  document.querySelectorAll(".js-eval-lists-dilemma-collapse").forEach((btn) => {
     btn.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      const section = btn.closest(".eval-lists-unit-group");
+      const section = btn.closest(".eval-lists-dilemma-group");
       if (!section) return;
-      const collapsed = section.classList.toggle("eval-lists-unit-group--collapsed");
+      const collapsed = section.classList.toggle("eval-lists-dilemma-group--collapsed");
       btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
       saveExpandedState();
     });
   });
 
-  document.querySelectorAll(".js-eval-lists-folder-collapse").forEach((btn) => {
-    btn.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      const section = btn.closest(".eval-lists-folder-group");
-      if (!section) return;
-      const collapsed = section.classList.toggle("eval-lists-folder-group--collapsed");
-      btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
-      saveExpandedState();
+  const setAllExpanded = (open) => {
+    document.querySelectorAll(".eval-lists-dilemma-group").forEach((sec) => {
+      const d = sec.getAttribute("data-dilemma") || "";
+      setDilemmaExpanded(d, open);
     });
-  });
+    saveExpandedState(open ? [...expandedDilemmas()] : []);
+    if (!open) {
+      try {
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ day: currentDay, dilemmas: [] }));
+      } catch (_err) { /* ignore */ }
+    }
+  };
+
+  const expandAllBtn = document.getElementById("action-eval-expand-all");
+  const collapseAllBtn = document.getElementById("action-eval-collapse-all");
+  if (expandAllBtn) expandAllBtn.addEventListener("click", () => setAllExpanded(true));
+  if (collapseAllBtn) collapseAllBtn.addEventListener("click", () => setAllExpanded(false));
 })();
 </script>

@@ -50,6 +50,13 @@
     border-color: var(--border);
     outline: 2px solid rgba(120, 83, 45, 0.12);
   }
+  .control-eval-status-tabs .control-unit-tab--all {
+    font-weight: 800;
+    background: var(--tint-100);
+  }
+  .control-eval-status-tabs .control-unit-tab--all.is-active {
+    background: var(--tint-200);
+  }
   .control-eval-status-tabs .control-unit-pane[hidden] {
     display: none;
   }
@@ -143,7 +150,7 @@
           {% for ut in tab.unit_tabs %}
           <button
             type="button"
-            class="control-unit-tab{% if loop.first %} is-active{% endif %}"
+            class="control-unit-tab{% if ut.is_all %} control-unit-tab--all{% endif %}{% if loop.first %} is-active{% endif %}"
             data-control-unit-tab="{{ tab.phase_key }}|{{ ut.unit_key }}"
             role="tab"
             aria-selected="{{ 'true' if loop.first else 'false' }}">
@@ -161,9 +168,11 @@
             role="tabpanel"
             {% if not loop.first %}hidden{% endif %}>
             {% if ut.rows %}
-            <div class="control-eval-unit-summary" aria-label="ملخص المحكم والمتدرب وموقف القوائم">
+            <div class="control-eval-unit-summary" aria-label="ملخص القوائم">
+              {% if not ut.is_all %}
               <span class="control-eval-unit-summary__item">إسم المحكم: <strong>{{ ut.judge_name }}</strong></span>
               <span class="control-eval-unit-summary__item">إسم المتدرب: <strong>{{ ut.trainee_name }}</strong></span>
+              {% endif %}
               <span class="control-eval-unit-summary__item">عدد القوائم المخصصة: <strong>{{ ut.n_assigned }}</strong></span>
               <span class="control-eval-unit-summary__item control-eval-unit-summary__item--done">عدد القوائم المنجزة: <strong>{{ ut.n_done }}</strong></span>
               <span class="control-eval-unit-summary__item control-eval-unit-summary__item--pending">عدد القوائم الغير منجزة: <strong>{{ ut.n_not_done }}</strong></span>
@@ -173,6 +182,9 @@
                 <thead>
                   <tr>
                     <th scope="col" class="eval-lists-table__seq">ت</th>
+                    {% if ut.is_all %}
+                    <th scope="col">الوحدة المتدربة</th>
+                    {% endif %}
                     <th scope="col">نوع القائمة</th>
                     <th scope="col">مسمى التقييم</th>
                     <th scope="col">النسبة</th>
@@ -186,6 +198,9 @@
                   {% for r in ut.rows %}
                   <tr class="{% if r.row_tone and r.row_tone != 'none' %}eval-row-tone--{{ r.row_tone }}{% endif %}">
                     <td class="eval-lists-table__seq">{{ loop.index }}</td>
+                    {% if ut.is_all %}
+                    <td>{{ r.unit_label or '—' }}</td>
+                    {% endif %}
                     <td>
                       <span class="control-eval-list-type control-eval-list-type--{{ r.list_type_kind|default('judge_eval') }}">{{ r.list_type_label|default('قائمة التقييم') }}</span>
                     </td>

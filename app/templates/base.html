@@ -7,9 +7,10 @@
   <title>{% block title %}نظام إدارة التمارين{% endblock %}</title>
   <link rel="stylesheet" href="/static/fonts-local.css?v=fonts-local-1">
   <link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css?v=fa-6.5.1">
-  <link rel="stylesheet" href="/static/style.css?v=help-tree-icons-v5">
+  <link rel="stylesheet" href="/static/style.css?v=flow-day-note-sticky-v2">
   <link rel="stylesheet" href="/static/responsive-v2.2.css?v=ui-refine-base-v1">
   <link rel="stylesheet" href="/static/ui-refine.css?v=ibank-tree-field-h-v1">
+  <script src="/static/select_all_controls.js?v=select-all-v1" defer></script>
 </head>
 <body class="{% block body_class %}{% endblock %}{% if hub_landing_preserve_buttons %} hub-landing-preserve-buttons{% endif %}">
 <button type="button" class="app-header-backdrop" id="app-header-backdrop" aria-label="إغلاق قائمة التنقل" hidden></button>
@@ -387,6 +388,19 @@
     return /\/planner\/create-flow\/?$/.test(window.location.pathname);
   }
 
+  function isInformationBankGatePage() {
+    return /\/admin\/information-bank\/gate\/?$/.test(window.location.pathname || "");
+  }
+
+  /** صفحات ثقيلة (شجرة بنك المعلومات / قوائم تقييم الإجراءات) — لا إعادة تحميل كاملة تلقائياً. */
+  function isHeavyAutoRefreshExemptPage() {
+    var p = window.location.pathname || "";
+    if (/\/admin\/information-bank(\/|$)/.test(p) && !/\/gate\/?$/.test(p)) return true;
+    if (/\/planner\/action-eval-lists\/?$/.test(p)) return true;
+    if (/\/admin\/evaluation-lists(\/|$)/.test(p)) return true;
+    return false;
+  }
+
   function isUserBusy() {
     var el = document.activeElement;
     if (!el || el === document.body) return false;
@@ -457,6 +471,8 @@
 
   function doReload() {
     if (reloading) return;
+    if (isInformationBankGatePage()) return;
+    if (isHeavyAutoRefreshExemptPage()) return;
     if (isPlannerFlowTableEditorPage()) return;
     // في صفحات المحادثة نحفظ المسودة ثم نُعيد التحميل دون تأخير
     // لضمان وصول الرسائل الجديدة فوراً للمستلمين.

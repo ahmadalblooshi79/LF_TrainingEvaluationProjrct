@@ -105,12 +105,14 @@ def create_app() -> Flask:
             is_ibank_included_save_request,
             is_information_bank_gate_exempt_path,
             is_information_bank_path,
+            should_clear_information_bank_gate,
         )
         from app.permissions import can_manage_information_bank, can_view_information_bank
 
         path = request.path or ""
 
-        if not is_information_bank_path(path):
+        # لا تُمسح الجلسة على /api/* (نبضات، إشعارات) وإلا يُبطَل الدخول فوراً بعد كلمة المرور.
+        if should_clear_information_bank_gate(path):
             clear_information_bank_gate(session)
 
         if is_information_bank_path(path):

@@ -44,6 +44,16 @@ _SKIP_ASSIGNEE_RE = re.compile(
     re.IGNORECASE,
 )
 
+_ANALYZE_CACHE: dict[str, tuple[int, int, dict]] = {}
+_DILEMMA_TREE_CACHE: dict[tuple, tuple[tuple, dict]] = {}
+
+
+def invalidate_action_eval_dilemma_tree_cache() -> None:
+    """إبطال كاش شجرة المعاضل بعد استيراد/تعديل ملفات تقييم الإجراءات."""
+    global _DILEMMA_TREE_CACHE, _ANALYZE_CACHE
+    _DILEMMA_TREE_CACHE = {}
+    _ANALYZE_CACHE = {}
+
 
 def _norm(s: str) -> str:
     t = (
@@ -75,8 +85,12 @@ def _prefer_judge_assignees(assignees: list[str]) -> list[str]:
     return [a for a in assignees if (a or "").strip() and not _SKIP_ASSIGNEE_RE.search(a or "")]
 
 
-def analyze_action_eval_xlsx(path: Path) -> dict:
-    """تحليل ملف قائمة التقييم حسب الإجراء (العنوان والورقة)."""
+def analyze_action_eval_xlsx(path: Path, *, deep: bool = False) -> dict:
+    """تحليل خفيف لعنوان قائمة التقييم (بدون فتح Excel إلا عند deep=True).
+
+    المسار السريع يستخدم اسم الملف — كافٍ للربط والعرض في شجرة المعاضل.
+    deep=True يقرأ الورقة (أبطأ) مع تخزين مؤقت حسب mtime/size.
+    """
     out = {
         "procedure_title": "",
         "sheet_title": "",
@@ -86,12 +100,29 @@ def analyze_action_eval_xlsx(path: Path) -> dict:
     if not path.is_file():
         out["error"] = "missing"
         return out
+    stem = Path(path).stem
+    out["procedure_title"] = re.sub(r"^تقييم\s+", "", stem or "").strip()[:300] or stem[:300]
+    out["sheet_title"] = stem[:300]
+    out["is_eval_list"] = str(path).lower().endswith((".xlsx", ".xlsm"))
+    if not deep:
+        return out
+
+    try:
+        st = path.stat()
+        cache_key = str(path.resolve())
+        hit = _ANALYZE_CACHE.get(cache_key)
+        if hit and hit[0] == st.st_mtime_ns and hit[1] == st.st_size:
+            return dict(hit[2])
+    except OSError:
+        st = None
+        cache_key = str(path)
+
     try:
         from app.evaluation_sheet_parser import read_evaluation_list_sheet
 
         sheet = read_evaluation_list_sheet(path)
         title = (sheet.get("sheet_title") or "").strip()
-        out["sheet_title"] = title
+        out["sheet_title"] = title or out["sheet_title"]
         out["is_eval_list"] = bool(sheet.get("eval_structured")) and not sheet.get("error")
         proc = ""
         from openpyxl import load_workbook
@@ -111,14 +142,46 @@ def analyze_action_eval_xlsx(path: Path) -> dict:
         finally:
             wb.close()
         if not proc:
-            proc = title
+            proc = title or stem
         proc = re.sub(r"^تقييم\s+", "", proc or "").strip()
         if proc in ("قائمة التقييم", "بيانات التقييم"):
-            proc = Path(path).stem
+            proc = stem
         out["procedure_title"] = proc[:300]
     except Exception as exc:
         out["error"] = str(exc)[:200]
+    if st is not None:
+        _ANALYZE_CACHE[cache_key] = (st.st_mtime_ns, st.st_size, dict(out))
     return out
+
+
+def _dilemma_tree_fingerprint(db: Session, exercise_id: int | None) -> tuple:
+    from sqlalchemy import func
+
+    n, mx_id = (
+        db.query(
+            func.count(InformationBankTreeNode.id),
+            func.max(InformationBankTreeNode.id),
+        )
+        .filter(
+            InformationBankTreeNode.kind == "action_eval",
+            InformationBankTreeNode.is_folder.is_(False),
+        )
+        .one()
+    )
+    flow = (
+        db.query(
+            InformationBankEventFlowTable.id,
+            InformationBankEventFlowTable.updated_at,
+        )
+        .order_by(InformationBankEventFlowTable.id)
+        .first()
+    )
+    flow_fp = (
+        (int(flow[0]), flow[1].isoformat() if flow[1] is not None else "")
+        if flow
+        else (0, "")
+    )
+    return (int(n or 0), int(mx_id or 0), flow_fp, int(exercise_id or 0))
 
 
 def _assignees_by_dilemma_from_flow(raw_json: str) -> dict[str, dict[int, list[str]]]:
@@ -232,6 +295,23 @@ def build_action_eval_dilemma_judge_tree(
     exercise_id: int | None = None,
 ) -> dict[str, list[dict]]:
     """شجرة العرض لكل يوم — من مجرى الأحداث + كل مجلدات الاستيراد (حتى غير المذكورة في المجرى)."""
+    fp = _dilemma_tree_fingerprint(db, exercise_id)
+    cache_key = fp
+    hit = _DILEMMA_TREE_CACHE.get(cache_key)
+    if hit and hit[0] == fp:
+        # نسخة سطحية كافية للقراءة فقط في الطلب
+        return hit[1]
+
+    out = _build_action_eval_dilemma_judge_tree_uncached(db, exercise_id=exercise_id)
+    _DILEMMA_TREE_CACHE[cache_key] = (fp, out)
+    return out
+
+
+def _build_action_eval_dilemma_judge_tree_uncached(
+    db: Session,
+    *,
+    exercise_id: int | None = None,
+) -> dict[str, list[dict]]:
     row = (
         db.query(InformationBankEventFlowTable)
         .order_by(InformationBankEventFlowTable.id)

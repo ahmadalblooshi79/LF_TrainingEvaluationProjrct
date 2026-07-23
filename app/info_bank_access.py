@@ -48,6 +48,16 @@ def clear_information_bank_gate(session) -> None:
     session.pop(INFO_BANK_GATE_SESSION_KEY, None)
 
 
+def should_clear_information_bank_gate(path: str | None) -> bool:
+    """إبطال البوابة فقط عند مغادرة صفحات التطبيق — لا عند نبضات/واجهات API الخلفية."""
+    p = (path or "").strip()
+    if not p or is_information_bank_path(p):
+        return False
+    if p.startswith("/api/") or p.startswith("/static/"):
+        return False
+    return True
+
+
 def information_bank_gate_ok(session) -> bool:
     return bool(session.get(INFO_BANK_GATE_SESSION_KEY))
 

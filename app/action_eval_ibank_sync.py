@@ -377,7 +377,149 @@ def collect_ibank_action_eval_files_for_phase_unit(
                     sources.append(src)
 
     sources.sort(key=lambda s: (int(s.get("sort_order", 0)), int(s["node_id"])))
+    # دمج ملفات مجلدات المعاضل (fdlm) من شجرة بنك المعلومات المرتبطة بالمحكم/الوحدة
+    dilemma_sources = collect_ibank_action_eval_files_from_dilemma_tree(
+        db,
+        unit_key=uk,
+        flow_day_id=want_day or None,
+        exercise_id=None,
+    )
+    for src in dilemma_sources:
+        nid = int(src["node_id"])
+        if nid in seen:
+            # احتفظ ببيانات المعضلة إن وُجدت على المصدر المدمج
+            for existing in sources:
+                if int(existing["node_id"]) == nid:
+                    if src.get("dilemma_no") and not existing.get("dilemma_no"):
+                        existing["dilemma_no"] = src.get("dilemma_no")
+                        existing["dilemma_text"] = src.get("dilemma_text") or ""
+                        existing["folder_key"] = src.get("folder_key") or existing.get(
+                            "folder_key"
+                        )
+                        existing["folder_name"] = src.get("folder_name") or existing.get(
+                            "folder_name"
+                        )
+                    break
+            continue
+        seen.add(nid)
+        sources.append(src)
+    sources.sort(
+        key=lambda s: (
+            int(s.get("dilemma_no") or 0),
+            int(s.get("sort_order", 0)),
+            int(s["node_id"]),
+        )
+    )
     return sources
+
+
+def collect_ibank_dilemma_tree_unit_map(
+    db: Session,
+    *,
+    flow_day_id: str | None = None,
+    exercise_id: int | None = None,
+) -> dict[str, dict]:
+    """من شجرة بنك المعلومات (معضلة→محكم): unit_key → أصناف وملفات اليوم."""
+    from app.ibank_action_eval_dilemma_tree import build_action_eval_dilemma_judge_tree
+
+    want_day = (flow_day_id or "").strip()
+    ex_key = int(exercise_id) if exercise_id is not None else None
+    cache_key = (want_day, ex_key)
+    try:
+        from flask import g, has_app_context
+
+        if has_app_context():
+            cache = getattr(g, "_ibank_dilemma_unit_maps", None)
+            if cache is None:
+                cache = {}
+                g._ibank_dilemma_unit_maps = cache
+            hit = cache.get(cache_key)
+            if hit is not None:
+                return hit
+        else:
+            cache = None
+    except Exception:
+        cache = None
+
+    prepare_action_eval_ibank_tree(db)
+    tree = build_action_eval_dilemma_judge_tree(db, exercise_id=exercise_id)
+    out: dict[str, dict] = {}
+    for day_id, dilemmas in (tree or {}).items():
+        if want_day and str(day_id) != want_day:
+            continue
+        for d in dilemmas or []:
+            dno = int(d.get("dilemma_no") or d.get("num") or 0)
+            dtext = (d.get("text") or f"المعضلة/{dno}").strip()
+            folder_key = f"dilemma-{dno}" if dno else "dilemma-0"
+            folder_name = dtext[:200] if dtext else f"المعضلة/{dno}"
+            for judge in d.get("judges") or []:
+                uk = _resolve_unit_key(judge.get("unit_key") or "", db) or (
+                    judge.get("unit_key") or ""
+                ).strip()
+                if not uk:
+                    continue
+                bucket = out.setdefault(
+                    uk,
+                    {
+                        "assignee_labels": [],
+                        "sources": [],
+                        "_seen_labels": set(),
+                        "_seen_nodes": set(),
+                    },
+                )
+                asn = (judge.get("assignee_label") or "").strip()
+                if asn:
+                    nrm = _normalize_tree_label(asn)
+                    if nrm and nrm not in bucket["_seen_labels"]:
+                        bucket["_seen_labels"].add(nrm)
+                        bucket["assignee_labels"].append(asn)
+                for fmeta in judge.get("files") or []:
+                    nid = int(fmeta.get("node_id") or 0)
+                    if nid <= 0 or nid in bucket["_seen_nodes"]:
+                        continue
+                    node = db.get(InformationBankTreeNode, nid)
+                    if node is None:
+                        continue
+                    src = _file_node_to_source(db, node)
+                    if src is None:
+                        continue
+                    title = (
+                        (fmeta.get("procedure_title") or "").strip()
+                        or (fmeta.get("name") or "").strip()
+                        or src.get("title")
+                        or "قائمة تقييم إجراءات"
+                    )
+                    src["title"] = str(title)[:2000]
+                    src["dilemma_no"] = dno
+                    src["dilemma_text"] = dtext
+                    src["folder_key"] = folder_key
+                    src["folder_name"] = folder_name
+                    src["from_dilemma_tree"] = True
+                    bucket["_seen_nodes"].add(nid)
+                    bucket["sources"].append(src)
+    for uk, bucket in out.items():
+        bucket.pop("_seen_labels", None)
+        bucket.pop("_seen_nodes", None)
+    if cache is not None:
+        cache[cache_key] = out
+    return out
+
+
+def collect_ibank_action_eval_files_from_dilemma_tree(
+    db: Session,
+    *,
+    unit_key: str,
+    flow_day_id: str | None = None,
+    exercise_id: int | None = None,
+) -> list[dict]:
+    """ملفات Excel لمستوى وحدة من شجرة المعاضل في بنك المعلومات."""
+    uk = _resolve_unit_key(unit_key, db) or (unit_key or "").strip()
+    if not uk:
+        return []
+    unit_map = collect_ibank_dilemma_tree_unit_map(
+        db, flow_day_id=flow_day_id, exercise_id=exercise_id
+    )
+    return list((unit_map.get(uk) or {}).get("sources") or [])
 
 
 def _get_or_create_bundle(
@@ -388,7 +530,12 @@ def _get_or_create_bundle(
     unit_key: str,
     unit_label: str,
 ) -> ExercisePlannerFlowBundle:
-    phase_n = normalize_exercise_phase(phase_key)
+    phase_n = (
+        _resolve_phase_key(phase_key, db)
+        or normalize_exercise_phase(phase_key)
+        or (phase_key or "").strip()
+        or _default_action_eval_storage_phase(db)
+    )
     row = (
         db.query(ExercisePlannerFlowBundle)
         .filter(
@@ -518,15 +665,30 @@ def collect_flow_day_tabs_for_exercise(
     exercise_id: int,
     phase_key: str,
 ) -> list[dict[str, str]]:
-    """تبويبات الأيام من جدول مجرى الأحداث والمعاضل."""
+    """تبويبات الأيام من جدول مجرى التمرين، مع الرجوع لأيام بنك المعلومات عند الحاجة."""
     bundle = primary_flow_bundle_for_exercise(
         db, exercise_id=int(exercise_id), phase_key=phase_key
     )
     raw = (getattr(bundle, "flow_table_json", None) or "").strip() if bundle else ""
     days = _parse_flow_table_days(raw)
-    if not days:
-        return [{"id": "day-1", "label": "اليوم/1"}]
-    return [{"id": str(d.get("id") or ""), "label": str(d.get("label") or "")} for d in days]
+    tabs = [
+        {"id": str(d.get("id") or ""), "label": str(d.get("label") or "")}
+        for d in days
+        if str(d.get("id") or "").strip()
+    ]
+    if tabs:
+        return tabs
+    ibank_days = ibank_event_flow_days(db)
+    if ibank_days:
+        return [
+            {
+                "id": str(d.get("id") or "").strip(),
+                "label": str(d.get("label") or "").strip() or str(d.get("id") or ""),
+            }
+            for d in ibank_days
+            if str(d.get("id") or "").strip()
+        ]
+    return [{"id": "day-1", "label": "اليوم/1"}]
 
 
 def extract_assignee_judge_labels_from_bundle(
@@ -794,7 +956,15 @@ def publish_action_eval_lists_from_ibank(
             shutil.copy2(src_path, dest)
 
         d_idx = int(dilemma_map.get(int(nid), 0) or 0)
+        if d_idx <= 0:
+            d_idx = int(src.get("dilemma_no") or 0)
         dilemma = dilemma_by_idx.get(d_idx) if d_idx > 0 else None
+        if dilemma is None and d_idx > 0:
+            dilemma = {
+                "index": d_idx,
+                "short_label": (src.get("dilemma_text") or "").strip()[:200],
+                "text": (src.get("dilemma_text") or "").strip()[:400],
+            }
         title = _slot_title_with_dilemma(str(src["title"]), dilemma)
         preferred_index = d_idx if d_idx > 0 else (sort_i + 1)
 
@@ -1001,9 +1171,28 @@ def effective_action_eval_phase_keys(
     ibank_phases = sorted({pk for (pk, uk) in index.keys() if uk in roster_units})
     if ibank_phases:
         return ibank_phases
-    from app.info_bank_tree import PRIMARY_PHASE_KEYS
+    # بدون كتالوج تخطيط: مرحلة تخزين ثابتة صالحة للحزم (لا تُفرَّغ عبر normalize)
+    fallback = _default_action_eval_storage_phase(db)
+    return [fallback] if fallback else []
 
-    return list(PRIMARY_PHASE_KEYS)
+
+def _default_action_eval_storage_phase(db: Session) -> str:
+    """مفتاح مرحلة غير فارغ لتخزين حزم قوائم تقييم الإجراءات."""
+    from app.exercise_phase_catalog import _STATIC_PHASE_LABELS
+
+    for cand in (
+        "battle_exposure",
+        "opening",
+        "preparation",
+        "main",
+        "reorganization",
+    ):
+        resolved = _resolve_phase_key(cand, db)
+        if resolved:
+            return resolved
+        if cand in _STATIC_PHASE_LABELS:
+            return cand
+    return "battle_exposure"
 
 
 def sync_all_action_eval_from_ibank(db: Session, *, exercise_id: int) -> dict[str, int]:
@@ -1194,26 +1383,34 @@ def _build_action_eval_branch_group(
     judge_by_unit: dict[str, str],
     trainee_by_unit: dict[str, str],
     flow_day_id: str | None = None,
+    prefetched_sources: list[dict] | None = None,
 ) -> dict:
     uk = (unit_key or "").strip()
     ul = label_for_unit_level_key(uk, db=db) or uk
-    ibank_sources = collect_ibank_action_eval_files_for_phase_unit(
-        db,
-        phase_key=phase_key,
-        unit_key=uk,
-        flow_day_id=flow_day_id,
+    pk = (
+        _resolve_phase_key(phase_key, db)
+        or (phase_key or "").strip()
+        or _default_action_eval_storage_phase(db)
     )
+    if prefetched_sources is not None:
+        ibank_sources = list(prefetched_sources)
+    else:
+        ibank_sources = collect_ibank_action_eval_files_for_phase_unit(
+            db,
+            phase_key=pk,
+            unit_key=uk,
+            flow_day_id=flow_day_id,
+        )
     bundle = (
         db.query(ExercisePlannerFlowBundle)
         .filter(
             ExercisePlannerFlowBundle.exercise_id == int(exercise_id),
-            ExercisePlannerFlowBundle.exercise_phase == normalize_exercise_phase(phase_key),
+            ExercisePlannerFlowBundle.exercise_phase == pk,
             ExercisePlannerFlowBundle.unit_level_key == uk,
         )
         .first()
     )
     published_by_node = _published_slots_by_node(db, bundle) if bundle is not None else {}
-    pk = normalize_exercise_phase(phase_key)
     pl = exercise_phase_label(pk) or pk
     return {
         "phase_key": pk,
@@ -1228,7 +1425,7 @@ def _build_action_eval_branch_group(
         "bundle_id": int(bundle.id) if bundle is not None else None,
         "list_folder_groups": build_action_eval_folder_groups(
             db,
-            phase_key=phase_key,
+            phase_key=pk,
             unit_key=uk,
             ibank_sources=ibank_sources,
             published_by_node=published_by_node,
@@ -1291,11 +1488,38 @@ def build_action_eval_folder_groups(
         ibank_sources=ibank_sources,
         published_by_node=published_by_node,
     )
+    src_by_id = {int(s["node_id"]): s for s in ibank_sources}
+    # إن وُجدت ملفات مربوطة بمعاضل البنك — جمّع حسب المعضلة لتسهيل النشر اليومي
+    if any(int(s.get("dilemma_no") or 0) > 0 for s in ibank_sources):
+        grouped: dict[str, dict] = {}
+        for row in rows:
+            nid = int(row["node_id"])
+            src = src_by_id.get(nid) or {}
+            dno = int(src.get("dilemma_no") or 0)
+            if dno > 0:
+                fk = str(src.get("folder_key") or f"dilemma-{dno}")
+                fn = str(src.get("folder_name") or src.get("dilemma_text") or f"المعضلة/{dno}")
+                fs = dno
+            else:
+                fk, fn, fs = ("other", "قوائم أخرى", 99990)
+            bucket = grouped.setdefault(
+                fk,
+                {"folder_key": fk, "folder_name": fn, "sort_order": fs, "rows": []},
+            )
+            row_out = dict(row)
+            if dno > 0:
+                row_out["dilemma_no"] = dno
+            bucket["rows"].append(row_out)
+        return sorted(
+            grouped.values(),
+            key=lambda g: (int(g.get("sort_order", 0)), str(g.get("folder_name") or "")),
+        )
+
     unit_folder_ids = _unit_folder_ids_for_phase_unit(
         db, phase_key=phase_key, unit_key=unit_key, flow_day_id=flow_day_id
     )
     uk = _resolve_unit_key(unit_key, db) or unit_key
-    grouped: dict[str, dict] = {}
+    grouped = {}
     for row in rows:
         node = db.get(InformationBankTreeNode, int(row["node_id"]))
         if node is not None:
@@ -1306,8 +1530,15 @@ def build_action_eval_folder_groups(
                 unit_key=uk,
                 flow_day_id=flow_day_id,
             ):
-                continue
-            fk, fn, fs = _folder_group_for_file_node(db, node, unit_folder_ids)
+                # ملفات شجرة المعاضل قد لا تحمل catalog_unit_key للوحدة
+                src = src_by_id.get(int(row["node_id"])) or {}
+                if not src.get("from_dilemma_tree"):
+                    continue
+                fk = str(src.get("folder_key") or "dilemma-tree")
+                fn = str(src.get("folder_name") or "من بنك المعلومات")
+                fs = int(src.get("dilemma_no") or 99995)
+            else:
+                fk, fn, fs = _folder_group_for_file_node(db, node, unit_folder_ids)
         else:
             fk, fn, fs = ("orphan", "منشور سابقاً", 99998)
         bucket = grouped.setdefault(
@@ -1492,6 +1723,9 @@ def build_action_eval_display_groups(
                 if (p[0] or "").strip()
             }
         )
+    if not phase_keys:
+        # بدون كشوف محكمين/حزم: استخدم مراحل الكتالوج أو الافتراضي لربط بنك المعلومات
+        phase_keys = effective_action_eval_phase_keys(db, roster_units=set())
     if not phase_keys and phase_key:
         pk_resolved = _resolve_phase_key(phase_key, db) or normalize_exercise_phase(phase_key)
         if pk_resolved:
@@ -1502,21 +1736,51 @@ def build_action_eval_display_groups(
             match = set(_phase_match_keys(pk_resolved))
             filtered = [pk for pk in phase_keys if pk in match]
             phase_keys = filtered if filtered else [pk_resolved]
+    # إن بقيت المرحلة فارغة بعد التطبيع — خذ أول مرحلة فعّالة للعرض/النشر
+    resolved_phases: list[str] = []
+    for pk in phase_keys:
+        r = _resolve_phase_key(pk, db) or (pk or "").strip()
+        if r and r not in resolved_phases:
+            resolved_phases.append(r)
+    phase_keys = resolved_phases
+    if not phase_keys:
+        phase_keys = [_default_action_eval_storage_phase(db)]
+    # عند العرض حسب يوم المجرى: مرحلة تخزين واحدة تفادي تكرار مستويات الوحدة
+    if (flow_day_id or "").strip() and len(phase_keys) > 1:
+        phase_keys = [phase_keys[0]]
 
     from app.unit_levels_catalog import UNIT_LEVELS
 
     unit_order = {row["key"]: idx for idx, row in enumerate(UNIT_LEVELS)}
     groups: list[dict] = []
     flow_unit_total = 0
+    ibank_unit_total = 0
 
     for pk in phase_keys:
-        pl = exercise_phase_label(pk) or pk
         flow_units = collect_flow_assignee_units_for_phase(
             db,
             exercise_id=int(exercise_id),
             phase_key=pk,
             flow_day_id=flow_day_id,
         )
+        # اربط ببنك المعلومات: وحدات/ملفات شجرة المعاضل لليوم حتى بدون أصناف في مجرى التمرين
+        dilemma_units = collect_ibank_dilemma_tree_unit_map(
+            db,
+            flow_day_id=flow_day_id,
+            exercise_id=int(exercise_id),
+        )
+        ibank_unit_total = max(ibank_unit_total, len(dilemma_units))
+        for uk, info in dilemma_units.items():
+            labels = list(info.get("assignee_labels") or [])
+            if uk not in flow_units:
+                flow_units[uk] = labels
+            elif labels:
+                seen = {_normalize_tree_label(x) for x in flow_units[uk]}
+                for lbl in labels:
+                    nrm = _normalize_tree_label(lbl)
+                    if nrm and nrm not in seen:
+                        seen.add(nrm)
+                        flow_units[uk].append(lbl)
         flow_unit_total += len(flow_units)
         branch_parents = _unit_branch_parent_map()
         ordered_keys = _ordered_flat_flow_unit_keys(
@@ -1524,6 +1788,9 @@ def build_action_eval_display_groups(
         )
         for uk in ordered_keys:
             assignees = flow_units.get(uk, [])
+            pref = None
+            if uk in dilemma_units:
+                pref = list((dilemma_units.get(uk) or {}).get("sources") or [])
             row = _build_action_eval_branch_group(
                 db,
                 exercise_id=int(exercise_id),
@@ -1533,17 +1800,167 @@ def build_action_eval_display_groups(
                 judge_by_unit=judge_by_unit,
                 trainee_by_unit=trainee_by_unit,
                 flow_day_id=flow_day_id,
+                prefetched_sources=pref,
             )
             row["unit_label"] = _flow_display_label(uk, assignees, db=db)
+            row["source"] = "ibank_dilemma" if uk in dilemma_units else "flow"
             groups.append(row)
 
     meta = {
         "roster_units": len(roster_units),
         "judge_units": len(judge_units),
         "flow_units": flow_unit_total,
+        "ibank_units": ibank_unit_total,
         "phases": len(phase_keys),
     }
     return groups, meta
+
+
+def build_action_eval_dilemma_publish_groups(
+    db: Session,
+    *,
+    exercise_id: int,
+    phase_key: str | None = None,
+    flow_day_id: str | None = None,
+) -> tuple[list[dict], dict[str, int]]:
+    """مجموعات النشر للتخطيط: معضلة → محكم (مستوى وحدة) → ملفات التقييم."""
+    from app.ibank_action_eval_dilemma_tree import build_action_eval_dilemma_judge_tree
+
+    judge_by_unit, trainee_by_unit = exercise_roster_labels_by_unit(db, int(exercise_id))
+    pk = (
+        _resolve_phase_key(phase_key, db)
+        or (phase_key or "").strip()
+        or _default_action_eval_storage_phase(db)
+    )
+    want_day = (flow_day_id or "").strip()
+    tree = build_action_eval_dilemma_judge_tree(db, exercise_id=int(exercise_id))
+    day_dilemmas = list(tree.get(want_day) or []) if want_day else []
+    if not day_dilemmas and not want_day:
+        # بدون يوم محدد: ادمج كل الأيام بالترتيب
+        for day_id in sorted(
+            tree.keys(),
+            key=lambda d: (0 if str(d).startswith("day-") else 1, str(d)),
+        ):
+            day_dilemmas.extend(tree.get(day_id) or [])
+
+    # فهرس النشر: node_id → منشور في أي حزمة لهذه المرحلة
+    published_nodes: set[int] = set()
+    bundles = (
+        db.query(ExercisePlannerFlowBundle)
+        .filter(
+            ExercisePlannerFlowBundle.exercise_id == int(exercise_id),
+            ExercisePlannerFlowBundle.exercise_phase == pk,
+        )
+        .all()
+    )
+    for bundle in bundles:
+        published_nodes.update(_published_slots_by_node(db, bundle).keys())
+
+    groups: list[dict] = []
+    judge_count = 0
+    file_count = 0
+    published_count = 0
+    unit_keys_seen: set[str] = set()
+
+    for d in day_dilemmas:
+        dno = int(d.get("dilemma_no") or d.get("num") or 0)
+        judges_out: list[dict] = []
+        for j in d.get("judges") or []:
+            uk = _resolve_unit_key(j.get("unit_key") or "", db) or (
+                j.get("unit_key") or ""
+            ).strip()
+            files = list(j.get("files") or [])
+            if not uk and not files:
+                continue
+            rows: list[dict] = []
+            for fmeta in files:
+                nid = int(fmeta.get("node_id") or 0)
+                if nid <= 0:
+                    continue
+                title = (
+                    (fmeta.get("procedure_title") or "").strip()
+                    or (fmeta.get("name") or "").strip()
+                    or "قائمة تقييم إجراءات"
+                )
+                is_pub = nid in published_nodes
+                if is_pub:
+                    published_count += 1
+                rows.append(
+                    {
+                        "node_id": nid,
+                        "title": title[:2000],
+                        "published": is_pub,
+                        "dilemma_no": dno,
+                        "selected": False,
+                        "slot_id": None,
+                    }
+                )
+                file_count += 1
+            if not rows and not uk:
+                continue
+            if uk:
+                unit_keys_seen.add(uk)
+            judges_out.append(
+                {
+                    "assignee_label": (j.get("assignee_label") or "").strip(),
+                    "unit_key": uk,
+                    "unit_label": (j.get("unit_label") or "").strip()
+                    or label_for_unit_level_key(uk, db=db)
+                    or uk,
+                    "judge_name": (
+                        (j.get("judge_person_name") or "").strip()
+                        or judge_by_unit.get(uk, "—")
+                    ),
+                    "trainee_name": trainee_by_unit.get(uk, "—") if uk else "—",
+                    "rows": rows,
+                    "file_count": len(rows),
+                }
+            )
+            judge_count += 1
+        if not judges_out:
+            continue
+        groups.append(
+            {
+                "dilemma_no": dno,
+                "num": int(d.get("num") or dno or 0),
+                "text": (d.get("text") or f"المعضلة/{dno}").strip(),
+                "phase_key": pk,
+                "judges": judges_out,
+                "judge_count": len(judges_out),
+                "file_count": sum(int(x.get("file_count") or 0) for x in judges_out),
+            }
+        )
+
+    meta = {
+        "dilemmas": len(groups),
+        "judges": judge_count,
+        "files": file_count,
+        "published": published_count,
+        "ibank_units": len(unit_keys_seen),
+        "flow_units": len(unit_keys_seen),
+        "phase_key": pk,
+    }
+    return groups, meta
+
+
+def withdraw_action_eval_for_deleted_ibank_nodes(
+    db: Session,
+    node_ids: set[int] | list[int] | tuple[int, ...],
+) -> int:
+    """سحب القوائم المنشورة المرتبطة بعُقد بنك معلومات حُذفت (أو ستُحذف)."""
+    want = {int(x) for x in (node_ids or []) if x is not None}
+    if not want:
+        return 0
+    removed = 0
+    rows = db.query(ExercisePlannerFlowBundleActionEval).all()
+    for slot in rows:
+        nid = parse_action_eval_storage_relpath(slot.file_relpath)
+        if nid is None or int(nid) not in want:
+            continue
+        _unlink_bundle_action_file(slot.file_relpath)
+        db.delete(slot)
+        removed += 1
+    return removed
 
 
 def withdraw_action_eval_for_units_removed_from_flow(

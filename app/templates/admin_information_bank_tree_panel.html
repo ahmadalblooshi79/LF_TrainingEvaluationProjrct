@@ -46,46 +46,32 @@
               <ul class="ibank-aejt-judges">
                 {% for j in d.judges %}
                 <li class="ibank-aejt-judge">
-                  <details {% if j.files %}open{% endif %}>
-                    <summary class="ibank-aejt-judge__sum">
+                  <div class="ibank-aejt-judge__row">
+                    <span class="ibank-aejt-judge__role">
                       <i class="fa-solid fa-user-tie" aria-hidden="true"></i>
                       <span class="ibank-aejt-judge__label">{{ j.assignee_label }}</span>
                       {% if j.unit_label %}<span class="muted ibank-aejt-judge__unit">({{ j.unit_label }})</span>{% endif %}
-                      <span class="ibank-aejt-judge__person"><i class="fa-solid fa-id-badge" aria-hidden="true"></i> {{ j.judge_person_name or '—' }}</span>
-                    </summary>
-                    {% if j.files %}
-                    <ul class="ibank-aejt-files">
+                    </span>
+                    <span class="ibank-aejt-judge__person">
+                      <i class="fa-solid fa-id-badge" aria-hidden="true"></i>
+                      {{ j.judge_person_name or '—' }}
+                    </span>
+                    <span class="ibank-aejt-judge__actions">
                       {% for f in j.files %}
-                      <li class="ibank-aejt-file">
-                        <details open>
-                          <summary>
-                            <i class="fa-solid fa-file-excel" aria-hidden="true"></i>
-                            {{ f.name }}
-                            {% if f.procedure_title %}<span class="muted">— {{ f.procedure_title }}</span>{% endif %}
-                          </summary>
-                          <div class="ibank-aejt-leaf">
-                            <a class="btn btn-ghost btn-sm-compact" href="{{ f.open_href }}{% if active_action_eval_day %}?day={{ active_action_eval_day|urlencode }}{% endif %}">
-                              <i class="fa-solid fa-table" aria-hidden="true"></i> فتح التقييم
-                            </a>
-                          </div>
-                        </details>
-                      </li>
+                      <a class="btn btn-ghost btn-sm-compact" href="{{ f.open_href }}{% if active_action_eval_day %}?day={{ active_action_eval_day|urlencode }}{% endif %}" title="{{ f.name }}{% if f.procedure_title %} — {{ f.procedure_title }}{% endif %}">
+                        <i class="fa-solid fa-table" aria-hidden="true"></i> فتح التقييم
+                      </a>
                       {% endfor %}
-                    </ul>
-                    {% else %}
-                    <p class="muted ibank-aejt-empty">لا يوجد ملف Excel مربوط بهذا المحكم.</p>
-                    {% endif %}
-                  </details>
+                    </span>
+                  </div>
                 </li>
-                {% else %}
-                <li class="muted">لا أصناف محكمين في عمود المكلف لهذه المعضلة.</li>
                 {% endfor %}
               </ul>
             </details>
           </li>
           {% endfor %}
           {% else %}
-          <li class="muted js-ibank-action-eval-dilemmas-empty">لا توجد معاضل في مجرى الأحداث لهذا اليوم.</li>
+          <li class="muted js-ibank-action-eval-dilemmas-empty">لا توجد معاضل لهذا اليوم.</li>
           {% endif %}
         </ul>
       </div>
