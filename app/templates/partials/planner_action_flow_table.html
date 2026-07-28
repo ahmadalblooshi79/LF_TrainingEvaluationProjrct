@@ -20,8 +20,9 @@
 {% endmacro %}
 
 <script type="application/json" id="pf-flow-days-json">{{ flow_table_days | tojson }}</script>
-<section class="card planner-flow-action-table-section" id="pf-flow-table-section" dir="rtl"   data-pf-script-ver="36"
+<section class="card planner-flow-action-table-section" id="pf-flow-table-section" dir="rtl"   data-pf-script-ver="37"
   data-active-day-id="{{ flow_table_active_day_id }}"
+  {% if pf_flow_enable_day_phase is defined and pf_flow_enable_day_phase %}data-enable-day-phase="1"{% endif %}
   {% if readonly_mode %}data-readonly="1"{% endif %}
   {% if not readonly_mode %}
   data-save-url="{{ pf_flow_save_url }}"
@@ -56,6 +57,18 @@
     </div>
     {% endif %}
   </div>
+
+  {% if pf_flow_enable_day_phase is defined and pf_flow_enable_day_phase %}
+  <div class="pf-flow-day-phase-row" id="pf-flow-day-phase-row" dir="rtl">
+    <label class="pf-flow-day-phase-label" for="pf-flow-day-phase">مرحلة التمرين لهذا اليوم</label>
+    <select class="pf-flow-day-phase-select" id="pf-flow-day-phase" aria-label="مرحلة التمرين لليوم الحالي"{% if readonly_mode %} disabled{% endif %}>
+      <option value="">— اختر المرحلة —</option>
+      {% for p in (pf_flow_phase_options or []) %}
+      <option value="{{ p.key }}">{{ p.label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
 
   {% if not readonly_mode %}
 

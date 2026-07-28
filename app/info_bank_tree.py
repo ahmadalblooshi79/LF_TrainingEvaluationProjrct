@@ -62,10 +62,23 @@ def is_flow_day_catalog_key(catalog_key: str) -> bool:
 
 
 def ibank_event_flow_days(db: Session) -> list[dict[str, str]]:
-    """أيام جدول مجرى الأحداث والمعاضل في بنك المعلومات."""
+    """أيام جدول مجرى الأحداث والمعاضل في بنك المعلومات (مع مرحلة التمرين إن وُجدت)."""
     import json
+    import re
 
     from app.models.domain import InformationBankEventFlowTable
+
+    aliases = {
+        "main": "battle_exposure",
+        "reorg": "reorganization",
+        "evaluation_tracks": "reorganization",
+    }
+
+    def _phase_key(raw) -> str:
+        pk = aliases.get(str(raw or "").strip(), str(raw or "").strip())[:64]
+        if not pk:
+            return ""
+        return pk if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", pk) else ""
 
     row = (
         db.query(InformationBankEventFlowTable)
@@ -74,13 +87,13 @@ def ibank_event_flow_days(db: Session) -> list[dict[str, str]]:
     )
     raw = (getattr(row, "flow_table_json", None) or "").strip() if row else ""
     if not raw:
-        return [{"id": "day-1", "label": "اليوم/1"}]
+        return [{"id": "day-1", "label": "اليوم/1", "phase_key": ""}]
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        return [{"id": "day-1", "label": "اليوم/1"}]
+        return [{"id": "day-1", "label": "اليوم/1", "phase_key": ""}]
     if isinstance(data, list):
-        return [{"id": "day-1", "label": "اليوم/1"}]
+        return [{"id": "day-1", "label": "اليوم/1", "phase_key": ""}]
     if isinstance(data, dict) and isinstance(data.get("days"), list):
         out: list[dict[str, str]] = []
         for idx, item in enumerate(data["days"]):
@@ -88,10 +101,16 @@ def ibank_event_flow_days(db: Session) -> list[dict[str, str]]:
                 continue
             day_id = str(item.get("id") or "").strip() or f"day-{idx + 1}"
             label = str(item.get("label") or "").strip() or f"اليوم/{idx + 1}"
-            out.append({"id": day_id[:64], "label": label[:200]})
+            out.append(
+                {
+                    "id": day_id[:64],
+                    "label": label[:200],
+                    "phase_key": _phase_key(item.get("phase_key")),
+                }
+            )
         if out:
             return out
-    return [{"id": "day-1", "label": "اليوم/1"}]
+    return [{"id": "day-1", "label": "اليوم/1", "phase_key": ""}]
 
 
 def _find_flow_day_folder(db: Session, day_id: str) -> InformationBankTreeNode | None:
@@ -1141,6 +1160,8 @@ def ensure_information_bank_tree(db: Session, kind: str) -> None:
             db.commit()
         if repair_unit_eval_tree(db, kind):
             db.commit()
+        if repair_tree_natural_sibling_order(db, kind):
+            db.commit()
         return
     changed = False
     phases = _phase_rows(db)
@@ -1224,6 +1245,8 @@ def ensure_information_bank_kind(db: Session, kind: str) -> None:
     migrate_legacy_flat_files(db, kind)
     if is_unit_eval_tree_kind(kind):
         repair_unit_eval_tree(db, kind)
+        if repair_tree_natural_sibling_order(db, kind):
+            db.commit()
     ensured.add(kind)
 
 
@@ -1633,7 +1656,7 @@ def upload_files_to_parent(
         file_name = parts[-1]
         dir_parts = parts[:-1]
         if not is_allowed_tree_filename(file_name):
-            errors.append(f"{file_name}: صيغة غير مدعومة (PDF أو Word أو Excel).")
+            # صيغ غير مدعومة (صور وغيرها) تُتجاهل بصمت عند إرفاق مجلد
             continue
         try:
             data = f.read()
@@ -1716,6 +1739,9 @@ def build_tree_payload(
     by_parent: dict[int | None, list[InformationBankTreeNode]] = defaultdict(list)
     for r in rows:
         by_parent[r.parent_id].append(r)
+    # ترتيب طبيعي: م1، م2، … م10 (وليس م1، م10، م2)
+    for pid, siblings in by_parent.items():
+        siblings.sort(key=lambda n: (_natural_sort_key(n.name or ""), int(n.id or 0)))
     judge_map = dict(judge_name_by_unit or {})
 
     def node_dict(n: InformationBankTreeNode) -> dict:

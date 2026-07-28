@@ -16,11 +16,25 @@
 {% if not criteria_phases %}
 <p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا توجد مراحل تقييم في كتالوج التخطيط. أضف مراحل التمرين أولاً أو استخدم البيانات المحفوظة سابقاً من بنك المعلومات (كتالوج مستقل).</p>
 {% endif %}
+
+<section class="card analyst-criteria-flow-link-card">
+  <h2 class="h2-in-card"><i class="fa-solid fa-link fa-icon-title" aria-hidden="true"></i> حساب المجرى ضمن المراحل</h2>
+  <p class="muted" dir="rtl" style="margin-top:0;">تُحسب نتائج قوائم تقييم إجراءات كل يوم ضمن المرحلة المحددة لذلك اليوم في بنك المعلومات ← مجرى الأحداث والمعاضل.</p>
+  {% if flow_day_phase_rules %}
+  <ul class="muted" dir="rtl" style="margin:0.5rem 0 0; padding-inline-start:1.25rem;">
+    {% for r in flow_day_phase_rules %}
+    <li><strong>{{ r.day_label }}</strong> → {{ r.phase_label }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+
 <section class="card analyst-criteria-distribution-card">
   <h2 class="h2-in-card"><i class="fa-solid fa-percent fa-icon-title" aria-hidden="true"></i> توزيع النسبة المئوية الاجماليه للتقييم</h2>
   {% if ok_msg %}
   <p class="form-ok-banner" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
   {% endif %}
+  <p class="muted" dir="rtl" style="margin-top:0;">رقم المرحلة = معايير يدوية + مكتسبة المجرى لليوم المرتبط بتلك المرحلة. يظهر تحت الرقم «منها مجرى» عند توفر نتائج.</p>
 
   <form method="post" action="{{ url_for('views.analyst_hub_section', slug='evaluation-criteria') }}" id="analyst-criteria-distribution-form">
     <div class="table-wrap analyst-criteria-distribution-wrap">
@@ -50,7 +64,15 @@
             </th>
             {% for phase_key, phase_label in criteria_phases %}
             {% set phase_total = (row.phase_totals or {}).get(phase_key) %}
-            <td>{% if phase_total is number %}{{ phase_total|round(2) }}{% else %}—{% endif %}</td>
+            {% set flow_total = (row.phase_flow_totals or {}).get(phase_key) %}
+            <td>
+              {% if phase_total is number %}
+              {{ phase_total|round(2) }}
+              {% if flow_total is number %}
+              <div class="muted" style="font-size:0.85em;">منها مجرى: {{ flow_total|round(2) }}</div>
+              {% endif %}
+              {% else %}—{% endif %}
+            </td>
             {% endfor %}
             <td>{% if total_mark is number %}{{ total_mark|round(2) }}{% else %}—{% endif %}</td>
             <td>{% if allocated_pct is number %}{{ allocated_pct|round(2) }}%{% else %}—{% endif %}</td>
@@ -86,7 +108,9 @@
             {% endfor %}
             <td>{% if grand_total is number %}{{ grand_total|round(2) }}{% else %}—{% endif %}</td>
             <td>{% if grand_total is number %}100%{% else %}—{% endif %}</td>
-            <td>—</td>
+            <td>
+              <button type="submit" class="btn btn-primary btn-sm-compact"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ</button>
+            </td>
           </tr>
         </tfoot>
       </table>

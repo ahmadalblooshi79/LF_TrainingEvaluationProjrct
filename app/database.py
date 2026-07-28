@@ -434,6 +434,35 @@ def ensure_information_bank_unit_label_migrations() -> None:
         db.close()
 
 
+def ensure_analyst_flow_day_phase_links_table() -> None:
+    """جدول ربط أيام المجرى بمراحل التحليل (SQLite)."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS analyst_flow_day_phase_links (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    exercise_id INTEGER NOT NULL,
+                    flow_day_id VARCHAR(64) DEFAULT '',
+                    phase_key VARCHAR(32) DEFAULT '',
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    FOREIGN KEY(exercise_id) REFERENCES exercises (id) ON DELETE CASCADE,
+                    UNIQUE (exercise_id, flow_day_id)
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_analyst_flow_day_phase_exercise "
+                "ON analyst_flow_day_phase_links (exercise_id)"
+            )
+        )
+
+
 def ensure_analyst_final_eval_manual_tables() -> None:
     """جداول علامات القصوى اليدوية في التقييم النهائي (SQLite)."""
     if not DATABASE_URL.startswith("sqlite"):

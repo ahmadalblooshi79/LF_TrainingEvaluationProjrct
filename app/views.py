@@ -3357,7 +3357,13 @@ def _build_analyst_saved_results_charts(db, user: User) -> dict:
 
 
 def _build_analyst_evaluation_criteria_distribution(db, user: User) -> dict:
-    """توزيع نتائج مراحل التقييم اليدوية، مستقل عن قوائم التقييم."""
+    """توزيع نتائج مراحل التقييم اليدوية + مساهمة مجرى الأيام (حسب ربط بنك المعلومات)."""
+    from app.analyst_flow_day_phase_link import (
+        collect_flow_acquired_by_unit_phase,
+        ibank_flow_day_phase_map,
+        flow_day_phase_rule_summary,
+    )
+    from app.info_bank_tree import ibank_event_flow_days
     from app.planning_catalog_sync import sync_planning_catalogs_from_db
 
     sync_planning_catalogs_from_db(db, force=True)
@@ -3383,19 +3389,39 @@ def _build_analyst_evaluation_criteria_distribution(db, user: User) -> dict:
             [],
         ).append(float(item.allocated_mark))
 
+    flow_days = ibank_event_flow_days(db)
+    day_to_phase = ibank_flow_day_phase_map(flow_days)
+    flow_acquired = collect_flow_acquired_by_unit_phase(
+        db,
+        exercise_id=int(ex.id),
+        day_to_phase=day_to_phase,
+        flow_days=flow_days,
+    )
+
     rows: list[dict] = []
     grand_total = 0.0
     for unit in criteria_units:
         phase_totals: dict[str, float | None] = {}
-        phase_order = ANALYST_EVALUATION_CRITERIA_PHASE_ORDER or tuple(EXERCISE_PHASE_OPTIONS)
+        phase_criteria_totals: dict[str, float | None] = {}
+        phase_flow_totals: dict[str, float | None] = {}
+        phase_order = tuple(_analyst_criteria_phases_for_display(True)) or tuple(
+            EXERCISE_PHASE_OPTIONS
+        )
+        unit_level_key = _resolve_unit_level_key_for_criteria_label(unit.label or "")
         for phase_key, _label in phase_order:
             marks = marks_by_unit_phase.get((unit.id, phase_key), [])
-            phase_totals[phase_key] = sum(marks) if marks else None
+            crit = sum(marks) if marks else None
+            flow_v = flow_acquired.get((unit_level_key, phase_key))
+            if flow_v is not None and flow_v <= 0:
+                flow_v = None
+            phase_criteria_totals[phase_key] = crit
+            phase_flow_totals[phase_key] = flow_v
+            parts = [x for x in (crit, flow_v) if x is not None]
+            phase_totals[phase_key] = sum(parts) if parts else None
         parts = [x for x in phase_totals.values() if x is not None]
         total_mark = sum(parts) if parts else None
         if total_mark is not None:
             grand_total += total_mark
-        unit_level_key = _resolve_unit_level_key_for_criteria_label(unit.label or "")
         unit_label = label_for_unit_level_key(unit_level_key) or (unit.label or "—")
         rows.append(
             {
@@ -3403,6 +3429,8 @@ def _build_analyst_evaluation_criteria_distribution(db, user: User) -> dict:
                 "unit_level_key": unit_level_key,
                 "unit_label": unit_label,
                 "phase_totals": phase_totals,
+                "phase_criteria_totals": phase_criteria_totals,
+                "phase_flow_totals": phase_flow_totals,
                 "preparation_total": phase_totals.get("preparation"),
                 "evaluation_tracks_total": phase_totals.get("evaluation_tracks"),
                 "opening_total": phase_totals.get("opening"),
@@ -3430,6 +3458,7 @@ def _build_analyst_evaluation_criteria_distribution(db, user: User) -> dict:
         "criteria_phases": _analyst_criteria_phases_for_display(bool(rows)),
         "available_unit_levels": available_unit_levels,
         "planner_unit_levels": list(UNIT_LEVELS),
+        "flow_day_phase_rules": flow_day_phase_rule_summary(flow_days),
     }
 
 
@@ -3591,6 +3620,36 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
                 "has_saved_payload": has_saved_payload,
             }
         )
+
+    # مساهمة مجرى الأيام حسب القاعدة الثابتة (مجرى 1–2 → الإنفتاح، …)
+    try:
+        from app.analyst_flow_day_phase_link import collect_flow_acquired_by_unit_phase
+        from app.info_bank_tree import ibank_event_flow_days
+
+        _flow_acq = collect_flow_acquired_by_unit_phase(
+            db, exercise_id=int(ex.id), flow_days=ibank_event_flow_days(db)
+        )
+        for (uk, pk), acq in _flow_acq.items():
+            if not uk or uk not in included_unit_keys or acq <= 0:
+                continue
+            pk_n = _normalized_exercise_phase(pk)
+            if not pk_n:
+                continue
+            block = phase_acquired_totals.setdefault(
+                (uk, pk_n),
+                {
+                    "unit_key": uk,
+                    "unit_label": label_for_unit_level_key(uk, db) or uk or "—",
+                    "phase_key": pk_n,
+                    "phase_label": _phase_label_ar(pk_n),
+                    "acquired_mark": 0.0,
+                },
+            )
+            block["acquired_mark"] += float(acq)
+            slot = unit_phase_slots.setdefault((uk, pk_n), {**block})
+            slot["acquired_mark"] = block["acquired_mark"]
+    except Exception:
+        current_app.logger.exception("analyst final eval flow-day merge failed")
 
     units_in_exercise: set[str] = set()
     for item in eval_items:
@@ -4322,6 +4381,61 @@ def _evaluation_list_phases_for_criteria_phase(criteria_phase_key: str) -> list[
     return phases
 
 
+def _collect_eval_list_acquired_for_unit_phase(
+    db,
+    ex: Exercise,
+    unit: "AnalystEvaluationCriteriaUnit",
+    criteria_phase_key: str,
+) -> list[dict]:
+    """جمع المكتسبة من قوائم التقييم النهائية لوحدة/مرحلة لملء تلقائي.
+
+    يعيد قائمة: [{criteria_text, acquired_mark, max_mark}] بترتيب القوائم.
+    """
+    from sqlalchemy import or_
+
+    unit_label = (unit.label or "").strip()
+    unit_level_key = _resolve_unit_level_key_for_criteria_label(unit_label)
+    eval_phases = _evaluation_list_phases_for_criteria_phase(criteria_phase_key)
+
+    q = db.query(EvaluationListPdfItem).filter(
+        EvaluationListPdfItem.exercise_id == int(ex.id),
+        EvaluationListPdfItem.exercise_phase.in_(eval_phases),
+    )
+    unit_filters = []
+    if unit_level_key:
+        unit_filters.append(EvaluationListPdfItem.unit_level_key == unit_level_key)
+    if unit_label:
+        unit_filters.append(EvaluationListPdfItem.unit_level_label == unit_label)
+    if not unit_filters:
+        return []
+    rows = (
+        q.filter(or_(*unit_filters))
+        .order_by(EvaluationListPdfItem.sort_order, EvaluationListPdfItem.id)
+        .all()
+    )
+
+    out: list[dict] = []
+    seen_titles: set[str] = set()
+    for item in rows:
+        title = (item.text or "").strip()
+        if not title or title in seen_titles:
+            continue
+        seen_titles.add(title)
+        saved = _evaluation_canonical_saved_row(db, int(ex.id), int(item.id))
+        if saved is None:
+            continue
+        saved_rows = _parse_saved_eval_rows(getattr(saved, "payload_json", None))
+        sum_max, sum_acq = _evaluation_payload_mark_totals(saved_rows)
+        out.append(
+            {
+                "criteria_text": title[:1000],
+                "acquired_mark": round(sum_acq, 4) if sum_max > 0 else None,
+                "max_mark": round(sum_max, 4) if sum_max > 0 else None,
+            }
+        )
+    return out
+
+
 def _evaluation_list_titles_for_criteria_unit(
     db,
     ex: Exercise,
@@ -4614,7 +4728,13 @@ def login():
     if request.method == "GET":
         if get_current_user_optional():
             return redirect("/dashboard")
-        return render_template("login.html", next_url=request.args.get("next", ""), error="")
+        return render_template(
+            "login.html",
+            next_url=request.args.get("next", ""),
+            error="",
+            username_value="admin",
+            password_value="demo123",
+        )
     # POST
     from flask import g
     db = g.db
@@ -4632,6 +4752,8 @@ def login():
                 "login.html",
                 next_url=next_url,
                 error="بيانات الدخول غير صحيحة",
+                username_value=username or "admin",
+                password_value="",
             ),
             401,
         )
@@ -4852,6 +4974,7 @@ def analyst_hub_section(slug: str):
                 criteria_phases=dist.get("criteria_phases")
                 or _analyst_criteria_phases_for_display(bool(dist.get("distribution_rows"))),
                 available_unit_levels=dist.get("available_unit_levels") or [],
+                flow_day_phase_rules=dist.get("flow_day_phase_rules") or [],
                 ok_msg="تم الحفظ بنجاح." if request.args.get("ok") else "",
             ),
         )
@@ -5513,6 +5636,7 @@ def analyst_evaluation_criteria_phase(unit_id: int, phase_key: str):
                 eval_list_driven=False,
                 eval_list_count=0,
                 criteria_unit_level_key="",
+                dilemma_reaction=None,
                 **_subpage_close_ctx(
                     url_for("views.analyst_hub_section", slug="evaluation-criteria")
                 ),
@@ -5538,6 +5662,19 @@ def analyst_evaluation_criteria_phase(unit_id: int, phase_key: str):
         for item in items
         if item.get("allocated_mark") is not None
     )
+    from app.analyst_flow_day_phase_link import build_dilemma_reaction_table_for_unit_phase
+
+    dilemma_reaction = build_dilemma_reaction_table_for_unit_phase(
+        db,
+        exercise_id=int(ex.id),
+        unit_level_key=unit_level_key or "",
+        phase_key=phase_key,
+    )
+    autofill_url = url_for(
+        "views.analyst_evaluation_criteria_phase_autofill",
+        unit_id=unit_id,
+        phase_key=phase_key_raw,
+    )
     return render_template(
         "analyst_evaluation_criteria_phase.html",
         **_ctx(
@@ -5553,12 +5690,45 @@ def analyst_evaluation_criteria_phase(unit_id: int, phase_key: str):
             eval_list_count=len(eval_list_titles),
             criteria_unit_level_key=unit_level_key,
             total_mark=total_mark if total_mark > 0 else None,
+            dilemma_reaction=dilemma_reaction,
             ok_msg="تم حفظ جدول المرحلة." if request.args.get("ok") else "",
+            autofill_url=autofill_url,
             **_subpage_close_ctx(
                 url_for("views.analyst_hub_section", slug="evaluation-criteria")
             ),
         ),
     )
+
+
+@bp.route(
+    "/analyst/evaluation-criteria/<int:unit_id>/<phase_key>/autofill",
+    methods=["GET"],
+)
+def analyst_evaluation_criteria_phase_autofill(unit_id: int, phase_key: str):
+    """JSON: قائمة الدرجات المكتسبة من قوائم التقييم النهائية لملء تلقائي."""
+    user = get_current_user_optional()
+    if not user:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    if not can_access_analyst_hub(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    phase_key_raw = (phase_key or "").strip()
+    phase_key_resolved = _resolve_analyst_criteria_phase_key(phase_key_raw)
+    if not phase_key_resolved:
+        return jsonify({"ok": False, "error": "invalid_phase"}), 400
+    from flask import g
+
+    db = g.db
+    ex0 = _current_workspace_exercise(db, user)
+    if ex0 is None:
+        return jsonify({"ok": False, "error": "no_exercise"}), 400
+    ex = db.query(Exercise).filter(Exercise.id == ex0.id).first()
+    if ex is None:
+        return jsonify({"ok": False, "error": "no_exercise"}), 400
+    unit = db.get(AnalystEvaluationCriteriaUnit, unit_id)
+    if unit is None or unit.exercise_id != ex.id:
+        return jsonify({"ok": False, "error": "not_found"}), 404
+    items = _collect_eval_list_acquired_for_unit_phase(db, ex, unit, phase_key_resolved)
+    return jsonify({"ok": True, "items": items})
 
 
 def _get_or_create_planner_bundle(
@@ -5813,12 +5983,31 @@ PLANNER_FLOW_DAY_ONE_ID = "day-1"
 PLANNER_FLOW_DAY_ONE_LABEL = "اليوم/1"
 
 
+def _normalize_planner_flow_day_phase_key(raw) -> str:
+    """مرحلة التمرين المرتبطة بيوم المجرى (من بنك المعلومات)."""
+    import re
+
+    pk = str(raw or "").strip()[:64]
+    aliases = {
+        "main": "battle_exposure",
+        "reorg": "reorganization",
+        "evaluation_tracks": "reorganization",
+    }
+    pk = aliases.get(pk, pk)
+    if not pk:
+        return ""
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", pk):
+        return pk
+    return ""
+
+
 def _default_planner_flow_table_days() -> tuple[list[dict], str]:
     return [
         {
             "id": PLANNER_FLOW_DAY_ONE_ID,
             "label": PLANNER_FLOW_DAY_ONE_LABEL,
             "note": "",
+            "phase_key": "",
             "rows": [],
         }
     ], PLANNER_FLOW_DAY_ONE_ID
@@ -5846,6 +6035,7 @@ def _ensure_day_one_tab(days: list[dict]) -> list[dict]:
                 "id": PLANNER_FLOW_DAY_ONE_ID,
                 "label": PLANNER_FLOW_DAY_ONE_LABEL,
                 "note": "",
+                "phase_key": "",
                 "rows": [],
             },
             *out,
@@ -5855,6 +6045,12 @@ def _ensure_day_one_tab(days: list[dict]) -> list[dict]:
         day_one["id"] = PLANNER_FLOW_DAY_ONE_ID
     if not (day_one.get("label") or "").strip():
         day_one["label"] = PLANNER_FLOW_DAY_ONE_LABEL
+    if "phase_key" not in day_one:
+        day_one["phase_key"] = ""
+    else:
+        day_one["phase_key"] = _normalize_planner_flow_day_phase_key(
+            day_one.get("phase_key")
+        )
     return [day_one, *out]
 
 
@@ -5977,7 +6173,15 @@ def _parse_planner_flow_table_days(
         return default_days, default_active
     if isinstance(data, list):
         rows = _normalize_planner_flow_table_rows(data)
-        return [{"id": "day-1", "label": "اليوم/1", "note": "", "rows": rows}], "day-1"
+        return [
+            {
+                "id": "day-1",
+                "label": "اليوم/1",
+                "note": "",
+                "phase_key": "",
+                "rows": rows,
+            }
+        ], "day-1"
     if not isinstance(data, dict):
         return default_days, default_active
     raw_days = data.get("days")
@@ -5991,8 +6195,15 @@ def _parse_planner_flow_table_days(
         label = str(item.get("label") or "").strip() or f"اليوم/{idx + 1}"
         rows = _normalize_planner_flow_table_rows(item.get("rows"))
         note = str(item.get("note") or "")[:4000]
+        phase_key = _normalize_planner_flow_day_phase_key(item.get("phase_key"))
         out_days.append(
-            {"id": day_id[:64], "label": label[:200], "note": note, "rows": rows}
+            {
+                "id": day_id[:64],
+                "label": label[:200],
+                "note": note,
+                "phase_key": phase_key,
+                "rows": rows,
+            }
         )
     if not out_days:
         return default_days, default_active
@@ -6014,8 +6225,15 @@ def _normalize_planner_flow_table_document(payload) -> dict:
             label = str(item.get("label") or "").strip() or f"اليوم/{idx + 1}"
             rows = _normalize_planner_flow_table_rows(item.get("rows"))
             note = str(item.get("note") or "")[:4000]
+            phase_key = _normalize_planner_flow_day_phase_key(item.get("phase_key"))
             out_days.append(
-                {"id": day_id[:64], "label": label[:200], "note": note, "rows": rows}
+                {
+                    "id": day_id[:64],
+                    "label": label[:200],
+                    "note": note,
+                    "phase_key": phase_key,
+                    "rows": rows,
+                }
             )
         if not out_days:
             out_days = list(default_days)
@@ -6035,7 +6253,15 @@ def _normalize_planner_flow_table_document(payload) -> dict:
     return {
         "version": 2,
         "active_day_id": default_active,
-        "days": [{"id": "day-1", "label": "اليوم/1", "note": "", "rows": rows}],
+        "days": [
+            {
+                "id": "day-1",
+                "label": "اليوم/1",
+                "note": "",
+                "phase_key": "",
+                "rows": rows,
+            }
+        ],
     }
 
 
@@ -8103,7 +8329,17 @@ def _render_planner_action_eval_lists(db, user: User):
         dilemma_count = int(meta.get("dilemmas") or 0)
         published_count = int(meta.get("published") or 0)
         day_label = selected_day_label or "اليوم/1"
-        page_note = ""
+        if dilemma_count:
+            page_note = (
+                f"المصدر: بنك المعلومات ← قوائم تقييم الإجراءات — "
+                f"معضلة ← محكم / مستوى الوحدة / متدرب ← قوائم التقييم "
+                f"لـ{day_label} ({dilemma_count} معضلة، {published_count} منشورة)."
+            )
+        else:
+            page_note = (
+                f"لا توجد معاضل مربوطة بقوائم لهذا اليوم. راجع "
+                f"مجرى الأحداث والمعاضل وبنك المعلومات ← قوائم تقييم الإجراءات."
+            )
 
     return render_template(
         "planner_action_eval_lists.html",
@@ -12787,15 +13023,40 @@ def judge_dilemmas(unit_key: str):
 def judge_dilemma_viewer(unit_key: str, item_id: int):
     user = get_current_user_optional()
     if not user:
-        return redirect(f"/login?next=/judge/dilemmas/{unit_key}")
+        return redirect(f"/login?next=/judge/dilemmas/{unit_key}/view/{item_id}")
     if not can_access_judge_hub(user):
         abort(403)
-    return redirect(
-        url_for(
-            "views.judge_dilemmas",
+    from flask import g
+
+    db = g.db
+    row = db.get(DilemmaItem, item_id)
+    ex = _current_workspace_exercise(db, user)
+    if not row or row.unit_level_key != unit_key or ex is None or row.exercise_id != ex.id:
+        abort(404)
+    _enforce_judge_unit_scope(db, user, ex, unit_key)
+    list_url = url_for(
+        "views.judge_dilemmas",
+        unit_key=unit_key,
+        **_judge_action_eval_lists_url_kwargs(),
+    )
+    if not (row.pdf_relpath or "").strip():
+        return redirect(list_url)
+    if _dilemma_pdf_abspath(row.pdf_relpath) is None:
+        return redirect(list_url)
+    pdf_url = url_for(
+        "views.judge_dilemma_pdf_file", unit_key=unit_key, item_id=item_id
+    )
+    return render_template(
+        "judge_dilemma_viewer.html",
+        **_ctx(
+            user,
             unit_key=unit_key,
-            **_judge_action_eval_lists_url_kwargs(),
-        )
+            item_id=item_id,
+            item_title=row.text or "معضلة",
+            pdf_url=pdf_url,
+            subpage_close_fallback=list_url,
+            **_hub_back_ctx_for_request_path(),
+        ),
     )
 
 
@@ -14903,14 +15164,19 @@ def _ibank_ui_brigade_groups() -> list[dict[str, str]]:
     return ibc.info_bank_brigade_groups_for_ui()
 
 
-def _ibank_action_eval_day_tabs_payload(db) -> dict:
-    """أيام المجرى وجذور شجرة قوائم تقييم الإجراءات (للمزامنة دون إعادة تحميل)."""
+def _ibank_action_eval_day_tabs_payload(db, *, exercise_id: int | None = None) -> dict:
+    """أيام المجرى وجذور الشجرة وشجرة المعاضل (للمزامنة دون إعادة تحميل)."""
+    from app.ibank_action_eval_dilemma_tree import (
+        build_action_eval_dilemma_judge_tree,
+        invalidate_action_eval_dilemma_tree_cache,
+    )
     from app.info_bank_tree import (
         build_tree_payload,
         ensure_information_bank_kind,
         ibank_event_flow_days,
     )
 
+    invalidate_action_eval_dilemma_tree_cache()
     ensure_information_bank_kind(db, "action_eval")
     flow_days = ibank_event_flow_days(db)
     tree_action_eval = build_tree_payload(db, "action_eval")
@@ -14919,7 +15185,29 @@ def _ibank_action_eval_day_tabs_payload(db) -> dict:
         day_id = (root.get("flow_day_id") or "").strip()
         if day_id:
             day_root_ids[day_id] = int(root["id"])
-    return {"days": flow_days, "day_root_ids": day_root_ids}
+    dilemma_tree = build_action_eval_dilemma_judge_tree(db, exercise_id=exercise_id)
+    dilemmas_by_day = {
+        day_id: [
+            {
+                "num": n.get("num"),
+                "dilemma_no": n.get("dilemma_no"),
+                "text": n.get("text"),
+                "files": [
+                    {"node_id": f.get("node_id"), "name": f.get("name")}
+                    for j in (n.get("judges") or [])
+                    for f in (j.get("files") or [])
+                ],
+            }
+            for n in nodes
+        ]
+        for day_id, nodes in dilemma_tree.items()
+    }
+    return {
+        "days": flow_days,
+        "day_root_ids": day_root_ids,
+        "dilemma_tree": dilemma_tree,
+        "dilemmas_by_day": dilemmas_by_day,
+    }
 
 
 @bp.route("/admin/information-bank", methods=["GET"])
@@ -15032,6 +15320,9 @@ def admin_information_bank():
         for day_id, nodes in ibank_action_eval_dilemma_tree.items()
     }
     err = (request.args.get("err") or "").strip()[:2000]
+    # لا تُعرض ملاحظات الرفع القديمة المزدحمة بأسماء صيغ غير مدعومة
+    if "صيغة غير مدعومة" in err:
+        err = ""
     ok = (request.args.get("ok") or "").strip()[:500]
     from flask import make_response
 
@@ -15085,7 +15376,10 @@ def admin_information_bank_action_eval_day_tabs():
 
     db = g.db
     try:
-        payload = _ibank_action_eval_day_tabs_payload(db)
+        ex = _admin_current_workspace_exercise(db, user)
+        payload = _ibank_action_eval_day_tabs_payload(
+            db, exercise_id=int(ex.id) if ex else None
+        )
     except Exception as exc:
         db.rollback()
         current_app.logger.exception("action eval day tabs sync failed: %s", exc)
@@ -15096,7 +15390,7 @@ def admin_information_bank_action_eval_day_tabs():
 
 @bp.route("/admin/information-bank/action-eval/view/<int:node_id>", methods=["GET"])
 def admin_information_bank_action_eval_view(node_id: int):
-    """فتح قائمة تقييم الإجراءات (Excel) بنفس عارض قوائم التقييم."""
+    """فتح قائمة تقييم الإجراءات (Excel) بعارض قوائم التقييم."""
     user = get_current_user_optional()
     if not user:
         return redirect(f"/login?next=/admin/information-bank/action-eval/view/{node_id}")
@@ -15104,7 +15398,6 @@ def admin_information_bank_action_eval_view(node_id: int):
         abort(403)
     from flask import g
 
-    from app.config import INFO_BANK_DIR
     from app.info_bank_tree import node_file_abspath
 
     db = g.db
@@ -15221,17 +15514,19 @@ def admin_information_bank_event_flow_save():
     row = _get_or_create_ibank_event_flow_table(db)
     row.flow_table_json = json.dumps(doc, ensure_ascii=False)
     row.updated_at = datetime.utcnow()
-    # إعادة مزامنة جذور قوائم التقييم: حذف أيام المجرى المحذوفة وقوائمها المنشورة
+    # دائماً: إعادة بناء شجرة المعاضل/القوائم المرتبطة بالمجرى بعد التفريغ أو إعادة الملء
     invalidate_information_bank_kind_cache("action_eval")
+    invalidate_action_eval_dilemma_tree_cache()
     ensure_information_bank_kind(db, "action_eval")
-    if removed_day_ids:
-        invalidate_action_eval_dilemma_tree_cache()
     db.commit()
     active_rows = next(
         (d["rows"] for d in doc["days"] if d["id"] == doc["active_day_id"]),
         [],
     )
-    action_eval = _ibank_action_eval_day_tabs_payload(db)
+    ex = _admin_current_workspace_exercise(db, user)
+    action_eval = _ibank_action_eval_day_tabs_payload(
+        db, exercise_id=int(ex.id) if ex else None
+    )
     return jsonify(
         {
             "ok": True,
@@ -15300,11 +15595,20 @@ def admin_information_bank_event_flow_import_docx():
     doc = {"version": 2, "active_day_id": target_id, "days": days}
     row.flow_table_json = json.dumps(doc, ensure_ascii=False)
     row.updated_at = datetime.utcnow()
-    from app.info_bank_tree import ensure_information_bank_kind
+    from app.ibank_action_eval_dilemma_tree import invalidate_action_eval_dilemma_tree_cache
+    from app.info_bank_tree import (
+        ensure_information_bank_kind,
+        invalidate_information_bank_kind_cache,
+    )
 
+    invalidate_information_bank_kind_cache("action_eval")
+    invalidate_action_eval_dilemma_tree_cache()
     ensure_information_bank_kind(db, "action_eval")
     db.commit()
-    action_eval = _ibank_action_eval_day_tabs_payload(db)
+    ex = _admin_current_workspace_exercise(db, user)
+    action_eval = _ibank_action_eval_day_tabs_payload(
+        db, exercise_id=int(ex.id) if ex else None
+    )
 
     return jsonify(
         {
@@ -15666,14 +15970,14 @@ def admin_information_bank_tree_upload():
             invalidate_information_bank_kind_cache("action_eval")
     else:
         db.rollback()
-    err_q = " ".join(errors)[:2000] if errors else ""
+    err_q = " ".join(errors[:3])[:400] if errors else ""
     if not added:
-        return _admin_information_bank_tree_redirect(tab=tab, err=err_q or "لم تُضف أي ملف.")
-    ok_msg = f"تم إدراج {added} ملف(ات)."
-    if err_q:
         return _admin_information_bank_tree_redirect(
-            tab=tab, ok=ok_msg, err=f"تجاهل بعض الملفات: {err_q}"
+            tab=tab,
+            err=err_q or "لم يُدرج أي ملف مدعوم (PDF أو Word أو Excel).",
         )
+    ok_msg = f"تم إدراج {added} ملف(ات)."
+    # لا تُعرض قائمة الملفات المرفوضة في شريط أعلى الصفحة بعد الإدراج الناجح
     return _admin_information_bank_tree_redirect(tab=tab, ok=ok_msg)
 
 
@@ -15802,12 +16106,50 @@ def admin_information_bank_tree_file(node_id: int):
     path = node_file_abspath(row.kind, row.file_relpath)
     if path is None:
         abort(404)
-    low = path.name.lower()
-    if low.endswith(".xlsx"):
+    low = (row.name or path.name).lower()
+    kind = (row.kind or "").strip()
+    # قوائم التقييم / تقييم الإجراءات: عرض القائمة وليس تنزيل Excel
+    if kind in ("action_eval", "dilemma_eval") and low.endswith((".xlsx", ".xlsm")):
+        if kind == "action_eval":
+            return redirect(
+                url_for("views.admin_information_bank_action_eval_view", node_id=node_id)
+            )
+        ev = _evaluation_sheet_view_context(path)
+        back_url = url_for("views.admin_information_bank", tab="dilemma-eval")
+        return render_template(
+            "judge_evaluation_list_viewer.html",
+            **_ctx(
+                user,
+                item_title=(row.name or "قائمة تقييم"),
+                unit_key="",
+                unit_label="—",
+                judge_name="—",
+                commander_name="—",
+                shown_date=None,
+                item_id=int(node_id),
+                saved_payload={},
+                saved_is_approved=False,
+                saved_approved_at=None,
+                eval_can_edit=False,
+                eval_save_url="",
+                show_eval_approve=False,
+                close_href=back_url,
+                eval_close_href=back_url,
+                subpage_close_fallback=back_url,
+                **ev,
+                **_hub_back_ctx_for_request_path(),
+            ),
+        )
+    if low.endswith((".xlsx", ".xlsm")):
         mt = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     else:
         mt = _mimetype_info_bank_event_flow(path)
-    return send_file(path, mimetype=mt, as_attachment=False, download_name=row.name or path.name)
+    return send_file(
+        path,
+        mimetype=mt,
+        as_attachment=False,
+        download_name=row.name or path.name,
+    )
 
 
 @bp.route("/admin/information-bank/event-flow/upload", methods=["POST"])
@@ -16052,7 +16394,12 @@ def admin_information_bank_eval_list_purge_all():
         abort(403)
     from flask import g
 
-    from app.info_bank_tree import kind_tab, purge_information_bank_tree
+    from app.ibank_action_eval_dilemma_tree import invalidate_action_eval_dilemma_tree_cache
+    from app.info_bank_tree import (
+        invalidate_information_bank_kind_cache,
+        kind_tab,
+        purge_information_bank_tree,
+    )
 
     db = g.db
     kind = (request.form.get("kind") or "dilemma_eval").strip()
@@ -16060,6 +16407,9 @@ def admin_information_bank_eval_list_purge_all():
         abort(400)
     tab = kind_tab(kind)
     stats = purge_information_bank_tree(db, kind)
+    invalidate_information_bank_kind_cache(kind)
+    if kind == "action_eval":
+        invalidate_action_eval_dilemma_tree_cache()
     db.commit()
     tab_label = (
         "قوائم تقييم الإجراءات"
@@ -16354,6 +16704,7 @@ def help_center():
     user = get_current_user_optional()
     if not user:
         return redirect("/login?next=/help")
+    from app.help_assistant import role_label_ar
     from app.help_knowledge import help_meta, help_tree
 
     return render_template(
@@ -16363,8 +16714,25 @@ def help_center():
             tree=help_tree(),
             help_meta=help_meta(),
             can_open_user_manual=can_manage_users(user),
+            help_role_label=role_label_ar(user),
         ),
     )
+
+
+@bp.route("/api/help/ask", methods=["POST"])
+def api_help_ask():
+    user = get_current_user_optional()
+    if not user:
+        return jsonify({"ok": False, "error": "unauthorized", "error_message": "يلزم تسجيل الدخول."}), 401
+    from flask import g
+
+    from app.help_assistant import ask_help_assistant
+
+    data = request.get_json(silent=True) or {}
+    question = (data.get("question") or request.form.get("question") or "").strip()
+    result = ask_help_assistant(g.db, user, question)
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
 
 
 @bp.route("/library", methods=["GET"])
@@ -16479,12 +16847,13 @@ def library_tree_upload():
         db.commit()
     else:
         db.rollback()
-    err_q = " ".join(errors)[:2000] if errors else ""
+    err_q = " ".join(errors[:3])[:400] if errors else ""
     if not added:
-        return _library_redirect(tab=tab, err=err_q or "لم تُضف أي ملف.")
+        return _library_redirect(
+            tab=tab,
+            err=err_q or "لم يُدرج أي ملف مدعوم (PDF أو Word أو Excel).",
+        )
     ok_msg = f"تم إدراج {added} ملف(ات) مع الحفاظ على أسماء المسارات."
-    if err_q:
-        return _library_redirect(tab=tab, ok=ok_msg, err=f"تجاهل بعض الملفات: {err_q}")
     return _library_redirect(tab=tab, ok=ok_msg)
 
 
@@ -16571,7 +16940,7 @@ def library_tree_file(node_id: int):
     if path is None:
         abort(404)
     low = path.name.lower()
-    if low.endswith(".xlsx"):
+    if low.endswith((".xlsx", ".xlsm")):
         mt = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     elif low.endswith(".docx"):
         mt = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

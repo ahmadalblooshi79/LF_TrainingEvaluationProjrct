@@ -9,10 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.config import INFO_BANK_DIR
 from app.ibank_dilemma_folder_import import (
-    DILEMMA_FOLDER_UNIT_PREFIX,
     collect_linked_files_by_dilemma,
     enrich_dilemma_names,
-    parse_dilemma_folder_unit_key,
     parse_dilemma_no_from_text,
 )
 from app.info_bank_tree import exercise_judge_names_by_unit
@@ -294,7 +292,7 @@ def build_action_eval_dilemma_judge_tree(
     *,
     exercise_id: int | None = None,
 ) -> dict[str, list[dict]]:
-    """شجرة العرض لكل يوم — من مجرى الأحداث + كل مجلدات الاستيراد (حتى غير المذكورة في المجرى)."""
+    """شجرة العرض لكل يوم — المعاضل من مجرى الأحداث فقط، مع ربط ملفات الاستيراد بها."""
     fp = _dilemma_tree_fingerprint(db, exercise_id)
     cache_key = fp
     hit = _DILEMMA_TREE_CACHE.get(cache_key)
@@ -322,10 +320,10 @@ def _build_action_eval_dilemma_judge_tree_uncached(
     assignees_by_day = _assignees_by_dilemma_from_flow(raw)
     linked = collect_linked_files_by_dilemma(db)
     judge_names = exercise_judge_names_by_unit(db, exercise_id)
-    folder_titles = _imported_dilemma_folder_titles(db)
 
+    # العرض يتبع المجرى فقط: تفريغ اليوم ⇒ قائمة فارغة حتى لو بقيت ملفات مستوردة في الشجرة
     all_day_ids = sorted(
-        set(dilemmas_by_day.keys()) | set(linked.keys()),
+        dilemmas_by_day.keys(),
         key=lambda d: (0 if str(d).startswith("day-") else 1, str(d)),
     )
 
@@ -334,23 +332,14 @@ def _build_action_eval_dilemma_judge_tree_uncached(
         day_files = linked.get(day_id) or {}
         day_assignees = assignees_by_day.get(day_id) or {}
         flow_rows = list(dilemmas_by_day.get(day_id) or [])
+        if not flow_rows:
+            out[day_id] = []
+            continue
         by_no: dict[int, dict] = {}
         for d in flow_rows:
             dno = int(d.get("dilemma_no") or d.get("num") or 0)
             if dno:
                 by_no[dno] = dict(d)
-        # أضف المعاضل المستوردة وغير الموجودة في مجرى الأحداث
-        for dno in day_files.keys():
-            dno_i = int(dno)
-            if dno_i in by_no:
-                continue
-            title = (folder_titles.get(day_id) or {}).get(dno_i) or f"معضلة {dno_i}"
-            by_no[dno_i] = {
-                "num": dno_i,
-                "text": f"المعضلة/{dno_i}: {title}",
-                "dilemma_no": dno_i,
-                "files": [],
-            }
 
         day_nodes: list[dict] = []
         for dno in sorted(by_no.keys()):
@@ -403,7 +392,6 @@ def _build_action_eval_dilemma_judge_tree_uncached(
                 )
             extra = matched.get("__unassigned__") or []
             if extra or (files_meta and not assignees):
-                # إن لم يوجد محكمون في المجرى: اعرض كل الملفات هنا
                 extras = extra if assignees else files_meta
                 file_nodes = []
                 for meta in extras:
@@ -437,31 +425,4 @@ def _build_action_eval_dilemma_judge_tree_uncached(
                 }
             )
         out[day_id] = day_nodes
-    return out
-
-
-def _imported_dilemma_folder_titles(db: Session) -> dict[str, dict[int, str]]:
-    """day_id → dilemma_no → عنوان المجلد المستورد."""
-    out: dict[str, dict[int, str]] = {}
-    folders = (
-        db.query(InformationBankTreeNode)
-        .filter(
-            InformationBankTreeNode.kind == "action_eval",
-            InformationBankTreeNode.is_folder.is_(True),
-            InformationBankTreeNode.catalog_unit_key.like(f"{DILEMMA_FOLDER_UNIT_PREFIX}%"),
-        )
-        .all()
-    )
-    for folder in folders:
-        parsed = parse_dilemma_folder_unit_key(folder.catalog_unit_key or "")
-        if not parsed:
-            continue
-        day_id, dilemma_no = parsed
-        name = (folder.name or "").strip()
-        title = name
-        if "—" in name:
-            title = name.split("—", 1)[-1].strip()
-        elif "-" in name:
-            title = name.split("-", 1)[-1].strip()
-        out.setdefault(day_id, {})[int(dilemma_no)] = title or name
     return out

@@ -687,6 +687,31 @@ class AnalystEvaluationCriteriaPhaseItem(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class AnalystFlowDayPhaseLink(Base):
+    """ربط يوم مجرى الأحداث بمرحلة التمرين — إعداد معايير تقييم المحللين فقط."""
+
+    __tablename__ = "analyst_flow_day_phase_links"
+    __table_args__ = (
+        UniqueConstraint(
+            "exercise_id",
+            "flow_day_id",
+            name="uq_analyst_flow_day_phase_ex_day",
+        ),
+        Index("ix_analyst_flow_day_phase_exercise", "exercise_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    exercise_id: Mapped[int] = mapped_column(
+        ForeignKey("exercises.id", ondelete="CASCADE"), index=True
+    )
+    flow_day_id: Mapped[str] = mapped_column(String(64), default="", index=True)
+    phase_key: Mapped[str] = mapped_column(String(32), default="", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
 class JudgeTaskStatusKey(str, enum.Enum):
     LATE = "late"
     ONTIME = "ontime"

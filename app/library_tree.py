@@ -196,7 +196,7 @@ def upload_files_to_tree(
         file_name = parts[-1]
         dir_parts = parts[:-1]
         if not is_allowed_tree_filename(file_name):
-            errors.append(f"{file_name}: صيغة غير مدعومة (PDF أو Word أو Excel).")
+            # صيغ غير مدعومة تُتجاهل بصمت عند إرفاق مجلد
             continue
         try:
             data = f.read()

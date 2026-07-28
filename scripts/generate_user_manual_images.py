@@ -1,32 +1,40 @@
 # -*- coding: utf-8 -*-
-"""Generate educational PNG illustrations for the user manual.
+"""Capture real UI screenshots for the user manual and add Arabic callouts.
+
+Requires the app running locally (default http://127.0.0.1:8005).
 
 Run from project root:
   .venv\\Scripts\\python.exe scripts/generate_user_manual_images.py
 """
 from __future__ import annotations
 
+import argparse
+import sys
 from pathlib import Path
 
 import arabic_reshaper
 from bidi.algorithm import get_display
 from PIL import Image, ImageDraw, ImageFont
+from playwright.sync_api import Page, sync_playwright
 
 OUT = Path(__file__).resolve().parents[1] / "app" / "static" / "user_manual"
+DEFAULT_BASE = "http://127.0.0.1:8005"
+DEMO_USER = "admin"
+DEMO_PASSWORD = "demo123"
 
-BG = (245, 239, 230)
-CARD = (255, 252, 248)
-BORDER = (196, 169, 144)
-BROWN = (92, 64, 51)
+VIEWPORT = {"width": 1440, "height": 900}
+# Keep 1.0 so screenshot pixels match locator bounding boxes.
+DEVICE_SCALE = 1.0
+
 ACCENT = (139, 69, 19)
-MUTED = (109, 90, 78)
 WHITE = (255, 255, 255)
-SOFT = (247, 240, 228)
-GREEN = (70, 120, 80)
+BANNER_BG = (245, 239, 230)
+BANNER_FG = (92, 64, 51)
+RING = (180, 90, 40)
 
 
 def ar(t: str) -> str:
-    return get_display(arabic_reshaper.reshape(t))
+    return get_display(arabic_reshaper.reshape(t or ""))
 
 
 def font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -37,290 +45,477 @@ def font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.Im
         return ImageFont.load_default()
 
 
-def new(w: int, h: int):
-    img = Image.new("RGB", (w, h), BG)
-    return img, ImageDraw.Draw(img)
-
-
-def round_rect(d, box, fill, outline=None, width=2, r=14):
-    d.rounded_rectangle(box, radius=r, fill=fill, outline=outline, width=width)
-
-
-def caption(d, text: str, y: int, w: int):
-    f = font(22, True)
-    t = ar(text)
-    tw = d.textbbox((0, 0), t, font=f)[2]
-    d.text(((w - tw) // 2, y), t, fill=BROWN, font=f)
-
-
-def save(img: Image.Image, name: str):
+def save(img: Image.Image, name: str) -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    p = OUT / name
-    img.save(p, "PNG", optimize=True)
-    print("wrote", p)
+    path = OUT / name
+    # Keep manual images reasonably sized for HTML/PDF.
+    max_w = 1280
+    if img.width > max_w:
+        ratio = max_w / img.width
+        img = img.resize((max_w, int(img.height * ratio)), Image.Resampling.LANCZOS)
+    img.save(path, "PNG", optimize=True)
+    print("wrote", path)
 
 
-def make_all() -> None:
-    # 01 login
-    img, d = new(900, 520)
-    caption(d, "شاشة تسجيل الدخول", 18, 900)
-    round_rect(d, (220, 80, 680, 470), CARD, BORDER, 2, 18)
-    t = ar("نظام إدارة التمارين")
-    f = font(26, True)
-    tw = d.textbbox((0, 0), t, font=f)[2]
-    d.text(((900 - tw) // 2, 115), t, fill=ACCENT, font=f)
-    for i, label in enumerate(["اسم المستخدم", "كلمة المرور"]):
-        y = 190 + i * 85
-        lt = ar(label)
-        d.text((640 - d.textbbox((0, 0), lt, font=font(18))[2], y), lt, fill=MUTED, font=font(18))
-        round_rect(d, (280, y + 28, 620, y + 68), WHITE, BORDER, 2, 8)
-    round_rect(d, (340, 380, 560, 430), ACCENT, ACCENT, 0, 10)
-    bt = ar("دخول")
-    bw = d.textbbox((0, 0), bt, font=font(22, True))[2]
-    d.text((450 - bw // 2, 392), bt, fill=WHITE, font=font(22, True))
-    round_rect(d, (30, 240, 70, 280), ACCENT, None, 0, 20)
-    d.text((42, 248), ar("1"), fill=WHITE, font=font(20, True))
-    d.text((80, 248), ar("أدخل البيانات ثم اضغط دخول"), fill=BROWN, font=font(16))
-    save(img, "01_login.png")
+def login(page: Page, base: str, username: str = DEMO_USER, password: str = DEMO_PASSWORD) -> None:
+    page.goto(f"{base}/logout", wait_until="domcontentloaded")
+    page.goto(f"{base}/login", wait_until="networkidle")
+    page.fill("#username", username)
+    page.fill("#password", password)
+    page.click('button[type="submit"]')
+    page.wait_for_load_state("networkidle")
 
-    # 02 home
-    img, d = new(980, 560)
-    caption(d, "الصفحة الرئيسية — اختر بطاقة دورك", 16, 980)
-    roles = ["إدارة النظام", "التخطيط", "المحكمين", "كبير المحكمين", "السيطرة", "المحللين"]
-    for i, role in enumerate(roles):
-        x = 40 + (i % 3) * 310
-        y = 80 + (i // 3) * 220
-        round_rect(d, (x, y, x + 280, y + 180), CARD, BORDER, 2, 16)
-        rt = ar(role)
-        rw = d.textbbox((0, 0), rt, font=font(22, True))[2]
-        d.text((x + (280 - rw) // 2, y + 40), rt, fill=BROWN, font=font(22, True))
-        round_rect(d, (x + 70, y + 110, x + 210, y + 150), ACCENT, None, 0, 10)
-        bt = ar("ابدأ")
-        bw = d.textbbox((0, 0), bt, font=font(18, True))[2]
-        d.text((x + (280 - bw) // 2, y + 118), bt, fill=WHITE, font=font(18, True))
-    d.rounded_rectangle((36, 76, 324, 264), radius=18, outline=(180, 90, 40), width=4)
-    d.text((40, 500), ar("اضغط بطاقة دورك ثم «ابدأ» للدخول إلى مساحة العمل"), fill=MUTED, font=font(17))
-    save(img, "02_home_roles.png")
 
-    # 03 admin shell
-    img, d = new(980, 620)
-    caption(d, "إدارة النظام — أوامر العمل", 16, 980)
-    round_rect(d, (40, 70, 680, 580), CARD, BORDER, 2, 14)
-    d.text((520, 90), ar("مساحة العمل"), fill=BROWN, font=font(20, True))
-    round_rect(d, (80, 140, 640, 520), SOFT, BORDER, 1, 10)
-    d.text((430, 280), ar("محتوى الصفحة المختارة"), fill=MUTED, font=font(18))
-    round_rect(d, (710, 70, 940, 580), CARD, BORDER, 2, 14)
-    d.text((780, 90), ar("أوامر العمل"), fill=ACCENT, font=font(18, True))
-    items = [
-        "إنشاء تمرين جديد",
-        "الأهداف التدريبية",
-        "بنك المعلومات",
-        "قائمة الوحدة المتدربة",
-        "قائمة المحكمين",
-        "تنظيم المعركة",
-        "إدارة المستخدمين",
-        "دليل المستخدم",
-        "مسح بيانات التمرين",
-    ]
-    for i, it in enumerate(items):
-        y = 130 + i * 45
-        fill = (255, 236, 214) if i == 0 else SOFT
-        outline = ACCENT if i == 0 else BORDER
-        round_rect(d, (730, y, 920, y + 36), fill, outline, 2 if i == 0 else 1, 8)
-        t = ar(it)
-        d.text((910 - d.textbbox((0, 0), t, font=font(14))[2], y + 8), t, fill=BROWN, font=font(14))
-    d.text((40, 590), ar("اختر الأمر من الشريط الجانبي لفتح الصفحة المناسبة"), fill=MUTED, font=font(16))
-    save(img, "03_admin_shell.png")
+def shot(page: Page, full_page: bool = False, *, reset_scroll: bool = True) -> Image.Image:
+    if reset_scroll:
+        page.evaluate("window.scrollTo(0, 0)")
+    page.wait_for_timeout(250)
+    raw = page.screenshot(full_page=full_page, type="png")
+    from io import BytesIO
 
-    # 04 create exercise
-    img, d = new(900, 560)
-    caption(d, "إنشاء تمرين جديد — تعبئة البيانات ثم الحفظ", 14, 900)
-    round_rect(d, (80, 70, 820, 500), CARD, BORDER, 2, 14)
-    fields = [
-        "اسم الوحدة المتدربة",
-        "مكان التمرين",
-        "اسم التمرين",
-        "نوع / مستوى التمرين",
-        "المهمة",
-        "تاريخ البداية والنهاية",
-    ]
-    for i, lab in enumerate(fields):
-        y = 100 + i * 48
-        t = ar(lab)
-        d.text((780 - d.textbbox((0, 0), t, font=font(16))[2], y), t, fill=MUTED, font=font(16))
-        round_rect(d, (120, y + 22, 760, y + 46), WHITE, BORDER, 1, 6)
-    round_rect(d, (330, 430, 570, 475), ACCENT, None, 0, 10)
-    bt = ar("حفظ التمرين")
-    bw = d.textbbox((0, 0), bt, font=font(18, True))[2]
-    d.text((450 - bw // 2, 442), bt, fill=WHITE, font=font(18, True))
-    save(img, "04_create_exercise.png")
+    return Image.open(BytesIO(raw)).convert("RGB")
 
-    # 05 ibank
-    img, d = new(960, 420)
-    caption(d, "بنك المعلومات — التبويبات الرئيسية", 16, 960)
-    tabs = ["مراحل التمرين", "مستويات الوحدات", "مجرى الأحداث والمعاضل", "قوائم تقييم الإجراءات", "قوائم التقييم"]
-    x = 30
-    for i, tab in enumerate(tabs):
-        t = ar(tab)
-        tw = d.textbbox((0, 0), t, font=font(14, True))[2] + 28
-        fill = ACCENT if i == 2 else CARD
-        tc = WHITE if i == 2 else BROWN
-        round_rect(d, (x, 80, x + tw, 120), fill, BORDER, 1, 8)
-        d.text((x + 14, 90), t, fill=tc, font=font(14, True))
-        x += tw + 10
-    round_rect(d, (30, 140, 930, 370), CARD, BORDER, 2, 12)
-    headers = ["اليوم", "الحدث", "المعضلة", "المكلّف"]
-    for i, h in enumerate(headers):
-        d.text((80 + i * 200, 170), ar(h), fill=ACCENT, font=font(16, True))
-    for r in range(3):
-        y = 210 + r * 45
-        round_rect(d, (60, y, 900, y + 38), SOFT if r % 2 == 0 else WHITE, BORDER, 1, 6)
-        for i, val in enumerate([f"ي{r + 1}", f"حدث {r + 1}", f"م{r + 1}", "وحدة"]):
-            d.text((80 + i * 200, y + 8), ar(val), fill=BROWN, font=font(15))
-    save(img, "05_ibank.png")
 
-    # 06 planner
-    img, d = new(920, 500)
-    caption(d, "التخطيط — المجرى ثم التوزيع ثم النشر", 16, 920)
-    steps = [
-        ("1", "مجرى الأحداث", "الحفظ"),
-        ("2", "توزيع للمحكمين", "توزيع"),
-        ("3", "قوائم تقييم الإجراءات", "نشر القوائم"),
-        ("4", "قوائم التقييم", "نشر القوائم"),
-    ]
-    for i, (n, title, act) in enumerate(steps):
-        x = 40 + i * 220
-        round_rect(d, (x, 100, x + 200, 380), CARD, BORDER, 2, 14)
-        round_rect(d, (x + 75, 130, x + 125, 180), ACCENT, None, 0, 25)
-        nt = ar(n)
-        nw = d.textbbox((0, 0), nt, font=font(24, True))[2]
-        d.text((x + 100 - nw // 2, 140), nt, fill=WHITE, font=font(24, True))
-        d.text((x + 20, 210), ar(title), fill=BROWN, font=font(15, True))
-        round_rect(d, (x + 30, 300, x + 170, 340), (255, 236, 214), ACCENT, 2, 8)
-        at = ar(act)
-        aw = d.textbbox((0, 0), at, font=font(14, True))[2]
-        d.text((x + 100 - aw // 2, 310), at, fill=ACCENT, font=font(14, True))
-        if i < 3:
-            d.polygon([(x + 205, 230), (x + 218, 240), (x + 205, 250)], fill=ACCENT)
-    d.text((40, 430), ar("الترتيب مهم: لا تنشر القوائم قبل حفظ المجرى وتوزيعه"), fill=MUTED, font=font(16))
-    save(img, "06_planner.png")
+def boxes_scaled(
+    page: Page, selector: str, *, viewport: bool = False
+) -> tuple[float, float, float, float] | None:
+    """Bounding box in screenshot pixel space.
 
-    # 07 judge
-    img, d = new(960, 540)
-    caption(d, "المحكم — فتح القائمة ثم الحفظ ثم الاعتماد", 16, 960)
-    round_rect(d, (30, 70, 260, 500), CARD, BORDER, 2, 12)
-    for i, it in enumerate(["مجرى الأحداث", "قوائم تقييم الإجراءات", "قوائم التقييم", "مهام غير مكتملة"]):
-        y = 110 + i * 55
-        fill = (255, 236, 214) if i == 2 else SOFT
-        round_rect(d, (50, y, 240, y + 42), fill, ACCENT if i == 2 else BORDER, 2 if i == 2 else 1, 8)
-        t = ar(it)
-        d.text((230 - d.textbbox((0, 0), t, font=font(13))[2], y + 12), t, fill=BROWN, font=font(13))
-    round_rect(d, (280, 70, 930, 500), CARD, BORDER, 2, 12)
-    d.text((700, 95), ar("قائمة التقييم — المرحلة"), fill=BROWN, font=font(18, True))
-    for i in range(4):
-        y = 150 + i * 55
-        round_rect(d, (310, y, 900, y + 45), SOFT, BORDER, 1, 6)
-        d.text((820, y + 12), ar(f"بند تقييمي {i + 1}"), fill=BROWN, font=font(14))
-        round_rect(d, (330, y + 8, 420, y + 36), WHITE, BORDER, 1, 6)
-        d.text((360, y + 12), ar("درجة"), fill=MUTED, font=font(12))
-    round_rect(d, (520, 430, 700, 475), GREEN, None, 0, 10)
-    t1 = ar("حفظ نتائج التقييم")
-    d.text((610 - d.textbbox((0, 0), t1, font=font(14, True))[2] // 2, 442), t1, fill=WHITE, font=font(14, True))
-    round_rect(d, (720, 430, 900, 475), ACCENT, None, 0, 10)
-    t2 = ar("اعتماد المحكم")
-    d.text((810 - d.textbbox((0, 0), t2, font=font(14, True))[2] // 2, 442), t2, fill=WHITE, font=font(14, True))
-    save(img, "07_judge_eval.png")
+    viewport=True  → getBoundingClientRect (non-full-page shots)
+    viewport=False → document coords (full_page shots)
+    """
+    loc = page.locator(selector).first
+    if loc.count() == 0:
+        return None
+    try:
+        if not loc.is_visible():
+            return None
+        handle = loc.element_handle()
+        if handle is None:
+            return None
+        box = page.evaluate(
+            """(el) => {
+              const r = el.getBoundingClientRect();
+              return {
+                x: r.left,
+                y: r.top,
+                docX: r.left + window.scrollX,
+                docY: r.top + window.scrollY,
+                width: r.width,
+                height: r.height
+              };
+            }""",
+            handle,
+        )
+    except Exception:
+        return None
+    if not box or box.get("width", 0) <= 0:
+        return None
+    if viewport:
+        return float(box["x"]), float(box["y"]), float(box["width"]), float(box["height"])
+    return float(box["docX"]), float(box["docY"]), float(box["width"]), float(box["height"])
 
-    # 08 approval
-    img, d = new(980, 420)
-    caption(d, "مسار الاعتماد: محكم ← كبير محكمين ← سيطرة", 16, 980)
-    nodes = [
-        (80, "المحكم", "حفظ + اعتماد المحكم", ACCENT),
-        (380, "كبير المحكمين", "اعتماد أو إعادة", (120, 80, 50)),
-        (680, "السيطرة", "متابعة واعتماد نهائي", GREEN),
-    ]
-    for i, (x, title, sub, color) in enumerate(nodes):
-        round_rect(d, (x, 120, x + 220, 300), CARD, color, 3, 16)
-        round_rect(d, (x + 85, 145, x + 135, 195), color, None, 0, 25)
-        nt = ar(str(i + 1))
-        nw = d.textbbox((0, 0), nt, font=font(22, True))[2]
-        d.text((x + 110 - nw // 2, 155), nt, fill=WHITE, font=font(22, True))
-        tt = ar(title)
-        tw = d.textbbox((0, 0), tt, font=font(18, True))[2]
-        d.text((x + 110 - tw // 2, 215), tt, fill=BROWN, font=font(18, True))
-        st = ar(sub)
-        sw = d.textbbox((0, 0), st, font=font(13))[2]
-        d.text((x + 110 - sw // 2, 250), st, fill=MUTED, font=font(13))
-        if i < 2:
-            d.polygon([(x + 230, 200), (x + 255, 215), (x + 230, 230)], fill=ACCENT)
-    d.text(
-        (80, 340),
-        ar("إذا أعاد كبير المحكمين القائمة: تصل إشعاراً وتعود «لم ينجز» حتى تعيد الحفظ"),
-        fill=MUTED,
-        font=font(15),
-    )
-    save(img, "08_approval_flow.png")
 
-    # 09 control
-    img, d = new(920, 480)
-    caption(d, "السيطرة — متابعة النتائج وموقف القوائم", 16, 920)
-    cards = ["عرض نتائج التقييم", "موقف القوائم والمهام", "الإيجابيات والسلبيات", "التوثيق المرئي"]
-    for i, c in enumerate(cards):
-        x = 40 + (i % 2) * 440
-        y = 90 + (i // 2) * 170
-        round_rect(d, (x, y, x + 400, y + 140), CARD, BORDER, 2, 14)
-        t = ar(c)
-        tw = d.textbbox((0, 0), t, font=font(20, True))[2]
-        d.text((x + (400 - tw) // 2, y + 55), t, fill=BROWN, font=font(20, True))
-    save(img, "09_control.png")
+def box_of(
+    page: Page, selector: str, *, viewport: bool = False
+) -> tuple[float, float, float, float] | None:
+    return boxes_scaled(page, selector, viewport=viewport)
 
-    # 10 analyst
-    img, d = new(920, 480)
-    caption(d, "المحلل — المعايير والتقارير", 16, 920)
-    tools = ["معايير التقييم", "التقييم نهائي", "عرض النتائج", "تحليل المحكمين", "الإيجابيات والسلبيات", "التوثيق المرئي"]
-    for i, c in enumerate(tools):
-        x = 40 + (i % 3) * 290
-        y = 90 + (i // 3) * 170
-        round_rect(d, (x, y, x + 270, y + 140), CARD, BORDER, 2, 14)
-        t = ar(c)
-        tw = d.textbbox((0, 0), t, font=font(18, True))[2]
-        d.text((x + (270 - tw) // 2, y + 55), t, fill=BROWN, font=font(18, True))
-    save(img, "10_analyst.png")
 
-    # 11 shared
-    img, d = new(980, 280)
-    caption(d, "الشريط العلوي — أدوات مشتركة", 16, 980)
-    round_rect(d, (30, 80, 950, 200), CARD, BORDER, 2, 12)
-    items = ["الصفحة الرئيسية", "غرفة المحادثة", "معلومات التمرين", "المكتبة", "الإشعارات", "خروج"]
-    x = 50
-    for it in items:
-        t = ar(it)
-        tw = d.textbbox((0, 0), t, font=font(14, True))[2] + 24
-        round_rect(d, (x, 120, x + tw, 165), SOFT, BORDER, 1, 8)
-        d.text((x + 12, 132), t, fill=BROWN, font=font(14, True))
-        x += tw + 12
-    d.text((40, 230), ar("استخدم هذه الروابط للتنقل السريع أثناء العمل"), fill=MUTED, font=font(16))
-    save(img, "11_shared_tools.png")
+def add_banner(img: Image.Image, title: str) -> Image.Image:
+    """Top title strip describing the screenshot."""
+    pad = 14
+    f = font(22, True)
+    text = ar(title)
+    tw, th = ImageDraw.Draw(img).textbbox((0, 0), text, font=f)[2:]
+    bar_h = th + pad * 2
+    out = Image.new("RGB", (img.width, img.height + bar_h), BANNER_BG)
+    out.paste(img, (0, bar_h))
+    d = ImageDraw.Draw(out)
+    d.rectangle((0, 0, out.width, bar_h), fill=BANNER_BG)
+    d.line((0, bar_h - 1, out.width, bar_h - 1), fill=ACCENT, width=2)
+    d.text(((out.width - tw) // 2, pad), text, fill=BANNER_FG, font=f)
+    return out
 
-    # 12 checklist
-    img, d = new(900, 480)
-    caption(d, "قائمة تحقق قبل التقييم الميداني", 16, 900)
-    checks = [
-        "التمرين الحالي ظاهر في الرأس",
-        "المحكم مربوط بمستوى وحدة",
-        "المجرى موزّع والقوائم منشورة",
-        "تجربة اعتماد كاملة نجحت مرة واحدة",
-    ]
-    for i, c in enumerate(checks):
-        y = 90 + i * 85
-        round_rect(d, (60, y, 840, y + 70), CARD, BORDER, 2, 12)
-        round_rect(d, (760, y + 15, 810, y + 55), GREEN, None, 0, 8)
-        d.text((775, y + 22), ar("✓"), fill=WHITE, font=font(22, True))
-        t = ar(f"{i + 1}. {c}")
-        d.text((720 - d.textbbox((0, 0), t, font=font(18))[2], y + 22), t, fill=BROWN, font=font(18))
-    save(img, "12_checklist.png")
+
+def annotate(
+    img: Image.Image,
+    callouts: list[dict],
+    *,
+    banner: str | None = None,
+) -> Image.Image:
+    """Draw numbered callouts. Each callout: x,y,w,h,text[,side].
+
+    Coordinates are relative to the raw screenshot (before banner).
+    """
+    bar_h = 0
+    work = img
+    if banner:
+        work = add_banner(img, banner)
+        # Measure banner height from difference
+        bar_h = work.height - img.height
+
+    d = ImageDraw.Draw(work)
+    f_num = font(16, True)
+    f_lab = font(15, True)
+    for i, c in enumerate(callouts, start=1):
+        x, y, w, h = float(c["x"]), float(c["y"]), float(c["w"]), float(c["h"])
+        y += bar_h
+        # Highlight ring
+        pad = 4
+        d.rounded_rectangle(
+            (x - pad, y - pad, x + w + pad, y + h + pad),
+            radius=10,
+            outline=RING,
+            width=3,
+        )
+        # Number badge
+        cx = x + w + 18
+        cy = y + 8
+        side = (c.get("side") or "right").lower()
+        if side == "left":
+            cx = max(18, x - 22)
+        elif side == "top":
+            cx = x + w / 2
+            cy = max(18, y - 22)
+        elif side == "bottom":
+            cx = x + w / 2
+            cy = y + h + 18
+        r = 14
+        d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=ACCENT, outline=WHITE, width=2)
+        nt = ar(str(i))
+        nb = d.textbbox((0, 0), nt, font=f_num)
+        d.text((cx - (nb[2] - nb[0]) / 2, cy - (nb[3] - nb[1]) / 2 - 1), nt, fill=WHITE, font=f_num)
+
+        label = ar(str(c.get("text") or ""))
+        if not label:
+            continue
+        lb = d.textbbox((0, 0), label, font=f_lab)
+        lw, lh = lb[2] - lb[0], lb[3] - lb[1]
+        lx = cx + r + 10
+        ly = cy - lh / 2
+        if side == "left":
+            lx = cx - r - 10 - lw
+        elif side in ("top", "bottom"):
+            lx = cx - lw / 2
+            ly = cy + r + 6 if side == "bottom" else cy - r - 6 - lh
+        # Keep on canvas
+        lx = max(6, min(lx, work.width - lw - 10))
+        ly = max(6 if not banner else bar_h + 4, min(ly, work.height - lh - 8))
+        d.rounded_rectangle(
+            (lx - 8, ly - 5, lx + lw + 8, ly + lh + 5),
+            radius=8,
+            fill=(255, 252, 248),
+            outline=ACCENT,
+            width=2,
+        )
+        d.text((lx, ly), label, fill=BANNER_FG, font=f_lab)
+    return work
+
+
+def callouts_from_selectors(
+    page: Page,
+    specs: list[tuple[str, str, str | None]],
+    *,
+    viewport: bool = False,
+) -> list[dict]:
+    out: list[dict] = []
+    for selector, text, side in specs:
+        b = box_of(page, selector, viewport=viewport)
+        if not b:
+            print(f"  warn: missing selector {selector!r}")
+            continue
+        x, y, w, h = b
+        out.append({"x": x, "y": y, "w": w, "h": h, "text": text, "side": side or "right"})
+    return out
+
+
+def capture_all(base: str) -> None:
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            viewport=VIEWPORT,
+            locale="ar",
+            device_scale_factor=DEVICE_SCALE,
+        )
+        page = context.new_page()
+
+        # --- 01 login ---
+        page.goto(f"{base}/logout", wait_until="domcontentloaded")
+        page.goto(f"{base}/login", wait_until="networkidle")
+        img = shot(page)
+        specs = [
+            ("#username", "اسم المستخدم", "left"),
+            ("#password", "كلمة المرور", "left"),
+            ('button[type="submit"]', "ثم اضغط دخول", "bottom"),
+        ]
+        save(
+            annotate(
+                img,
+                callouts_from_selectors(page, specs, viewport=True),
+                banner="شاشة تسجيل الدخول",
+            ),
+            "01_login.png",
+        )
+
+        # --- 02 dashboard roles ---
+        login(page, base, DEMO_USER, DEMO_PASSWORD)
+        page.goto(f"{base}/dashboard", wait_until="networkidle")
+        grid = page.locator(".role-grid").first
+        if grid.count():
+            grid.scroll_into_view_if_needed()
+            page.wait_for_timeout(200)
+        img = shot(page, full_page=False, reset_scroll=False)
+        role_box = box_of(page, ".role-grid", viewport=True)
+        calls = []
+        if role_box:
+            calls.append(
+                {
+                    "x": role_box[0],
+                    "y": role_box[1],
+                    "w": role_box[2],
+                    "h": role_box[3],
+                    "text": "اختر بطاقة دورك ثم اضغط ابدأ",
+                    "side": "bottom",
+                }
+            )
+        save(annotate(img, calls, banner="الصفحة الرئيسية — بطاقات الأدوار"), "02_home_roles.png")
+
+        # --- 03 admin shell ---
+        page.goto(f"{base}/admin/exercises/create", wait_until="networkidle")
+        img = shot(page, full_page=True)
+        specs = [
+            ("#app-sidebar", "أوامر العمل — اختر الصفحة من هنا", "left"),
+            (".admin-shell__workspace", "مساحة العمل للمحتوى المختار", "right"),
+        ]
+        save(
+            annotate(img, callouts_from_selectors(page, specs), banner="إدارة النظام — أوامر العمل"),
+            "03_admin_shell.png",
+        )
+
+        # --- 04 create exercise ---
+        img = shot(page, full_page=True)
+        specs = [
+            (".admin-shell__workspace form, .admin-shell__workspace .card, .admin-shell__workspace", "عبّئ بيانات التمرين", "right"),
+            ('button[type="submit"], .btn-primary, form button.btn', "ثم احفظ التمرين", "bottom"),
+        ]
+        # Prefer first submit inside workspace
+        boxes = []
+        for sel, text, side in [
+            (".admin-shell__workspace", "عبّئ الحقول ثم احفظ", "right"),
+            ('form button[type="submit"]', "حفظ التمرين", "bottom"),
+        ]:
+            b = box_of(page, sel)
+            if b:
+                boxes.append({"x": b[0], "y": b[1], "w": b[2], "h": b[3], "text": text, "side": side})
+        save(
+            annotate(img, boxes, banner="إنشاء تمرين جديد — من الواجهة الفعلية"),
+            "04_create_exercise.png",
+        )
+
+        # --- 05 information bank ---
+        page.goto(f"{base}/admin/information-bank", wait_until="networkidle")
+        # Prefer event-flow tab if present
+        tab = page.locator(
+            'a:has-text("مجرى الأحداث"), button:has-text("مجرى الأحداث"), [role="tab"]:has-text("مجرى")'
+        ).first
+        if tab.count() and tab.is_visible():
+            try:
+                tab.click()
+                page.wait_for_timeout(500)
+            except Exception:
+                pass
+        img = shot(page, full_page=True)
+        specs = [
+            (
+                ".ibank-tabs, .tabs, .nav-tabs, [role='tablist'], .admin-shell__workspace",
+                "تبويبات بنك المعلومات",
+                "bottom",
+            ),
+        ]
+        save(
+            annotate(img, callouts_from_selectors(page, specs), banner="بنك المعلومات — الواجهة الفعلية"),
+            "05_ibank.png",
+        )
+
+        # --- 06 planner hub ---
+        page.goto(f"{base}/planner", wait_until="networkidle")
+        img = shot(page, full_page=True)
+        specs = [
+            ('a.admin-action-btn[href*="/planner/new-flow"]', "أولاً: مجرى الأحداث", "bottom"),
+            (
+                'a.admin-action-btn[href*="/planner/new-action-eval-lists"]',
+                "ثانياً: قوائم تقييم الإجراءات",
+                "bottom",
+            ),
+            (
+                'a.admin-action-btn[href*="/planner/new-evaluation-list"]',
+                "ثالثاً: قوائم التقييم / النشر",
+                "bottom",
+            ),
+        ]
+        calls = callouts_from_selectors(page, specs)
+        if not calls:
+            calls = callouts_from_selectors(
+                page, [(".role-hub-menu", "أوامر التخطيط بالترتيب", "left")]
+            )
+        save(annotate(img, calls, banner="التخطيط — أوامر العمل الفعلية"), "06_planner.png")
+
+        # --- 07 judge eval lists ---
+        page.goto(f"{base}/judge/evaluation-lists", wait_until="networkidle")
+        img = shot(page, full_page=True)
+        specs = [
+            (".page-header h1, h1", "قوائم التقييم", "left"),
+            ("table tbody, table, .card", "افتح قوائم الوحدة ثم عبّئ واحفظ واعتمد", "top"),
+        ]
+        calls = callouts_from_selectors(page, specs)
+        if not calls:
+            page.goto(f"{base}/judge", wait_until="networkidle")
+            img = shot(page, full_page=True)
+            calls = callouts_from_selectors(
+                page,
+                [
+                    ('a.admin-action-btn[href*="evaluation-lists"]', "افتح قوائم التقييم", "bottom"),
+                    ('a.admin-action-btn[href*="incomplete"]', "راجع المهام غير المكتملة", "bottom"),
+                ],
+            )
+        save(annotate(img, calls, banner="المحكم — فتح القوائم ثم الحفظ والاعتماد"), "07_judge_eval.png")
+
+        # --- 08 approval path (control status) ---
+        page.goto(f"{base}/control/evaluation-lists-status", wait_until="networkidle")
+        img = shot(page, full_page=True)
+        specs = [
+            (".page-header h1, h1", "موقف القوائم يوضح مسار الاعتماد", "left"),
+            ("table, .card", "تابع الحالة: محكم ← كبير محكمين ← سيطرة", "top"),
+        ]
+        save(
+            annotate(img, callouts_from_selectors(page, specs), banner="مسار الاعتماد من واجهة السيطرة"),
+            "08_approval_flow.png",
+        )
+
+        # --- 09 control hub ---
+        page.goto(f"{base}/control", wait_until="networkidle")
+        img = shot(page, full_page=True)
+        specs = [
+            ('a.admin-action-btn[href*="evaluation-results"]', "عرض النتائج", "bottom"),
+            ('a.admin-action-btn[href*="evaluation-lists-status"]', "موقف القوائم والمهام", "bottom"),
+            ('a.admin-action-btn[href*="positives"]', "الإيجابيات والسلبيات", "bottom"),
+        ]
+        calls = callouts_from_selectors(page, specs)
+        if not calls:
+            calls = callouts_from_selectors(page, [(".role-hub-menu", "أوامر السيطرة", "left")])
+        save(annotate(img, calls, banner="السيطرة — أوامر المتابعة"), "09_control.png")
+
+        # --- 10 analyst hub ---
+        page.goto(f"{base}/analyst", wait_until="networkidle")
+        img = shot(page, full_page=True)
+        specs = [
+            ('a.admin-action-btn[href*="evaluation-criteria"]', "معايير التقييم", "bottom"),
+            ('a.admin-action-btn[href*="evaluation-results"]', "عرض النتائج", "bottom"),
+            ('a.admin-action-btn[href*="judges-eval"]', "تحليل المحكمين", "bottom"),
+        ]
+        calls = callouts_from_selectors(page, specs)
+        if not calls:
+            calls = callouts_from_selectors(page, [(".role-hub-menu", "أدوات المحللين", "left")])
+        save(annotate(img, calls, banner="المحلل — الأدوات الفعلية"), "10_analyst.png")
+
+        # --- 11 shared header tools ---
+        page.goto(f"{base}/dashboard", wait_until="networkidle")
+        header = page.locator("header#header-mobile-nav, header").first
+        if header.count():
+            raw = header.screenshot(type="png")
+            from io import BytesIO
+
+            img = Image.open(BytesIO(raw)).convert("RGB")
+            # Boxes relative to header element
+            hb = header.bounding_box() or {"x": 0, "y": 0}
+
+            def header_callouts() -> list[dict]:
+                specs_local = [
+                    ('a[href="/dashboard"]', "الصفحة الرئيسية", "bottom"),
+                    ("a:has-text('غرفة المحادثة')", "غرفة المحادثة", "bottom"),
+                    ("a:has-text('معلومات التمرين')", "معلومات التمرين", "bottom"),
+                    ('a[href="/library"]', "المكتبة", "bottom"),
+                    ("#header-notif-link", "الإشعارات", "bottom"),
+                    ('a.btn-nav-logout[href="/logout"], a[href="/logout"]', "خروج", "bottom"),
+                ]
+                out: list[dict] = []
+                for sel, text, side in specs_local:
+                    loc = page.locator(f"header {sel}").first
+                    if not loc.count() or not loc.is_visible():
+                        print(f"  warn: missing selector header {sel!r}")
+                        continue
+                    b = loc.bounding_box()
+                    if not b:
+                        continue
+                    out.append(
+                        {
+                            "x": b["x"] - hb["x"],
+                            "y": b["y"] - hb["y"],
+                            "w": b["width"],
+                            "h": b["height"],
+                            "text": text,
+                            "side": side,
+                        }
+                    )
+                return out
+
+            save(
+                annotate(img, header_callouts(), banner="الشريط العلوي — أدوات مشتركة"),
+                "11_shared_tools.png",
+            )
+        else:
+            img = shot(page)
+            specs = [
+                ('a[href="/dashboard"]', "الصفحة الرئيسية", "bottom"),
+                ("a:has-text('غرفة المحادثة')", "غرفة المحادثة", "bottom"),
+                ("a:has-text('معلومات التمرين')", "معلومات التمرين", "bottom"),
+                ('a[href="/library"]', "المكتبة", "bottom"),
+                ("#header-notif-link", "الإشعارات", "bottom"),
+                ('a[href="/logout"]', "خروج", "bottom"),
+            ]
+            save(
+                annotate(
+                    img,
+                    callouts_from_selectors(page, specs, viewport=True),
+                    banner="الشريط العلوي — أدوات مشتركة",
+                ),
+                "11_shared_tools.png",
+            )
+
+        # --- 12 checklist on real UI ---
+        page.goto(f"{base}/admin/exercises/create", wait_until="networkidle")
+        img = shot(page, full_page=True)
+        specs = [
+            (".header-workspace-exercise", "تحقق: التمرين الحالي ظاهر في الرأس", "bottom"),
+            ('a.admin-action-btn[href*="judge-unit-roster"]', "تحقق: المحكمون مربوطون بالوحدات", "left"),
+            ('a.admin-action-btn[href*="information-bank"]', "تحقق: المجرى والقوائم جاهزة", "left"),
+            ('nav.header-bar__segment--center a[href="/planner"]', "تحقق: تجربة اعتماد عبر التخطيط/المحكمين", "bottom"),
+        ]
+        save(
+            annotate(img, callouts_from_selectors(page, specs), banner="قائمة تحقق قبل التقييم الميداني"),
+            "12_checklist.png",
+        )
+
+        browser.close()
+    print("done", len(list(OUT.glob("*.png"))), "png files in", OUT)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--base", default=DEFAULT_BASE, help="App base URL")
+    args = ap.parse_args()
+    try:
+        capture_all(args.base.rstrip("/"))
+    except Exception as exc:
+        print("ERROR:", exc, file=sys.stderr)
+        print(
+            "Make sure the app is running (run.bat / run.py) and Playwright Chromium is installed.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    make_all()
-    print("done", len(list(OUT.glob("*.png"))))
+    raise SystemExit(main())

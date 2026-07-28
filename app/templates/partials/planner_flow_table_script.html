@@ -1,5 +1,5 @@
 <script>
-/* planner-flow-table v36 */
+/* planner-flow-table v37 */
 (function () {
   'use strict';
 
@@ -33,6 +33,8 @@
     var clearDayBtn = section.querySelector('#pf-flow-clear-day-btn');
     var daysMenu = section.querySelector('#pf-flow-days-menu');
     var dayNoteEl = section.querySelector('#pf-flow-day-note');
+    var dayPhaseEl = section.querySelector('#pf-flow-day-phase');
+    var enableDayPhase = section.getAttribute('data-enable-day-phase') === '1';
     var daysState = [];
     var activeDayId = '';
     var contextDayId = null;
@@ -61,6 +63,7 @@
               id: String((d && d.id) || 'day-' + (idx + 1)),
               label: String((d && d.label) || 'اليوم/' + (idx + 1)),
               note: String((d && d.note) || ''),
+              phase_key: String((d && d.phase_key) || ''),
               rows: Array.isArray(d && d.rows) ? d.rows : []
             };
           });
@@ -68,7 +71,7 @@
       } catch (e) {
         /* ignore */
       }
-      return [{ id: 'day-1', label: 'اليوم/1', note: '', rows: [] }];
+      return [{ id: 'day-1', label: 'اليوم/1', note: '', phase_key: '', rows: [] }];
     }
 
     function ensureDayOneTab() {
@@ -89,12 +92,13 @@
         }
       }
       if (idx < 0) {
-        daysState.unshift({ id: DAY_ONE_ID, label: DAY_ONE_LABEL, note: '', rows: [] });
+        daysState.unshift({ id: DAY_ONE_ID, label: DAY_ONE_LABEL, note: '', phase_key: '', rows: [] });
         return;
       }
       var dayOne = daysState.splice(idx, 1)[0];
       if (dayOne.id !== DAY_ONE_ID) dayOne.id = DAY_ONE_ID;
       if (!(dayOne.label || '').trim()) dayOne.label = DAY_ONE_LABEL;
+      if (typeof dayOne.phase_key === 'undefined') dayOne.phase_key = '';
       daysState.unshift(dayOne);
     }
 
@@ -378,12 +382,21 @@
       scheduleAutoGrowDayNote();
     }
 
+    function applyDayPhase() {
+      if (!dayPhaseEl || !enableDayPhase) return;
+      var idx = findDayIndex(activeDayId);
+      dayPhaseEl.value = idx >= 0 ? String(daysState[idx].phase_key || '') : '';
+    }
+
     function persistCurrentDayRows() {
       var idx = findDayIndex(activeDayId);
       if (idx < 0) return;
       daysState[idx].rows = collectRows();
       if (dayNoteEl) {
         daysState[idx].note = getDayNotePlain();
+      }
+      if (dayPhaseEl && enableDayPhase) {
+        daysState[idx].phase_key = String(dayPhaseEl.value || '');
       }
     }
 
@@ -455,6 +468,7 @@
       renderRows(idx >= 0 ? daysState[idx].rows : []);
       renderDayTabs();
       applyDayNote();
+      applyDayPhase();
       if (saveUrl) saveNow();
     }
 
@@ -462,11 +476,12 @@
       persistCurrentDayRows();
       var n = nextDayNumber();
       var id = 'day-' + String(Date.now());
-      daysState.push({ id: id, label: 'اليوم/' + n, note: '', rows: [] });
+      daysState.push({ id: id, label: 'اليوم/' + n, note: '', phase_key: '', rows: [] });
       activeDayId = id;
       renderDayTabs();
       renderRows([]);
       applyDayNote();
+      applyDayPhase();
       syncFlowDaysDataset();
       if (saveUrl) saveNow();
     }
@@ -510,6 +525,7 @@
         activeDayId = daysState[0].id;
         renderRows(daysState[0].rows || []);
         applyDayNote();
+        applyDayPhase();
       }
       renderDayTabs();
       hideDaysMenu();
@@ -913,6 +929,7 @@
     renderRows(activeIdx >= 0 ? daysState[activeIdx].rows : []);
     renderDayTabs();
     applyDayNote();
+    applyDayPhase();
     syncFlowDaysDataset();
 
     if (dayNoteEl && !readOnly) {
@@ -924,6 +941,16 @@
       wireDayNoteAutoGrow();
     }
 
+    if (dayPhaseEl && enableDayPhase && !readOnly) {
+      dayPhaseEl.addEventListener('change', function () {
+        var idx = findDayIndex(activeDayId);
+        if (idx >= 0) {
+          daysState[idx].phase_key = String(dayPhaseEl.value || '');
+        }
+        scheduleSave();
+      });
+    }
+
     function applyImportedDays(payload) {
       if (!payload || !Array.isArray(payload.days) || !payload.days.length) return;
       daysState = payload.days.map(function (d, idx) {
@@ -931,6 +958,7 @@
           id: String((d && d.id) || 'day-' + (idx + 1)),
           label: String((d && d.label) || 'اليوم/' + (idx + 1)),
           note: String((d && d.note) || ''),
+          phase_key: String((d && d.phase_key) || ''),
           rows: Array.isArray(d && d.rows) ? d.rows : []
         };
       });
@@ -943,6 +971,7 @@
       renderRows(idx >= 0 ? daysState[idx].rows : []);
       renderDayTabs();
       applyDayNote();
+      applyDayPhase();
       syncFlowDaysDataset();
     }
 

@@ -14,11 +14,11 @@
       <input type="hidden" name="next" value="{{ next_url or '' }}">
       <div class="form-group">
         <label for="username"><i class="fa-solid fa-user fa-icon-label" aria-hidden="true"></i> اسم المستخدم</label>
-        <input id="username" name="username" required autocomplete="username" placeholder="اسم المستخدم">
+        <input id="username" name="username" required autocomplete="username" placeholder="اسم المستخدم" value="{{ username_value or 'admin' }}">
       </div>
       <div class="form-group">
         <label for="password"><i class="fa-solid fa-lock fa-icon-label" aria-hidden="true"></i> كلمة المرور</label>
-        <input id="password" name="password" type="password" required autocomplete="current-password" placeholder="••••••••">
+        <input id="password" name="password" type="password" required autocomplete="current-password" placeholder="••••••••" value="{{ password_value or 'demo123' }}">
       </div>
       <p class="mt-tight">
         <button class="btn btn-block" type="submit"><i class="fa-solid fa-right-to-bracket" aria-hidden="true"></i> دخول</button>

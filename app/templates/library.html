@@ -255,7 +255,15 @@
       var inp = page.querySelector(inpSel);
       var form = page.querySelector(formSel);
       if (!pick || !inp || !form) return;
-      pick.addEventListener('click', function () { inp.click(); });
+      pick.addEventListener('click', function () {
+        try {
+          if (typeof inp.showPicker === 'function') {
+            inp.showPicker();
+            return;
+          }
+        } catch (eShow) { /* fall through */ }
+        inp.click();
+      });
       inp.addEventListener('change', function () {
         if (!inp.files || !inp.files.length) return;
         submitUploadForm(form, inp);

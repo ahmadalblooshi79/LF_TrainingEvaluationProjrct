@@ -44,6 +44,9 @@
     </form>
     {% endif %}
   </div>
+  {% if page_note %}
+  <p class="muted eval-lists-sync-note" role="status"><i class="fa-solid fa-database" aria-hidden="true"></i> {{ page_note }}</p>
+  {% endif %}
 </section>
 
 <div id="action-eval-lists-root" data-day="{{ selected_day_id }}">
@@ -96,16 +99,16 @@
       <div class="eval-lists-judge-branch{% if judge.rows and not (judge.rows|selectattr('published')|list|length == judge.rows|length) %} eval-lists-judge-branch--unpublished{% elif judge.rows %} eval-lists-judge-branch--published{% endif %}" data-dilemma="{{ dilemma.dilemma_no }}" data-unit="{{ judge.unit_key }}">
         {% set _rows = judge.rows or [] %}
         <div class="eval-lists-judge-branch__meta">
-          <span class="eval-lists-judge-branch__role" title="محكم المستوى">
-            <i class="fa-solid fa-user-tie" aria-hidden="true"></i>
-            <span class="eval-lists-roster-meta__role">محكم المستوى</span>
-            <strong>{{ judge.assignee_label or judge.unit_label or '—' }}</strong>
-          </span>
-          <span class="eval-lists-judge-branch__sep" aria-hidden="true">/</span>
           <span class="eval-lists-judge-branch__person" title="اسم المحكم">
             <i class="fa-solid fa-id-badge" aria-hidden="true"></i>
             <span class="eval-lists-roster-meta__role">اسم المحكم</span>
-            {{ judge.judge_name or '—' }}
+            <strong>{{ judge.judge_name or '—' }}</strong>
+          </span>
+          <span class="eval-lists-judge-branch__sep" aria-hidden="true">/</span>
+          <span class="eval-lists-judge-branch__role" title="مستوى الوحدة">
+            <i class="fa-solid fa-sitemap" aria-hidden="true"></i>
+            <span class="eval-lists-roster-meta__role">مستوى الوحدة</span>
+            <strong>{{ judge.unit_label or judge.assignee_label or '—' }}</strong>
           </span>
           <span class="eval-lists-judge-branch__sep" aria-hidden="true">/</span>
           <span class="eval-lists-judge-branch__person" title="اسم المتدرب">
@@ -117,10 +120,10 @@
         <div class="eval-lists-judge-branch__tree">
           <div class="eval-lists-judge-branch__unit-line">
             <span class="eval-lists-judge-branch__tree-mark" aria-hidden="true"></span>
-            <span class="eval-lists-judge-branch__unit" title="محكم الوحدة">
-              <i class="fa-solid fa-sitemap" aria-hidden="true"></i>
-              <span class="eval-lists-roster-meta__role">محكم الوحدة</span>
-              <strong>{{ judge.unit_label or judge.assignee_label or '—' }}</strong>
+            <span class="eval-lists-judge-branch__unit" title="صنف المحكم من المجرى">
+              <i class="fa-solid fa-user-tie" aria-hidden="true"></i>
+              <span class="eval-lists-roster-meta__role">صنف المحكم</span>
+              <strong>{{ judge.assignee_label or judge.unit_label or '—' }}</strong>
             </span>
             {% if _rows %}
             <span class="eval-lists-judge-branch__actions">

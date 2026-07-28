@@ -34,6 +34,66 @@
 
 {% else %}
 
+{% if dilemma_reaction is defined and dilemma_reaction %}
+<section class="card">
+  <h2 class="h2-in-card"><i class="fa-solid fa-bolt fa-icon-title" aria-hidden="true"></i> {{ dilemma_reaction.title }}</h2>
+  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
+    المرحلة: {{ phase_label }}
+    {% if dilemma_reaction.day_labels %}
+    — أيام المجرى: {{ dilemma_reaction.day_labels|join('، ') }}
+    {% endif %}
+    — عدد المعاضل: {{ dilemma_reaction.dilemma_count }}
+    — عدد القوائم: {{ dilemma_reaction.list_count }}
+  </p>
+  <div class="table-wrap">
+    <table dir="rtl" class="analyst-criteria-phase-table analyst-dilemma-reaction-table" aria-label="{{ dilemma_reaction.title }}">
+      <thead>
+        <tr>
+          <th scope="col" class="analyst-criteria-seq-th">ت</th>
+          <th scope="col">اليوم</th>
+          <th scope="col">المعضلة</th>
+          <th scope="col">قائمة التقييم</th>
+          <th scope="col">المكتسبة</th>
+          <th scope="col">القصوى</th>
+          <th scope="col">النسبة %</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if dilemma_reaction.rows %}
+          {% for row in dilemma_reaction.rows %}
+          <tr>
+            <td class="analyst-criteria-seq">{{ row.seq }}</td>
+            <td>{{ row.day_label }}</td>
+            <td class="criteria-text-cell">
+              <span title="{{ row.dilemma_text }}">المعضلة/{{ row.dilemma_no }}{% if row.dilemma_text and row.dilemma_text != ('المعضلة/' ~ row.dilemma_no) %} — {{ row.dilemma_text }}{% endif %}</span>
+            </td>
+            <td class="criteria-text-cell">{{ row.list_title }}</td>
+            <td>{% if row.acquired is number %}{{ row.acquired|round(2) }}{% else %}—{% endif %}</td>
+            <td>{% if row.max_mark is number %}{{ row.max_mark|round(2) }}{% else %}—{% endif %}</td>
+            <td>{% if row.pct is number %}{{ row.pct|round(2) }}%{% else %}—{% endif %}</td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td class="analyst-criteria-seq muted">—</td>
+            <td colspan="6" class="muted">لا توجد معاضل أو قوائم تقييم مربوطة بأيام هذه المرحلة لهذه الوحدة بعد.</td>
+          </tr>
+        {% endif %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td class="analyst-criteria-seq muted">—</td>
+          <th scope="row" colspan="3">النتيجة النهائية</th>
+          <td>{% if dilemma_reaction.total_acquired is number %}{{ dilemma_reaction.total_acquired|round(2) }}{% else %}—{% endif %}</td>
+          <td>{% if dilemma_reaction.total_max is number %}{{ dilemma_reaction.total_max|round(2) }}{% else %}—{% endif %}</td>
+          <td>{% if dilemma_reaction.total_pct is number %}{{ dilemma_reaction.total_pct|round(2) }}%{% else %}—{% endif %}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</section>
+{% endif %}
+
 <section class="card">
 
   <h2 class="h2-in-card"><i class="fa-solid fa-table-list fa-icon-title" aria-hidden="true"></i> جدول {{ phase_label }}</h2>
@@ -144,6 +204,10 @@
 
       <button class="btn" type="submit"{% if eval_list_driven and not items %} disabled{% endif %}><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ وعودة</button>
 
+      {% if autofill_url is defined and autofill_url and items %}
+      <button type="button" class="btn btn-ghost" id="criteria-autofill-btn" title="ملء الدرجات تلقائياً من قوائم التقييم النهائية المحفوظة"><i class="fa-solid fa-magic-wand-sparkles" aria-hidden="true"></i> ملء تلقائي</button>
+      {% endif %}
+
     </div>
 
   </form>
@@ -163,6 +227,38 @@
   const totalPctCell = document.getElementById("total-pct-cell");
 
   if (!body || !totalMarkCell || !totalPctCell) return;
+
+  /* ملء تلقائي */
+  var autofillBtn = document.getElementById("criteria-autofill-btn");
+  var AUTOFILL_URL = {{ autofill_url | tojson if autofill_url is defined and autofill_url else '""' }};
+  if (autofillBtn && AUTOFILL_URL) {
+    autofillBtn.addEventListener("click", function () {
+      autofillBtn.disabled = true;
+      autofillBtn.textContent = "جاري الجلب…";
+      fetch(AUTOFILL_URL, { credentials: "same-origin", headers: { Accept: "application/json" } })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data.ok || !Array.isArray(data.items) || !data.items.length) {
+            alert("لا توجد نتائج محفوظة من قوائم التقييم لهذه المرحلة والوحدة بعد.");
+            return;
+          }
+          var inputs = Array.from(body.querySelectorAll(".mark-input:not([disabled])"));
+          data.items.forEach(function (item, idx) {
+            if (idx < inputs.length && item.acquired_mark !== null && item.acquired_mark !== undefined) {
+              inputs[idx].value = String(Math.round(item.acquired_mark * 100) / 100);
+            }
+          });
+          recalc();
+        })
+        .catch(function () { alert("تعذّر جلب البيانات."); })
+        .finally(function () {
+          autofillBtn.disabled = false;
+          autofillBtn.innerHTML = '<i class="fa-solid fa-magic-wand-sparkles" aria-hidden="true"></i> ملء تلقائي';
+        });
+    });
+  }
+  /* نهاية ملء تلقائي */
+
 
 
 

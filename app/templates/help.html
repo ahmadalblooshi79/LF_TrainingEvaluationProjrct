@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}المساعدة{% endblock %}
-{% block body_class %}help-tree-page{% endblock %}
+{% block body_class %}help-tree-page help-chat-page{% endblock %}
 {% block content %}
 <div class="page-header page-header--split help-tree-header">
   <h1><i class="fa-solid fa-sitemap fa-icon-title" aria-hidden="true"></i> المساعدة</h1>
@@ -99,6 +99,39 @@
   </ul>
 </section>
 
+<section class="card help-chat" dir="rtl" id="help-chat" data-ask-url="{{ url_for('views.api_help_ask') }}">
+  <header class="help-chat__head">
+    <div>
+      <h2 class="help-chat__title"><i class="fa-solid fa-robot" aria-hidden="true"></i> مساعد الذكاء الاصطناعي</h2>
+      <p class="muted help-chat__subtitle">حقل إضافي للتوجيه: اكتب سؤالك فيوجّهك إلى المسار الصحيح (دون لصق الدليل كاملاً).</p>
+    </div>
+    <span class="help-chat__role muted">دورك: <strong>{{ help_role_label }}</strong></span>
+  </header>
+
+  <div class="help-chat__suggestions" aria-label="أسئلة مقترحة">
+    <button type="button" class="help-chat__chip js-help-chip">كيف أسجّل الدخول؟</button>
+    <button type="button" class="help-chat__chip js-help-chip">كيف أنشر قوائم التقييم؟</button>
+    <button type="button" class="help-chat__chip js-help-chip">ما مسار الاعتماد؟</button>
+    <button type="button" class="help-chat__chip js-help-chip">كيف أغيّر كلمة المرور؟</button>
+  </div>
+
+  <div class="help-chat__messages" id="help-chat-messages" role="log" aria-live="polite" aria-relevant="additions">
+    <div class="help-chat__bubble help-chat__bubble--bot">
+      اكتب سؤالك باختصار. سأفهم قصدك وأوجّهك إلى الصفحة أو الزر المناسب، وأطلب توضيحاً إن لزم.
+    </div>
+  </div>
+
+  <form class="help-chat__form" id="help-chat-form" autocomplete="off">
+    <label class="sr-only" for="help-chat-input">سؤالك للمساعد</label>
+    <textarea id="help-chat-input" class="help-chat__input" rows="2" maxlength="800" placeholder="مثال: كيف أضيف كلمة مرور لمستخدم جديد؟" required></textarea>
+    <button type="submit" class="btn help-chat__send" id="help-chat-send">
+      <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
+      إرسال
+    </button>
+  </form>
+  <p class="muted help-chat__hint" id="help-chat-status" aria-live="polite"></p>
+</section>
+
 <script>
 (function () {
   function setExpanded(node, open) {
@@ -135,7 +168,6 @@
     });
   }
 
-  // افتح الفرع الأول افتراضياً، وافتح إجراء إن جاء من رابط #help-...
   var hash = (location.hash || "").replace(/^#/, "");
   if (hash) {
     var target = document.getElementById(hash);
@@ -148,6 +180,85 @@
       target.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }
+
+  var root = document.getElementById("help-chat");
+  if (!root) return;
+  var askUrl = root.getAttribute("data-ask-url") || "/api/help/ask";
+  var form = document.getElementById("help-chat-form");
+  var input = document.getElementById("help-chat-input");
+  var sendBtn = document.getElementById("help-chat-send");
+  var messages = document.getElementById("help-chat-messages");
+  var statusEl = document.getElementById("help-chat-status");
+
+  function escapeHtml(s) {
+    return String(s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function appendBubble(text, kind) {
+    var div = document.createElement("div");
+    div.className = "help-chat__bubble help-chat__bubble--" + (kind || "bot");
+    div.innerHTML = escapeHtml(text).replace(/\n/g, "<br>");
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function setBusy(busy) {
+    sendBtn.disabled = !!busy;
+    input.disabled = !!busy;
+    statusEl.textContent = busy ? "جاري التوجيه…" : "";
+  }
+
+  async function ask(question) {
+    var q = String(question || "").trim();
+    if (!q) return;
+    appendBubble(q, "user");
+    setBusy(true);
+    try {
+      var res = await fetch(askUrl, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ question: q })
+      });
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.ok) {
+        appendBubble((data && data.error_message) || "تعذر الحصول على توجيه.", "bot");
+      } else {
+        appendBubble(data.answer || "—", "bot");
+        statusEl.textContent = "";
+      }
+    } catch (e) {
+      appendBubble("تعذر الاتصال بالخادم.", "bot");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  form.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var q = (input.value || "").trim();
+    if (!q) return;
+    input.value = "";
+    ask(q);
+  });
+
+  input.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter" && !ev.shiftKey) {
+      ev.preventDefault();
+      if (form.requestSubmit) form.requestSubmit();
+      else form.dispatchEvent(new Event("submit", { cancelable: true }));
+    }
+  });
+
+  document.querySelectorAll(".js-help-chip").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      ask(btn.textContent || "");
+    });
+  });
 })();
 </script>
 {% endblock %}
