@@ -115,3 +115,16 @@ def seed_all(db: Session) -> None:
 
     purge_removed_brigade_unit_levels(db)
     sync_planning_catalogs_from_db(db, force=True)
+
+    from app.models.domain import UnitDesignation
+    from app.unit_designations import seed_unit_designations_from_xlsx
+
+    seed_unit_designations_from_xlsx(
+        db, force=db.query(UnitDesignation).count() == 0
+    )
+    try:
+        from app.ibank_action_eval_dilemma_tree import invalidate_action_eval_dilemma_tree_cache
+
+        invalidate_action_eval_dilemma_tree_cache()
+    except Exception:
+        pass

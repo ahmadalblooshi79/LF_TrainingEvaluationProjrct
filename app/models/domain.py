@@ -1131,3 +1131,41 @@ class InformationBankEventFlowTable(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     flow_table_json: Mapped[str] = mapped_column(Text, default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class UnitDesignation(Base):
+    """دلالة رئيسية لوحدة (من كشف المسميات) — الاسم الرسمي للجهة."""
+
+    __tablename__ = "unit_designations"
+
+    unit_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    canonical_label: Mapped[str] = mapped_column(String(300), default="", index=True)
+    unit_type: Mapped[str] = mapped_column(String(64), default="")
+    description: Mapped[str] = mapped_column(Text(), default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class UnitDesignationAlias(Base):
+    """مسمى بديل لدلالة وحدة — خاصة بعمود المكلف وأصناف المحكمين."""
+
+    __tablename__ = "unit_designation_aliases"
+    __table_args__ = (
+        Index("ix_unit_alias_unit_id", "unit_id"),
+        UniqueConstraint("alias_label_norm", name="uq_unit_alias_norm"),
+    )
+
+    alias_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    unit_id: Mapped[str] = mapped_column(
+        String(32),
+        ForeignKey("unit_designations.unit_id", ondelete="CASCADE"),
+        index=True,
+    )
+    alias_label: Mapped[str] = mapped_column(String(300), default="")
+    alias_label_norm: Mapped[str] = mapped_column(String(300), default="", index=True)
+    notes: Mapped[str] = mapped_column(Text(), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

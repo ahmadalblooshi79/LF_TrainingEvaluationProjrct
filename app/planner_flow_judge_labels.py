@@ -149,9 +149,21 @@ _BATTALION_UNIT_BY_NO = {
 
 
 def unit_label_for_assignee_label(assignee_label: str) -> str:
+    """يربط مسمى عمود المكلف بالدلالة الرئيسية للوحدة (كشف المسميات ثم الخريطة الاحتياطية)."""
     raw = _strip_bullet_line(assignee_label)
     if not raw:
         return ""
+
+    # المصدر الرئيسي: كشف المسميات والدلالات (DB / Excel)
+    try:
+        from app.unit_designations import canonical_label_for_assignee
+
+        canon = canonical_label_for_assignee(raw)
+        if canon:
+            return canon
+    except Exception:
+        pass
+
     candidates = [raw, _normalize_assignee_lookup(raw)]
     for cand in candidates:
         if cand in _ASSIGNEE_TO_UNIT_LABEL:
@@ -175,13 +187,77 @@ def unit_key_for_assignee_label(assignee_label: str, *, db: Session) -> str:
     ul = unit_label_for_assignee_label(assignee_label)
     if not ul:
         return ""
-    return _resolve_unit_key(ul, db) or ul
+    key = _resolve_unit_key(ul, db)
+    if key:
+        return key
+    # جسر: تسميات كشف Excel (/13، /14) ↔ كتالوج التخطيط (/3، /4) للسرايا
+    bridged = _bridge_designation_label_to_catalog(ul)
+    if bridged and bridged != ul:
+        key = _resolve_unit_key(bridged, db)
+        if key:
+            return key
+    return ul
+
+
+def _bridge_designation_label_to_catalog(label: str) -> str:
+    """تحويل دلالة الكشف إلى تسمية كتالوج التخطيط عند اختلاف ترقيم السرية."""
+    s = (label or "").strip()
+    if not s:
+        return ""
+    replacements = (
+        ("كتيبة المشاة الآلية/13 - السرية/", "كتيبة المشاة الآلية/3 - السرية/"),
+        ("كتيبة الدبابات/14 - السرية/", "كتيبة الدبابات/4 - السرية/"),
+    )
+    for a, b in replacements:
+        if s.startswith(a):
+            return b + s[len(a) :]
+    return s
 
 
 def flow_assignee_label_for_unit_label(unit_label: str) -> str:
+    """عكس الربط: من الدلالة الرئيسية إلى مسمى مكلف شائع (أول alias محكم إن وُجد)."""
     raw = (unit_label or "").strip()
     if not raw:
         return ""
+
+    try:
+        from app.unit_designations import (
+            normalize_designation_text,
+            resolve_unit_id_for_assignee,
+            ensure_unit_designations_loaded,
+            _UNIT_BY_ID,
+        )
+        from app.models.domain import UnitDesignationAlias
+        from app.database import SessionLocal
+
+        ensure_unit_designations_loaded()
+        uid = resolve_unit_id_for_assignee(raw)
+        if not uid:
+            n = normalize_designation_text(raw)
+            for mid, rec in _UNIT_BY_ID.items():
+                if normalize_designation_text(rec.canonical_label or "") == n:
+                    uid = mid
+                    break
+        if uid:
+            sess = SessionLocal()
+            try:
+                aliases = (
+                    sess.query(UnitDesignationAlias)
+                    .filter(UnitDesignationAlias.unit_id == uid)
+                    .order_by(UnitDesignationAlias.alias_id)
+                    .all()
+                )
+                for a in aliases:
+                    lbl = (a.alias_label or "").strip()
+                    if lbl.startswith("محكم"):
+                        return lbl
+                if aliases:
+                    return (aliases[0].alias_label or "").strip()
+            finally:
+                sess.close()
+    except Exception:
+        pass
+
     if raw in _UNIT_LABEL_TO_ASSIGNEE:
         return _UNIT_LABEL_TO_ASSIGNEE[raw]
     n = _norm(raw)

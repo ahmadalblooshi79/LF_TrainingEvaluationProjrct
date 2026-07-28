@@ -53,6 +53,8 @@ from app.models.domain import (
     InfoBankActionEvalXlsx,
     InfoBankDilemmaEvalXlsx,
     InformationBankEventFlowTable,
+    UnitDesignation,
+    UnitDesignationAlias,
 )
 from app.ai_local_engine.models import AiSettings
 from app.ai_report_library.models import (
@@ -122,6 +124,8 @@ __all__ = [
     "InfoBankActionEvalXlsx",
     "InfoBankDilemmaEvalXlsx",
     "InformationBankEventFlowTable",
+    "UnitDesignation",
+    "UnitDesignationAlias",
     "AiSettings",
     "AIReportSource",
     "AIReportSection",

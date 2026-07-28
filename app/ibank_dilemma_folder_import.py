@@ -400,8 +400,38 @@ def import_dilemma_folders_from_path(
 
 
 def collect_linked_files_by_dilemma(db: Session) -> dict[str, dict[int, list[dict]]]:
-    """day_id -> dilemma_no -> [{id, name, open_url_path}]."""
+    """day_id -> dilemma_no -> [{id, name, node_id, unit_key}].
+
+    يجمع من:
+    1) مجلدات الاستيراد ذات المفتاح ``fdlm:…``
+    2) شجرة تبويب قوائم تقييم الإجراءات تحت جذور الأيام (يN - مN / معضلة N)
+       مع مستوى الوحدة من ``catalog_unit_key`` على الملف أو المجلد.
+    """
+    from app.info_bank_tree import parse_flow_day_catalog_key
+
     out: dict[str, dict[int, list[dict]]] = {}
+    seen: set[tuple[str, int, int]] = set()
+
+    def _add_file(day_id: str, dilemma_no: int, f: InformationBankTreeNode, *, unit_key: str = "") -> None:
+        nid = int(f.id)
+        key = (day_id, int(dilemma_no), nid)
+        if key in seen:
+            return
+        seen.add(key)
+        uk = (unit_key or (f.catalog_unit_key or "").strip() or "").strip()
+        if uk.startswith(DILEMMA_FOLDER_UNIT_PREFIX):
+            uk = ""
+        bucket = out.setdefault(day_id, {})
+        bucket.setdefault(int(dilemma_no), []).append(
+            {
+                "id": nid,
+                "name": f.name,
+                "node_id": nid,
+                "unit_key": uk,
+            }
+        )
+
+    # 1) مجلدات fdlm:
     folders = (
         db.query(InformationBankTreeNode)
         .filter(
@@ -425,15 +455,101 @@ def collect_linked_files_by_dilemma(db: Session) -> dict[str, dict[int, list[dic
             .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
             .all()
         )
-        bucket = out.setdefault(day_id, {})
-        bucket[dilemma_no] = [
-            {
-                "id": int(f.id),
-                "name": f.name,
-                "node_id": int(f.id),
-            }
-            for f in files
-        ]
+        for f in files:
+            _add_file(day_id, dilemma_no, f)
+
+    # 2) شجرة أيام المجرى في تبويب action_eval
+    day_roots = (
+        db.query(InformationBankTreeNode)
+        .filter(
+            InformationBankTreeNode.kind == "action_eval",
+            InformationBankTreeNode.is_folder.is_(True),
+            InformationBankTreeNode.parent_id.is_(None),
+        )
+        .all()
+    )
+    by_parent: dict[int | None, list[InformationBankTreeNode]] = {}
+    all_nodes = (
+        db.query(InformationBankTreeNode)
+        .filter(InformationBankTreeNode.kind == "action_eval")
+        .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
+        .all()
+    )
+    for n in all_nodes:
+        by_parent.setdefault(n.parent_id, []).append(n)
+
+    def _walk(
+        node: InformationBankTreeNode,
+        *,
+        day_id: str,
+        day_no: int | None,
+        dilemma_no: int | None,
+        folder_unit_key: str,
+    ) -> None:
+        children = by_parent.get(int(node.id)) or []
+        if not node.is_folder:
+            return
+        for ch in children:
+            if ch.is_folder:
+                codes = parse_dilemma_folder_codes(ch.name or "", parent_day_no=day_no)
+                next_dno = dilemma_no
+                if codes is not None:
+                    c_day, c_dno = codes
+                    # طابق رقم اليوم إن وُجد؛ وإلا اقبل رقم المعضلة تحت جذر اليوم الحالي
+                    if day_no is None or c_day == day_no or c_day == int(day_no or 0):
+                        next_dno = c_dno
+                    elif str(day_id).endswith(f"-{c_day}") or day_id == day_id_for_number(c_day):
+                        next_dno = c_dno
+                # مجلدات بأسماء مثل «معضلة 1» بلا رقم يوم — تحت جذر اليوم
+                if next_dno is None:
+                    m_only = _MUADALA_RE.search(ch.name or "")
+                    if m_only:
+                        try:
+                            next_dno = int(m_only.group(1))
+                        except ValueError:
+                            next_dno = None
+                next_uk = (ch.catalog_unit_key or "").strip()
+                if next_uk.startswith(DILEMMA_FOLDER_UNIT_PREFIX):
+                    next_uk = folder_unit_key
+                elif not next_uk:
+                    next_uk = folder_unit_key
+                _walk(
+                    ch,
+                    day_id=day_id,
+                    day_no=day_no,
+                    dilemma_no=next_dno,
+                    folder_unit_key=next_uk,
+                )
+            else:
+                if dilemma_no is None:
+                    continue
+                name_l = (ch.name or "").lower()
+                if not name_l.endswith((".xlsx", ".xlsm")):
+                    continue
+                _add_file(day_id, dilemma_no, ch, unit_key=folder_unit_key)
+
+    for root in day_roots:
+        day_id = parse_flow_day_catalog_key((root.catalog_phase_key or "").strip())
+        day_no = None
+        if day_id:
+            m = re.search(r"(\d+)$", day_id)
+            if m:
+                try:
+                    day_no = int(m.group(1))
+                except ValueError:
+                    day_no = None
+        if not day_id:
+            day_no = parse_day_no_from_dirname(root.name or "")
+            if day_no is None:
+                continue
+            day_id = day_id_for_number(day_no)
+        # جذور بأيام غير رقمية (day-1785…) — استخرج من catalog فقط
+        if day_no is None and day_id.startswith("day-"):
+            rest = day_id[4:]
+            if rest.isdigit():
+                day_no = int(rest)
+        _walk(root, day_id=day_id, day_no=day_no, dilemma_no=None, folder_unit_key="")
+
     return out
 
 

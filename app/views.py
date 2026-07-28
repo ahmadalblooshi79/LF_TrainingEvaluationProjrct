@@ -8328,12 +8328,14 @@ def _render_planner_action_eval_lists(db, user: User):
         ibank_unit_count = int(meta.get("ibank_units") or 0)
         dilemma_count = int(meta.get("dilemmas") or 0)
         published_count = int(meta.get("published") or 0)
+        list_file_count = int(meta.get("files") or 0)
         day_label = selected_day_label or "اليوم/1"
         if dilemma_count:
             page_note = (
                 f"المصدر: بنك المعلومات ← قوائم تقييم الإجراءات — "
                 f"معضلة ← محكم / مستوى الوحدة / متدرب ← قوائم التقييم "
-                f"لـ{day_label} ({dilemma_count} معضلة، {published_count} منشورة)."
+                f"لـ{day_label} ({dilemma_count} معضلة، {list_file_count} قائمة، "
+                f"{published_count} منشورة)."
             )
         else:
             page_note = (

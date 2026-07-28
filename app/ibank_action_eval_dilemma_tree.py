@@ -252,16 +252,31 @@ def _score_file_for_assignee(file_name: str, procedure_title: str, assignee: str
 
 
 def _match_files_to_assignees(
-    assignees: list[str], files_meta: list[dict]
+    assignees: list[str],
+    files_meta: list[dict],
+    *,
+    assignee_unit_keys: dict[str, str] | None = None,
 ) -> dict[str, list[dict]]:
-    """ربط كل ملف Excel بأفضل محكم وحدة (تلميح واضح)، ثم توزيع الباقي."""
+    """ربط كل ملف Excel بمحكم الوحدة — أولاً عبر مستوى الوحدة المحفوظ، ثم تلميح الاسم."""
     result: dict[str, list[dict]] = {a: [] for a in assignees}
     unmatched: list[dict] = []
     ranked = sorted(
         assignees,
         key=lambda a: (0 if (a or "").startswith("محكم") else 1, a),
     )
+    uk_map = assignee_unit_keys or {}
+    # unit_key → أول صنف مكلف يطابقه
+    unit_to_assignee: dict[str, str] = {}
+    for a in ranked:
+        uk = (uk_map.get(a) or "").strip()
+        if uk and uk not in unit_to_assignee:
+            unit_to_assignee[uk] = a
+
     for meta in files_meta:
+        file_uk = (meta.get("unit_key") or "").strip()
+        if file_uk and file_uk in unit_to_assignee:
+            result[unit_to_assignee[file_uk]].append(meta)
+            continue
         best_a = None
         best_s = 0
         for a in ranked:
@@ -356,20 +371,29 @@ def _build_action_eval_dilemma_judge_tree_uncached(
                 if node and node.file_relpath:
                     path = (INFO_BANK_DIR / node.file_relpath).resolve()
                 analysis = analyze_action_eval_xlsx(path) if path else {}
+                unit_key = (fr.get("unit_key") or "").strip()
+                if not unit_key and node is not None:
+                    unit_key = (node.catalog_unit_key or "").strip()
                 files_meta.append(
                     {
                         "node_id": node_id,
                         "name": name,
                         "procedure_title": analysis.get("procedure_title") or Path(name).stem,
                         "is_eval_list": bool(analysis.get("is_eval_list")),
+                        "unit_key": unit_key,
                     }
                 )
 
             assignees = _prefer_judge_assignees(list(day_assignees.get(dno) or []))
-            matched = _match_files_to_assignees(assignees, files_meta)
+            asn_unit_keys: dict[str, str] = {}
+            for asn in assignees:
+                asn_unit_keys[asn] = unit_key_for_assignee_label(asn, db=db) or ""
+            matched = _match_files_to_assignees(
+                assignees, files_meta, assignee_unit_keys=asn_unit_keys
+            )
             judge_nodes: list[dict] = []
             for asn in assignees:
-                uk = unit_key_for_assignee_label(asn, db=db) or ""
+                uk = asn_unit_keys.get(asn) or ""
                 ul = unit_label_for_assignee_label(asn) or ""
                 person = (judge_names.get(uk) or "").strip() if uk else ""
                 file_nodes = []
