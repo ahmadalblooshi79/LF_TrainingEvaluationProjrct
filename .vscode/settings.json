@@ -10,13 +10,16 @@
   ],
   "python.analysis.venvPath": "${workspaceFolder}",
   "python.analysis.venv": ".venv",
+  "cursorpyright.analysis.extraPaths": [
+    "${workspaceFolder}"
+  ],
+  "cursorpyright.analysis.diagnosticSeverityOverrides": {
+    "reportMissingModuleSource": "none"
+  },
   "terminal.integrated.env.windows": {
     "PYTHONPATH": "${workspaceFolder}",
     "VIRTUAL_ENV": "${workspaceFolder}\\.venv",
     "PATH": "${workspaceFolder}\\.venv\\Scripts;${env:PATH}"
   },
-  "terminal.integrated.sendKeybindingsToShell": true,
-  "cursorpyright.analysis.extraPaths": [
-    "${workspaceFolder}"
-  ]
+  "terminal.integrated.sendKeybindingsToShell": true
 }
