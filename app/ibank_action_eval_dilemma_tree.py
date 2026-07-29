@@ -8,6 +8,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app.config import INFO_BANK_DIR
+from app.ibank_dilemma_lists import assigned_units_for_action_eval_name
 from app.ibank_dilemma_folder_import import (
     collect_linked_files_by_dilemma,
     enrich_dilemma_names,
@@ -273,6 +274,21 @@ def _match_files_to_assignees(
             unit_to_assignee[uk] = a
 
     for meta in files_meta:
+        assigned_units = {
+            (x or "").strip()
+            for x in (meta.get("assigned_unit_keys") or [])
+            if (x or "").strip()
+        }
+        if assigned_units:
+            matched_any = False
+            for a in ranked:
+                auk = (uk_map.get(a) or "").strip()
+                if not auk or auk not in assigned_units:
+                    continue
+                result[a].append(meta)
+                matched_any = True
+            if matched_any:
+                continue
         file_uk = (meta.get("unit_key") or "").strip()
         if file_uk and file_uk in unit_to_assignee:
             result[unit_to_assignee[file_uk]].append(meta)
@@ -374,6 +390,7 @@ def _build_action_eval_dilemma_judge_tree_uncached(
                 unit_key = (fr.get("unit_key") or "").strip()
                 if not unit_key and node is not None:
                     unit_key = (node.catalog_unit_key or "").strip()
+                assigned_unit_keys = assigned_units_for_action_eval_name(db, name)
                 files_meta.append(
                     {
                         "node_id": node_id,
@@ -381,6 +398,7 @@ def _build_action_eval_dilemma_judge_tree_uncached(
                         "procedure_title": analysis.get("procedure_title") or Path(name).stem,
                         "is_eval_list": bool(analysis.get("is_eval_list")),
                         "unit_key": unit_key,
+                        "assigned_unit_keys": sorted(assigned_unit_keys),
                     }
                 )
 
@@ -405,6 +423,17 @@ def _build_action_eval_dilemma_judge_tree_uncached(
                             "open_href": f"/admin/information-bank/action-eval/view/{meta['node_id']}",
                         }
                     )
+                if not uk and file_nodes:
+                    from collections import Counter
+
+                    cands = [
+                        (m.get("unit_key") or "").strip()
+                        for m in file_nodes
+                        if (m.get("unit_key") or "").strip()
+                    ]
+                    if cands:
+                        uk = Counter(cands).most_common(1)[0][0]
+                        person = (judge_names.get(uk) or "").strip() if uk else person
                 judge_nodes.append(
                     {
                         "assignee_label": asn,

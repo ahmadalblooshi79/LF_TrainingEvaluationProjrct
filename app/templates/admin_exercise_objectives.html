@@ -5,7 +5,7 @@
 <div class="page-header">
   <h1><i class="fa-solid fa-bullseye fa-icon-title" aria-hidden="true"></i> الأهداف التدريبية</h1>
   {% if not current_exercise %}
-  <p class="muted">خياران فقط: إدخال يدوي، أو استيراد من ملف (Excel أو PDF أو CSV أو XML أو نص). يُستبدل قائمة الأهداف بالكامل عند كل حفظ.</p>
+  <p class="muted">خياران فقط: إدخال يدوي، أو استيراد من ملف (Word أو Excel أو PDF أو CSV أو XML أو نص). يُستبدل قائمة الأهداف بالكامل عند كل حفظ.</p>
   {% endif %}
 </div>
 {% if error %}
@@ -38,7 +38,7 @@
         </label>
         <label class="objectives-mode-label">
           <input type="radio" name="objectives_source" value="excel" id="src-excel">
-          <span>إدراج ملف خارجي (Excel / PDF / CSV / XML)</span>
+          <span>إدراج ملف خارجي (Word / Excel / PDF / CSV / XML)</span>
         </label>
       </span>
     </legend>
@@ -70,8 +70,8 @@
   <div id="panel-excel" class="objectives-mode-panel card" hidden>
     <div class="form-group">
       <label for="objectives_xlsx"><i class="fa-solid fa-file-import fa-icon-label" aria-hidden="true"></i> ملف خارجي</label>
-      <input id="objectives_xlsx" name="objectives_file" type="file" accept=".xlsx,.xlsm,.csv,.xml,.pdf,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/pdf,application/xml,text/xml">
-      <p class="muted mt-tight">يُدعم: Excel (xlsx)، PDF، CSV، XML، ونص txt. يُجمع النص من الجداول والفقرات والعناصر ثم تُستخرج الأسطر كأهداف مع تجاهل العناوين الشائعة. عند الحفظ تُستبدل القائمة بالكامل ثم تظهر في «إدخال يدوي» مع الترقيم والحذف.</p>
+      <input id="objectives_xlsx" name="objectives_file" type="file" accept=".docx,.xlsx,.xlsm,.csv,.xml,.pdf,.txt,text/csv,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/pdf,application/xml,text/xml">
+      <p class="muted mt-tight">يُدعم: Word (docx)، Excel (xlsx)، PDF، CSV، XML، ونص txt. يُجمع النص من الفقرات والجداول ثم تُستخرج الأسطر كأهداف مع تجاهل العناوين الشائعة. صيغة .doc القديمة غير مدعومة — احفظ كـ DOCX. عند الحفظ تُستبدل القائمة بالكامل ثم تظهر في «إدخال يدوي» مع الترقيم والحذف.</p>
     </div>
   </div>
 
@@ -176,7 +176,7 @@
     if (srcExcel.checked) {
       if (!xlsxInput || !xlsxInput.files || !xlsxInput.files.length) {
         e.preventDefault();
-        window.alert("اختر ملفاً خارجياً أولاً (Excel أو PDF أو CSV أو XML أو نص).");
+        window.alert("اختر ملفاً خارجياً أولاً (Word أو Excel أو PDF أو CSV أو XML أو نص).");
       }
       return;
     }

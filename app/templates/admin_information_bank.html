@@ -39,6 +39,7 @@
       {% for bg in info_bank_brigade_groups %}
       <button type="button" class="ibank-tab{% if active_tab == bg.tab %} is-active{% endif %}" data-tab-btn="{{ bg.tab }}" role="tab" aria-selected="{{ 'true' if active_tab == bg.tab else 'false' }}">{{ bg.label }}</button>
       {% endfor %}
+      <button type="button" class="ibank-tab{% if active_tab == 'dilemma-lists' %} is-active{% endif %}" data-tab-btn="dilemma-lists" role="tab" aria-selected="{{ 'true' if active_tab == 'dilemma-lists' else 'false' }}">قوائم تقييم المعاضل</button>
       <button type="button" class="ibank-tab{% if active_tab == 'event-flow' %} is-active{% endif %}" data-tab-btn="event-flow" role="tab" aria-selected="{{ 'true' if active_tab == 'event-flow' else 'false' }}">مجرى الأحداث والمعاضل</button>
       <button type="button" class="ibank-tab{% if active_tab == 'action-eval' %} is-active{% endif %}" data-tab-btn="action-eval" role="tab" aria-selected="{{ 'true' if active_tab == 'action-eval' else 'false' }}">قوائم تقييم الإجراءات</button>
       <button type="button" class="ibank-tab{% if active_tab == 'dilemma-eval' %} is-active{% endif %}" data-tab-btn="dilemma-eval" role="tab" aria-selected="{{ 'true' if active_tab == 'dilemma-eval' else 'false' }}">قوائم التقييم</button>
@@ -136,6 +137,10 @@
         <input type="hidden" name="brigade_tab" id="ibank-unit-edit-tab" value="">
       </form>
       {% endif %}
+
+      <div class="ibank-tabpane{% if active_tab == 'dilemma-lists' %} is-active{% endif %}" data-tab-pane="dilemma-lists" role="tabpanel">
+        {% include 'admin_information_bank_dilemma_lists_panel.html' %}
+      </div>
 
       <div class="ibank-tabpane{% if active_tab == 'event-flow' %} is-active{% endif %}" data-tab-pane="event-flow" role="tabpanel">
         <div class="ibank-event-flow-panel" dir="rtl">
@@ -320,6 +325,112 @@
     }
     card.querySelectorAll('.ibank-tree-page').forEach(function (page) {
       var kind = page.getAttribute('data-ibank-tree-kind') || '';
+      if (kind === 'dilemma_lists') {
+        var dlParentInputs = page.querySelectorAll('.js-ibank-tree-upload-parent');
+        var dlRootId = '';
+        dlParentInputs.forEach(function (inp) {
+          if (!dlRootId) dlRootId = String(inp.value || '').trim();
+        });
+        function dlBindPick(btnSel, inpSel, formSel) {
+          var pick = page.querySelector(btnSel);
+          var inp = page.querySelector(inpSel);
+          var form = page.querySelector(formSel);
+          if (!pick || !inp || !form) return;
+          pick.addEventListener('click', function () {
+            try {
+              if (typeof inp.showPicker === 'function') {
+                inp.showPicker();
+                return;
+              }
+            } catch (eShow) { /* fall through */ }
+            inp.click();
+          });
+          inp.addEventListener('change', function () {
+            if (!inp.files || inp.files.length === 0) return;
+            if (!dlRootId) {
+              alert('تعذر تحديد جذر قوائم تقييم المعاضل. أعد تحميل الصفحة.');
+              inp.value = '';
+              return;
+            }
+            dlParentInputs.forEach(function (pInp) { pInp.value = dlRootId; });
+            ibankSubmitting = true;
+            btns.forEach(function (b) { b.disabled = true; });
+            form.submit();
+          });
+        }
+        dlBindPick('.js-ibank-tree-pick-files', '.js-ibank-tree-files', '.js-ibank-tree-upload-files-form');
+        dlBindPick('.js-ibank-tree-pick-dir', '.js-ibank-tree-dir', '.js-ibank-tree-upload-dir-form');
+
+        var assignUrl = page.getAttribute('data-dilemma-lists-assign-url') || '';
+        var saveTimers = {};
+        function collectKeys(listId) {
+          var keys = [];
+          page.querySelectorAll('.ibank-dilemma-lists-unit-cb[data-list-id="' + listId + '"]').forEach(function (cb) {
+            if (cb.checked) keys.push(cb.value);
+          });
+          return keys;
+        }
+        function updateBadge(listId, count) {
+          var row = page.querySelector('.ibank-dilemma-lists-row[data-list-id="' + listId + '"]');
+          var badge = row && row.querySelector('.ibank-dilemma-lists-badge');
+          if (!badge) return;
+          if (count > 0) {
+            badge.textContent = count + ' وحدة';
+            badge.classList.add('is-set');
+          } else {
+            badge.textContent = 'بدون وحدات';
+            badge.classList.remove('is-set');
+          }
+        }
+        function saveListUnits(listId) {
+          if (!assignUrl) return;
+          var statusEl = page.querySelector('[data-list-status="' + listId + '"]');
+          var keys = collectKeys(listId);
+          updateBadge(listId, keys.length);
+          if (statusEl) {
+            statusEl.hidden = false;
+            statusEl.textContent = 'جاري الحفظ…';
+          }
+          var body = new URLSearchParams();
+          body.set('list_node_id', String(listId));
+          keys.forEach(function (k) { body.append('unit_keys', k); });
+          fetch(assignUrl, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+              Accept: 'application/json',
+            },
+            body: body.toString(),
+          })
+            .then(function (r) {
+              return r.json().then(function (j) {
+                return { ok: r.ok && j && j.ok, json: j || {} };
+              }).catch(function () {
+                return { ok: false, json: {} };
+              });
+            })
+            .then(function (res) {
+              if (statusEl) {
+                statusEl.textContent = res.ok
+                  ? ('تم الحفظ' + (res.json.action_eval_updated ? (' — حُدّث ' + res.json.action_eval_updated + ' في قوائم الإجراءات') : ''))
+                  : ((res.json && res.json.error) || 'تعذّر الحفظ');
+              }
+            })
+            .catch(function () {
+              if (statusEl) statusEl.textContent = 'تعذر الاتصال بالخادم.';
+            });
+        }
+        page.querySelectorAll('.ibank-dilemma-lists-unit-cb').forEach(function (cb) {
+          cb.addEventListener('change', function () {
+            var listId = cb.getAttribute('data-list-id') || '';
+            if (!listId) return;
+            clearTimeout(saveTimers[listId]);
+            saveTimers[listId] = setTimeout(function () { saveListUnits(listId); }, 280);
+          });
+        });
+        return;
+      }
       var isUnitEvalTree = (kind === 'action_eval' || kind === 'dilemma_eval');
       var dayTabsMode = page.getAttribute('data-ibank-day-tabs') === '1';
       var activeDayId = dayTabsMode ? (page.getAttribute('data-active-day-id') || '') : '';

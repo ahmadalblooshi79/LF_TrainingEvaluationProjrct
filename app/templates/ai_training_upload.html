@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}رفع وثيقة تدريب{% endblock %}
+{% block content %}
+<div class="page-header" dir="rtl">
+  <h1><i class="fa-solid fa-upload fa-icon-title"></i> رفع وثيقة تدريب</h1>
+  <div class="page-header__nav">
+    {% with subpage_close_fallback=url_for('views.ai_training_center') %}{% include 'partials/subpage_close.html' %}{% endwith %}
+  </div>
+</div>
+{% if request.args.get('err') %}<p class="form-error-banner">{{ request.args.get('err') }}</p>{% endif %}
+<section class="card" dir="rtl">
+  <form method="post" enctype="multipart/form-data" action="{{ url_for('views.ai_training_upload') }}">
+    <div class="form-grid" style="display:grid;gap:0.75rem;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));">
+      <label>عنوان الوثيقة <input name="title" required></label>
+      <label>نوع الوثيقة
+        <select name="document_type">
+          {% for k, lab in document_types %}
+          <option value="{{ k }}">{{ lab }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>الجهة المصدر <input name="source_organization"></label>
+      <label>تاريخ الوثيقة <input name="document_date" placeholder="YYYY-MM-DD"></label>
+      <label>اللغة <input name="language" value="ar"></label>
+      <label>رقم الإصدار <input name="version_number" type="number" min="1" value="1"></label>
+      <label>وصف الإصدار <input name="version_label"></label>
+      <label style="grid-column:1/-1;">الوصف <textarea name="description" rows="3"></textarea></label>
+      <label style="grid-column:1/-1;">الملف (DOCX / PDF / TXT) <input type="file" name="file" accept=".docx,.pdf,.txt" required></label>
+      <label><input type="checkbox" name="start_ingest" value="1" {% if auto_ingest %}checked{% endif %}> رفع وبدء الاستخراج</label>
+    </div>
+    <p class="ibank-units-included-actions mt-tight">
+      <button type="submit" class="btn btn-primary">رفع</button>
+      <a class="btn btn-ghost" href="{{ url_for('views.ai_training_center') }}">إلغاء</a>
+    </p>
+  </form>
+</section>
+{% endblock %}

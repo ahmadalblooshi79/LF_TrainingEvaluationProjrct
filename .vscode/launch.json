@@ -11,7 +11,7 @@
       "python": "${workspaceFolder}/.venv/Scripts/python.exe",
       "pythonArgs": ["-Xfrozen_modules=off"],
       "env": {
-        "LF_OPEN_BROWSER": "0",
+        "LF_OPEN_BROWSER": "1",
         "FLASK_DEBUG": "0",
         "PYTHONPATH": "${workspaceFolder}"
       },

@@ -26,6 +26,8 @@ def is_information_bank_tree_manage_path(path: str | None) -> bool:
     if p in (
         INFO_BANK_PATH_PREFIX + "/tree/folder",
         INFO_BANK_PATH_PREFIX + "/tree/upload",
+        INFO_BANK_PATH_PREFIX + "/dilemma-lists/assign",
+        INFO_BANK_PATH_PREFIX + "/eval-list/purge-all",
     ):
         return True
     return bool(_TREE_DELETE_PATH_RE.match(p))

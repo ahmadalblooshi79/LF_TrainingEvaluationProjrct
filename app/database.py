@@ -563,6 +563,18 @@ def ensure_ai_agentic_foundation_tables() -> None:
         db.close()
 
 
+def ensure_ai_training_center_tables() -> None:
+    """جداول مركز التدريب Phase B1 + بذرة Ingestion Agent."""
+    from app.ai_training.migration import ensure_training_tables, seed_ingestion_agent
+
+    ensure_training_tables()
+    db = SessionLocal()
+    try:
+        seed_ingestion_agent(db)
+    finally:
+        db.close()
+
+
 def get_db():
     db = SessionLocal()
     try:

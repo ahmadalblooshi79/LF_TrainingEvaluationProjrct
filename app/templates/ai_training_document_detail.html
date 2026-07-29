@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}تفاصيل وثيقة تدريب{% endblock %}
+{% block content %}
+<div class="page-header" dir="rtl">
+  <h1>{{ document.title }}</h1>
+  <div class="page-header__nav">
+    {% with subpage_close_fallback=url_for('views.ai_training_center') %}{% include 'partials/subpage_close.html' %}{% endwith %}
+  </div>
+</div>
+{% if error %}<p class="form-error-banner">{{ error }}</p>{% endif %}
+{% if ok_msg %}<p class="form-ok-banner">{{ ok_msg }}</p>{% endif %}
+
+<section class="card" dir="rtl">
+  <h2 class="h2-in-card">البيانات الوصفية</h2>
+  <div class="table-wrap">
+    <table class="ibank-table">
+      <tbody>
+        <tr><th>ID</th><td dir="ltr">{{ document.id }}</td></tr>
+        <tr><th>UUID</th><td dir="ltr">{{ document.document_uuid }}</td></tr>
+        <tr><th>النوع</th><td dir="ltr">{{ document.document_type }}</td></tr>
+        <tr><th>الإصدار</th><td dir="ltr">v{{ document.version_number }} {{ document.version_label or '' }}</td></tr>
+        <tr><th>الملف</th><td>{{ document.original_filename }}</td></tr>
+        <tr><th>الحجم</th><td dir="ltr">{{ document.file_size_bytes }}</td></tr>
+        <tr><th>SHA-256</th><td dir="ltr" style="word-break:break-all;">{{ document.sha256_hash }}</td></tr>
+        <tr><th>الحالة</th><td>{{ document.status_ar }}</td></tr>
+        <tr><th>الاستخراج</th><td>{{ document.extraction_status_ar }}</td></tr>
+        <tr><th>المراجعة</th><td>{{ document.review_status_ar }}</td></tr>
+        <tr><th>الاعتماد</th><td>{{ document.approval_status_ar }}</td></tr>
+        <tr><th>البنية العسكرية</th><td>{{ document.structure_status_ar or '—' }}</td></tr>
+        <tr><th>صفحات / Blocks</th><td dir="ltr">{{ document.page_count or '—' }} / {{ document.paragraph_count or '—' }}</td></tr>
+        <tr><th>Workflow</th><td dir="ltr">{{ document.latest_workflow_run_id or '—' }}</td></tr>
+        <tr><th>Structure Run</th><td dir="ltr">{{ document.latest_structure_run_id or '—' }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="ibank-units-included-actions mt-tight">
+    <a class="btn btn-ghost" href="{{ url_for('views.ai_training_document_download', document_id=document.id) }}">تنزيل الأصل</a>
+    {% if can_run %}
+    <form method="post" action="{{ url_for('views.ai_training_document_ingest_form', document_id=document.id) }}" style="display:inline;">
+      <button class="btn btn-primary" type="submit">بدء / إعادة الاستخراج</button>
+    </form>
+    {% endif %}
+    {% if can_review %}
+    <a class="btn btn-primary" href="{{ url_for('views.ai_training_document_review', document_id=document.id) }}">فتح المراجعة</a>
+    {% endif %}
+    {% if can_structure_view %}
+    <a class="btn btn-primary" href="{{ url_for('views.ai_training_document_structure', document_id=document.id) }}">مراجعة البنية العسكرية</a>
+    {% endif %}
+    {% if can_structure_analyze %}
+    <form method="post" action="{{ url_for('views.ai_training_document_structure', document_id=document.id) }}" style="display:inline;">
+      <input type="hidden" name="action" value="analyze">
+      <button class="btn btn-ghost" type="submit">تحليل البنية العسكرية</button>
+    </form>
+    {% endif %}
+  </p>
+</section>
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card">Blocks المستخرجة ({{ blocks|length }})</h2>
+  <div class="table-wrap">
+    <table class="ibank-table">
+      <thead><tr><th>#</th><th>النوع</th><th>النص</th></tr></thead>
+      <tbody>
+        {% for b in blocks[:80] %}
+        <tr>
+          <td dir="ltr">{{ b.block_index }}</td>
+          <td dir="ltr">{{ b.block_type }}</td>
+          <td>{{ (b.text_content or '')[:240] }}{% if (b.text_content or '')|length > 240 %}…{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3">لا توجد Blocks بعد.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card">أحداث الوثيقة</h2>
+  <div class="table-wrap">
+    <table class="ibank-table">
+      <thead><tr><th>الشدة</th><th>النوع</th><th>الرسالة</th><th>الوقت</th></tr></thead>
+      <tbody>
+        {% for e in events %}
+        <tr>
+          <td dir="ltr">{{ e.severity }}</td>
+          <td dir="ltr">{{ e.event_type }}</td>
+          <td>{{ e.message }}</td>
+          <td dir="ltr">{{ e.created_at }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4">لا أحداث.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

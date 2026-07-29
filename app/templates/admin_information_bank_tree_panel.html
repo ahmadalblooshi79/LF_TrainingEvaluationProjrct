@@ -2,7 +2,7 @@
 
 {% set is_unit_eval_tree = kind in ['action_eval', 'dilemma_eval'] %}
 {% set use_action_eval_day_tabs = kind == 'action_eval' and ibank_action_eval_flow_days is defined and ibank_action_eval_flow_days %}
-{% set tree_title = {'event_flow': 'مجرى الأحداث والمعاضل', 'action_eval': 'قوائم تقييم الإجراءات', 'dilemma_eval': 'قوائم التقييم'}[kind] %}
+{% set tree_title = {'event_flow': 'مجرى الأحداث والمعاضل', 'action_eval': 'قوائم تقييم الإجراءات', 'dilemma_eval': 'قوائم التقييم', 'dilemma_lists': 'قوائم تقييم المعاضل'}[kind] %}
 
 <div class="ibank-tree-page" dir="rtl" data-ibank-tree-kind="{{ kind }}" data-tree-move-url="{{ url_for('views.admin_information_bank_tree_move') }}" data-ibank-ui-build="action-eval-folder-tree-v1"{% if use_action_eval_day_tabs %} data-ibank-day-tabs="1" data-active-day-id="{{ active_action_eval_day|default('')|e }}" data-action-eval-sync-url="{{ url_for('views.admin_information_bank_action_eval_day_tabs') }}"{% endif %}>
 

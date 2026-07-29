@@ -1078,6 +1078,25 @@ class InformationBankTreeNode(Base):
     )
 
 
+class InformationBankDilemmaListUnit(Base):
+    """وحدات مفروضة على قائمة تقييم معضلة (تبويب قوائم تقييم المعاضل)."""
+
+    __tablename__ = "information_bank_dilemma_list_units"
+    __table_args__ = (
+        UniqueConstraint("list_node_id", "unit_key", name="uq_ib_dilemma_list_unit"),
+        Index("ix_ib_dilemma_list_node", "list_node_id"),
+        Index("ix_ib_dilemma_list_unit_key", "unit_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    list_node_id: Mapped[int] = mapped_column(
+        ForeignKey("information_bank_tree_nodes.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    unit_key: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class InfoBankEventFlowPdf(Base):
     """مجرى الأحداث والمعاضل — ملف PDF أو Word (.doc/.docx) لمرحلة ومستوى وحدة؛ تخزين عام بلا exercise_id."""
 

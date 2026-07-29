@@ -1,5 +1,5 @@
 """
-استخراج نصوص الأهداف التدريبية من ملفات متعددة الصيغ (Excel, PDF, CSV, XML).
+استخراج نصوص الأهداف التدريبية من ملفات متعددة الصيغ (Excel, Word, PDF, CSV, XML).
 يعتمد على استخراج شامل للنص ثم تصفية عناوين/فواصل شائعة — دون الاعتماد على موضع ثابت في الملف.
 """
 from __future__ import annotations
@@ -168,7 +168,6 @@ def _from_xml(data: bytes) -> list[str]:
             t = _norm(el.tail)
             if t:
                 chunks.append(t)
-        # قيم السمات القصيرة قد تحمل رموزاً أو عناوين أهداف
         for _k, v in (el.attrib or {}).items():
             tv = _norm(str(v))
             if len(tv) >= 8 and tag not in ("style", "stylesheet"):
@@ -196,10 +195,36 @@ def _from_pdf(data: bytes) -> list[str]:
     return _finalize(lines)
 
 
+def _from_docx(data: bytes) -> list[str]:
+    """استخراج فقرات وخلايا جداول من ملف Word (.docx)."""
+    from docx import Document
+
+    doc = Document(BytesIO(data))
+    chunks: list[str] = []
+    for p in doc.paragraphs:
+        t = _norm(p.text or "")
+        if t:
+            chunks.append(t)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                t = _norm(cell.text or "")
+                if t:
+                    chunks.append(t)
+    return _finalize(chunks)
+
+
 def _from_plain_or_txt(data: bytes) -> list[str]:
     text = data.decode("utf-8", errors="ignore")
     lines = [_norm(x) for x in text.splitlines() if _norm(x)]
     return _finalize(lines)
+
+
+def _looks_like_docx(data: bytes) -> bool:
+    if len(data) < 4 or data[:2] != b"PK":
+        return False
+    head = data[:8192]
+    return b"word/" in head or b"wordprocessingml" in head
 
 
 def extract_objectives_from_file(filename: str, data: bytes) -> list[str]:
@@ -219,6 +244,8 @@ def extract_objectives_from_file(filename: str, data: bytes) -> list[str]:
 
     if ext in (".xlsx", ".xlsm"):
         return _safe(_from_xlsx)
+    if ext == ".docx":
+        return _safe(_from_docx)
     if ext in (".csv", ".tsv"):
         return _safe(_from_csv)
     if ext == ".xml":
@@ -228,10 +255,13 @@ def extract_objectives_from_file(filename: str, data: bytes) -> list[str]:
     if ext in (".txt", ".text"):
         return _safe(_from_plain_or_txt)
 
+    if _looks_like_docx(data):
+        x = _safe(_from_docx)
+        if x:
+            return x
     head = data.lstrip()[:120]
     if head.startswith(b"<?xml") or head.startswith(b"<"):
         x = _safe(_from_xml)
         if x:
             return x
     return _safe(_from_plain_or_txt)
-

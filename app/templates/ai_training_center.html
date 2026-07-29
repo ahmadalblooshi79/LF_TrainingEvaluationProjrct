@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}مركز التدريب{% endblock %}
+{% block content %}
+<div class="page-header" dir="rtl">
+  <h1><i class="fa-solid fa-graduation-cap fa-icon-title" aria-hidden="true"></i> مركز التدريب</h1>
+  <div class="page-header__nav">
+    {% with subpage_close_fallback=url_for('views.ai_center') %}{% include 'partials/subpage_close.html' %}{% endwith %}
+  </div>
+</div>
+{% if error %}<p class="form-error-banner" role="alert">{{ error }}</p>{% endif %}
+{% if ok_msg %}<p class="form-ok-banner" role="status">{{ ok_msg }}</p>{% endif %}
+
+<section class="card" dir="rtl">
+  <h2 class="h2-in-card">ملخص الوثائق</h2>
+  <div class="table-wrap">
+    <table class="ibank-table">
+      <tbody>
+        <tr><th scope="row">الإجمالي</th><td>{{ counts.total }}</td></tr>
+        <tr><th scope="row">يحتاج مراجعة</th><td>{{ counts.needs_review }}</td></tr>
+        <tr><th scope="row">معتمد (استخراج)</th><td>{{ counts.approved }}</td></tr>
+        <tr><th scope="row">قيد المعالجة</th><td>{{ counts.processing }}</td></tr>
+        <tr><th scope="row">فشل</th><td>{{ counts.failed }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  {% if can_upload %}
+  <p class="ibank-units-included-actions mt-tight">
+    <a class="btn btn-primary" href="{{ url_for('views.ai_training_upload') }}"><i class="fa-solid fa-upload"></i> رفع وثيقة جديدة</a>
+  </p>
+  {% endif %}
+</section>
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card">مكتبة الوثائق</h2>
+  <div class="table-wrap">
+    <table class="ibank-table">
+      <thead>
+        <tr>
+          <th>العنوان</th><th>النوع</th><th>الإصدار</th><th>الملف</th><th>الحجم</th>
+          <th>الحالة</th><th>الاستخراج</th><th>المراجعة</th><th>صفحات</th><th>Blocks</th><th>الرفع</th><th>إجراءات</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in documents %}
+        <tr>
+          <td>{{ d.title }}</td>
+          <td dir="ltr">{{ d.document_type }}</td>
+          <td dir="ltr">v{{ d.version_number }}</td>
+          <td>{{ d.original_filename }}</td>
+          <td dir="ltr">{{ d.file_size_bytes }}</td>
+          <td>{{ d.status_ar }}</td>
+          <td>{{ d.extraction_status_ar }}</td>
+          <td>{{ d.review_status_ar }}</td>
+          <td dir="ltr">{{ d.page_count if d.page_count is not none else '—' }}</td>
+          <td dir="ltr">{{ d.paragraph_count if d.paragraph_count is not none else '—' }}</td>
+          <td dir="ltr">{{ d.created_at or '—' }}</td>
+          <td class="ibank-units-included-actions">
+            <a class="btn btn-ghost" href="{{ url_for('views.ai_training_document_detail', document_id=d.id) }}">التفاصيل</a>
+            {% if can_review %}
+            <a class="btn btn-ghost" href="{{ url_for('views.ai_training_document_review', document_id=d.id) }}">المراجعة</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="12">لا توجد وثائق بعد.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

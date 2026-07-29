@@ -11,7 +11,7 @@ from pathlib import Path
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.config import PLANNER_FLOW_BUNDLE_DIR
+from app.config import INFO_BANK_DIR, PLANNER_FLOW_BUNDLE_DIR
 from app.evaluation_list_ibank_sync import (
     _deepest_unit_key_for_file_node,
     _file_sha256,
@@ -21,7 +21,6 @@ from app.evaluation_list_ibank_sync import (
     _resolve_phase_key,
     _resolve_unit_key,
     exercise_roster_labels_by_unit,
-    remap_publish_selections_by_ibank_context,
     resolve_ibank_publish_unit_key,
     roster_eval_display_unit_keys,
     roster_judge_unit_keys,
@@ -38,6 +37,7 @@ from app.info_bank_tree import (
     node_file_abspath,
     parse_flow_day_catalog_key,
 )
+from app.ibank_dilemma_lists import assigned_units_for_action_eval_name
 from app.models import (
     ExercisePlannerFlowBundle,
     ExercisePlannerFlowBundleActionEval,
@@ -242,7 +242,15 @@ def _file_node_to_source(db: Session, row: InformationBankTreeNode) -> dict | No
         return None
     src_path = node_file_abspath(INFO_BANK_ACTION_EVAL_KIND, src_rel)
     if src_path is None or not src_path.is_file():
-        return None
+        alt = (Path(INFO_BANK_DIR) / src_rel.replace("\\", "/")).resolve()
+        try:
+            alt.relative_to(Path(INFO_BANK_DIR).resolve())
+        except ValueError:
+            alt = None
+        if alt is not None and alt.is_file():
+            src_path = alt
+        else:
+            return None
     title = (row.name or src_path.name or "قائمة تقييم إجراءات").strip()[:2000]
     return {
         "node_id": int(row.id),
@@ -260,6 +268,15 @@ def resolve_ibank_action_eval_publish_unit_key(
     fallback_unit_key: str,
 ) -> str:
     """مستوى الوحدة للنشر — تبويب قوائم تقييم الإجراءات (action_eval) فقط."""
+    requested = _resolve_unit_key(fallback_unit_key, db) or normalize_unit_level_key(
+        fallback_unit_key
+    )
+    if requested:
+        node = db.get(InformationBankTreeNode, int(node_id))
+        if node is not None:
+            assigned = assigned_units_for_action_eval_name(db, node.name or "")
+            if requested in assigned:
+                return requested
     return resolve_ibank_publish_unit_key(
         db,
         kind=INFO_BANK_ACTION_EVAL_KIND,
@@ -843,7 +860,7 @@ def publish_action_eval_lists_from_ibank(
     uk = _resolve_unit_key(unit_key, db) or normalize_unit_level_key(unit_key)
     pk = _resolve_phase_key(phase_key, db) or normalize_exercise_phase(phase_key)
     if not uk or not pk:
-        return {"added": 0, "updated": 0, "removed": 0, "sources": 0}
+        return {"added": 0, "updated": 0, "removed": 0, "sources": 0, "skipped": 0}
 
     ul = label_for_unit_level_key(uk, db=db) or uk
     bundle = _get_or_create_bundle(
@@ -858,9 +875,15 @@ def publish_action_eval_lists_from_ibank(
     by_node = _published_slots_by_node(db, bundle)
     root = PLANNER_FLOW_BUNDLE_DIR.resolve()
     root.mkdir(parents=True, exist_ok=True)
-    added = updated = removed = 0
+    added = updated = removed = skipped = 0
     dilemma_map = dilemma_by_node or {}
     want_day = (flow_day_id or "").strip()
+
+    # إن كان التحديد قوائم جديدة فقط (بدون أي منشور حالي)، ادمجه مع المنشور
+    # حتى لا يُسحب بالخطأ عند «نشر القوائم» الجزئي. مسار السحب يمرّر المنشور المتبقي صراحةً.
+    published_ids = set(by_node.keys())
+    if selected_node_ids and published_ids and not (selected_node_ids & published_ids):
+        selected_node_ids = set(selected_node_ids) | published_ids
 
     for nid, slot in list(by_node.items()):
         if int(nid) in selected_node_ids:
@@ -931,13 +954,23 @@ def publish_action_eval_lists_from_ibank(
     for sort_i, nid in enumerate(sorted(selected_node_ids)):
         src = source_by_id.get(int(nid))
         if src is None:
-            continue
+            # القائمة ظاهرة في واجهة المعاضل لكن غير مُفهرسة تحت الوحدة — انشر مباشرة من العقدة.
+            node = db.get(InformationBankTreeNode, int(nid))
+            if node is None or node.kind != INFO_BANK_ACTION_EVAL_KIND:
+                skipped += 1
+                continue
+            src = _file_node_to_source(db, node)
+            if src is None:
+                skipped += 1
+                continue
+            source_by_id[int(nid)] = src
         src_path: Path = src["src_path"]
         if not src_path.is_file():
             alt = node_file_abspath(INFO_BANK_ACTION_EVAL_KIND, src.get("src_relpath"))
             if alt is not None and alt.is_file():
                 src_path = alt
             else:
+                skipped += 1
                 continue
         rel = action_eval_storage_relpath(int(bundle.id), int(nid))
         dest = (root / rel).resolve()
@@ -1005,6 +1038,7 @@ def publish_action_eval_lists_from_ibank(
         "removed": removed,
         "sources": len(sources),
         "sources_available": len(source_by_id),
+        "skipped": skipped,
     }
 
 
@@ -1087,16 +1121,47 @@ def publish_phase_action_eval_lists_from_ibank(
 ) -> dict[str, int]:
     pk = _resolve_phase_key(phase_key, db) or normalize_exercise_phase(phase_key)
     if not pk:
-        return {"added": 0, "updated": 0, "removed": 0, "sources": 0, "units": 0}
-    totals = {"added": 0, "updated": 0, "removed": 0, "sources": 0, "units": 0}
-    remapped = remap_publish_selections_by_ibank_context(
-        db,
-        kind=INFO_BANK_ACTION_EVAL_KIND,
-        phase_key=pk,
-        selections_by_unit=selections_by_unit,
-    )
+        return {"added": 0, "updated": 0, "removed": 0, "sources": 0, "units": 0, "skipped": 0}
+    totals = {"added": 0, "updated": 0, "removed": 0, "sources": 0, "units": 0, "skipped": 0}
+    # اختيارات بلا unit_key (قيمة النموذج ":node_id") — حلّ الوحدة من عقدة الملف.
+    orphan_ids = set(selections_by_unit.pop("", set()) or ())
+    if orphan_ids:
+        for nid in orphan_ids:
+            resolved = resolve_ibank_action_eval_publish_unit_key(
+                db, node_id=int(nid), fallback_unit_key=""
+            )
+            if not resolved:
+                # آخر محاولة: من شجرة المعاضل / تعيينات قوائم تقييم المعاضل
+                from app.ibank_dilemma_lists import assignments_by_basename, normalize_list_basename
+
+                node = db.get(InformationBankTreeNode, int(nid))
+                if node is not None:
+                    base = normalize_list_basename(node.name or "")
+                    assigned = assignments_by_basename(db).get(base) or set()
+                    if len(assigned) == 1:
+                        resolved = next(iter(assigned))
+                    elif node.catalog_unit_key:
+                        resolved = _resolve_unit_key(node.catalog_unit_key, db) or (
+                            node.catalog_unit_key or ""
+                        ).strip()
+            if resolved:
+                selections_by_unit.setdefault(resolved, set()).add(int(nid))
+            else:
+                totals["skipped"] += 1
+    remapped: dict[str, set[int]] = defaultdict(set)
+    for form_uk, node_ids in selections_by_unit.items():
+        for nid in node_ids:
+            resolved = resolve_ibank_action_eval_publish_unit_key(
+                db,
+                node_id=int(nid),
+                fallback_unit_key=form_uk,
+            )
+            if resolved:
+                remapped[resolved].add(int(nid))
     dmap_all = dilemma_by_unit_node or {}
     for uk in sorted(remapped.keys()):
+        if not (uk or "").strip():
+            continue
         d_for_unit: dict[int, int] = {}
         for (form_uk, nid), d_idx in dmap_all.items():
             if form_uk == uk and d_idx > 0:
@@ -1111,8 +1176,8 @@ def publish_phase_action_eval_lists_from_ibank(
             flow_day_id=flow_day_id,
         )
         totals["units"] += 1
-        for k in ("added", "updated", "removed", "sources"):
-            totals[k] += int(stats.get(k, 0))
+        for k in ("added", "updated", "removed", "sources", "skipped"):
+            totals[k] = int(totals.get(k, 0)) + int(stats.get(k, 0))
     return totals
 
 
@@ -1843,18 +1908,24 @@ def build_action_eval_dilemma_publish_groups(
         ):
             day_dilemmas.extend(tree.get(day_id) or [])
 
-    # فهرس النشر: node_id → منشور في أي حزمة لهذه المرحلة
-    published_nodes: set[int] = set()
+    # فهارس النشر لكل مستوى وحدة على حدة حتى لا تبدو القائمة منشورة للجميع.
+    published_nodes_by_unit: dict[str, set[int]] = {}
+    phase_keys = _phase_match_keys(pk) or {pk}
     bundles = (
         db.query(ExercisePlannerFlowBundle)
         .filter(
             ExercisePlannerFlowBundle.exercise_id == int(exercise_id),
-            ExercisePlannerFlowBundle.exercise_phase == pk,
+            ExercisePlannerFlowBundle.exercise_phase.in_(phase_keys),
         )
         .all()
     )
     for bundle in bundles:
-        published_nodes.update(_published_slots_by_node(db, bundle).keys())
+        buk = (bundle.unit_level_key or "").strip()
+        if not buk:
+            continue
+        published_nodes_by_unit.setdefault(buk, set()).update(
+            _published_slots_by_node(db, bundle).keys()
+        )
 
     groups: list[dict] = []
     judge_count = 0
@@ -1872,6 +1943,19 @@ def build_action_eval_dilemma_publish_groups(
             files = list(j.get("files") or [])
             if not uk and not files:
                 continue
+            # إن غاب unit_key عن المحكم، استنتجه من ملفات التقييم المرتبطة
+            if not uk and files:
+                from collections import Counter
+
+                cand: list[str] = []
+                for fmeta in files:
+                    fuk = _resolve_unit_key(fmeta.get("unit_key") or "", db) or (
+                        fmeta.get("unit_key") or ""
+                    ).strip()
+                    if fuk:
+                        cand.append(fuk)
+                if cand:
+                    uk = Counter(cand).most_common(1)[0][0]
             rows: list[dict] = []
             for fmeta in files:
                 nid = int(fmeta.get("node_id") or 0)
@@ -1882,7 +1966,7 @@ def build_action_eval_dilemma_publish_groups(
                     or (fmeta.get("name") or "").strip()
                     or "قائمة تقييم إجراءات"
                 )
-                is_pub = nid in published_nodes
+                is_pub = nid in published_nodes_by_unit.get(uk, set())
                 if is_pub:
                     published_count += 1
                 rows.append(

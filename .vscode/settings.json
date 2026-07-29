@@ -13,9 +13,6 @@
   "cursorpyright.analysis.extraPaths": [
     "${workspaceFolder}"
   ],
-  "cursorpyright.analysis.diagnosticSeverityOverrides": {
-    "reportMissingModuleSource": "none"
-  },
   "terminal.integrated.env.windows": {
     "PYTHONPATH": "${workspaceFolder}",
     "VIRTUAL_ENV": "${workspaceFolder}\\.venv",

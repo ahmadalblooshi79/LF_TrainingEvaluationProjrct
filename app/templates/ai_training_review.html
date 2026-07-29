@@ -1,0 +1,664 @@
+{% extends "base.html" %}
+{% block title %}مراجعة الوثيقة — Word Review Mode{% endblock %}
+{% block body_class %}wrm-page-body{% endblock %}
+{% block content %}
+{% macro render_block(b, structure_by_block=None) -%}
+{% set structure_by_block = structure_by_block or {} %}
+  <div class="wrm-block wrm-block--{{ b.block_type }}{% if b.style_name %} wrm-style-{{ b.style_name|lower|replace(' ', '-')|replace('_','-') }}{% endif %}{% if structure_by_block.get(b.id) and structure_by_block[b.id].is_heading %} is-structure-heading{% endif %}{% if structure_by_block.get(b.id) and (structure_by_block[b.id].confidence or 1) < 0.6 %} is-structure-low{% endif %}"
+       id="wrm-block-{{ b.id }}"
+       data-block-id="{{ b.id }}"
+       data-block-type="{{ b.block_type }}"
+       data-page="{{ b.page_number or '' }}"
+       data-confidence="{{ b.extraction_confidence if b.extraction_confidence is not none else '' }}"
+       data-method="{{ b.extraction_method }}"
+       data-source="{{ b.source_reference }}"
+       data-style="{{ b.style_name }}"
+       data-metadata="{{ b.metadata|tojson|e }}"
+       data-list-level="{{ b.list_level|default(0) }}"
+       {% if structure_by_block.get(b.id) %}
+       data-structure-role="{{ structure_by_block[b.id].detected_role }}"
+       data-structure-numbering="{{ structure_by_block[b.id].numbering_text or '' }}"
+       data-structure-level="{{ structure_by_block[b.id].numbering_level or '' }}"
+       style="padding-inline-start: {{ (structure_by_block[b.id].indentation_level or 0) * 12 }}pt;"
+       {% endif %}
+       tabindex="0"
+       role="article">
+    {% if structure_by_block.get(b.id) and structure_by_block[b.id].numbering_text %}
+    <span class="wrm-struct-badge" title="بنية مكتشفة">{{ structure_by_block[b.id].numbering_text }}</span>
+    {% endif %}
+    {% if structure_by_block.get(b.id) and structure_by_block[b.id].warnings %}
+    <span class="wrm-struct-badge" title="تحذير بنية">⚠</span>
+    {% endif %}
+
+    {% if b.block_type == 'heading' %}
+      {% set hl = b.heading_level|default(1) %}
+      {% if hl <= 1 %}<h1 class="wrm-h wrm-h1" data-wrm-text>{{ b.text_content }}</h1>
+      {% elif hl == 2 %}<h2 class="wrm-h wrm-h2" data-wrm-text>{{ b.text_content }}</h2>
+      {% else %}<h3 class="wrm-h wrm-h3" data-wrm-text>{{ b.text_content }}</h3>{% endif %}
+
+    {% elif b.block_type == 'list' %}
+      {% set indent = (b.list_level|default(0)) * 24 %}
+      <div class="wrm-list-item" style="padding-inline-start: {{ indent }}px;" data-wrm-text>
+        {% if b.numbering_text %}<span class="wrm-list-num">{{ b.numbering_text }}</span>{% else %}<span class="wrm-list-bullet" aria-hidden="true">•</span>{% endif %}
+        <span class="wrm-list-text">{{ b.text_content }}</span>
+      </div>
+
+    {% elif b.block_type == 'table' %}
+      {% if b.table_data and (b.table_data.headers or b.table_data.rows) %}
+      <div class="wrm-table-wrap">
+        <table class="wrm-table">
+          {% if b.table_data.headers %}
+          <thead><tr>{% for c in b.table_data.headers %}<th>{{ c if c is not none else '' }}</th>{% endfor %}</tr></thead>
+          {% endif %}
+          <tbody>
+            {% for row in b.table_data.rows or [] %}
+            <tr>{% for c in row %}<td>{{ c if c is not none else '' }}</td>{% endfor %}</tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <pre class="wrm-table-text" hidden data-wrm-text>{{ b.text_content }}</pre>
+      {% else %}
+      <pre class="wrm-table-fallback" data-wrm-text>{{ b.text_content }}</pre>
+      {% endif %}
+
+    {% elif b.block_type == 'header' %}
+      <p class="wrm-running-header" data-wrm-text>{{ b.text_content }}</p>
+
+    {% elif b.block_type == 'footer' %}
+      <p class="wrm-running-footer" data-wrm-text>{{ b.text_content }}</p>
+
+    {% elif b.block_type == 'text_box' or (b.block_type == 'unknown' and not b.text_content) %}
+      <div class="wrm-placeholder" aria-label="عنصر غير مستخرج">
+        <span class="wrm-placeholder__icon" aria-hidden="true">▣</span>
+        <span>صورة / عنصر غير مستخرج — Placeholder</span>
+      </div>
+
+    {% else %}
+      <p class="wrm-p" data-wrm-text>{{ b.text_content }}</p>
+    {% endif %}
+  </div>
+{%- endmacro %}
+
+<div class="wrm-shell" id="wrm-shell" dir="rtl">
+  <div class="wrm-chrome">
+    <div class="wrm-chrome__title">
+      <a class="wrm-chrome__back" href="{{ url_for('views.ai_training_document_detail', document_id=document.id) }}" title="إغلاق">×</a>
+      <div class="wrm-chrome__doc">
+        <strong>{{ document.title }}</strong>
+        <span class="wrm-chrome__meta">{{ document.status_ar }} · {{ document.review_status_ar }} · {{ document.approval_status_ar }}{% if document.review_locked %} · مقفلة{% endif %}</span>
+      </div>
+      <form method="post" class="wrm-chrome__start">
+        <input type="hidden" name="action" value="start">
+        <button class="wrm-btn" type="submit" {% if document.review_locked %}disabled{% endif %}>بدء المراجعة</button>
+      </form>
+    </div>
+    {% if error %}<p class="wrm-banner wrm-banner--err" role="alert">{{ error }}</p>{% endif %}
+    {% if ok_msg %}<p class="wrm-banner wrm-banner--ok" role="status">{{ ok_msg }}</p>{% endif %}
+    {% if ocr_required %}
+    <p class="wrm-banner wrm-banner--warn" role="status">تنبيه OCR: قد تحتاج بعض الصفحات لمعالجة لاحقة — لم يُغيَّر مسار الاستخراج.</p>
+    {% endif %}
+  </div>
+
+  {# —— Toolbar (not a Word Ribbon) —— #}
+  <div class="wrm-toolbar" id="wrm-toolbar" role="toolbar" aria-label="أدوات المراجعة">
+    <label class="wrm-toolbar__search">
+      <span class="sr-only">بحث</span>
+      <input type="search" id="wrm-search" placeholder="بحث داخل التقرير…" autocomplete="off">
+    </label>
+    <span class="wrm-toolbar__group" aria-label="الصفحات">
+      <button type="button" class="wrm-btn" id="wrm-page-prev">السابق</button>
+      <button type="button" class="wrm-btn" id="wrm-page-next">التالي</button>
+      <label class="wrm-toolbar__goto">صفحة
+        <input type="number" id="wrm-page-goto" min="1" value="1">
+      </label>
+      <button type="button" class="wrm-btn" id="wrm-page-go">انتقال</button>
+      <span class="wrm-toolbar__pageinfo" id="wrm-page-info">1 / 1</span>
+    </span>
+    <span class="wrm-toolbar__group" aria-label="تكبير">
+      <button type="button" class="wrm-btn" id="wrm-zoom-out" title="تصغير">−</button>
+      <span id="wrm-zoom-label">100%</span>
+      <button type="button" class="wrm-btn" id="wrm-zoom-in" title="تكبير">+</button>
+      <button type="button" class="wrm-btn" id="wrm-fit-width">Fit Width</button>
+      <button type="button" class="wrm-btn" id="wrm-fit-page">Fit Page</button>
+    </span>
+    <span class="wrm-toolbar__group">
+      <button type="button" class="wrm-btn" id="wrm-toggle-nav" title="التنقل">التنقل</button>
+      <button type="button" class="wrm-btn" id="wrm-toggle-props" title="خصائص">خصائص</button>
+      <button type="button" class="wrm-btn" id="wrm-toggle-dev">Developer Mode</button>
+    </span>
+    <span class="wrm-toolbar__search-meta" id="wrm-search-meta" hidden></span>
+  </div>
+
+  <div class="wrm-body" id="wrm-body">
+    {# Navigation — Heading / Page tree #}
+    <aside class="wrm-nav" id="wrm-nav" aria-label="تنقل المستند">
+      <div class="wrm-nav__tabs">
+        <button type="button" class="wrm-nav__tab is-active" data-wrm-nav="headings">Heading Tree</button>
+        <button type="button" class="wrm-nav__tab" data-wrm-nav="pages">Page Tree</button>
+      </div>
+      <nav class="wrm-nav__tree" id="wrm-nav-headings" aria-label="شجرة العناوين">
+        {% if has_headings %}
+          {% for b in workspace_blocks if b.block_type == 'heading' %}
+          <a class="wrm-nav__node wrm-nav__node--h{{ b.heading_level|default(1) }}"
+             href="#wrm-block-{{ b.id }}"
+             data-block-id="{{ b.id }}"
+             data-page="{{ b.page_number or 1 }}">{{ b.text_content[:90] }}{% if b.text_content|length > 90 %}…{% endif %}</a>
+          {% endfor %}
+        {% else %}
+          <p class="wrm-nav__empty">لا عناوين — استخدم Page Tree.</p>
+        {% endif %}
+      </nav>
+      <nav class="wrm-nav__tree" id="wrm-nav-pages" hidden aria-label="شجرة الصفحات">
+        {% for pg in workspace_pages %}
+        <a class="wrm-nav__node" href="#wrm-sheet-{{ pg.page_number }}" data-page="{{ pg.page_number }}">
+          صفحة {{ pg.page_label }}
+          <span class="wrm-nav__count">{{ pg.blocks|length }}</span>
+        </a>
+        {% endfor %}
+      </nav>
+    </aside>
+
+    {# A4 canvas #}
+    <main class="wrm-canvas" id="wrm-canvas" aria-label="مساحة Word Review">
+      <div class="wrm-stage" id="wrm-stage" style="--wrm-zoom: 1;">
+        {% for pg in workspace_pages %}
+        <article class="wrm-sheet" id="wrm-sheet-{{ pg.page_number }}" data-page="{{ pg.page_number }}" aria-label="صفحة {{ pg.page_label }}">
+          <header class="wrm-sheet__header">
+            <span class="wrm-sheet__doc-title">{{ document.title }}</span>
+          </header>
+          <div class="wrm-sheet__content" data-page-content="{{ pg.page_number }}">
+            {% for b in pg.blocks %}
+              {{ render_block(b, structure_by_block|default({})) }}
+            {% else %}
+              <p class="wrm-p wrm-p--empty muted">لا محتوى في هذه الصفحة.</p>
+            {% endfor %}
+          </div>
+          <footer class="wrm-sheet__footer">
+            <span class="wrm-sheet__pagenum">{{ pg.page_number }}</span>
+          </footer>
+        </article>
+        {% else %}
+        <article class="wrm-sheet" id="wrm-sheet-1" data-page="1">
+          <div class="wrm-sheet__content"><p class="wrm-p">لا توجد Blocks لعرضها.</p></div>
+          <footer class="wrm-sheet__footer"><span class="wrm-sheet__pagenum">1</span></footer>
+        </article>
+        {% endfor %}
+      </div>
+    </main>
+  </div>
+
+  {# Properties drawer — overlays, does not steal layout #}
+  <aside class="wrm-drawer" id="wrm-drawer" hidden aria-label="خصائص Block">
+    <div class="wrm-drawer__head">
+      <strong>خصائص Block</strong>
+      <button type="button" class="wrm-btn" id="wrm-drawer-close" aria-label="إغلاق">×</button>
+    </div>
+    <p class="wrm-drawer__hint" id="wrm-drawer-empty">انقر فقرة لعرض الخصائص.</p>
+    <dl class="wrm-drawer__dl" id="wrm-drawer-body" hidden>
+      <div><dt>Block ID</dt><dd dir="ltr" id="wrm-d-id">—</dd></div>
+      <div><dt>Page</dt><dd dir="ltr" id="wrm-d-page">—</dd></div>
+      <div><dt>Block Type</dt><dd dir="ltr" id="wrm-d-type">—</dd></div>
+      <div><dt>Confidence</dt><dd dir="ltr" id="wrm-d-conf">—</dd></div>
+      <div><dt>Extraction Method</dt><dd dir="ltr" id="wrm-d-method">—</dd></div>
+      <div><dt>Source</dt><dd dir="ltr" id="wrm-d-source">—</dd></div>
+      <div><dt>Style</dt><dd dir="ltr" id="wrm-d-style">—</dd></div>
+      <div><dt>Metadata</dt><dd dir="ltr" class="wrm-drawer__meta" id="wrm-d-meta">—</dd></div>
+    </dl>
+  </aside>
+
+  {# Inline edit bar (Save / Cancel) — same Phase B1 POST #}
+  <div class="wrm-editbar" id="wrm-editbar" hidden>
+    <form method="post" id="wrm-edit-form" class="wrm-editbar__form">
+      <input type="hidden" name="action" value="save">
+      <input type="hidden" name="block_id" id="wrm-edit-block-id" value="">
+      <input type="hidden" name="block_type" id="wrm-edit-block-type" value="paragraph">
+      <input type="hidden" name="text_content" id="wrm-edit-text-hidden" value="">
+      <input type="hidden" name="reason" id="wrm-edit-reason" value="">
+      <span class="wrm-editbar__label">تحرير الفقرة</span>
+      <button type="submit" class="wrm-btn wrm-btn--primary">Save</button>
+      <button type="button" class="wrm-btn" id="wrm-edit-cancel">Cancel</button>
+    </form>
+  </div>
+
+  {# Approval — unchanged lifecycle #}
+  <section class="wrm-approval" dir="rtl">
+    {% if not document.review_locked %}
+    <form method="post" style="display:inline;">
+      <input type="hidden" name="action" value="complete">
+      <button class="wrm-btn wrm-btn--primary" type="submit">إنهاء المراجعة</button>
+    </form>
+    {% if can_approve and document.review_status == 'REVIEW_COMPLETED' %}
+    <form method="post" style="display:inline;" onsubmit="return confirm('تأكيد اعتماد جودة الاستخراج؟ لن يعلّم النظام ولن يغيّر الملف الأصلي.');">
+      <input type="hidden" name="action" value="approve">
+      <button class="wrm-btn wrm-btn--primary" type="submit">اعتماد جودة الاستخراج</button>
+    </form>
+    {% endif %}
+    {% else %}
+    <p class="wrm-banner wrm-banner--ok">تم اعتماد جودة الاستخراج — النسخة مقفلة.</p>
+    {% endif %}
+  </section>
+
+  {# Developer Mode — legacy Block Viewer #}
+  <section class="wrm-dev card" id="wrm-dev" dir="rtl" hidden>
+    <h2 class="h2-in-card">Developer Mode — Block Viewer</h2>
+    <p class="muted">العرض التقني Phase B1. مخفي افتراضياً.</p>
+    {% for b in blocks %}
+    <form method="post" class="mt-tight" style="border-bottom:1px solid #ddd;padding-bottom:0.75rem;margin-bottom:0.75rem;">
+      <input type="hidden" name="action" value="save">
+      <input type="hidden" name="block_id" value="{{ b.id }}">
+      <div class="muted" dir="ltr">#{{ b.block_index }} · id={{ b.id }}</div>
+      <label>نوع Block
+        <select name="block_type" {% if document.review_locked %}disabled{% endif %}>
+          {% for t in ['paragraph','heading','table','list','header','footer','unknown'] %}
+          <option value="{{ t }}" {% if b.block_type == t %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label style="display:block;margin-top:0.5rem;">النص المستخرج
+        <textarea name="text_content" rows="3" style="width:100%;" {% if document.review_locked %}readonly{% endif %}>{{ b.text_content or '' }}</textarea>
+      </label>
+      <label>سبب التصحيح (اختياري) <input name="reason" {% if document.review_locked %}disabled{% endif %}></label>
+      {% if not document.review_locked %}
+      <button class="btn btn-ghost" type="submit">حفظ التصحيح</button>
+      {% endif %}
+    </form>
+    {% else %}
+    <p>لا توجد Blocks.</p>
+    {% endfor %}
+  </section>
+</div>
+
+<script>
+(function () {
+  var locked = {{ 'true' if document.review_locked else 'false' }};
+  var stage = document.getElementById("wrm-stage");
+  var canvas = document.getElementById("wrm-canvas");
+  var drawer = document.getElementById("wrm-drawer");
+  var nav = document.getElementById("wrm-nav");
+  var editbar = document.getElementById("wrm-editbar");
+  var editingEl = null;
+  var zoom = 1;
+  var zoomMode = "manual"; /* manual | width | page */
+
+  function sheets() {
+    return Array.prototype.slice.call(document.querySelectorAll(".wrm-sheet[data-page]"));
+  }
+  function pageNums() {
+    return sheets().map(function (s) { return parseInt(s.getAttribute("data-page"), 10); }).filter(function (n) { return !isNaN(n); });
+  }
+  var pageIdx = 0;
+
+  function updatePageInfo() {
+    var nums = pageNums();
+    var total = nums.length || 1;
+    var cur = nums[pageIdx] || nums[0] || 1;
+    var info = document.getElementById("wrm-page-info");
+    if (info) info.textContent = cur + " / " + total;
+    var goto = document.getElementById("wrm-page-goto");
+    if (goto) goto.value = String(cur);
+    var max = nums.length ? Math.max.apply(null, nums) : 1;
+    if (goto) goto.max = String(max);
+  }
+
+  function goPageIndex(i) {
+    var nums = pageNums();
+    if (!nums.length) return;
+    pageIdx = Math.max(0, Math.min(nums.length - 1, i));
+    var n = nums[pageIdx];
+    var el = document.getElementById("wrm-sheet-" + n);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    updatePageInfo();
+  }
+
+  function applyZoom(z) {
+    zoom = Math.max(0.4, Math.min(2.0, z));
+    if (stage) stage.style.setProperty("--wrm-zoom", String(zoom));
+    var lab = document.getElementById("wrm-zoom-label");
+    if (lab) lab.textContent = Math.round(zoom * 100) + "%";
+  }
+
+  function fitWidth() {
+    if (!canvas || !stage) return;
+    zoomMode = "width";
+    var sheet = stage.querySelector(".wrm-sheet");
+    if (!sheet) return;
+    var avail = canvas.clientWidth - 48;
+    var natural = sheet.offsetWidth / (parseFloat(getComputedStyle(stage).getPropertyValue("--wrm-zoom")) || 1);
+    if (!natural) natural = sheet.getBoundingClientRect().width / zoom;
+    /* sheet CSS width is 210mm; measure unscaled via offsetWidth / zoom */
+    var baseW = sheet.offsetWidth / zoom;
+    applyZoom(avail / baseW);
+  }
+
+  function fitPage() {
+    if (!canvas || !stage) return;
+    zoomMode = "page";
+    var sheet = stage.querySelector(".wrm-sheet");
+    if (!sheet) return;
+    var availW = canvas.clientWidth - 48;
+    var availH = canvas.clientHeight - 32;
+    var baseW = sheet.offsetWidth / zoom;
+    var baseH = sheet.offsetHeight / zoom;
+    applyZoom(Math.min(availW / baseW, availH / baseH));
+  }
+
+  document.getElementById("wrm-zoom-in").addEventListener("click", function () {
+    zoomMode = "manual";
+    applyZoom(zoom + 0.1);
+  });
+  document.getElementById("wrm-zoom-out").addEventListener("click", function () {
+    zoomMode = "manual";
+    applyZoom(zoom - 0.1);
+  });
+  document.getElementById("wrm-fit-width").addEventListener("click", fitWidth);
+  document.getElementById("wrm-fit-page").addEventListener("click", fitPage);
+  window.addEventListener("resize", function () {
+    if (zoomMode === "width") fitWidth();
+    else if (zoomMode === "page") fitPage();
+  });
+
+  document.getElementById("wrm-page-prev").addEventListener("click", function () { goPageIndex(pageIdx - 1); });
+  document.getElementById("wrm-page-next").addEventListener("click", function () { goPageIndex(pageIdx + 1); });
+  document.getElementById("wrm-page-go").addEventListener("click", function () {
+    var n = parseInt(document.getElementById("wrm-page-goto").value, 10);
+    var nums = pageNums();
+    var i = nums.indexOf(n);
+    if (i >= 0) goPageIndex(i);
+    else {
+      var el = document.getElementById("wrm-sheet-" + n);
+      if (el) { el.scrollIntoView({ behavior: "smooth", block: "start" }); updatePageInfo(); }
+    }
+  });
+
+  /* Sync page indicator on scroll */
+  if (canvas) {
+    canvas.addEventListener("scroll", function () {
+      var nums = pageNums();
+      var best = 0;
+      var top = canvas.scrollTop + 40;
+      sheets().forEach(function (s, idx) {
+        if (s.offsetTop - stage.offsetTop <= top / zoom + 20) best = idx;
+      });
+      /* Prefer intersection via getBoundingClientRect */
+      var cRect = canvas.getBoundingClientRect();
+      sheets().forEach(function (s, idx) {
+        var r = s.getBoundingClientRect();
+        if (r.top <= cRect.top + cRect.height * 0.35 && r.bottom > cRect.top) best = idx;
+      });
+      pageIdx = best;
+      updatePageInfo();
+    }, { passive: true });
+  }
+
+  /* Nav tabs */
+  document.querySelectorAll("[data-wrm-nav]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.querySelectorAll("[data-wrm-nav]").forEach(function (b) { b.classList.remove("is-active"); });
+      btn.classList.add("is-active");
+      var tab = btn.getAttribute("data-wrm-nav");
+      document.getElementById("wrm-nav-headings").hidden = tab !== "headings";
+      document.getElementById("wrm-nav-pages").hidden = tab !== "pages";
+    });
+  });
+  document.getElementById("wrm-toggle-nav").addEventListener("click", function () {
+    if (!nav) return;
+    nav.classList.toggle("is-collapsed");
+    this.classList.toggle("is-active", !nav.classList.contains("is-collapsed"));
+  });
+
+  function openDrawer(blockEl) {
+    if (!drawer || !blockEl) return;
+    drawer.hidden = false;
+    document.getElementById("wrm-drawer-empty").hidden = true;
+    document.getElementById("wrm-drawer-body").hidden = false;
+    document.getElementById("wrm-d-id").textContent = blockEl.getAttribute("data-block-id") || "—";
+    document.getElementById("wrm-d-page").textContent = blockEl.getAttribute("data-page") || "—";
+    document.getElementById("wrm-d-type").textContent = blockEl.getAttribute("data-block-type") || "—";
+    document.getElementById("wrm-d-conf").textContent = blockEl.getAttribute("data-confidence") || "—";
+    document.getElementById("wrm-d-method").textContent = blockEl.getAttribute("data-method") || "—";
+    document.getElementById("wrm-d-source").textContent = blockEl.getAttribute("data-source") || "—";
+    document.getElementById("wrm-d-style").textContent = blockEl.getAttribute("data-style") || "—";
+    var meta = blockEl.getAttribute("data-metadata") || "{}";
+    document.getElementById("wrm-d-meta").textContent = meta;
+    document.querySelectorAll(".wrm-block.is-selected").forEach(function (el) { el.classList.remove("is-selected"); });
+    blockEl.classList.add("is-selected");
+  }
+  function closeDrawer() {
+    if (drawer) drawer.hidden = true;
+    document.querySelectorAll(".wrm-block.is-selected").forEach(function (el) { el.classList.remove("is-selected"); });
+  }
+  document.getElementById("wrm-toggle-props").addEventListener("click", function () {
+    if (!drawer) return;
+    if (drawer.hidden) {
+      var sel = document.querySelector(".wrm-block.is-selected") || document.querySelector(".wrm-block");
+      if (sel) openDrawer(sel);
+      else { drawer.hidden = false; }
+    } else closeDrawer();
+  });
+  document.getElementById("wrm-drawer-close").addEventListener("click", closeDrawer);
+
+  document.getElementById("wrm-toggle-dev").addEventListener("click", function () {
+    var dev = document.getElementById("wrm-dev");
+    if (!dev) return;
+    dev.hidden = !dev.hidden;
+    this.classList.toggle("is-active", !dev.hidden);
+    if (!dev.hidden) dev.scrollIntoView({ behavior: "smooth" });
+  });
+
+  /* Select / edit */
+  function blockTextTarget(blockEl) {
+    return blockEl.querySelector("[data-wrm-text]") || blockEl;
+  }
+
+  function cancelEdit() {
+    if (!editingEl) return;
+    var target = blockTextTarget(editingEl);
+    if (target.isContentEditable) {
+      target.contentEditable = "false";
+      if (editingEl._wrmBackup != null) {
+        if (target.classList.contains("wrm-list-item")) {
+          var span = target.querySelector(".wrm-list-text");
+          if (span) span.textContent = editingEl._wrmBackup;
+        } else {
+          target.textContent = editingEl._wrmBackup;
+        }
+      }
+    }
+    editingEl.classList.remove("is-editing");
+    editingEl = null;
+    if (editbar) editbar.hidden = true;
+  }
+
+  function startEdit(blockEl) {
+    if (locked || !blockEl) return;
+    if (blockEl.getAttribute("data-block-type") === "table") {
+      /* Tables: use hidden text field via prompt-like edit of serialized text */
+    }
+    cancelEdit();
+    editingEl = blockEl;
+    blockEl.classList.add("is-editing");
+    var target = blockTextTarget(blockEl);
+    var textNode = target.querySelector(".wrm-list-text") || target;
+    editingEl._wrmBackup = (textNode.textContent || "").trim();
+    textNode.contentEditable = "true";
+    textNode.focus();
+    document.getElementById("wrm-edit-block-id").value = blockEl.getAttribute("data-block-id");
+    document.getElementById("wrm-edit-block-type").value = blockEl.getAttribute("data-block-type") || "paragraph";
+    if (editbar) {
+      editbar.hidden = false;
+      var r = blockEl.getBoundingClientRect();
+      editbar.style.top = Math.max(8, r.top - 44) + "px";
+      editbar.style.left = Math.min(window.innerWidth - 280, Math.max(8, r.left)) + "px";
+    }
+  }
+
+  document.getElementById("wrm-edit-form").addEventListener("submit", function () {
+    if (!editingEl) return;
+    var target = blockTextTarget(editingEl);
+    var textNode = target.querySelector(".wrm-list-text") || target;
+    var text = (textNode.textContent || "").trim();
+    if (editingEl.getAttribute("data-block-type") === "table") {
+      var pre = editingEl.querySelector(".wrm-table-text, .wrm-table-fallback");
+      if (pre) text = (pre.textContent || "").trim();
+    }
+    document.getElementById("wrm-edit-text-hidden").value = text;
+    textNode.contentEditable = "false";
+  });
+  document.getElementById("wrm-edit-cancel").addEventListener("click", cancelEdit);
+
+  document.querySelectorAll(".wrm-block").forEach(function (el) {
+    el.addEventListener("click", function (ev) {
+      if (el.classList.contains("is-editing")) return;
+      openDrawer(el);
+    });
+    el.addEventListener("dblclick", function (ev) {
+      ev.preventDefault();
+      if (locked) return;
+      startEdit(el);
+    });
+  });
+
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape") cancelEdit();
+  });
+
+  /* Search highlight */
+  var searchInput = document.getElementById("wrm-search");
+  var searchMeta = document.getElementById("wrm-search-meta");
+  searchInput.addEventListener("input", function () {
+    var q = (searchInput.value || "").trim();
+    document.querySelectorAll(".wrm-hl").forEach(function (n) {
+      var parent = n.parentNode;
+      parent.replaceChild(document.createTextNode(n.textContent), n);
+      parent.normalize();
+    });
+    if (!q) { searchMeta.hidden = true; return; }
+    var count = 0;
+    var re;
+    try { re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"); }
+    catch (e) { return; }
+    document.querySelectorAll(".wrm-p, .wrm-h, .wrm-list-text, .wrm-running-header, .wrm-running-footer").forEach(function (node) {
+      if (node.isContentEditable) return;
+      var raw = node.textContent;
+      if (!raw || !re.test(raw)) return;
+      re.lastIndex = 0;
+      node.innerHTML = raw.replace(re, function (m) {
+        count += 1;
+        return '<mark class="wrm-hl">' + m + "</mark>";
+      });
+    });
+    searchMeta.hidden = false;
+    searchMeta.textContent = count ? ("نتائج: " + count) : "لا نتائج";
+  });
+
+  /* Overflow pagination: pack blocks into fixed A4 sheets (UI only).
+     Multi-page docs keep server page boundaries; single-page docs reflow. */
+  function paginateOverflow() {
+    if (!stage) return;
+    var probe = document.createElement("div");
+    probe.style.cssText = "position:absolute;left:-9999px;top:0;width:210mm;height:297mm;box-sizing:border-box;padding:26mm 25.4mm 20mm;visibility:hidden;";
+    document.body.appendChild(probe);
+    var maxContent = Math.max(400, probe.clientHeight);
+    document.body.removeChild(probe);
+
+    var originalSheets = sheets().slice();
+    if (!originalSheets.length) return;
+    var multiSource = originalSheets.length > 1;
+
+    var docTitle = "";
+    var titleNode = stage.querySelector(".wrm-sheet__doc-title");
+    if (titleNode) docTitle = titleNode.textContent || "";
+
+    function makeSheet(num) {
+      var art = document.createElement("article");
+      art.className = "wrm-sheet wrm-sheet--fixed";
+      art.id = "wrm-sheet-" + num;
+      art.setAttribute("data-page", String(num));
+      art.setAttribute("aria-label", "صفحة " + num);
+      art.innerHTML =
+        '<header class="wrm-sheet__header"><span class="wrm-sheet__doc-title"></span></header>' +
+        '<div class="wrm-sheet__content"></div>' +
+        '<footer class="wrm-sheet__footer"><span class="wrm-sheet__pagenum">' + num + "</span></footer>";
+      art.querySelector(".wrm-sheet__doc-title").textContent = docTitle;
+      stage.appendChild(art);
+      return art.querySelector(".wrm-sheet__content");
+    }
+
+    function packBlocks(blockList, startPageNum) {
+      var pageNum = startPageNum;
+      var content = makeSheet(pageNum);
+      blockList.forEach(function (b) {
+        content.appendChild(b);
+        b.setAttribute("data-page", String(pageNum));
+        if (content.scrollHeight > maxContent + 4 && content.children.length > 1) {
+          content.removeChild(b);
+          pageNum += 1;
+          content = makeSheet(pageNum);
+          content.appendChild(b);
+          b.setAttribute("data-page", String(pageNum));
+        }
+      });
+      return pageNum;
+    }
+
+    if (!multiSource) {
+      var allBlocks = [];
+      originalSheets.forEach(function (sheet) {
+        var c = sheet.querySelector(".wrm-sheet__content");
+        if (!c) return;
+        Array.prototype.forEach.call(c.querySelectorAll(":scope > .wrm-block"), function (ch) {
+          allBlocks.push(ch);
+        });
+      });
+      if (!allBlocks.length) return;
+      while (stage.firstChild) stage.removeChild(stage.firstChild);
+      packBlocks(allBlocks, 1);
+    } else {
+      var groups = originalSheets.map(function (sheet) {
+        var c = sheet.querySelector(".wrm-sheet__content");
+        var list = [];
+        if (c) {
+          Array.prototype.forEach.call(c.querySelectorAll(":scope > .wrm-block"), function (ch) {
+            list.push(ch);
+          });
+        }
+        return list;
+      });
+      while (stage.firstChild) stage.removeChild(stage.firstChild);
+      var next = 1;
+      groups.forEach(function (list) {
+        if (!list.length) {
+          makeSheet(next);
+          next += 1;
+          return;
+        }
+        next = packBlocks(list, next) + 1;
+      });
+    }
+
+    /* Refresh Page Tree links to match visual sheets */
+    var pageNav = document.getElementById("wrm-nav-pages");
+    if (pageNav) {
+      pageNav.innerHTML = "";
+      sheets().forEach(function (s) {
+        var n = s.getAttribute("data-page");
+        var a = document.createElement("a");
+        a.className = "wrm-nav__node";
+        a.href = "#wrm-sheet-" + n;
+        a.setAttribute("data-page", n);
+        a.textContent = "صفحة " + n;
+        pageNav.appendChild(a);
+      });
+    }
+    updatePageInfo();
+  }
+
+  /* Initial */
+  applyZoom(1);
+  updatePageInfo();
+  try { paginateOverflow(); } catch (e) { /* keep server sheets */ }
+  setTimeout(fitWidth, 80);
+})();
+</script>
+{% endblock %}

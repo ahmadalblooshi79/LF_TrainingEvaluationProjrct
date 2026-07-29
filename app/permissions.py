@@ -233,6 +233,77 @@ def can_ai_audit_view(user: User) -> bool:
     return is_system_admin(user)
 
 
+# —— مركز التدريب (Phase B1) ——
+
+
+def can_ai_training_center_view(user: User) -> bool:
+    """AI_TRAINING_CENTER_VIEW"""
+    return is_system_admin(user)
+
+
+def can_ai_training_document_upload(user: User) -> bool:
+    """AI_TRAINING_DOCUMENT_UPLOAD"""
+    return is_system_admin(user)
+
+
+def can_ai_training_document_review(user: User) -> bool:
+    """AI_TRAINING_DOCUMENT_REVIEW"""
+    return is_system_admin(user)
+
+
+def can_ai_training_document_approve(user: User) -> bool:
+    """AI_TRAINING_DOCUMENT_APPROVE"""
+    return is_system_admin(user)
+
+
+def can_ai_training_document_archive(user: User) -> bool:
+    """AI_TRAINING_DOCUMENT_ARCHIVE"""
+    return is_system_admin(user)
+
+
+def can_ai_training_workflow_run(user: User) -> bool:
+    """AI_TRAINING_WORKFLOW_RUN"""
+    return is_system_admin(user)
+
+
+def can_ai_training_audit_view(user: User) -> bool:
+    """AI_TRAINING_AUDIT_VIEW"""
+    return is_system_admin(user)
+
+
+# —— تحليل البنية العسكرية (Phase B2.1) ——
+
+
+def can_ai_structure_view(user: User) -> bool:
+    """AI_STRUCTURE_VIEW"""
+    return is_system_admin(user)
+
+
+def can_ai_structure_analyze(user: User) -> bool:
+    """AI_STRUCTURE_ANALYZE"""
+    return is_system_admin(user)
+
+
+def can_ai_structure_review(user: User) -> bool:
+    """AI_STRUCTURE_REVIEW"""
+    return is_system_admin(user)
+
+
+def can_ai_structure_approve(user: User) -> bool:
+    """AI_STRUCTURE_APPROVE"""
+    return is_system_admin(user)
+
+
+def can_ai_structure_reanalyze(user: User) -> bool:
+    """AI_STRUCTURE_REANALYZE"""
+    return is_system_admin(user)
+
+
+def can_ai_structure_audit_view(user: User) -> bool:
+    """AI_STRUCTURE_AUDIT_VIEW"""
+    return is_system_admin(user)
+
+
 # —— مكتبة التقارير الذكية ——
 
 

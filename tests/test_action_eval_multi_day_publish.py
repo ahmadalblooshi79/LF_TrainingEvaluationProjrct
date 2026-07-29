@@ -54,6 +54,9 @@ class ActionEvalMultiDayPublishTests(unittest.TestCase):
             Exercise(id=1, code="T1", title="تمرين", owner_id=1)
         )
         self.db.commit()
+        from app.info_bank_tree import invalidate_information_bank_kind_cache
+
+        invalidate_information_bank_kind_cache("action_eval")
         ensure_information_bank_kind(self.db, "action_eval")
         self.unit_key = "ul_brigade_grp_cmd"
         self.nid_day1, self.nid_day2 = self._seed_ibank_files()

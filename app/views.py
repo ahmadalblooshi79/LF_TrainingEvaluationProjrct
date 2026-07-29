@@ -374,7 +374,12 @@ def _is_xlsx_bytes(data: bytes) -> bool:
         return False
 
 
-_INFO_BANK_KIND_DIRS = {"event_flow": "event_flow", "action_eval": "action_eval", "dilemma_eval": "dilemma_eval"}
+_INFO_BANK_KIND_DIRS = {
+    "event_flow": "event_flow",
+    "action_eval": "action_eval",
+    "dilemma_eval": "dilemma_eval",
+    "dilemma_lists": "dilemma_lists",
+}
 
 
 def _info_bank_file_abspath(kind: str, relpath: str) -> Path | None:
@@ -8413,9 +8418,21 @@ def planner_action_eval_lists_publish_phase():
     )
     db.commit()
     n = int(stats.get("added", 0)) + int(stats.get("updated", 0))
+    skipped = int(stats.get("skipped", 0))
+    if n <= 0 and skipped > 0:
+        return _action_eval_lists_redirect(
+            flow_day_id=flow_day_id,
+            err=(
+                f"تعذّر نشر {skipped} قائمة — تأكد من ربط مستوى الوحدة "
+                f"(من المكلف أو قوائم تقييم المعاضل) ووجود الملف في بنك المعلومات."
+            ),
+        )
+    ok = f"تم نشر {n} قائمة للمحكمين."
+    if skipped:
+        ok += f" (تُخطّي {skipped} لتعذّر الربط/الملف)"
     return _action_eval_lists_redirect(
         flow_day_id=flow_day_id,
-        ok=f"تم نشر {n} قائمة للمحكمين.",
+        ok=ok,
     )
 
 
@@ -13985,7 +14002,10 @@ def _eval_lists_redirect(*, phase_key: str = "", ok: str = "", err: str = ""):
 
 
 def _parse_eval_list_publish_selections(form) -> dict[str, set[int]]:
-    """تحليل checkboxes: unit_key:node_id → {unit_key: {node_id, ...}}."""
+    """تحليل checkboxes: unit_key:node_id → {unit_key: {node_id, ...}}.
+
+    إن كان unit_key فارغاً تُحفظ العقدة تحت المفتاح ``""`` ليُحلّ لاحقاً من سياق الملف.
+    """
     from collections import defaultdict
 
     out: dict[str, set[int]] = defaultdict(set)
@@ -14003,7 +14023,7 @@ def _parse_eval_list_publish_selections(form) -> dict[str, set[int]]:
             nid = int(nid_s.strip())
         except (TypeError, ValueError):
             continue
-        if uk and nid > 0:
+        if nid > 0:
             out[uk].add(nid)
     return dict(out)
 
@@ -15236,6 +15256,7 @@ def admin_information_bank():
     tree_event_flow: list = []
     tree_action_eval: list = []
     tree_dilemma_eval: list = []
+    dilemma_lists_payload: dict = {"root_id": "", "lists": [], "org_units": []}
     ibank_action_eval_flow_days: list[dict[str, str]] = []
     active_action_eval_day = ""
     action_eval_trees_by_day: dict[str, list] = {}
@@ -15258,16 +15279,27 @@ def admin_information_bank():
     active_tab = (request.args.get("tab") or "phases").strip()
     if is_removed_brigade_tab(active_tab):
         active_tab = "units-bg-1"
-    allowed_tabs = {"phases", "event-flow", "action-eval", "dilemma-eval"} | brigade_tabs
+    allowed_tabs = {"phases", "dilemma-lists", "event-flow", "action-eval", "dilemma-eval"} | brigade_tabs
     if active_tab not in allowed_tabs:
         active_tab = "phases"
     _ibank_active_tree_kind = {
         "action-eval": "action_eval",
         "dilemma-eval": "dilemma_eval",
+        "dilemma-lists": "dilemma_lists",
     }.get(active_tab)
     try:
         ensure_information_bank_kind(db, "action_eval")
         ensure_information_bank_kind(db, "dilemma_eval")
+        ensure_information_bank_kind(db, "dilemma_lists")
+        from app.ibank_dilemma_lists import (
+            apply_dilemma_list_units_to_action_eval,
+            build_dilemma_lists_page_payload,
+        )
+
+        dilemma_lists_payload = build_dilemma_lists_page_payload(db)
+        if active_tab in ("action-eval", "dilemma-lists"):
+            if apply_dilemma_list_units_to_action_eval(db):
+                db.commit()
         tree_action_eval = build_tree_payload(
             db,
             "action_eval",
@@ -15341,6 +15373,7 @@ def admin_information_bank():
                 tree_event_flow=tree_event_flow,
                 tree_action_eval=tree_action_eval,
                 tree_dilemma_eval=tree_dilemma_eval,
+                dilemma_lists_payload=dilemma_lists_payload,
                 ibank_action_eval_flow_days=ibank_action_eval_flow_days,
                 active_action_eval_day=active_action_eval_day,
                 action_eval_trees_by_day=action_eval_trees_by_day,
@@ -15878,7 +15911,7 @@ def admin_information_bank_tree_folder_add():
 
     db = g.db
     kind = (request.form.get("kind") or "").strip()
-    if kind not in ("event_flow", "action_eval", "dilemma_eval"):
+    if kind not in ("event_flow", "action_eval", "dilemma_eval", "dilemma_lists"):
         abort(400)
     parent_raw = (request.form.get("parent_id") or "").strip()
     parent_id = int(parent_raw) if parent_raw.isdigit() else None
@@ -15928,13 +15961,20 @@ def admin_information_bank_tree_upload():
     db = g.db
     kind = (request.form.get("kind") or "").strip()
     tab = kind_tab(kind)
-    if kind not in ("event_flow", "action_eval", "dilemma_eval"):
+    if kind not in ("event_flow", "action_eval", "dilemma_eval", "dilemma_lists"):
         abort(400)
     parent_raw = (request.form.get("parent_id") or "").strip()
     if not parent_raw.isdigit():
-        return _admin_information_bank_tree_redirect(
-            tab=tab, err="حدّد مجلداً مستهدفاً في الشجرة (زر تحديد)."
-        )
+        if kind == "dilemma_lists":
+            from app.ibank_dilemma_lists import ensure_dilemma_lists_root
+
+            ensure_information_bank_kind(db, kind)
+            root = ensure_dilemma_lists_root(db)
+            parent_raw = str(int(root.id))
+        else:
+            return _admin_information_bank_tree_redirect(
+                tab=tab, err="حدّد مجلداً مستهدفاً في الشجرة (زر تحديد)."
+            )
     parent_id = int(parent_raw)
     ensure_information_bank_kind(db, kind)
     parent = get_node(db, parent_id, kind)
@@ -15970,6 +16010,13 @@ def admin_information_bank_tree_upload():
 
             invalidate_action_eval_dilemma_tree_cache()
             invalidate_information_bank_kind_cache("action_eval")
+        elif kind == "dilemma_lists":
+            from app.ibank_dilemma_lists import apply_dilemma_list_units_to_action_eval
+            from app.info_bank_tree import invalidate_information_bank_kind_cache
+
+            apply_dilemma_list_units_to_action_eval(db)
+            invalidate_information_bank_kind_cache("dilemma_lists")
+            db.commit()
     else:
         db.rollback()
     err_q = " ".join(errors[:3])[:400] if errors else ""
@@ -16059,7 +16106,7 @@ def admin_information_bank_tree_move():
 
     data = request.get_json(force=True, silent=True) or {}
     kind = (data.get("kind") or "").strip()
-    if kind not in ("event_flow", "action_eval", "dilemma_eval"):
+    if kind not in ("event_flow", "action_eval", "dilemma_eval", "dilemma_lists"):
         return jsonify(ok=False, error="نوع المرفقات غير صالح."), 400
     try:
         nid = int(data.get("node_id"))
@@ -16405,19 +16452,23 @@ def admin_information_bank_eval_list_purge_all():
 
     db = g.db
     kind = (request.form.get("kind") or "dilemma_eval").strip()
-    if kind not in ("action_eval", "dilemma_eval"):
+    if kind not in ("action_eval", "dilemma_eval", "dilemma_lists"):
         abort(400)
     tab = kind_tab(kind)
     stats = purge_information_bank_tree(db, kind)
     invalidate_information_bank_kind_cache(kind)
     if kind == "action_eval":
         invalidate_action_eval_dilemma_tree_cache()
+    if kind == "dilemma_lists":
+        from app.models.domain import InformationBankDilemmaListUnit
+
+        db.query(InformationBankDilemmaListUnit).delete(synchronize_session=False)
     db.commit()
-    tab_label = (
-        "قوائم تقييم الإجراءات"
-        if kind == "action_eval"
-        else "قوائم التقييم"
-    )
+    tab_label = {
+        "action_eval": "قوائم تقييم الإجراءات",
+        "dilemma_eval": "قوائم التقييم",
+        "dilemma_lists": "قوائم تقييم المعاضل",
+    }.get(kind, kind)
     parts = [f"{stats.get('tree_nodes', 0)} عنصر شجرة"]
     if stats.get("legacy_rows"):
         parts.append(f"{stats['legacy_rows']} ملف قديم")
@@ -16425,6 +16476,43 @@ def admin_information_bank_eval_list_purge_all():
         parts.append(f"{stats['suppressions']} تثبيت حذف")
     msg = f"تم مسح تبويب {tab_label} بالكامل ({'، '.join(parts)})"
     return redirect(url_for("views.admin_information_bank", tab=tab, ok=msg))
+
+
+@bp.route("/admin/information-bank/dilemma-lists/assign", methods=["POST"])
+def admin_information_bank_dilemma_lists_assign():
+    """حفظ وحدات مفروضة على قائمة تقييم معضلة + مزامنة مستوى الوحدة في قوائم الإجراءات."""
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        return jsonify(ok=False, error="غير مسموح."), 403
+    from flask import g
+
+    from app.ibank_dilemma_lists import (
+        apply_dilemma_list_units_to_action_eval,
+        set_list_unit_assignments,
+    )
+
+    db = g.db
+    try:
+        list_node_id = int(request.form.get("list_node_id") or 0)
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="معرّف القائمة غير صالح."), 400
+    unit_keys = {
+        (x or "").strip()
+        for x in request.form.getlist("unit_keys")
+        if (x or "").strip()
+    }
+    try:
+        set_list_unit_assignments(db, list_node_id=list_node_id, unit_keys=unit_keys)
+        updated = apply_dilemma_list_units_to_action_eval(db)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        return jsonify(ok=False, error=str(exc) or "تعذّر الحفظ."), 400
+    except Exception:
+        db.rollback()
+        current_app.logger.exception("dilemma lists assign failed")
+        return jsonify(ok=False, error="تعذّر الحفظ."), 500
+    return jsonify(ok=True, action_eval_updated=int(updated), selected_count=len(unit_keys))
 
 
 @bp.route("/admin/information-bank/file/event-flow/<int:item_id>", methods=["GET"])
@@ -17775,6 +17863,15 @@ def api_ai_health():
 from app.ai_agentic.routes import register_agentic_routes
 
 register_agentic_routes(
+    bp,
+    get_current_user_optional=get_current_user_optional,
+    abort=abort,
+    _ctx=_ctx,
+)
+
+from app.ai_training.routes import register_training_routes
+
+register_training_routes(
     bp,
     get_current_user_optional=get_current_user_optional,
     abort=abort,

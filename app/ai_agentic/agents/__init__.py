@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from app.ai_agentic.agents.document_ingestion_agent import DocumentIngestionAgent
+from app.ai_agentic.agents.military_structure_agent import MilitaryStructureAgent
 from app.ai_agentic.agents.system_health_agent import SystemHealthAgent
 from app.ai_agentic.constants import SYSTEM_HEALTH_AGENT_KEY
 from app.ai_agentic.exceptions import AgentValidationError
+from app.ai_training.constants import DOCUMENT_INGESTION_AGENT_KEY
+from app.ai_training.structure_constants import MILITARY_STRUCTURE_AGENT_KEY
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -17,6 +21,8 @@ if TYPE_CHECKING:
 
 _CODE_AGENTS = {
     SYSTEM_HEALTH_AGENT_KEY: SystemHealthAgent,
+    DOCUMENT_INGESTION_AGENT_KEY: DocumentIngestionAgent,
+    MILITARY_STRUCTURE_AGENT_KEY: MilitaryStructureAgent,
 }
 
 

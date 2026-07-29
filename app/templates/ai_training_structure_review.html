@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% block title %}مراجعة البنية العسكرية{% endblock %}
+{% block content %}
+<div class="page-header" dir="rtl">
+  <h1><i class="fa-solid fa-sitemap fa-icon-title" aria-hidden="true"></i> مراجعة البنية العسكرية</h1>
+  <div class="page-header__nav">
+    {% with subpage_close_fallback=url_for('views.ai_training_document_detail', document_id=document.id) %}{% include 'partials/subpage_close.html' %}{% endwith %}
+  </div>
+</div>
+{% if error %}<p class="form-error-banner" role="alert">{{ error }}</p>{% endif %}
+{% if ok_msg %}<p class="form-ok-banner" role="status">{{ ok_msg }}</p>{% endif %}
+
+<section class="card" dir="rtl">
+  <p><strong>{{ document.title }}</strong>
+    · استخراج: {{ document.approval_status_ar }}
+    · بنية: {{ document.structure_status_ar }}
+    {% if document.structure_locked %} · <span class="form-ok-banner" style="display:inline;">مقفلة</span>{% endif %}
+  </p>
+  <p class="muted">طبقة تحليل مستقلة — لا تعدّل النص الأصلي ولا اعتماد الاستخراج. Word Review Mode يبقى كما هو.</p>
+  <p class="ibank-units-included-actions">
+    {% if can_structure_analyze and not document.structure_locked %}
+    <form method="post" style="display:inline;">
+      <input type="hidden" name="action" value="analyze">
+      <button class="btn btn-primary" type="submit">تحليل البنية العسكرية</button>
+    </form>
+    {% endif %}
+    {% if can_structure_reanalyze %}
+    <form method="post" style="display:inline;" onsubmit="return confirm('إعادة التحليل تنشئ Structure Run جديدة دون إعادة الاستخراج.');">
+      <input type="hidden" name="action" value="reanalyze">
+      <button class="btn btn-ghost" type="submit">إعادة التحليل</button>
+    </form>
+    {% endif %}
+    <a class="btn btn-ghost" href="{{ url_for('views.ai_training_document_review', document_id=document.id) }}">Word Review Mode</a>
+  </p>
+  {% if structure_run %}
+  <p class="muted" dir="ltr">Run #{{ structure_run.id }} · {{ structure_run.status }} · structures={{ structure_run.total_structures }} · low={{ structure_run.low_confidence_count }}</p>
+  {% endif %}
+</section>
+
+<div class="msr-layout" dir="rtl">
+  <aside class="card msr-outline">
+    <h2 class="h2-in-card">Document Outline</h2>
+    <nav class="msr-outline__tree">
+      {% for o in outline %}
+      <a class="msr-outline__item msr-outline__item--l{{ o.outline_level }}"
+         href="#msr-struct-{{ o.structure_id or o.id }}"
+         data-structure-id="{{ o.structure_id or '' }}">
+        {% if o.numbering_text %}<span class="msr-num">{{ o.numbering_text }}</span>{% endif %}
+        {{ o.title[:90] }}{% if o.title|length > 90 %}…{% endif %}
+      </a>
+      {% else %}
+      <p class="muted">لا يوجد Outline بعد — شغّل التحليل.</p>
+      {% endfor %}
+    </nav>
+  </aside>
+
+  <main class="card msr-main">
+    <h2 class="h2-in-card">Low Confidence Queue ({{ review_queue|length }})</h2>
+    {% if review_queue %}
+    <div class="table-wrap">
+      <table class="ibank-table">
+        <thead>
+          <tr>
+            <th>ID</th><th>Block</th><th>Role</th><th>Numbering</th><th>Level</th><th>Confidence</th><th>Reasons</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for q in review_queue %}
+          <tr class="msr-queue-row" data-structure-id="{{ q.id }}" tabindex="0">
+            <td dir="ltr">{{ q.id }}</td>
+            <td dir="ltr">{{ q.block_id }}</td>
+            <td dir="ltr">{{ q.detected_role }}</td>
+            <td>{{ q.numbering_text or '—' }}</td>
+            <td dir="ltr">{{ q.numbering_level or '—' }}</td>
+            <td dir="ltr">{{ '%.2f'|format(q.confidence or 0) }}</td>
+            <td dir="ltr">{{ q.queue_reasons|join(', ') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted">لا عناصر في طابور المراجعة المنخفضة.</p>
+    {% endif %}
+
+    <h2 class="h2-in-card mt-1">جميع البنى ({{ structures|length }})</h2>
+    <div class="table-wrap msr-structs">
+      <table class="ibank-table">
+        <thead>
+          <tr>
+            <th>Seq</th><th>Block</th><th>Role</th><th>Numbering</th><th>Level</th><th>Parent</th><th>Conf</th><th>Source</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in structures %}
+          <tr id="msr-struct-{{ s.id }}" class="msr-struct-row" data-structure-id="{{ s.id }}"
+              data-json='{{ s|tojson }}' tabindex="0">
+            <td dir="ltr">{{ s.sequence_order }}</td>
+            <td dir="ltr">{{ s.block_id }}</td>
+            <td dir="ltr">{{ s.detected_role }}{% if s.is_heading %} ★{% endif %}</td>
+            <td>{{ s.numbering_text or '—' }}</td>
+            <td dir="ltr">{{ s.numbering_level or '—' }}</td>
+            <td dir="ltr">{{ s.parent_structure_id or '—' }}</td>
+            <td dir="ltr">{{ '%.2f'|format(s.confidence or 0) }}{% if (s.confidence or 0) < 0.6 %} ⚠{% endif %}</td>
+            <td dir="ltr">{{ s.detection_source }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8">لا نتائج.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+<aside class="card msr-drawer" id="msr-drawer" hidden dir="rtl">
+  <div class="msr-drawer__head">
+    <strong>خصائص البنية</strong>
+    <button type="button" class="btn btn-ghost" id="msr-drawer-close">×</button>
+  </div>
+  <form method="post" id="msr-edit-form">
+    <input type="hidden" name="action" value="save_review">
+    <input type="hidden" name="corrections_json" id="msr-corrections-json" value="[]">
+    <div class="table-wrap">
+      <table class="ibank-table">
+        <tbody>
+          <tr><th>Structure ID</th><td dir="ltr" id="msr-d-id">—</td></tr>
+          <tr><th>Block ID</th><td dir="ltr" id="msr-d-block">—</td></tr>
+          <tr><th>Detected Role</th><td>
+            <select id="msr-d-role" {% if document.structure_locked or not can_structure_review %}disabled{% endif %}>
+              {% for r in ['heading','subheading','paragraph','list_item','table','header','footer','page_break','unknown'] %}
+              <option value="{{ r }}">{{ r }}</option>
+              {% endfor %}
+            </select>
+          </td></tr>
+          <tr><th>Numbering Text</th><td><input id="msr-d-num" {% if document.structure_locked or not can_structure_review %}disabled{% endif %}></td></tr>
+          <tr><th>Numbering Style</th><td>
+            <select id="msr-d-style" {% if document.structure_locked or not can_structure_review %}disabled{% endif %}>
+              {% for r in ['arabic_dot','arabic_letter_dot','number_parentheses','letter_parentheses','number_close_paren','none','other'] %}
+              <option value="{{ r }}">{{ r }}</option>
+              {% endfor %}
+            </select>
+          </td></tr>
+          <tr><th>Numbering Level</th><td><input type="number" id="msr-d-level" min="1" max="9" {% if document.structure_locked or not can_structure_review %}disabled{% endif %}></td></tr>
+          <tr><th>Parent Structure</th><td><input type="number" id="msr-d-parent" {% if document.structure_locked or not can_structure_review %}disabled{% endif %}></td></tr>
+          <tr><th>Indentation</th><td><input type="number" id="msr-d-indent" min="0" {% if document.structure_locked or not can_structure_review %}disabled{% endif %}></td></tr>
+          <tr><th>Is Heading</th><td><input type="checkbox" id="msr-d-heading" {% if document.structure_locked or not can_structure_review %}disabled{% endif %}></td></tr>
+          <tr><th>Title Text</th><td><input id="msr-d-title" style="width:100%;" {% if document.structure_locked or not can_structure_review %}disabled{% endif %}></td></tr>
+          <tr><th>Confidence</th><td dir="ltr" id="msr-d-conf">—</td></tr>
+          <tr><th>Evidence</th><td id="msr-d-evidence" class="muted">—</td></tr>
+          <tr><th>Warnings</th><td id="msr-d-warnings" class="muted">—</td></tr>
+          <tr><th>Detection Source</th><td dir="ltr" id="msr-d-source">—</td></tr>
+          <tr><th>Review Status</th><td dir="ltr" id="msr-d-rev">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">لا يمكن تعديل النص الأصلي من هذه الشاشة.</p>
+    {% if can_structure_review and not document.structure_locked %}
+    <label>سبب التصحيح <input name="reason" id="msr-d-reason"></label>
+    <button class="btn btn-primary" type="button" id="msr-save-one">حفظ التصحيح</button>
+    {% endif %}
+  </form>
+</aside>
+
+<section class="card mt-1" dir="rtl">
+  <h2 class="h2-in-card">إنهاء واعتماد البنية</h2>
+  {% if not document.structure_locked %}
+  {% if can_structure_review %}
+  <form method="post" style="display:inline;">
+    <input type="hidden" name="action" value="start_review">
+    <button class="btn btn-ghost" type="submit">بدء مراجعة البنية</button>
+  </form>
+  <form method="post" style="display:inline;">
+    <input type="hidden" name="action" value="complete_review">
+    <button class="btn btn-primary" type="submit">إنهاء مراجعة البنية</button>
+  </form>
+  {% endif %}
+  {% if can_structure_approve %}
+  <form method="post" style="display:inline;" onsubmit="return confirm('اعتماد البنية العسكرية؟ لن يُعلَّم النظام ولن يتغير اعتماد الاستخراج.');">
+    <input type="hidden" name="action" value="approve">
+    <button class="btn btn-primary" type="submit">اعتماد البنية العسكرية</button>
+  </form>
+  {% endif %}
+  {% else %}
+  <p class="form-ok-banner">تم اعتماد البنية العسكرية — النسخة مقفلة. استخدم إعادة التحليل لمراجعة جديدة.</p>
+  {% endif %}
+</section>
+
+<script>
+(function () {
+  var drawer = document.getElementById("msr-drawer");
+  var current = null;
+  function openStruct(data) {
+    current = data;
+    drawer.hidden = false;
+    document.getElementById("msr-d-id").textContent = data.id;
+    document.getElementById("msr-d-block").textContent = data.block_id;
+    document.getElementById("msr-d-role").value = data.detected_role || "unknown";
+    document.getElementById("msr-d-num").value = data.numbering_text || "";
+    document.getElementById("msr-d-style").value = data.numbering_style || "none";
+    document.getElementById("msr-d-level").value = data.numbering_level || "";
+    document.getElementById("msr-d-parent").value = data.parent_structure_id || "";
+    document.getElementById("msr-d-indent").value = data.indentation_level || 0;
+    document.getElementById("msr-d-heading").checked = !!data.is_heading;
+    document.getElementById("msr-d-title").value = data.title_text || "";
+    document.getElementById("msr-d-conf").textContent = data.confidence != null ? data.confidence : "—";
+    document.getElementById("msr-d-evidence").textContent = (data.evidence || []).join(" · ") || "—";
+    document.getElementById("msr-d-warnings").textContent = (data.warnings || []).join(" · ") || "—";
+    document.getElementById("msr-d-source").textContent = data.detection_source || "—";
+    document.getElementById("msr-d-rev").textContent = data.reviewer_status || "—";
+  }
+  document.querySelectorAll(".msr-struct-row, .msr-queue-row").forEach(function (row) {
+    row.addEventListener("click", function () {
+      var raw = row.getAttribute("data-json");
+      if (raw) {
+        try { openStruct(JSON.parse(raw)); } catch (e) {}
+        return;
+      }
+      var id = row.getAttribute("data-structure-id");
+      var el = document.getElementById("msr-struct-" + id);
+      if (el && el.getAttribute("data-json")) {
+        try { openStruct(JSON.parse(el.getAttribute("data-json"))); } catch (e) {}
+      }
+    });
+  });
+  document.getElementById("msr-drawer-close").addEventListener("click", function () {
+    drawer.hidden = true;
+  });
+  var saveBtn = document.getElementById("msr-save-one");
+  if (saveBtn) {
+    saveBtn.addEventListener("click", function () {
+      if (!current) return;
+      var corr = [{
+        structure_id: current.id,
+        detected_role: document.getElementById("msr-d-role").value,
+        numbering_text: document.getElementById("msr-d-num").value || null,
+        numbering_style: document.getElementById("msr-d-style").value,
+        numbering_level: document.getElementById("msr-d-level").value ? parseInt(document.getElementById("msr-d-level").value, 10) : null,
+        parent_structure_id: document.getElementById("msr-d-parent").value ? parseInt(document.getElementById("msr-d-parent").value, 10) : null,
+        indentation_level: parseInt(document.getElementById("msr-d-indent").value || "0", 10),
+        is_heading: document.getElementById("msr-d-heading").checked,
+        title_text: document.getElementById("msr-d-title").value || null,
+        reason: document.getElementById("msr-d-reason").value || ""
+      }];
+      document.getElementById("msr-corrections-json").value = JSON.stringify(corr);
+      document.getElementById("msr-edit-form").submit();
+    });
+  }
+})();
+</script>
+{% endblock %}

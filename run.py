@@ -3,7 +3,10 @@
   run.bat
   أو: .venv\\Scripts\\python.exe run.py
 """
+from __future__ import annotations
+
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -11,10 +14,75 @@ import threading
 import time
 import webbrowser
 
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def _preferred_port() -> int:
+    raw = (os.environ.get("PORT") or "8005").strip()
+    try:
+        return int(raw)
+    except ValueError:
+        return 8005
+
+
+def _ensure_project_root() -> None:
+    """ثبّت cwd وsys.path على جذر المشروع (زر التشغيل قد يغيّر المجلد)."""
+    if os.getcwd() != _ROOT:
+        os.chdir(_ROOT)
+    if _ROOT not in sys.path:
+        sys.path.insert(0, _ROOT)
+
+
+def _venv_python() -> str | None:
+    if sys.platform == "win32":
+        candidate = os.path.join(_ROOT, ".venv", "Scripts", "python.exe")
+    else:
+        candidate = os.path.join(_ROOT, ".venv", "bin", "python")
+    return candidate if os.path.isfile(candidate) else None
+
+
+def _is_same_python(a: str, b: str) -> bool:
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def _reexec_under_venv_if_needed() -> None:
+    """أعِد التشغيل عبر .venv عندما يضغط المستخدم Play بمفسّر النظام."""
+    if getattr(sys, "frozen", False):
+        return
+    if os.environ.get("LF_VENV_REEXEC") == "1":
+        return
+    venv_py = _venv_python()
+    if not venv_py:
+        return
+    if _is_same_python(sys.executable, venv_py):
+        return
+    exe_l = str(sys.executable).replace("/", "\\").lower()
+    if exe_l.endswith(r".venv\scripts\python.exe") or exe_l.endswith("/.venv/bin/python"):
+        return
+    os.environ["LF_VENV_REEXEC"] = "1"
+    script = os.path.abspath(sys.argv[0])
+    print(
+        f"[INFO] Switching to project venv:\n  {venv_py}\n"
+        f"  (was: {sys.executable})",
+        flush=True,
+    )
+    # os.execv غير موثوق على Windows (يخرج الأب فوراً فيبدو أن زر التشغيل لا يعمل).
+    if sys.platform == "win32":
+        raise SystemExit(
+            subprocess.call([venv_py, script, *sys.argv[1:]], cwd=_ROOT)
+        )
+    os.execv(venv_py, [venv_py, script, *sys.argv[1:]])
+
+
+_ensure_project_root()
+
 # قراءة المنفذ قبل تحميل التطبيق (load_dotenv في config قد يضبط PORT=8005).
-_PREFERRED_PORT = int(os.environ.get("PORT", "8005"))
+_PREFERRED_PORT = _preferred_port()
 PORT = _PREFERRED_PORT
-HOST = os.environ.get("HOST", "0.0.0.0")
+HOST = (os.environ.get("HOST") or "0.0.0.0").strip() or "0.0.0.0"
 
 
 def _app_url(port: int | None = None) -> str:
@@ -64,9 +132,16 @@ def _env_flag(name: str, default: bool = True) -> bool:
     return v not in ("0", "false", "no", "off")
 
 
+_WIN_LISTEN_RE = re.compile(
+    r"^\s*TCP\s+(\S+):(\d+)\s+\S+\s+LISTENING\s+(\d+)\s*$",
+    re.IGNORECASE,
+)
+
+
 def _pids_listening_on_port(port: int) -> set[int]:
     """معرّفات العمليات التي تستمع على المنفذ (Windows: netstat -ano)."""
     pids: set[int] = set()
+    want = int(port)
     if sys.platform == "win32":
         try:
             out = subprocess.check_output(
@@ -75,17 +150,13 @@ def _pids_listening_on_port(port: int) -> set[int]:
                 encoding="utf-8",
                 errors="replace",
             )
-            needle = f":{int(port)}"
             for line in out.splitlines():
-                if needle not in line or "LISTENING" not in line.upper():
+                m = _WIN_LISTEN_RE.match(line)
+                if not m:
                     continue
-                parts = line.split()
-                if not parts:
+                if int(m.group(2)) != want:
                     continue
-                try:
-                    pid = int(parts[-1])
-                except (TypeError, ValueError):
-                    continue
+                pid = int(m.group(3))
                 if pid > 0:
                     pids.add(pid)
         except (OSError, subprocess.SubprocessError, ValueError):
@@ -96,7 +167,7 @@ def _pids_listening_on_port(port: int) -> set[int]:
 
         probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        probe.bind(("127.0.0.1", int(port)))
+        probe.bind(("127.0.0.1", want))
         probe.close()
     except OSError:
         pass
@@ -106,8 +177,10 @@ def _pids_listening_on_port(port: int) -> set[int]:
 def _stop_other_listeners_on_port(port: int) -> None:
     """إيقاف نسخ قديمة من الخادم على نفس المنفذ (سبب شائع لـ 500 / SQLite lock)."""
     my_pid = os.getpid()
+    parent = os.getppid()
+    killed = False
     for pid in sorted(_pids_listening_on_port(port)):
-        if pid == my_pid:
+        if pid in (my_pid, parent):
             continue
         if sys.platform == "win32":
             subprocess.run(
@@ -120,8 +193,13 @@ def _stop_other_listeners_on_port(port: int) -> None:
                 os.kill(pid, 9)
             except OSError:
                 pass
-    if _pids_listening_on_port(port) - {my_pid}:
-        time.sleep(0.8)
+        killed = True
+    if killed:
+        for _ in range(10):
+            leftover = _pids_listening_on_port(port) - {my_pid, parent}
+            if not leftover:
+                break
+            time.sleep(0.2)
 
 
 def _can_bind_exclusive(port: int, host: str = "0.0.0.0") -> bool:
@@ -145,14 +223,17 @@ def _resolve_listen_port(preferred: int, host: str = "0.0.0.0") -> int:
     """منفذ للاستماع — يوقف الخوادم القديمة ويتجنّب تعارض Windows (socket شبح)."""
     for port in range(int(preferred), int(preferred) + 11):
         _stop_other_listeners_on_port(port)
-        if _can_bind_exclusive(port, host):
-            if port != preferred:
-                print(
-                    f"\n[تنبيه] المنفذ {preferred} معطّل (socket شبح أو نسخة قديمة).\n"
-                    f"  يعمل الخادم على المنفذ {port}: {_app_url(port)}\n",
-                    file=sys.stderr,
-                )
-            return port
+        # بعد الإيقاف قد يبقى المنفذ لحظة قصيرة على Windows.
+        for _ in range(5):
+            if _can_bind_exclusive(port, host):
+                if port != preferred:
+                    print(
+                        f"\n[تنبيه] المنفذ {preferred} معطّل (socket شبح أو نسخة قديمة).\n"
+                        f"  يعمل الخادم على المنفذ {port}: {_app_url(port)}\n",
+                        file=sys.stderr,
+                    )
+                return port
+            time.sleep(0.15)
     print(
         f"\n[خطأ] لا يوجد منفذ متاح بين {preferred} و{preferred + 10}.\n"
         f"  أعد تشغيل Windows أو عيّن PORT يدوياً.\n",
@@ -174,11 +255,22 @@ def _ensure_port_free(port: int, host: str = "0.0.0.0") -> None:
 
 def main() -> None:
     global PORT
+    _ensure_project_root()
     if getattr(sys, "frozen", False):
         os.environ.setdefault("LF_INSTALLED", "1")
     PORT = _resolve_listen_port(_PREFERRED_PORT, HOST)
-    from app import create_app
-    from app.network_util import print_server_access_info
+    try:
+        from app import create_app
+        from app.network_util import print_server_access_info
+    except ModuleNotFoundError as exc:
+        print(
+            f"\n[خطأ] تعذّر استيراد الحزمة المطلوبة: {exc}\n"
+            f"  المفسّر: {sys.executable}\n"
+            f"  شغّل: .venv\\Scripts\\python.exe run.py\n"
+            f"  أو: run.bat\n",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     app = create_app()
     debug = _env_flag("FLASK_DEBUG", default=False) and not getattr(sys, "frozen", False)
@@ -211,4 +303,20 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        _ensure_project_root()
+        _reexec_under_venv_if_needed()
+        main()
+    except SystemExit:
+        raise
+    except Exception as exc:
+        print(f"\n[خطأ] فشل تشغيل الخادم: {exc}", file=sys.stderr)
+        import traceback
+
+        traceback.print_exc()
+        if sys.platform == "win32" and sys.stdin.isatty():
+            try:
+                input("\nPress Enter to close...")
+            except EOFError:
+                pass
+        sys.exit(1)

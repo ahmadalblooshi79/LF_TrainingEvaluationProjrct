@@ -5,6 +5,8 @@ from __future__ import annotations
 # agent_key -> اسم عربي للواجهة فقط (لا يغيّر قاعدة البيانات)
 AGENT_DISPLAY_NAME_AR: dict[str, str] = {
     "system_health_agent": "وكيل فحص صحة النظام",
+    "document_ingestion_agent": "وكيل استيعاب الوثائق",
+    "military_structure_agent": "وكيل تحليل البنية العسكرية للوثيقة",
 }
 
 

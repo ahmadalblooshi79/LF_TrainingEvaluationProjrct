@@ -30,8 +30,9 @@ from app.models.domain import (
     InfoBankEventFlowPdf,
 )
 
-INFO_BANK_TREE_KINDS = ("event_flow", "action_eval", "dilemma_eval")
+INFO_BANK_TREE_KINDS = ("event_flow", "action_eval", "dilemma_eval", "dilemma_lists")
 INFO_BANK_UNIT_EVAL_TREE_KINDS = frozenset({"action_eval", "dilemma_eval"})
+DILEMMA_LISTS_KIND = "dilemma_lists"
 
 
 def is_unit_eval_tree_kind(kind: str) -> bool:
@@ -256,6 +257,7 @@ def kind_tab(kind: str) -> str:
         "event_flow": "event-flow",
         "action_eval": "action-eval",
         "dilemma_eval": "dilemma-eval",
+        "dilemma_lists": "dilemma-lists",
     }.get(kind, "event-flow")
 
 
@@ -1162,6 +1164,12 @@ def ensure_information_bank_tree(db: Session, kind: str) -> None:
             db.commit()
         if repair_tree_natural_sibling_order(db, kind):
             db.commit()
+        return
+    if kind == DILEMMA_LISTS_KIND:
+        from app.ibank_dilemma_lists import ensure_dilemma_lists_root
+
+        ensure_dilemma_lists_root(db)
+        db.commit()
         return
     changed = False
     phases = _phase_rows(db)
