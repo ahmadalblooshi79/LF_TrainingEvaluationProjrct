@@ -1,12 +1,14 @@
 {
-    "name": "lf_training_evaluation",
-    "short_name": "lf_training_evaluation",
+    "name": "التحكيم الذكي — تابلت المحكمين",
+    "short_name": "التحكيم الذكي",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#EFE7CE",
+    "theme_color": "#D49E3F",
+    "description": "تطبيق المحكمين — نظام إدارة التمارين (معاينة PWA)",
+    "orientation": "any",
+    "lang": "ar",
+    "dir": "rtl",
     "prefer_related_applications": false,
     "icons": [
         {

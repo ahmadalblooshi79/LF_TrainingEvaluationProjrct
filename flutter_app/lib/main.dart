@@ -1,27 +1,30 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:lf_training_evaluation/screens/main_page.dart';
 
-void main() {
+import 'app.dart';
+import 'services/api_client.dart';
+import 'services/auth_service.dart';
+import 'services/connectivity_service.dart';
+import 'services/offline_store.dart';
+import 'services/sync_service.dart';
+import 'services/tablet_repository.dart';
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const LfTrainingEvaluationApp());
-}
 
-class LfTrainingEvaluationApp extends StatelessWidget {
-  const LfTrainingEvaluationApp({super.key});
+  await ApiClient.instance.init();
+  await OfflineStore.instance.init();
+  await ConnectivityService.instance.init();
+  await AuthService.instance.restoreFromCache();
 
-  @override
-  Widget build(BuildContext context) {
-    return const MaterialApp(
-      debugShowCheckedModeBanner: false,
-      locale: Locale('ar'),
-      supportedLocales: [Locale('ar')],
-      localizationsDelegates: [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: MainPage(),
-    );
+  // Best-effort: confirm the cached session cookie is still valid and start
+  // flushing any writes queued while offline. Neither call blocks startup.
+  unawaited(AuthService.instance.refreshFromServer());
+  unawaited(SyncService.instance.start());
+  if (AuthService.instance.isLoggedIn) {
+    unawaited(TabletRepository.instance.prefetchForOffline());
   }
+
+  runApp(const LfTrainingEvaluationApp());
 }

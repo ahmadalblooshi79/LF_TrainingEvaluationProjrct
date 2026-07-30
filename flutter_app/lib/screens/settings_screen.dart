@@ -1,0 +1,173 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../services/api_client.dart';
+import '../services/auth_service.dart';
+import '../services/offline_store.dart';
+import '../services/sync_service.dart';
+import '../theme/app_theme.dart';
+import '../widgets/app_header.dart';
+import '../widgets/online_status_chip.dart';
+
+/// إعدادات — server address (LAN IP:port), connection test, sync status,
+/// logout.
+class SettingsScreen extends StatefulWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  final _serverCtrl = TextEditingController();
+  bool _testing = false;
+  String? _testResult;
+  bool _testOk = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _serverCtrl.text = ApiClient.instance.baseUrl;
+  }
+
+  @override
+  void dispose() {
+    _serverCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _applyServerUrl() async {
+    final server = _serverCtrl.text.trim();
+    if (server.isNotEmpty) {
+      await ApiClient.instance.setBaseUrl(server);
+    } else if (kIsWeb) {
+      await ApiClient.instance.setBaseUrl(Uri.base.origin);
+    } else {
+      await ApiClient.instance.setBaseUrl(server);
+    }
+  }
+
+  Future<void> _save() async {
+    await _applyServerUrl();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم حفظ عنوان الخادم')));
+  }
+
+  Future<void> _test() async {
+    setState(() {
+      _testing = true;
+      _testResult = null;
+    });
+    await _applyServerUrl();
+    final ok = await ApiClient.instance.ping();
+    if (!mounted) return;
+    setState(() {
+      _testing = false;
+      _testOk = ok;
+      _testResult = ok ? 'تم الاتصال بالخادم بنجاح' : 'تعذّر الاتصال بالخادم — تحقّق من العنوان والشبكة';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = context.watch<AuthService>();
+    return Scaffold(
+      appBar: AppHeader(
+        pageTitle: 'الإعدادات',
+        showSettings: false,
+        onBack: () => Navigator.of(context).maybePop(),
+      ),
+      backgroundColor: AppColors.background,
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              kIsWeb ? 'عنوان الخادم (اختياري في PWA)' : 'عنوان الخادم',
+              style: AppTextStyles.subtitle,
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _serverCtrl,
+              textDirection: TextDirection.ltr,
+              decoration: InputDecoration(
+                hintText: kIsWeb ? 'فارغ = نفس السيرفر' : 'مثال: 192.168.1.10:8005',
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _testing ? null : _test,
+                    child: _testing
+                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Text('اختبار الاتصال'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: ElevatedButton(onPressed: _save, child: const Text('حفظ'))),
+              ],
+            ),
+            if (_testResult != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                _testResult!,
+                style: AppTextStyles.cairo(
+                  color: _testOk ? AppColors.doneGreen : AppColors.notDoneRed,
+                  fontWeight: FontWeight.w600,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+            const SizedBox(height: 28),
+            Text('حالة الاتصال والمزامنة', style: AppTextStyles.subtitle),
+            const SizedBox(height: 12),
+            const Align(alignment: Alignment.centerRight, child: OnlineStatusChip()),
+            const SizedBox(height: 12),
+            ValueListenableBuilder<int>(
+              valueListenable: SyncService.instance.pendingCount,
+              builder: (context, count, _) => Row(
+                children: [
+                  Expanded(child: Text('عمليات بانتظار المزامنة: $count', style: AppTextStyles.body)),
+                  TextButton(
+                    onPressed: () => SyncService.instance.flush(),
+                    child: const Text('مزامنة الآن'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 28),
+            if (auth.session != null) ...[
+              Text('الحساب', style: AppTextStyles.subtitle),
+              const SizedBox(height: 8),
+              Text(auth.session!.user.judgeDisplayName, style: AppTextStyles.body),
+              Text(auth.session!.user.roleLabel, style: AppTextStyles.small),
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  await context.read<AuthService>().logout();
+                  if (context.mounted) Navigator.of(context).popUntil((r) => r.isFirst);
+                },
+                icon: const Icon(Icons.logout),
+                label: const Text('تسجيل الخروج'),
+              ),
+            ],
+            const SizedBox(height: 20),
+            TextButton(
+              onPressed: () async {
+                await OfflineStore.instance.clearAll();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم مسح البيانات المخزّنة محلياً')));
+                }
+              },
+              child: Text('مسح البيانات المخزّنة محلياً', style: AppTextStyles.small.copyWith(color: AppColors.notDoneRed)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
