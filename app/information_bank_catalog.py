@@ -29,18 +29,22 @@ def info_bank_brigade_groups_for_ui() -> list[dict[str, str]]:
 INFO_BANK_UNIT_LEVEL_TEMPLATES: list[dict[str, str]] = [
     {"key": "ul_brigade_grp_cmd", "label": "قيادة مجموعة اللواء"},
     {"key": "ul_brigade_grp_staff", "label": "هيئة ركن مجموعة اللواء"},
+    {"key": "ul_infantry1_bn_cmd", "label": "قيادة كتيبة المشاة الراجلة/11"},
+    {"key": "ul_infantry1_bn_c1", "label": "كتيبة المشاة الراجلة/11 - السرية/1"},
+    {"key": "ul_infantry1_bn_c2", "label": "كتيبة المشاة الراجلة/11 - السرية/2"},
+    {"key": "ul_infantry1_bn_c3", "label": "كتيبة المشاة الراجلة/11 - السرية/3"},
     {"key": "ul_mech2_bn_cmd", "label": "قيادة كتيبة المشاة الآلية/12"},
     {"key": "ul_mech2_bn_c1", "label": "كتيبة المشاة الآلية/12 - السرية/1"},
     {"key": "ul_mech2_bn_c2", "label": "كتيبة المشاة الآلية/12 - السرية/2"},
     {"key": "ul_mech2_bn_c3", "label": "كتيبة المشاة الآلية/12 - السرية/3"},
     {"key": "ul_mech3_bn_cmd", "label": "قيادة كتيبة المشاة الآلية/13"},
-    {"key": "ul_mech3_bn_c1", "label": "كتيبة المشاة الآلية/3 - السرية/1"},
-    {"key": "ul_mech3_bn_c2", "label": "كتيبة المشاة الآلية/3 - السرية/2"},
-    {"key": "ul_mech3_bn_c3", "label": "كتيبة المشاة الآلية/3 - السرية/3"},
+    {"key": "ul_mech3_bn_c1", "label": "كتيبة المشاة الآلية/13 - السرية/1"},
+    {"key": "ul_mech3_bn_c2", "label": "كتيبة المشاة الآلية/13 - السرية/2"},
+    {"key": "ul_mech3_bn_c3", "label": "كتيبة المشاة الآلية/13 - السرية/3"},
     {"key": "ul_tank4_bn_cmd", "label": "قيادة كتيبة الدبابات/14"},
-    {"key": "ul_tank4_bn_c1", "label": "كتيبة الدبابات/4 - السرية/1"},
-    {"key": "ul_tank4_bn_c2", "label": "كتيبة الدبابات/4 - السرية/2"},
-    {"key": "ul_tank4_bn_c3", "label": "كتيبة الدبابات/4 - السرية/3"},
+    {"key": "ul_tank4_bn_c1", "label": "كتيبة الدبابات/14 - السرية/1"},
+    {"key": "ul_tank4_bn_c2", "label": "كتيبة الدبابات/14 - السرية/2"},
+    {"key": "ul_tank4_bn_c3", "label": "كتيبة الدبابات/14 - السرية/3"},
     {"key": "ul_recon", "label": "سرية الاستطلاع"},
     {"key": "ul_at", "label": "سرية الـ م/د"},
     {"key": "ul_arty_bn_cmd", "label": "قيادة كتيبة المدفعية"},
@@ -59,6 +63,7 @@ INFO_BANK_UNIT_LEVEL_TEMPLATES: list[dict[str, str]] = [
     {"key": "ul_supply", "label": "سرية التزويد والنقل"},
     {"key": "ul_mp", "label": "فصيل الشرطة العسكرية"},
     {"key": "ul_ew", "label": "سرية الحرب الإلكترونية"},
+    {"key": "ul_security", "label": "قسم الأمن"},
     {"key": "ul_nco", "label": "ضباط الصف"},
 ]
 
@@ -69,6 +74,18 @@ INFO_BANK_UNIT_OBSOLETE_LABELS: dict[str, frozenset[str]] = {
             "قيادة كتيبة المشاة الآلية/2",
         }
     ),
+    "ul_infantry1_bn_c1": frozenset(
+        {
+            "كتيبة المشاة الراجلة/11- السرية/1",
+            "كتيبة المشاة الراجلة/11-السرية/1",
+        }
+    ),
+    "ul_mech3_bn_c1": frozenset({"كتيبة المشاة الآلية/3 - السرية/1"}),
+    "ul_mech3_bn_c2": frozenset({"كتيبة المشاة الآلية/3 - السرية/2"}),
+    "ul_mech3_bn_c3": frozenset({"كتيبة المشاة الآلية/3 - السرية/3"}),
+    "ul_tank4_bn_c1": frozenset({"كتيبة الدبابات/4 - السرية/1"}),
+    "ul_tank4_bn_c2": frozenset({"كتيبة الدبابات/4 - السرية/2"}),
+    "ul_tank4_bn_c3": frozenset({"كتيبة الدبابات/4 - السرية/3"}),
 }
 
 
@@ -86,6 +103,7 @@ def apply_information_bank_unit_label_migrations(db) -> bool:
     from app.models import InformationBankTreeNode, InformationBankUnitLevel
 
     changed = False
+
     for template_key, obsolete_labels in INFO_BANK_UNIT_OBSOLETE_LABELS.items():
         new_label = template_label_for_unit_template_key(template_key)
         if not new_label:

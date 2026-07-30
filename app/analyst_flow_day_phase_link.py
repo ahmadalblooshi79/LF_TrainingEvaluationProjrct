@@ -123,11 +123,15 @@ def build_dilemma_reaction_table_for_unit_phase(
     exercise_id: int,
     unit_level_key: str,
     phase_key: str,
+    day_to_phase: dict[str, str] | None = None,
+    flow_days: list[dict[str, str]] | None = None,
 ) -> dict:
     """جدول تقييم رد الفعل على المعاضل لوحدة ومرحلة: أيام المجرى → معاضل → قوائم → نتائج.
 
     يعيد dict:
       title, day_labels, dilemma_count, list_count, rows, total_acquired, total_max, total_pct
+
+    إن مُرّر day_to_phase يُعتمد بدل phase_key المحفوظ على أيام بنك المعلومات.
     """
     from app.action_eval_ibank_sync import parse_action_eval_storage_relpath
     from app.ibank_action_eval_dilemma_tree import build_action_eval_dilemma_judge_tree
@@ -135,17 +139,24 @@ def build_dilemma_reaction_table_for_unit_phase(
 
     uk = (unit_level_key or "").strip()
     want_phase = _normalize_phase_key(phase_key)
-    flow_days = ibank_event_flow_days(db)
-    day_map = ibank_flow_day_phase_map(flow_days)
+    days_src = flow_days if flow_days is not None else ibank_event_flow_days(db)
+    day_map = (
+        day_to_phase
+        if day_to_phase is not None
+        else ibank_flow_day_phase_map(days_src)
+    )
     seen_day: set[str] = set()
     days_for_phase: list[dict] = []
-    for d in flow_days or []:
+    for d in days_src or []:
         did = str(d.get("id") or "").strip()
         if not did or did in seen_day:
             continue
-        pk = _normalize_phase_key(
-            str(d.get("phase_key") or "") or day_map.get(did, "")
-        )
+        if day_to_phase is not None:
+            pk = _normalize_phase_key(str(day_map.get(did) or ""))
+        else:
+            pk = _normalize_phase_key(
+                str(d.get("phase_key") or "") or day_map.get(did, "")
+            )
         if pk != want_phase:
             continue
         seen_day.add(did)
@@ -371,3 +382,106 @@ def collect_flow_acquired_by_unit_phase(
         key = (uk, phase_key)
         out[key] = out.get(key, 0.0) + float(acquired)
     return out
+
+
+def load_analyst_day_phase_map(db: Session, exercise_id: int) -> dict[str, str]:
+    """day_id → phase_key من جدول ربط تبويب قوائم تقييم المعاضل."""
+    from app.models.domain import AnalystFlowDayPhaseLink
+
+    out: dict[str, str] = {}
+    rows = (
+        db.query(AnalystFlowDayPhaseLink)
+        .filter(AnalystFlowDayPhaseLink.exercise_id == int(exercise_id))
+        .all()
+    )
+    for row in rows:
+        day_id = (row.flow_day_id or "").strip()
+        pk = _normalize_phase_key(row.phase_key or "")
+        if day_id and pk:
+            out[day_id] = pk
+    return out
+
+
+def day_phase_link_rows_for_ui(
+    db: Session,
+    exercise_id: int,
+    *,
+    phase_options: list[tuple[str, str]],
+    flow_days: list[dict[str, str]] | None = None,
+) -> list[dict]:
+    """صفوف واجهة إدارة ربط الأيام بالمراحل."""
+    from app.info_bank_tree import ibank_event_flow_days
+
+    days = flow_days if flow_days is not None else ibank_event_flow_days(db)
+    saved = load_analyst_day_phase_map(db, exercise_id)
+    phase_labels = {pk: lbl for pk, lbl in phase_options}
+    rows: list[dict] = []
+    for day in days or []:
+        day_id = str(day.get("id") or "").strip()
+        if not day_id:
+            continue
+        pk = saved.get(day_id, "")
+        rows.append(
+            {
+                "day_id": day_id,
+                "day_label": str(day.get("label") or day_id).strip() or day_id,
+                "phase_key": pk,
+                "phase_label": phase_labels.get(pk, "") if pk else "",
+                "linked": bool(pk),
+            }
+        )
+    return rows
+
+
+def save_analyst_day_phase_links(
+    db: Session,
+    exercise_id: int,
+    *,
+    day_ids: list[str],
+    phase_keys: list[str],
+    delete_day_ids: set[str] | None = None,
+) -> None:
+    """حفظ/تعديل/حذف روابط يوم→مرحلة لتبويب المعاضل فقط."""
+    from app.models.domain import AnalystFlowDayPhaseLink
+    from app.info_bank_tree import ibank_event_flow_days
+
+    valid_days = {
+        str(d.get("id") or "").strip()
+        for d in ibank_event_flow_days(db)
+        if str(d.get("id") or "").strip()
+    }
+    delete_ids = {x.strip() for x in (delete_day_ids or set()) if (x or "").strip()}
+    wanted: dict[str, str] = {}
+    for day_id, phase_key in zip(day_ids, phase_keys):
+        did = (day_id or "").strip()
+        if not did or did not in valid_days or did in delete_ids:
+            continue
+        pk = _normalize_phase_key(phase_key or "")
+        if pk:
+            wanted[did] = pk
+
+    existing = {
+        (r.flow_day_id or "").strip(): r
+        for r in (
+            db.query(AnalystFlowDayPhaseLink)
+            .filter(AnalystFlowDayPhaseLink.exercise_id == int(exercise_id))
+            .all()
+        )
+        if (r.flow_day_id or "").strip()
+    }
+    for did, row in list(existing.items()):
+        if did not in wanted:
+            db.delete(row)
+    for did, pk in wanted.items():
+        row = existing.get(did)
+        if row is None:
+            db.add(
+                AnalystFlowDayPhaseLink(
+                    exercise_id=int(exercise_id),
+                    flow_day_id=did[:64],
+                    phase_key=pk[:32],
+                )
+            )
+        else:
+            row.phase_key = pk[:32]
+    db.commit()

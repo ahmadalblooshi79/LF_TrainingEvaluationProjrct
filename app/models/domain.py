@@ -687,8 +687,46 @@ class AnalystEvaluationCriteriaPhaseItem(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class AnalystDilemmaCriteriaUnit(Base):
+    """وحدات تبويب قوائم تقييم المعاضل ضمن معايير التقييم (مستقل عن تبويب المراحل)."""
+
+    __tablename__ = "analyst_dilemma_criteria_units"
+    __table_args__ = (
+        Index("ix_analyst_dilemma_criteria_units_exercise", "exercise_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    exercise_id: Mapped[int] = mapped_column(ForeignKey("exercises.id", ondelete="CASCADE"), index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    label: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AnalystDilemmaCriteriaPhaseItem(Base):
+    """معايير وعلامات مرحلة لوحدة ضمن تبويب قوائم تقييم المعاضل."""
+
+    __tablename__ = "analyst_dilemma_criteria_phase_items"
+    __table_args__ = (
+        Index("ix_analyst_dilemma_criteria_phase_unit", "criteria_unit_id", "phase_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    exercise_id: Mapped[int] = mapped_column(ForeignKey("exercises.id", ondelete="CASCADE"), index=True)
+    criteria_unit_id: Mapped[int] = mapped_column(
+        ForeignKey("analyst_dilemma_criteria_units.id", ondelete="CASCADE"),
+        index=True,
+    )
+    phase_key: Mapped[str] = mapped_column(String(32), index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    criteria_text: Mapped[str] = mapped_column(String(1000), default="")
+    allocated_mark: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class AnalystFlowDayPhaseLink(Base):
-    """ربط يوم مجرى الأحداث بمرحلة التمرين — إعداد معايير تقييم المحللين فقط."""
+    """ربط يوم مجرى الأحداث بمرحلة — خاص بتبويب قوائم تقييم المعاضل فقط."""
 
     __tablename__ = "analyst_flow_day_phase_links"
     __table_args__ = (

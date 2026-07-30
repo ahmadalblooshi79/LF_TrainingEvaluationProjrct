@@ -119,9 +119,8 @@ def seed_all(db: Session) -> None:
     from app.models.domain import UnitDesignation
     from app.unit_designations import seed_unit_designations_from_xlsx
 
-    seed_unit_designations_from_xlsx(
-        db, force=db.query(UnitDesignation).count() == 0
-    )
+    # أعد مزامنة الكشف عند تغيّر عدد الوحدات في ملف Excel
+    seed_unit_designations_from_xlsx(db, force=False)
     try:
         from app.ibank_action_eval_dilemma_tree import invalidate_action_eval_dilemma_tree_cache
 

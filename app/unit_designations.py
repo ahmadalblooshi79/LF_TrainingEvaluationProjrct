@@ -37,11 +37,30 @@ def normalize_designation_text(s: str) -> str:
 
 
 def _xlsx_candidates() -> list[Path]:
+    """يفضّل ملف الجذر المحدَّث ثم النسخة في app/data."""
     out: list[Path] = []
-    for p in (_DATA_XLSX, _REPO_XLSX):
+    for p in (_REPO_XLSX, _DATA_XLSX):
         if p.is_file() and p not in out:
             out.append(p)
     return out
+
+
+def _xlsx_master_count(path: Path) -> int:
+    try:
+        from openpyxl import load_workbook
+
+        wb = load_workbook(path, data_only=True, read_only=True)
+        try:
+            ws = wb["Units_Master"] if "Units_Master" in wb.sheetnames else wb[wb.sheetnames[0]]
+            n = 0
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                if row and row[0] and row[1]:
+                    n += 1
+            return n
+        finally:
+            wb.close()
+    except Exception:
+        return 0
 
 
 def seed_unit_designations_from_xlsx(db: Session, *, force: bool = False) -> dict[str, int]:
@@ -52,6 +71,11 @@ def seed_unit_designations_from_xlsx(db: Session, *, force: bool = False) -> dic
         return {"masters": 0, "aliases": 0, "skipped": 1}
 
     existing = db.query(UnitDesignation).count()
+    path = paths[0]
+    xlsx_count = _xlsx_master_count(path)
+    # أعد المزامنة تلقائياً عند إضافة وحدات جديدة في الكشف
+    if existing and not force and xlsx_count > 0 and xlsx_count != existing:
+        force = True
     if existing and not force:
         reload_unit_designation_cache(db)
         return {"masters": existing, "aliases": db.query(UnitDesignationAlias).count(), "cached": 1}

@@ -66,6 +66,8 @@
       <button type="button" class="btn btn-ghost btn-icon-nav eval-lists-tree-tool-btn" id="action-eval-collapse-all" title="طي الكل" aria-label="طي الكل">
         <i class="fa-solid fa-folder" aria-hidden="true"></i>
       </button>
+      <button type="button" class="btn btn-ghost btn-xs" id="action-eval-select-all" title="تحديد جميع القوائم">تحديد الكل</button>
+      <button type="button" class="btn btn-ghost btn-xs" id="action-eval-select-none" title="إلغاء تحديد جميع القوائم">إلغاء تحديد الكل</button>
       <button type="submit" class="btn btn-primary btn-xs" id="action-eval-lists-publish-btn">
         <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
         نشر القوائم
@@ -397,5 +399,18 @@
   const collapseAllBtn = document.getElementById("action-eval-collapse-all");
   if (expandAllBtn) expandAllBtn.addEventListener("click", () => setAllExpanded(true));
   if (collapseAllBtn) collapseAllBtn.addEventListener("click", () => setAllExpanded(false));
+
+  const selectAllBtn = document.getElementById("action-eval-select-all");
+  const selectNoneBtn = document.getElementById("action-eval-select-none");
+  if (selectAllBtn) {
+    selectAllBtn.addEventListener("click", () => {
+      applySelectAction(document.querySelectorAll(".eval-lists-publish-cb"), "all");
+    });
+  }
+  if (selectNoneBtn) {
+    selectNoneBtn.addEventListener("click", () => {
+      applySelectAction(document.querySelectorAll(".eval-lists-publish-cb"), "none");
+    });
+  }
 })();
 </script>

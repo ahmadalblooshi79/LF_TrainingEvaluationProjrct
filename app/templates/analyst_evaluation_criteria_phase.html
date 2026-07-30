@@ -34,66 +34,6 @@
 
 {% else %}
 
-{% if dilemma_reaction is defined and dilemma_reaction %}
-<section class="card">
-  <h2 class="h2-in-card"><i class="fa-solid fa-bolt fa-icon-title" aria-hidden="true"></i> {{ dilemma_reaction.title }}</h2>
-  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
-    المرحلة: {{ phase_label }}
-    {% if dilemma_reaction.day_labels %}
-    — أيام المجرى: {{ dilemma_reaction.day_labels|join('، ') }}
-    {% endif %}
-    — عدد المعاضل: {{ dilemma_reaction.dilemma_count }}
-    — عدد القوائم: {{ dilemma_reaction.list_count }}
-  </p>
-  <div class="table-wrap">
-    <table dir="rtl" class="analyst-criteria-phase-table analyst-dilemma-reaction-table" aria-label="{{ dilemma_reaction.title }}">
-      <thead>
-        <tr>
-          <th scope="col" class="analyst-criteria-seq-th">ت</th>
-          <th scope="col">اليوم</th>
-          <th scope="col">المعضلة</th>
-          <th scope="col">قائمة التقييم</th>
-          <th scope="col">المكتسبة</th>
-          <th scope="col">القصوى</th>
-          <th scope="col">النسبة %</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% if dilemma_reaction.rows %}
-          {% for row in dilemma_reaction.rows %}
-          <tr>
-            <td class="analyst-criteria-seq">{{ row.seq }}</td>
-            <td>{{ row.day_label }}</td>
-            <td class="criteria-text-cell">
-              <span title="{{ row.dilemma_text }}">المعضلة/{{ row.dilemma_no }}{% if row.dilemma_text and row.dilemma_text != ('المعضلة/' ~ row.dilemma_no) %} — {{ row.dilemma_text }}{% endif %}</span>
-            </td>
-            <td class="criteria-text-cell">{{ row.list_title }}</td>
-            <td>{% if row.acquired is number %}{{ row.acquired|round(2) }}{% else %}—{% endif %}</td>
-            <td>{% if row.max_mark is number %}{{ row.max_mark|round(2) }}{% else %}—{% endif %}</td>
-            <td>{% if row.pct is number %}{{ row.pct|round(2) }}%{% else %}—{% endif %}</td>
-          </tr>
-          {% endfor %}
-        {% else %}
-          <tr>
-            <td class="analyst-criteria-seq muted">—</td>
-            <td colspan="6" class="muted">لا توجد معاضل أو قوائم تقييم مربوطة بأيام هذه المرحلة لهذه الوحدة بعد.</td>
-          </tr>
-        {% endif %}
-      </tbody>
-      <tfoot>
-        <tr>
-          <td class="analyst-criteria-seq muted">—</td>
-          <th scope="row" colspan="3">النتيجة النهائية</th>
-          <td>{% if dilemma_reaction.total_acquired is number %}{{ dilemma_reaction.total_acquired|round(2) }}{% else %}—{% endif %}</td>
-          <td>{% if dilemma_reaction.total_max is number %}{{ dilemma_reaction.total_max|round(2) }}{% else %}—{% endif %}</td>
-          <td>{% if dilemma_reaction.total_pct is number %}{{ dilemma_reaction.total_pct|round(2) }}%{% else %}—{% endif %}</td>
-        </tr>
-      </tfoot>
-    </table>
-  </div>
-</section>
-{% endif %}
-
 <section class="card">
 
   <h2 class="h2-in-card"><i class="fa-solid fa-table-list fa-icon-title" aria-hidden="true"></i> جدول {{ phase_label }}</h2>

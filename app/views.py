@@ -60,6 +60,7 @@ from app.models import (
     AnalystEvaluationCriteriaResult,
     AnalystEvaluationCriteriaUnit,
     AnalystEvaluationCriteriaPhaseItem,
+    AnalystDilemmaCriteriaUnit,
     AnalystFinalEvaluationAllocatedMax,
     AnalystFinalEvaluationPhaseAllocatedMax,
     ExerciseNotification,
@@ -3362,13 +3363,7 @@ def _build_analyst_saved_results_charts(db, user: User) -> dict:
 
 
 def _build_analyst_evaluation_criteria_distribution(db, user: User) -> dict:
-    """توزيع نتائج مراحل التقييم اليدوية + مساهمة مجرى الأيام (حسب ربط بنك المعلومات)."""
-    from app.analyst_flow_day_phase_link import (
-        collect_flow_acquired_by_unit_phase,
-        ibank_flow_day_phase_map,
-        flow_day_phase_rule_summary,
-    )
-    from app.info_bank_tree import ibank_event_flow_days
+    """توزيع نتائج مراحل التقييم اليدوية — مستقل عن تبويب قوائم تقييم المعاضل."""
     from app.planning_catalog_sync import sync_planning_catalogs_from_db
 
     sync_planning_catalogs_from_db(db, force=True)
@@ -3394,39 +3389,21 @@ def _build_analyst_evaluation_criteria_distribution(db, user: User) -> dict:
             [],
         ).append(float(item.allocated_mark))
 
-    flow_days = ibank_event_flow_days(db)
-    day_to_phase = ibank_flow_day_phase_map(flow_days)
-    flow_acquired = collect_flow_acquired_by_unit_phase(
-        db,
-        exercise_id=int(ex.id),
-        day_to_phase=day_to_phase,
-        flow_days=flow_days,
-    )
-
     rows: list[dict] = []
     grand_total = 0.0
     for unit in criteria_units:
         phase_totals: dict[str, float | None] = {}
-        phase_criteria_totals: dict[str, float | None] = {}
-        phase_flow_totals: dict[str, float | None] = {}
         phase_order = tuple(_analyst_criteria_phases_for_display(True)) or tuple(
             EXERCISE_PHASE_OPTIONS
         )
-        unit_level_key = _resolve_unit_level_key_for_criteria_label(unit.label or "")
         for phase_key, _label in phase_order:
             marks = marks_by_unit_phase.get((unit.id, phase_key), [])
-            crit = sum(marks) if marks else None
-            flow_v = flow_acquired.get((unit_level_key, phase_key))
-            if flow_v is not None and flow_v <= 0:
-                flow_v = None
-            phase_criteria_totals[phase_key] = crit
-            phase_flow_totals[phase_key] = flow_v
-            parts = [x for x in (crit, flow_v) if x is not None]
-            phase_totals[phase_key] = sum(parts) if parts else None
+            phase_totals[phase_key] = sum(marks) if marks else None
         parts = [x for x in phase_totals.values() if x is not None]
         total_mark = sum(parts) if parts else None
         if total_mark is not None:
             grand_total += total_mark
+        unit_level_key = _resolve_unit_level_key_for_criteria_label(unit.label or "")
         unit_label = label_for_unit_level_key(unit_level_key) or (unit.label or "—")
         rows.append(
             {
@@ -3434,8 +3411,6 @@ def _build_analyst_evaluation_criteria_distribution(db, user: User) -> dict:
                 "unit_level_key": unit_level_key,
                 "unit_label": unit_label,
                 "phase_totals": phase_totals,
-                "phase_criteria_totals": phase_criteria_totals,
-                "phase_flow_totals": phase_flow_totals,
                 "preparation_total": phase_totals.get("preparation"),
                 "evaluation_tracks_total": phase_totals.get("evaluation_tracks"),
                 "opening_total": phase_totals.get("opening"),
@@ -3463,7 +3438,6 @@ def _build_analyst_evaluation_criteria_distribution(db, user: User) -> dict:
         "criteria_phases": _analyst_criteria_phases_for_display(bool(rows)),
         "available_unit_levels": available_unit_levels,
         "planner_unit_levels": list(UNIT_LEVELS),
-        "flow_day_phase_rules": flow_day_phase_rule_summary(flow_days),
     }
 
 
@@ -4958,28 +4932,74 @@ def analyst_hub_section(slug: str):
     if slug_norm == "evaluation-criteria":
         from flask import g
 
+        from app.analyst_dilemma_criteria import (
+            build_dilemma_criteria_distribution,
+            save_day_phase_links_from_request,
+            save_dilemma_criteria_distribution,
+        )
+
         db = g.db
+        active_tab = (request.args.get("tab") or request.form.get("tab") or "phases").strip().lower()
+        if active_tab not in ("phases", "dilemma"):
+            active_tab = "phases"
+
         dist = _build_analyst_evaluation_criteria_distribution(db, user)
         if not dist.get("has_exercise"):
             return render_template(
                 "analyst_evaluation_criteria.html",
-                **_actx( section_title=title, has_exercise=False),
+                **_actx(section_title=title, has_exercise=False, active_tab=active_tab),
             )
+
         if request.method == "POST":
+            form_action = (request.form.get("form_action") or "").strip()
+            if form_action == "day_phase_links":
+                save_day_phase_links_from_request(db, dist["exercise"])
+                return redirect(
+                    url_for(
+                        "views.analyst_hub_section",
+                        slug=slug_norm,
+                        tab="dilemma",
+                        ok=1,
+                    )
+                )
+            if form_action == "dilemma_distribution":
+                save_dilemma_criteria_distribution(db, user, dist["exercise"])
+                return redirect(
+                    url_for(
+                        "views.analyst_hub_section",
+                        slug=slug_norm,
+                        tab="dilemma",
+                        ok=1,
+                    )
+                )
             _save_analyst_evaluation_criteria_distribution(db, user, dist["exercise"])
-            return redirect(url_for("views.analyst_hub_section", slug=slug_norm, ok=1))
+            return redirect(
+                url_for(
+                    "views.analyst_hub_section",
+                    slug=slug_norm,
+                    tab="phases",
+                    ok=1,
+                )
+            )
+
+        dilemma_dist = build_dilemma_criteria_distribution(db, user)
+        criteria_phases = dist.get("criteria_phases") or _analyst_criteria_phases_for_display(
+            bool(dist.get("distribution_rows"))
+        )
         return render_template(
             "analyst_evaluation_criteria.html",
             **_actx(
                 section_title=title,
                 has_exercise=True,
                 exercise=dist["exercise"],
+                active_tab=active_tab,
                 distribution_rows=dist["distribution_rows"],
                 grand_total=dist["grand_total"],
-                criteria_phases=dist.get("criteria_phases")
-                or _analyst_criteria_phases_for_display(bool(dist.get("distribution_rows"))),
+                criteria_phases=criteria_phases,
                 available_unit_levels=dist.get("available_unit_levels") or [],
-                flow_day_phase_rules=dist.get("flow_day_phase_rules") or [],
+                dilemma_distribution_rows=dilemma_dist.get("distribution_rows") or [],
+                dilemma_grand_total=dilemma_dist.get("grand_total"),
+                day_phase_links=dilemma_dist.get("day_phase_links") or [],
                 ok_msg="تم الحفظ بنجاح." if request.args.get("ok") else "",
             ),
         )
@@ -5641,9 +5661,12 @@ def analyst_evaluation_criteria_phase(unit_id: int, phase_key: str):
                 eval_list_driven=False,
                 eval_list_count=0,
                 criteria_unit_level_key="",
-                dilemma_reaction=None,
                 **_subpage_close_ctx(
-                    url_for("views.analyst_hub_section", slug="evaluation-criteria")
+                    url_for(
+                        "views.analyst_hub_section",
+                        slug="evaluation-criteria",
+                        tab="phases",
+                    )
                 ),
             ),
         )
@@ -5656,7 +5679,12 @@ def analyst_evaluation_criteria_phase(unit_id: int, phase_key: str):
     if request.method == "POST":
         _save_criteria_phase_items_for_unit(db, ex, unit, phase_key)
         return redirect(
-            url_for("views.analyst_hub_section", slug="evaluation-criteria", ok=1)
+            url_for(
+                "views.analyst_hub_section",
+                slug="evaluation-criteria",
+                tab="phases",
+                ok=1,
+            )
         )
     items = _criteria_phase_items_for_unit(db, ex, unit, phase_key)
     eval_list_titles = _evaluation_list_titles_for_criteria_unit(db, ex, unit, phase_key)
@@ -5666,14 +5694,6 @@ def analyst_evaluation_criteria_phase(unit_id: int, phase_key: str):
         float(item["allocated_mark"] or 0)
         for item in items
         if item.get("allocated_mark") is not None
-    )
-    from app.analyst_flow_day_phase_link import build_dilemma_reaction_table_for_unit_phase
-
-    dilemma_reaction = build_dilemma_reaction_table_for_unit_phase(
-        db,
-        exercise_id=int(ex.id),
-        unit_level_key=unit_level_key or "",
-        phase_key=phase_key,
     )
     autofill_url = url_for(
         "views.analyst_evaluation_criteria_phase_autofill",
@@ -5695,12 +5715,106 @@ def analyst_evaluation_criteria_phase(unit_id: int, phase_key: str):
             eval_list_count=len(eval_list_titles),
             criteria_unit_level_key=unit_level_key,
             total_mark=total_mark if total_mark > 0 else None,
-            dilemma_reaction=dilemma_reaction,
             ok_msg="تم حفظ جدول المرحلة." if request.args.get("ok") else "",
             autofill_url=autofill_url,
             **_subpage_close_ctx(
-                url_for("views.analyst_hub_section", slug="evaluation-criteria")
+                url_for(
+                    "views.analyst_hub_section",
+                    slug="evaluation-criteria",
+                    tab="phases",
+                )
             ),
+        ),
+    )
+
+
+@bp.route(
+    "/analyst/evaluation-criteria/dilemma/<int:unit_id>/<phase_key>",
+    methods=["GET", "POST"],
+)
+def analyst_dilemma_criteria_phase(unit_id: int, phase_key: str):
+    user = get_current_user_optional()
+    if not user:
+        return redirect(
+            f"/login?next=/analyst/evaluation-criteria/dilemma/{unit_id}/{phase_key}"
+        )
+    if not can_access_analyst_hub(user):
+        abort(403)
+    phase_key_raw = (phase_key or "").strip()
+    phase_key = _resolve_analyst_criteria_phase_key(phase_key_raw)
+    if not phase_key:
+        abort(404)
+    phase_label = _analyst_criteria_phase_label(phase_key)
+    from flask import g
+
+    from app.analyst_dilemma_criteria import (
+        dilemma_criteria_phase_items_for_unit,
+        save_dilemma_criteria_phase_items,
+    )
+
+    section_title = "قوائم تقييم المعاضل"
+    db = g.db
+    ex0 = _current_workspace_exercise(db, user)
+    close_url = url_for(
+        "views.analyst_hub_section", slug="evaluation-criteria", tab="dilemma"
+    )
+    if ex0 is None:
+        return render_template(
+            "analyst_dilemma_criteria_phase.html",
+            **_ctx(
+                user,
+                has_exercise=False,
+                section_title=section_title,
+                phase_label=phase_label,
+                unit=None,
+                items=[],
+                total_mark=None,
+                list_driven=False,
+                day_labels=[],
+                **_subpage_close_ctx(close_url),
+            ),
+        )
+    ex = db.query(Exercise).filter(Exercise.id == ex0.id).first()
+    if ex is None:
+        abort(404)
+    unit = db.get(AnalystDilemmaCriteriaUnit, unit_id)
+    if unit is None or unit.exercise_id != ex.id:
+        abort(404)
+    if request.method == "POST":
+        save_dilemma_criteria_phase_items(db, ex, unit, phase_key)
+        return redirect(
+            url_for(
+                "views.analyst_hub_section",
+                slug="evaluation-criteria",
+                tab="dilemma",
+                ok=1,
+            )
+        )
+    items, day_labels = dilemma_criteria_phase_items_for_unit(db, ex, unit, phase_key)
+    list_driven = bool(items)
+    unit_level_key = _resolve_unit_level_key_for_criteria_label(unit.label or "")
+    total_mark = sum(
+        float(item["allocated_mark"] or 0)
+        for item in items
+        if item.get("allocated_mark") is not None
+    )
+    return render_template(
+        "analyst_dilemma_criteria_phase.html",
+        **_ctx(
+            user,
+            has_exercise=True,
+            section_title=section_title,
+            exercise=ex,
+            unit=unit,
+            phase_key=phase_key,
+            phase_label=phase_label,
+            items=items,
+            list_driven=list_driven,
+            day_labels=day_labels,
+            criteria_unit_level_key=unit_level_key,
+            total_mark=total_mark if total_mark > 0 else None,
+            ok_msg="تم حفظ جدول المرحلة." if request.args.get("ok") else "",
+            **_subpage_close_ctx(close_url),
         ),
     )
 
