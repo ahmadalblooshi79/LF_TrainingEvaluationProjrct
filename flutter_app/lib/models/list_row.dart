@@ -44,7 +44,11 @@ class ListRow {
   });
 
   factory ListRow.fromJson(Map<String, dynamic> json) {
-    int? asInt(dynamic v) => v == null ? null : (v as num?)?.toInt();
+    int? asInt(dynamic v) {
+      if (v == null) return null;
+      if (v is num) return v.toInt();
+      return int.tryParse(v.toString().trim());
+    }
     return ListRow(
       id: json['id'],
       slotIndex: asInt(json['slot_index']),

@@ -20,6 +20,14 @@ def pwa_root() -> Path:
     return _PWA_DIR
 
 
+def _no_cache(resp):
+    """منع بقاء نسخة قديمة من PWA في المتصفح بعد إعادة البناء."""
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
+
 @bp.get("/tablet")
 @bp.get("/tablet/")
 def tablet_pwa_index():
@@ -32,7 +40,7 @@ def tablet_pwa_index():
                 "PWA غير مبني بعد. شغّل BUILD_PWA.bat ثم أعد تشغيل السيرفر."
             ),
         )
-    return send_from_directory(root, "index.html")
+    return _no_cache(send_from_directory(root, "index.html"))
 
 
 @bp.get("/tablet/<path:asset_path>")
@@ -50,6 +58,19 @@ def tablet_pwa_assets(asset_path: str):
         # SPA fallback
         index = root / "index.html"
         if index.is_file() and not asset_path.startswith("assets/"):
-            return send_from_directory(root, "index.html")
+            return _no_cache(send_from_directory(root, "index.html"))
         abort(404)
-    return send_from_directory(root, asset_path)
+    resp = send_from_directory(root, asset_path)
+    # الملفات الأساسية تتغير مع كل بناء — لا تُخزَّن بنسخة قديمة
+    name = Path(asset_path).name.lower()
+    if name in {
+        "index.html",
+        "main.dart.js",
+        "flutter_bootstrap.js",
+        "flutter.js",
+        "flutter_service_worker.js",
+        "manifest.json",
+        "version.json",
+    } or name.endswith(".js"):
+        return _no_cache(resp)
+    return resp

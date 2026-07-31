@@ -32,7 +32,7 @@ class EvalRow {
   factory EvalRow.fromJson(Map<String, dynamic> json) {
     double? maxNum;
     final rawMax = json['max_num'];
-    if (rawMax is num) maxNum = rawMax.toDouble();
+    if (rawMax is num && rawMax.isFinite) maxNum = rawMax.toDouble();
     return EvalRow(
       rowKind: (json['row_kind'] ?? 'score').toString(),
       element: (json['element'] ?? '').toString(),
@@ -131,6 +131,15 @@ class EvalWorkflow {
   }
 }
 
+List<Map<String, dynamic>> _mapsFrom(dynamic raw) {
+  if (raw is! List) return const [];
+  final out = <Map<String, dynamic>>[];
+  for (final e in raw) {
+    if (e is Map) out.add(Map<String, dynamic>.from(e));
+  }
+  return out;
+}
+
 /// Detail of an action-eval slot or evaluation-list item (same shape).
 class EvalSheetDetail {
   final String kind; // action_eval | evaluation_list
@@ -170,26 +179,22 @@ class EvalSheetDetail {
   });
 
   factory EvalSheetDetail.fromJson(Map<String, dynamic> json) {
-    final evalRows = ((json['eval_rows'] as List?) ?? [])
-        .whereType<Map>()
-        .map((e) => EvalRow.fromJson(Map<String, dynamic>.from(e)))
-        .toList();
+    final evalRows = _mapsFrom(json['eval_rows']).map(EvalRow.fromJson).toList();
 
     final savedPayload = json['saved_payload'] is Map
         ? Map<String, dynamic>.from(json['saved_payload'] as Map)
         : <String, dynamic>{};
-    final savedRowsRaw = (savedPayload['rows'] as List?) ??
-        (json['saved_rows'] as List?) ??
-        const [];
+    final savedRowsRaw = _mapsFrom(
+      savedPayload['rows'] ?? json['saved_rows'],
+    );
 
     // Always seed from the Excel template so the sheet never renders empty
     // when eval_rows exist; overlay any previously saved acquired/notes.
     final editable = evalRows.map(EvalRowInput.fromEvalRow).toList();
-    if (savedRowsRaw.length == editable.length) {
-      for (var i = 0; i < editable.length; i++) {
-        final raw = savedRowsRaw[i];
-        if (raw is! Map) continue;
-        final m = Map<String, dynamic>.from(raw);
+    if (savedRowsRaw.isNotEmpty) {
+      final n = editable.length < savedRowsRaw.length ? editable.length : savedRowsRaw.length;
+      for (var i = 0; i < n; i++) {
+        final m = savedRowsRaw[i];
         if (m.containsKey('acquired')) {
           editable[i].acquired = (m['acquired'] ?? '').toString();
         }

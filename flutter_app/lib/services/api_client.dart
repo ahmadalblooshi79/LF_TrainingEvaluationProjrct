@@ -139,9 +139,10 @@ class ApiClient {
       final encodedBody = body == null ? null : jsonEncode(body);
       switch (method) {
         case 'GET':
+          // Evaluation sheet detail can include large Excel-derived payloads.
           resp = await _http
               .get(uri, headers: headers)
-              .timeout(const Duration(seconds: 12));
+              .timeout(const Duration(seconds: 45));
           break;
         case 'POST':
           resp = await _http
