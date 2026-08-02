@@ -31,10 +31,12 @@ from app.database import (
     ensure_ai_report_library_tables,
     ensure_ai_agentic_foundation_tables,
     ensure_ai_training_center_tables,
+    ensure_tablet_offline_support,
 )
 
 # تسجيل النماذج لضمان اكتمال metadata
 import app.models  # noqa: F401
+import app.models.remote_control  # noqa: F401 — جلسات التحكم المباشر
 import app.ai_local_engine.models  # noqa: F401
 import app.ai_report_library.models  # noqa: F401
 import app.ai_agentic.models  # noqa: F401
@@ -87,6 +89,7 @@ def create_app() -> Flask:
         ensure_ai_report_library_tables()
         ensure_ai_agentic_foundation_tables()
         ensure_ai_training_center_tables()
+        ensure_tablet_offline_support()
         from app.seed import seed_all
         db = SessionLocal()
         try:
@@ -98,6 +101,8 @@ def create_app() -> Flask:
     def _open_db():
         path = request.path or ""
         if path.startswith("/static/"):
+            return
+        if path.startswith("/api/remote-control/stream"):
             return
         g.db = SessionLocal()
         # طلبات خفيفة — لا مزامنة كتالوج (تسريع الدخول والنبضات والصفحات البسيطة)
@@ -173,6 +178,10 @@ def create_app() -> Flask:
     from app import tablet_pwa
 
     app.register_blueprint(tablet_pwa.bp)
+
+    from app import remote_control
+
+    app.register_blueprint(remote_control.bp)
 
     @app.template_global()
     def report_phase_max_input_name(unit_key, phase_key):

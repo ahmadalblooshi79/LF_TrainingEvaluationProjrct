@@ -273,6 +273,15 @@ def main() -> None:
         sys.exit(1)
 
     app = create_app()
+    try:
+        from app.remote_control_ws import start_remote_control_ws_server
+
+        ws_port = PORT + 1
+        if start_remote_control_ws_server(host=HOST if HOST != "127.0.0.1" else "0.0.0.0", port=ws_port):
+            print(f"  Remote Control WebSocket: ws://<host>:{ws_port}/", flush=True)
+        print(f"  Presentation display: http://<host>:{PORT}/presentation/live", flush=True)
+    except Exception as exc:
+        print(f"  [تحذير] WebSocket للتحكم المباشر: {exc}", flush=True)
     debug = _env_flag("FLASK_DEBUG", default=False) and not getattr(sys, "frozen", False)
     if not getattr(sys, "frozen", False) and not str(sys.executable).lower().endswith(
         (r".venv\scripts\python.exe", r"/.venv/bin/python")

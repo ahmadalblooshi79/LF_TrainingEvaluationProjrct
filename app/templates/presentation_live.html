@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>شاشة العرض المباشر — Live Presentation</title>
+  <style>
+    html, body { margin:0; padding:0; height:100%; background:#0b2421; overflow:hidden; }
+    #frame { border:0; width:100%; height:100%; background:#fff; }
+    #banner {
+      position:fixed; top:0; left:0; right:0; z-index:20;
+      background:rgba(11,36,33,.92); color:#f5f2e8; font:700 13px Tahoma,Arial,sans-serif;
+      padding:8px 14px; display:flex; gap:12px; align-items:center; justify-content:space-between;
+    }
+    #banner .ok { color:#8dffb0; }
+    #banner .warn { color:#ffd27a; }
+    #banner button {
+      background:#c9a227; color:#0b2421; border:0; font-weight:700;
+      padding:6px 12px; cursor:pointer; border-radius:4px;
+    }
+    body.fullscreen #banner { display:none; }
+    #frame-wrap { position:absolute; inset:0; top:40px; }
+    body.fullscreen #frame-wrap { top:0; }
+  </style>
+</head>
+<body>
+  <div id="banner">
+    <div>
+      <span>شاشة العرض المباشر</span>
+      ·
+      <span id="status" class="warn">بانتظار جهاز التحكم…</span>
+      ·
+      <span id="path-label"></span>
+    </div>
+    <div>
+      <button type="button" id="btn-fs">ملء الشاشة</button>
+    </div>
+  </div>
+  <div id="frame-wrap">
+    <iframe id="frame" title="Presentation" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-downloads"></iframe>
+  </div>
+  <script>
+(function () {
+  var DISPLAY_ID = {{ display_id|tojson }};
+  var WS_PORT = {{ ws_port_hint|tojson }};
+  var frame = document.getElementById("frame");
+  var statusEl = document.getElementById("status");
+  var pathEl = document.getElementById("path-label");
+  var currentPath = "";
+
+  function setStatus(text, ok) {
+    statusEl.textContent = text;
+    statusEl.className = ok ? "ok" : "warn";
+  }
+
+  /** تمرير فقط — بدون أي transform/scale (كان يسبب تكبيراً عشوائياً). */
+  function applyScrollOnly(payload) {
+    payload = payload || {};
+    var x = Number(payload.x != null ? payload.x : payload.scrollX);
+    var y = Number(payload.y != null ? payload.y : payload.scrollY);
+    if (!isFinite(x)) x = 0;
+    if (!isFinite(y)) y = 0;
+    try {
+      if (frame.contentWindow) {
+        frame.contentWindow.scrollTo(x, y);
+      }
+    } catch (e) {}
+  }
+
+  function clearAnyScale() {
+    try {
+      var doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
+      if (!doc) return;
+      var html = doc.documentElement;
+      var body = doc.body;
+      if (html) {
+        html.style.transform = "";
+        html.style.zoom = "";
+      }
+      if (body) {
+        body.style.transform = "";
+        body.style.zoom = "";
+      }
+    } catch (e) {}
+  }
+
+  function navigate(path) {
+    if (!path) return;
+    if (path === currentPath) return;
+    currentPath = path;
+    pathEl.textContent = path;
+    var url = path;
+    if (path.indexOf("http") !== 0) {
+      url = path.charAt(0) === "/" ? path : "/" + path;
+    }
+    frame.src = url;
+  }
+
+  function handleEvent(evt) {
+    if (!evt || !evt.type) return;
+    if (evt.type === "session_started") {
+      setStatus("متصل — " + (evt.username || evt.device_label || "جهاز تحكم"), true);
+      return;
+    }
+    if (evt.type === "session_ended") {
+      setStatus("انتهت جلسة التحكم", false);
+      return;
+    }
+    if (evt.type === "session_lock") {
+      setStatus(evt.locked ? "الجلسة مقفلة" : "الجلسة مفتوحة", true);
+      return;
+    }
+    if (evt.type === "navigate" || evt.type === "open" || evt.type === "tab") {
+      setStatus("عرض مباشر نشط", true);
+      navigate(evt.path || (evt.payload && evt.payload.path));
+      return;
+    }
+    /* تجاهل أوامر التكبير بالكامل — لا scale ولا إحداثيات تكبير خاطئة */
+    if (evt.type === "zoom" || evt.type === "pan") {
+      clearAnyScale();
+      return;
+    }
+    if (evt.type === "scroll") {
+      clearAnyScale();
+      applyScrollOnly(evt.payload || {});
+      return;
+    }
+    if (evt.type === "click" && evt.payload && evt.payload.selector) {
+      try {
+        var el = frame.contentDocument.querySelector(evt.payload.selector);
+        if (el) el.click();
+      } catch (e) {}
+    }
+  }
+
+  function connectSse() {
+    var es = new EventSource("/api/remote-control/stream?display_id=" + encodeURIComponent(DISPLAY_ID));
+    es.addEventListener("remote", function (e) {
+      try { handleEvent(JSON.parse(e.data)); } catch (err) {}
+    });
+    es.addEventListener("hello", function () {
+      setStatus("قناة العرض جاهزة — بانتظار التحكم", false);
+    });
+    es.onerror = function () {
+      setStatus("إعادة الاتصال بقناة العرض…", false);
+    };
+  }
+
+  function connectWs() {
+    try {
+      var proto = location.protocol === "https:" ? "wss:" : "ws:";
+      var host = location.hostname;
+      var url = proto + "//" + host + ":" + WS_PORT + "/?display_id=" + encodeURIComponent(DISPLAY_ID);
+      var ws = new WebSocket(url);
+      ws.onmessage = function (e) {
+        try { handleEvent(JSON.parse(e.data)); } catch (err) {}
+      };
+    } catch (e) {}
+  }
+
+  document.getElementById("btn-fs").addEventListener("click", function () {
+    var el = document.documentElement;
+    if (!document.fullscreenElement) {
+      (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+      document.body.classList.add("fullscreen");
+    } else {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      document.body.classList.remove("fullscreen");
+    }
+  });
+
+  frame.addEventListener("load", function () {
+    clearAnyScale();
+  });
+
+  fetch("/api/remote-control/status?display_id=" + encodeURIComponent(DISPLAY_ID))
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.active) {
+        setStatus("متصل — " + (d.active.username || ""), true);
+        if (d.active.last_path) navigate(d.active.last_path);
+      }
+      if (d.last_state && d.last_state.type === "navigate") {
+        handleEvent(d.last_state);
+      }
+    })
+    .catch(function () {});
+
+  connectSse();
+  connectWs();
+})();
+  </script>
+</body>
+</html>

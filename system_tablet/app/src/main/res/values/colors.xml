@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="lf_header">#0B2421</color>
+    <color name="lf_accent">#C9A227</color>
+    <color name="lf_bg">#F7F4EA</color>
+    <color name="lf_text">#0B2421</color>
+    <color name="white">#FFFFFF</color>
+</resources>

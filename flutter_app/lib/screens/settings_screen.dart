@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../services/api_client.dart';
@@ -135,6 +136,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   TextButton(
                     onPressed: () => SyncService.instance.flush(),
                     child: const Text('مزامنة الآن'),
+                  ),
+                  TextButton(
+                    onPressed: () => context.push('/sync-status'),
+                    child: const Text('التفاصيل'),
                   ),
                 ],
               ),

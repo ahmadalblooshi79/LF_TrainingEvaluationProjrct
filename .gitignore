@@ -19,16 +19,14 @@ _transcript_snippets.txt
 app/static/images/
 !app/static/images/crests/
 !app/static/images/crests/**
-# مخرجات بناء Setup — لا تُرفع
-dist/
+# مخرجات بناء Setup — لا تُرفع (مع الإبقاء على ملفات APK)
+dist/*
+!dist/*.apk
 build/
 *.spec
 packaging/*.7z
 packaging/advanced_installer/*.aip
-packaging/staging/
-dist/LF_TrainingEvaluation_Server/
-dist/LF_TrainingEvaluation_Setup.exe
-# Flutter
+packaging/staging/# Flutter
 flutter_app/.dart_tool/
 flutter_app/.flutter-plugins
 flutter_app/.flutter-plugins-dependencies
@@ -36,3 +34,17 @@ flutter_app/.packages
 flutter_app/build/
 flutter_app/.pub-cache/
 flutter_app/.pub/
+
+# Local Flutter SDK (downloaded by agent/build scripts)
+tools/flutter/
+
+# تطبيق النظام رقم 2 — مخرجات بناء Android فقط (المصادر تُرفع)
+system_tablet/.gradle/
+system_tablet/build/
+system_tablet/app/build/
+system_tablet/local.properties
+system_tablet/.idea/
+system_tablet/*.iml
+system_tablet/captures/
+system_tablet/.cxx/
+

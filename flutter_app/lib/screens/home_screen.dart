@@ -58,12 +58,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final ex = AuthService.instance.session?.exercise;
+    final session = AuthService.instance.session;
+    final ex = session?.exercise;
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppHeader(
         pageTitle: 'التمرين',
-        pageSubtitle: ex?.name ?? 'القائمة الرئيسية',
+        pageSubtitle: session?.unitLabel.isNotEmpty == true
+            ? session!.unitLabel
+            : (ex?.name ?? 'القائمة الرئيسية'),
         showLogout: true,
         showOnlineChip: false,
       ),
@@ -148,7 +151,7 @@ class _Sidebar extends StatelessWidget {
                   ex?.location.isNotEmpty == true ? ex!.location : '—'),
               const SizedBox(height: 12),
               OutlinedButton(
-                onPressed: () {},
+                onPressed: () => context.push('/exercise-details'),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.goldDark,
                   side: const BorderSide(color: AppColors.gold),
@@ -380,11 +383,12 @@ class _IncompleteTable extends StatelessWidget {
       children: [
         Container(
           color: AppColors.headerCream,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
           child: Row(
             children: [
               Expanded(flex: 1, child: Text('ت', style: _h, textAlign: TextAlign.center)),
-              Expanded(flex: 5, child: Text('مسمى التقييم', style: _h, textAlign: TextAlign.right)),
+              Expanded(flex: 4, child: Text('مسمى التقييم', style: _h, textAlign: TextAlign.right)),
+              Expanded(flex: 2, child: Text('نوع القائمة', style: _h, textAlign: TextAlign.center)),
               Expanded(flex: 2, child: Text('الموقف', style: _h, textAlign: TextAlign.center)),
               Expanded(flex: 2, child: Text('الإجراء', style: _h, textAlign: TextAlign.center)),
             ],
@@ -396,11 +400,11 @@ class _IncompleteTable extends StatelessWidget {
             child: Text('لا توجد مهام غير مكتملة'),
           )
         else
-          ...rows.take(8).toList().asMap().entries.map((e) {
+          ...rows.asMap().entries.map((e) {
             final i = e.key;
             final r = e.value;
             return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
               decoration: const BoxDecoration(
                 border: Border(top: BorderSide(color: AppColors.divider)),
               ),
@@ -411,8 +415,25 @@ class _IncompleteTable extends StatelessWidget {
                     child: Text('${i + 1}', textAlign: TextAlign.center, style: AppTextStyles.small),
                   ),
                   Expanded(
-                    flex: 5,
-                    child: Text(r.title, style: AppTextStyles.body, maxLines: 2, overflow: TextOverflow.ellipsis),
+                    flex: 4,
+                    child: Text(
+                      r.title,
+                      style: AppTextStyles.body,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      r.displayListType,
+                      textAlign: TextAlign.center,
+                      style: AppTextStyles.cairo(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.olive,
+                      ),
+                    ),
                   ),
                   Expanded(
                     flex: 2,
@@ -486,7 +507,6 @@ class _IncompleteTable extends StatelessWidget {
       return;
     }
     if (itemId != null) {
-      // وحدة فارغة — جرّب المسار مع مفتاح احتياطي من العنوان
       context.push('/evaluation-lists/_/$itemId', extra: r.title);
     }
   }

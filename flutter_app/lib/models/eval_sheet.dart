@@ -157,6 +157,8 @@ class EvalSheetDetail {
   final bool canEdit;
   final bool canApprove;
   final bool isApproved;
+  final bool locallyApproved;
+  final String approvalSyncStatus;
   final EvalWorkflow workflow;
 
   const EvalSheetDetail({
@@ -175,6 +177,8 @@ class EvalSheetDetail {
     required this.canEdit,
     required this.canApprove,
     required this.isApproved,
+    this.locallyApproved = false,
+    this.approvalSyncStatus = '',
     required this.workflow,
   });
 
@@ -213,6 +217,9 @@ class EvalSheetDetail {
       }
     }
 
+    final locallyApproved = json['locally_approved'] == true;
+    final isApproved = json['is_approved'] == true || locallyApproved;
+    final canEdit = json['can_edit'] == true && !isApproved;
     return EvalSheetDetail(
       kind: (json['kind'] ?? '').toString(),
       slot: (json['slot'] as num?)?.toInt(),
@@ -228,9 +235,11 @@ class EvalSheetDetail {
           .map(AcquiredOption.fromJson)
           .toList(),
       savedRows: editable,
-      canEdit: json['can_edit'] == true,
-      canApprove: json['can_approve'] == true,
-      isApproved: json['is_approved'] == true,
+      canEdit: canEdit,
+      canApprove: json['can_approve'] == true && !isApproved,
+      isApproved: isApproved,
+      locallyApproved: locallyApproved,
+      approvalSyncStatus: (json['approval_sync_status'] ?? '').toString(),
       workflow: EvalWorkflow.fromJson(
         json['workflow'] is Map
             ? Map<String, dynamic>.from(json['workflow'] as Map)

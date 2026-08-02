@@ -1,12 +1,22 @@
+import 'dart:async';
+import 'dart:ui' as ui show TextDirection;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/connectivity_service.dart';
+import '../services/health_service.dart';
 import '../services/tablet_repository.dart';
 import '../theme/app_theme.dart';
+
+const String kDisplayedAppVersion = '2.4.0';
+
+enum _ConnBadge { connected, offlineMode, unreachable }
 
 /// Login — Figma split: branding left, dark card right + IP button.
 class LoginScreen extends StatefulWidget {
@@ -22,13 +32,36 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passCtrl = TextEditingController();
   bool _obscure = true;
   bool _submitting = false;
+  bool _testingConn = false;
   String? _error;
+  String? _info;
+  String? _testHint;
   String _serverHint = '';
+  bool _offlineReady = false;
+  DateTime? _lastSyncAt;
 
   @override
   void initState() {
     super.initState();
     _refreshServerHint();
+    _loadMeta();
+    unawaited(HealthService.instance.start());
+    HealthService.instance.serverReachable.addListener(_onHealthChanged);
+    ConnectivityService.instance.hasNetwork.addListener(_onHealthChanged);
+  }
+
+  void _onHealthChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _loadMeta() async {
+    final sync = await AuthService.loadLastSyncAt();
+    final offline = await AuthService.instance.hasOfflineCredentials();
+    if (!mounted) return;
+    setState(() {
+      _lastSyncAt = sync;
+      _offlineReady = offline;
+    });
   }
 
   Future<void> _refreshServerHint() async {
@@ -42,8 +75,18 @@ class _LoginScreenState extends State<LoginScreen> {
     });
   }
 
+  _ConnBadge get _badge {
+    if (HealthService.instance.serverReachable.value) {
+      return _ConnBadge.connected;
+    }
+    if (_offlineReady) return _ConnBadge.offlineMode;
+    return _ConnBadge.unreachable;
+  }
+
   @override
   void dispose() {
+    HealthService.instance.serverReachable.removeListener(_onHealthChanged);
+    ConnectivityService.instance.hasNetwork.removeListener(_onHealthChanged);
     _userCtrl.dispose();
     _passCtrl.dispose();
     super.dispose();
@@ -51,38 +94,84 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _openServerConnect() async {
     final changed = await context.push<bool>('/server-connect');
-    if (changed == true) await _refreshServerHint();
+    if (changed == true) {
+      await _refreshServerHint();
+      await HealthService.instance.check(force: true);
+      await _loadMeta();
+    }
+  }
+
+  Future<void> _testConnection() async {
+    if (_testingConn) return;
+    setState(() {
+      _testingConn = true;
+      _testHint = null;
+    });
+    await ApiClient.instance.init();
+    final ok = await HealthService.instance.check(force: true);
+    if (!mounted) return;
+    setState(() {
+      _testingConn = false;
+      _testHint = ok ? '✅ تم الاتصال بالخادم' : '⚠️ سيتم العمل بوضع offline';
+    });
   }
 
   Future<void> _submit() async {
     if (_submitting) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    final auth = context.read<AuthService>();
     await ApiClient.instance.init();
     if (!kIsWeb && ApiClient.instance.baseUrl.trim().isEmpty) {
-      setState(() => _error = 'اضبط عنوان السيرفر أولاً عبر زر «ربط السيرفر»');
-      return;
+      final offlineOk =
+          await AuthService.instance.canOfflineLoginAs(_userCtrl.text.trim());
+      if (!offlineOk) {
+        if (!mounted) return;
+        setState(() => _error = 'اضبط عنوان السيرفر أولاً عبر زر «ربط السيرفر»');
+        return;
+      }
     }
     if (kIsWeb && ApiClient.instance.baseUrl.trim().isEmpty) {
       await ApiClient.instance.setBaseUrl(Uri.base.origin);
     }
+    if (!mounted) return;
     setState(() {
       _submitting = true;
       _error = null;
+      _info = null;
+      _testHint = null;
     });
-    final auth = context.read<AuthService>();
     final ok = await auth.login(_userCtrl.text.trim(), _passCtrl.text);
     if (!mounted) return;
     if (ok) {
-      // ignore: unawaited_futures
-      TabletRepository.instance.prefetchForOffline();
+      if (!auth.lastLoginWasOffline) {
+        try {
+          await TabletRepository.instance.prefetchForOffline();
+        } catch (_) {}
+      }
+      if (!mounted) return;
+      await _loadMeta();
+      if (!mounted) return;
       setState(() => _submitting = false);
       context.go('/home');
       return;
     }
+    var err = auth.lastError ?? 'تعذر الاتصال بالخادم.';
+    if (err.contains('مهلة')) {
+      final offline = await AuthService.instance
+          .canOfflineLoginAs(_userCtrl.text.trim());
+      err = offline
+          ? 'تعذر الاتصال بالخادم.\nسيتم العمل باستخدام البيانات المحلية.'
+          : 'تعذر الاتصال بالخادم.';
+    }
     setState(() {
       _submitting = false;
-      _error = auth.lastError ?? 'تعذّر تسجيل الدخول';
+      _error = err;
     });
+  }
+
+  String _formatSync(DateTime? at) {
+    if (at == null) return 'لم تتم أي مزامنة بعد';
+    return 'آخر مزامنة:\n${DateFormat('dd-MM-yyyy HH:mm').format(at)}';
   }
 
   @override
@@ -99,10 +188,17 @@ class _LoginScreenState extends State<LoginScreen> {
               obscure: _obscure,
               onToggleObscure: () => setState(() => _obscure = !_obscure),
               submitting: _submitting,
+              testingConn: _testingConn,
               error: _error,
+              info: _info,
+              testHint: _testHint,
               serverHint: _serverHint,
+              badge: _badge,
+              versionLabel: 'Version $kDisplayedAppVersion',
+              syncLabel: _formatSync(_lastSyncAt),
               onSubmit: _submit,
               onServerConnect: _openServerConnect,
+              onTestConnection: _testConnection,
             );
             if (orientation == Orientation.landscape) {
               return Row(
@@ -196,10 +292,17 @@ class _LoginCard extends StatelessWidget {
     required this.obscure,
     required this.onToggleObscure,
     required this.submitting,
+    required this.testingConn,
     required this.error,
+    required this.info,
+    required this.testHint,
     required this.serverHint,
+    required this.badge,
+    required this.versionLabel,
+    required this.syncLabel,
     required this.onSubmit,
     required this.onServerConnect,
+    required this.onTestConnection,
   });
 
   final GlobalKey<FormState> formKey;
@@ -208,10 +311,17 @@ class _LoginCard extends StatelessWidget {
   final bool obscure;
   final VoidCallback onToggleObscure;
   final bool submitting;
+  final bool testingConn;
   final String? error;
+  final String? info;
+  final String? testHint;
   final String serverHint;
+  final _ConnBadge badge;
+  final String versionLabel;
+  final String syncLabel;
   final VoidCallback onSubmit;
   final VoidCallback onServerConnect;
+  final VoidCallback onTestConnection;
 
   @override
   Widget build(BuildContext context) {
@@ -232,6 +342,8 @@ class _LoginCard extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              _ConnectionBadge(badge: badge),
+              const SizedBox(height: 14),
               Container(
                 width: 54,
                 height: 54,
@@ -266,9 +378,15 @@ class _LoginCard extends StatelessWidget {
                 icon: Icons.lock_outline,
                 obscure: obscure,
                 suffix: IconButton(
+                  tooltip: obscure ? 'إظهار كلمة المرور' : 'إخفاء كلمة المرور',
+                  iconSize: 24,
+                  constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                  padding: const EdgeInsets.all(12),
+                  splashRadius: 26,
                   icon: Icon(
                     obscure ? Icons.visibility_off : Icons.visibility,
                     color: AppColors.muted,
+                    size: 24,
                   ),
                   onPressed: onToggleObscure,
                 ),
@@ -277,7 +395,7 @@ class _LoginCard extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               OutlinedButton.icon(
-                onPressed: onServerConnect,
+                onPressed: submitting ? null : onServerConnect,
                 icon: const Icon(Icons.dns_outlined, color: AppColors.gold, size: 18),
                 label: Text(
                   'ربط السيرفر (IP Address)',
@@ -297,16 +415,70 @@ class _LoginCard extends StatelessWidget {
               Text(
                 serverHint,
                 textAlign: TextAlign.center,
-                textDirection: TextDirection.ltr,
+                textDirection: ui.TextDirection.ltr,
                 style: AppTextStyles.cairo(fontSize: 11, color: AppColors.goldLight),
               ),
+              Align(
+                alignment: Alignment.center,
+                child: TextButton(
+                  onPressed: (submitting || testingConn) ? null : onTestConnection,
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: testingConn
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.goldLight,
+                          ),
+                        )
+                      : Text(
+                          'اختبار الاتصال',
+                          style: AppTextStyles.cairo(
+                            fontSize: 12,
+                            color: AppColors.goldLight,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                ),
+              ),
+              if (testHint != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  testHint!,
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.cairo(
+                    fontSize: 12,
+                    color: AppColors.goldLight,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
               if (error != null) ...[
                 const SizedBox(height: 10),
                 Text(
                   error!,
                   textAlign: TextAlign.center,
                   style: AppTextStyles.cairo(
+                    fontSize: 13,
                     color: const Color(0xFFFF8A80),
+                    fontWeight: FontWeight.w600,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+              if (info != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  info!,
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.cairo(
+                    fontSize: 12,
+                    color: AppColors.goldLight,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -317,14 +489,33 @@ class _LoginCard extends StatelessWidget {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.gold,
                   foregroundColor: AppColors.darkText,
+                  disabledBackgroundColor: AppColors.gold.withValues(alpha: 0.7),
+                  disabledForegroundColor: AppColors.darkText,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 child: submitting
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.darkText),
+                    ? Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.darkText,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            'جاري تسجيل الدخول...',
+                            style: AppTextStyles.cairo(
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.darkText,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
                       )
                     : Row(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -341,7 +532,26 @@ class _LoginCard extends StatelessWidget {
                         ],
                       ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 14),
+              Text(
+                versionLabel,
+                textAlign: TextAlign.center,
+                style: AppTextStyles.cairo(
+                  fontSize: 11,
+                  color: AppColors.goldLight.withValues(alpha: 0.85),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                syncLabel,
+                textAlign: TextAlign.center,
+                style: AppTextStyles.cairo(
+                  fontSize: 11,
+                  color: AppColors.goldLight.withValues(alpha: 0.75),
+                  height: 1.3,
+                ),
+              ),
+              const SizedBox(height: 16),
               const Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
@@ -383,6 +593,49 @@ class _LoginCard extends StatelessWidget {
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
+        ),
+      ),
+    );
+  }
+}
+
+class _ConnectionBadge extends StatelessWidget {
+  const _ConnectionBadge({required this.badge});
+  final _ConnBadge badge;
+
+  @override
+  Widget build(BuildContext context) {
+    late final Color color;
+    late final String label;
+    switch (badge) {
+      case _ConnBadge.connected:
+        color = const Color(0xFF4CAF50);
+        label = '🟢 متصل بالسيرفر';
+        break;
+      case _ConnBadge.offlineMode:
+        color = const Color(0xFFFF9800);
+        label = '🟠 وضع Offline';
+        break;
+      case _ConnBadge.unreachable:
+        color = const Color(0xFFE53935);
+        label = '🔴 الخادم غير متاح';
+        break;
+    }
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withValues(alpha: 0.7)),
+        ),
+        child: Text(
+          label,
+          style: AppTextStyles.cairo(
+            fontSize: 12,
+            color: AppColors.white,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ),
     );

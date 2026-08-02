@@ -14,6 +14,7 @@ from flask import (
     Blueprint,
     abort,
     current_app,
+    flash,
     jsonify,
     redirect,
     render_template,
@@ -4754,6 +4755,36 @@ def logout():
     return redirect("/login")
 
 
+def _user_default_hub_path(user: User) -> str:
+    """المسار الافتراضي حسب دور المستخدم بعد رفض الوصول لمساحة أخرى."""
+    rk = (getattr(user, "role_key", None) or "").strip()
+    if rk == RoleKey.SYSTEM_ADMIN.value:
+        return "/dashboard"
+    if rk == RoleKey.PLANNER.value:
+        return "/planner"
+    if rk == RoleKey.CONTROL.value:
+        return "/control"
+    if rk == RoleKey.JUDGE.value:
+        return "/judge"
+    if rk == RoleKey.CHIEF_JUDGE.value:
+        return "/chief-judge"
+    if rk == RoleKey.ANALYST.value:
+        return "/analyst"
+    if rk == RoleKey.STANDARDS_LIBRARY.value:
+        return "/library"
+    return "/dashboard"
+
+
+def _deny_hub_access(user: User, *, hub_label: str):
+    """بدلاً من صفحة Forbidden الخام: رسالة عربية وتوجيه لمساحة المستخدم."""
+    flash(
+        f"ليس لديك صلاحية للوصول إلى {hub_label}. "
+        "سجّل الدخول بالحساب المناسب لهذا الدور.",
+        "error",
+    )
+    return redirect(_user_default_hub_path(user))
+
+
 def _dashboard_role_card_target(role_key: str, user: User) -> tuple[str, str, str]:
     """وجهة البطاقة في الصفحة الرئيسية: (المسار، aria، تلميح) مع احترام صلاحيات المستخدم."""
     if role_key == RoleKey.SYSTEM_ADMIN.value:
@@ -4763,21 +4794,35 @@ def _dashboard_role_card_target(role_key: str, user: User) -> tuple[str, str, st
                 "فتح إنشاء تمرين جديد",
                 "إبدأ",
             )
-        return ("/library", "فتح المكتبة", "إبدأ")
-    if role_key == RoleKey.ANALYST.value:
-        return ("/analyst", "فتح مساحة المحللين", "إبدأ")
-    if role_key == RoleKey.CONTROL.value:
-        return ("/control", "فتح مساحة السيطرة", "إبدأ")
-    if role_key == RoleKey.PLANNER.value:
-        return ("/planner", "فتح مساحة التخطيط", "إبدأ")
-    if role_key == RoleKey.JUDGE.value:
-        return ("/judge", "فتح مساحة المحكمين", "إبدأ")
-    if role_key == RoleKey.CHIEF_JUDGE.value:
         return (
-            "/chief-judge",
-            "فتح مساحة كبير المحكمين",
-            "إبدأ",
+            "/dashboard",
+            "لا صلاحية — إدارة النظام فقط",
+            "غير متاح",
         )
+    if role_key == RoleKey.ANALYST.value:
+        if can_access_analyst_hub(user):
+            return ("/analyst", "فتح مساحة المحللين", "إبدأ")
+        return ("/dashboard", "لا صلاحية لمساحة المحللين", "غير متاح")
+    if role_key == RoleKey.CONTROL.value:
+        if can_access_control_hub(user):
+            return ("/control", "فتح مساحة السيطرة", "إبدأ")
+        return ("/dashboard", "لا صلاحية لمساحة السيطرة", "غير متاح")
+    if role_key == RoleKey.PLANNER.value:
+        if can_access_planner_hub(user):
+            return ("/planner", "فتح مساحة التخطيط", "إبدأ")
+        return ("/dashboard", "لا صلاحية لمساحة التخطيط", "غير متاح")
+    if role_key == RoleKey.JUDGE.value:
+        if can_access_judge_hub(user):
+            return ("/judge", "فتح مساحة المحكمين", "إبدأ")
+        return ("/dashboard", "لا صلاحية لمساحة المحكمين", "غير متاح")
+    if role_key == RoleKey.CHIEF_JUDGE.value:
+        if can_access_chief_judge_hub(user):
+            return (
+                "/chief-judge",
+                "فتح مساحة كبير المحكمين",
+                "إبدأ",
+            )
+        return ("/dashboard", "لا صلاحية لمساحة كبير المحكمين", "غير متاح")
     if role_key == RoleKey.STANDARDS_LIBRARY.value:
         return ("/library", "فتح مكتبة المراجع والمعايير", "إبدأ")
     return ("/library", "فتح المكتبة", "إبدأ")
@@ -4900,7 +4945,7 @@ def analyst_hub():
     if not user:
         return redirect("/login?next=/analyst")
     if not can_access_analyst_hub(user):
-        abort(403)
+        return _deny_hub_access(user, hub_label="مساحة المحللين")
     hub_items = _hub_menu_items(
         ANALYST_HUB_ITEMS, section_endpoint="views.analyst_hub_section"
     )
@@ -8704,7 +8749,7 @@ def planner_hub():
     if not user:
         return redirect("/login?next=/planner")
     if not can_access_planner_hub(user):
-        abort(403)
+        return _deny_hub_access(user, hub_label="مساحة التخطيط")
     hub_items = _hub_menu_items(
         PLANNER_HUB_ITEMS, section_endpoint="views.planner_hub_section"
     )
@@ -9299,7 +9344,7 @@ def judge_hub():
     if not user:
         return redirect("/login?next=/judge")
     if not can_access_judge_hub(user):
-        abort(403)
+        return _deny_hub_access(user, hub_label="مساحة المحكمين")
     # المحكم الفردي: قائمة مخفّضة؛ كبير المحكمين (أو المسؤول بصلاحيته): أوامر خاصة + كامل أوامر المحكمين.
     from flask import g
 
@@ -11723,7 +11768,7 @@ def control_hub():
     if not user:
         return redirect("/login?next=/control")
     if not can_access_control_hub(user):
-        abort(403)
+        return _deny_hub_access(user, hub_label="مساحة السيطرة")
     hub_items = _hub_menu_items(
         CONTROL_HUB_ITEMS, section_endpoint="views.control_hub_section"
     )
@@ -13732,7 +13777,7 @@ def chief_judge_hub():
     if not user:
         return redirect("/login?next=/chief-judge")
     if not can_access_chief_judge_hub(user):
-        abort(403)
+        return _deny_hub_access(user, hub_label="مساحة كبير المحكمين")
     hub_items = _hub_menu_items(
         CHIEF_JUDGE_ONLY_HUB_ITEMS, section_endpoint="views.chief_judge_hub_section"
     )

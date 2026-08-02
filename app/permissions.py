@@ -33,6 +33,11 @@ def is_control(user: User) -> bool:
     return _rk(user) == RoleKey.CONTROL
 
 
+def can_use_remote_control(user: User) -> bool:
+    """Live Remote Control — التطبيق رقم 2: إدارة النظام / السيطرة / التخطيط."""
+    return is_system_admin(user) or is_control(user) or is_planner(user)
+
+
 def can_manage_users(user: User) -> bool:
     return is_system_admin(user)
 

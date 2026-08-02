@@ -87,7 +87,7 @@ class _ObjectivesScreenState extends State<ObjectivesScreen> {
                   const SizedBox(height: 6),
                   Text(
                     'الأهداف التدريبية',
-                    style: AppTextStyles.cairo(fontSize: 18, fontWeight: FontWeight.w800),
+                    style: AppTextStyles.cairo(fontSize: 22, fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 10),
                   const Divider(color: AppColors.white, thickness: 1.5),
@@ -115,14 +115,21 @@ class _ObjectivesScreenState extends State<ObjectivesScreen> {
                                           textAlign: TextAlign.center,
                                           style: AppTextStyles.cairo(
                                             fontWeight: FontWeight.w800,
-                                            fontSize: 15,
+                                            fontSize: 18,
                                           ),
                                         ),
                                       ),
-                                      Container(width: 1.5, height: 28, color: AppColors.white),
+                                      Container(width: 1.5, height: 32, color: AppColors.white),
                                       const SizedBox(width: 14),
                                       Expanded(
-                                        child: Text(o.text, style: AppTextStyles.body),
+                                        child: Text(
+                                          o.text,
+                                          style: AppTextStyles.cairo(
+                                            fontSize: 17,
+                                            fontWeight: FontWeight.w600,
+                                            height: 1.45,
+                                          ),
+                                        ),
                                       ),
                                     ],
                                   ),

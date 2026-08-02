@@ -7,7 +7,7 @@ import '../services/sync_service.dart';
 import '../theme/app_theme.dart';
 import 'online_status_chip.dart';
 
-/// Figma shell header — brand | page title | square utility tiles.
+/// Figma shell header — brand | page title + judge | tools on far left (RTL).
 class AppHeader extends StatelessWidget implements PreferredSizeWidget {
   const AppHeader({
     super.key,
@@ -17,6 +17,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
     this.showLogout = true,
     this.showSettings = true,
     this.showOnlineChip = true,
+    this.showUtilityActions = true,
     this.brandLine3,
   });
 
@@ -26,17 +27,24 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
   final bool showLogout;
   final bool showSettings;
   final bool showOnlineChip;
+  final bool showUtilityActions;
   /// Optional third brand line under system name (e.g. exercise short name).
   final String? brandLine3;
 
   @override
-  Size get preferredSize => const Size.fromHeight(92);
+  Size get preferredSize => const Size.fromHeight(96);
 
   @override
   Widget build(BuildContext context) {
     final session = context.watch<AuthService>().session;
     final unit = (pageSubtitle ?? session?.unitLabel ?? '').trim();
     final line3 = (brandLine3 ?? session?.exercise?.name ?? '').trim();
+    final judgeName = (session?.user.judgeDisplayName.trim().isNotEmpty == true
+            ? session!.user.judgeDisplayName
+            : (session?.user.fullName ?? ''))
+        .trim();
+
+    final canPop = onBack != null || (Navigator.of(context).canPop());
 
     return Material(
       color: AppColors.headerBar,
@@ -44,19 +52,14 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
       child: SafeArea(
         bottom: false,
         child: Container(
-          height: 84,
+          height: 88,
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: const BoxDecoration(
             border: Border(bottom: BorderSide(color: AppColors.divider, width: 1)),
           ),
+          // RTL: أول عنصر يمين الشاشة، وآخر عنصر أقصى اليسار.
           child: Row(
             children: [
-              if (onBack != null)
-                IconButton(
-                  onPressed: onBack,
-                  tooltip: 'رجوع',
-                  icon: const Icon(Icons.arrow_forward_ios, size: 18, color: AppColors.olive),
-                ),
               Image.asset(
                 'assets/images/uae_mod.png',
                 height: 56,
@@ -118,13 +121,25 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
+                    if (judgeName.isNotEmpty)
+                      Text(
+                        judgeName,
+                        style: AppTextStyles.cairo(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.goldDark,
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     if (unit.isNotEmpty)
                       Text(
                         unit,
                         style: AppTextStyles.cairo(
-                          fontSize: 13,
+                          fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: AppColors.goldDark,
+                          color: AppColors.muted,
                         ),
                         textAlign: TextAlign.center,
                         maxLines: 1,
@@ -136,26 +151,47 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
               const SizedBox(width: 6),
               if (showOnlineChip) ...[
                 const OnlineStatusChip(),
-                const SizedBox(width: 6),
+                const SizedBox(width: 4),
               ],
               ValueListenableBuilder<int>(
                 valueListenable: SyncService.instance.pendingCount,
                 builder: (_, count, __) {
                   if (count <= 0) return const SizedBox.shrink();
                   return Padding(
-                    padding: const EdgeInsets.only(left: 4),
+                    padding: const EdgeInsets.only(left: 2),
                     child: _SqIcon(
                       icon: Icons.cloud_upload_outlined,
                       badge: '$count',
                       tooltip: 'بانتظار المزامنة',
-                      onTap: () => SyncService.instance.flush(),
+                      onTap: () => context.push('/sync-status'),
                     ),
                   );
                 },
               ),
-              _SqIcon(icon: Icons.mail_outline, badge: '1', tooltip: 'الرسائل', onTap: () {}),
-              _SqIcon(icon: Icons.notifications_none, badge: '2', tooltip: 'التنبيهات', onTap: () {}),
-              _SqIcon(icon: Icons.menu_book_outlined, tooltip: 'الدليل', onTap: () {}),
+              // أقصى اليسار (نهاية الصف في RTL): رجوع بجانب الرسالة ثم الجرس فالمكتبة فالإعدادات فالخروج
+              if (canPop)
+                _SqIcon(
+                  icon: Icons.arrow_forward_ios,
+                  tooltip: 'رجوع',
+                  onTap: onBack ?? () => Navigator.of(context).maybePop(),
+                ),
+              if (showUtilityActions) ...[
+                _SqIcon(
+                  icon: Icons.mail_outline,
+                  tooltip: 'الرسائل — تكليف مهمة خاصة',
+                  onTap: () => context.push('/messages'),
+                ),
+                _SqIcon(
+                  icon: Icons.notifications_none,
+                  tooltip: 'التنبيهات والإشعارات',
+                  onTap: () => context.push('/notifications'),
+                ),
+                _SqIcon(
+                  icon: Icons.menu_book_outlined,
+                  tooltip: 'المكتبة — التخطيط والسيطرة',
+                  onTap: () => context.push('/library'),
+                ),
+              ],
               if (showSettings)
                 _SqIcon(
                   icon: Icons.settings_outlined,

@@ -130,29 +130,38 @@ class ApiClient {
     String path, {
     Map<String, dynamic>? query,
     Object? body,
+    Duration? timeout,
+    String? idempotencyKey,
   }) async {
     await init();
     final uri = _uri(path, query);
     final headers = await _headersFor(uri);
+    if (idempotencyKey != null && idempotencyKey.isNotEmpty) {
+      headers['Idempotency-Key'] = idempotencyKey;
+      headers['X-Client-Op-Id'] = idempotencyKey;
+    }
+    final effectiveTimeout = timeout ??
+        (method == 'GET'
+            ? const Duration(seconds: 45)
+            : const Duration(seconds: 15));
     try {
       http.Response resp;
       final encodedBody = body == null ? null : jsonEncode(body);
       switch (method) {
         case 'GET':
-          // Evaluation sheet detail can include large Excel-derived payloads.
           resp = await _http
               .get(uri, headers: headers)
-              .timeout(const Duration(seconds: 45));
+              .timeout(effectiveTimeout);
           break;
         case 'POST':
           resp = await _http
               .post(uri, headers: headers, body: encodedBody)
-              .timeout(const Duration(seconds: 15));
+              .timeout(effectiveTimeout);
           break;
         case 'PUT':
           resp = await _http
               .put(uri, headers: headers, body: encodedBody)
-              .timeout(const Duration(seconds: 15));
+              .timeout(effectiveTimeout);
           break;
         default:
           throw ApiException('طريقة غير مدعومة: $method');
@@ -188,16 +197,42 @@ class ApiClient {
     }
   }
 
-  Future<Map<String, dynamic>> get(String path, {Map<String, dynamic>? query}) {
-    return _send('GET', path, query: query);
+  Future<Map<String, dynamic>> get(
+    String path, {
+    Map<String, dynamic>? query,
+    Duration? timeout,
+  }) {
+    return _send('GET', path, query: query, timeout: timeout);
   }
 
-  Future<Map<String, dynamic>> post(String path, {Object? body}) {
-    return _send('POST', path, body: body ?? const {});
+  Future<Map<String, dynamic>> post(
+    String path, {
+    Object? body,
+    String? idempotencyKey,
+    Duration? timeout,
+  }) {
+    return _send(
+      'POST',
+      path,
+      body: body ?? const {},
+      idempotencyKey: idempotencyKey,
+      timeout: timeout,
+    );
   }
 
-  Future<Map<String, dynamic>> put(String path, {Object? body}) {
-    return _send('PUT', path, body: body ?? const {});
+  Future<Map<String, dynamic>> put(
+    String path, {
+    Object? body,
+    String? idempotencyKey,
+    Duration? timeout,
+  }) {
+    return _send(
+      'PUT',
+      path,
+      body: body ?? const {},
+      idempotencyKey: idempotencyKey,
+      timeout: timeout,
+    );
   }
 
   Future<Map<String, dynamic>> uploadCriterionMedia({
@@ -206,14 +241,22 @@ class ApiClient {
     required String mediaKind,
     int? evaluationListItemId,
     int? bundleActionEvalId,
+    String? idempotencyKey,
   }) async {
     await init();
     final uri = _uri('/api/tablet/media/criterion');
     final headers = await _headersFor(uri, json: false);
+    if (idempotencyKey != null && idempotencyKey.isNotEmpty) {
+      headers['Idempotency-Key'] = idempotencyKey;
+      headers['X-Client-Op-Id'] = idempotencyKey;
+    }
     final req = http.MultipartRequest('POST', uri);
     req.headers.addAll(headers);
     req.fields['row_index'] = '$rowIndex';
     req.fields['media_kind'] = mediaKind;
+    if (idempotencyKey != null) {
+      req.fields['client_op_id'] = idempotencyKey;
+    }
     if (evaluationListItemId != null) {
       req.fields['evaluation_list_item_id'] = '$evaluationListItemId';
     }
@@ -242,11 +285,12 @@ class ApiClient {
     }
   }
 
-  Future<bool> ping() async {
+  Future<bool> ping({Duration timeout = const Duration(seconds: 3)}) async {
     try {
-      await get('/api/tablet/health');
+      await get('/api/tablet/health', timeout: timeout);
       return true;
     } catch (_) {
+      online.value = false;
       return false;
     }
   }

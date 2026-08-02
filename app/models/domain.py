@@ -580,6 +580,30 @@ class EvaluationCriterionMedia(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    client_op_id: Mapped[str] = mapped_column(String(120), default="", index=True)
+
+
+class TabletClientOp(Base):
+    """عمليات تابلت Idempotent — تمنع تكرار الحفظ/الاعتماد/الرفع عند إعادة الإرسال."""
+
+    __tablename__ = "tablet_client_ops"
+    __table_args__ = (
+        UniqueConstraint("user_id", "client_op_id", name="uq_tablet_client_op_user_id"),
+        Index("ix_tablet_client_ops_exercise", "exercise_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    exercise_id: Mapped[int | None] = mapped_column(
+        ForeignKey("exercises.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    client_op_id: Mapped[str] = mapped_column(String(120), index=True)
+    op_type: Mapped[str] = mapped_column(String(64), default="")
+    path: Mapped[str] = mapped_column(String(400), default="")
+    response_json: Mapped[str] = mapped_column(Text(), default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
 class AnalystEvaluationCriteriaResult(Base):

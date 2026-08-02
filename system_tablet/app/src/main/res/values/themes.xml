@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.LFSystemTablet" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/lf_header</item>
+        <item name="colorPrimaryVariant">@color/lf_header</item>
+        <item name="colorSecondary">@color/lf_accent</item>
+        <item name="android:statusBarColor">@color/lf_header</item>
+        <item name="android:navigationBarColor">@color/lf_header</item>
+        <item name="android:windowBackground">@color/lf_bg</item>
+    </style>
+</resources>

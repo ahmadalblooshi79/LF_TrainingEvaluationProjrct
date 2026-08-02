@@ -1,0 +1,76 @@
+/* إصلاحات تقنية فقط لتطبيق النظام على التابلت — دون تغيير هوية التصميم */
+html.lf-system-tablet,
+html.lf-system-tablet body {
+  -webkit-text-size-adjust: 100%;
+  touch-action: manipulation;
+  /* منع تكبير المتصفح/WebView العرضي */
+  -ms-touch-action: manipulation;
+}
+
+/* الجداول ومناطق التمرير: تمرير فقط — لا إيماءة تكبير */
+html.lf-system-tablet .table-wrap,
+html.lf-system-tablet .table-scroll,
+html.lf-system-tablet .overflow-x,
+html.lf-system-tablet .planner-flow-action-table-wrap,
+html.lf-system-tablet #pf-flow-table-wrap,
+html.lf-system-tablet .pf-flow-table-stack,
+html.lf-system-tablet .eval-preview-scroll,
+html.lf-system-tablet .ibank-tree-scroll,
+html.lf-system-tablet .ibank-dilemma-lists-scroll,
+html.lf-system-tablet .final-report-table-scroll--detail {
+  overflow-x: auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+  touch-action: pan-x pan-y;
+}
+
+html.lf-system-tablet table.data-table,
+html.lf-system-tablet .planner-flow-action-table,
+html.lf-system-tablet #pf-flow-table-wrap table {
+  touch-action: pan-x pan-y;
+}
+
+html.lf-system-tablet canvas,
+html.lf-system-tablet svg,
+html.lf-system-tablet img.chart,
+html.lf-system-tablet .chart-canvas,
+html.lf-system-tablet .doughnut,
+html.lf-system-tablet .pie-chart {
+  max-width: 100%;
+  height: auto;
+}
+
+html.lf-system-tablet canvas {
+  aspect-ratio: 1 / 1;
+}
+
+html.lf-system-tablet .chart-box,
+html.lf-system-tablet .chart-container {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+}
+
+html.lf-system-tablet .chart-box canvas,
+html.lf-system-tablet .chart-container canvas {
+  width: 100% !important;
+  height: auto !important;
+  max-height: 420px;
+  object-fit: contain;
+}
+
+@media (orientation: landscape) and (max-height: 900px) {
+  html.lf-system-tablet .chart-box canvas,
+  html.lf-system-tablet .chart-container canvas {
+    max-height: 360px;
+  }
+}
+
+html.lf-system-tablet input,
+html.lf-system-tablet select,
+html.lf-system-tablet textarea,
+html.lf-system-tablet button {
+  font-size: max(14px, 1em);
+  touch-action: manipulation;
+}

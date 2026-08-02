@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">نظام إدارة التمارين</string>
+    <string name="settings_title">إعدادات السيرفر</string>
+    <string name="remote_start">بدء التحكم المباشر</string>
+    <string name="remote_stop">إيقاف التحكم المباشر</string>
+    <string name="remote_lock">قفل جلسة التحكم</string>
+    <string name="remote_unlock">فتح القفل</string>
+    <string name="remote_end">إنهاء الجلسة</string>
+    <string name="choose_display">اختيار شاشة العرض</string>
+    <string name="reset_zoom">إعادة التكبير</string>
+    <string name="mode_normal">الوضع العادي</string>
+    <string name="mode_remote">وضع التحكم المباشر</string>
+</resources>

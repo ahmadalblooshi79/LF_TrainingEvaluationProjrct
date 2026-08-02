@@ -11,7 +11,12 @@
 
 <div class="role-grid role-grid--pyramid">
 {% for c in dashboard_cards %}
-  <a class="card card--tint dashboard-role-card" href="{{ c.href }}" aria-label="{{ c.aria_label }}" aria-describedby="role-tip-{{ c.role_key }}">
+  {% set locked = c.hint == 'غير متاح' %}
+  <a class="card card--tint dashboard-role-card{% if locked %} is-locked{% endif %}"
+     href="{% if locked %}#{% else %}{{ c.href }}{% endif %}"
+     aria-label="{{ c.aria_label }}"
+     aria-describedby="role-tip-{{ c.role_key }}"
+     {% if locked %}aria-disabled="true" tabindex="-1" onclick="return false;"{% endif %}>
     <h3>
       {% if c.role_key == 'system_admin' %}
         <i class="fa-solid fa-screwdriver-wrench fa-icon-role" aria-hidden="true"></i>
@@ -33,10 +38,17 @@
       <span>{{ c.title_ar }}</span>
     </h3>
     <p class="dashboard-role-start">
+      {% if locked %}
+      <span>غير متاح لحسابك</span>
+      <i class="fa-solid fa-lock" aria-hidden="true"></i>
+      {% else %}
       <span>ابدأ</span>
       <i class="fa-solid fa-computer-mouse" aria-hidden="true"></i>
+      {% endif %}
     </p>
-    <span class="dashboard-role-tooltip text-pre-wrap" id="role-tip-{{ c.role_key }}" role="tooltip">{{ c.duties_ar }}</span>
+    <span class="dashboard-role-tooltip text-pre-wrap" id="role-tip-{{ c.role_key }}" role="tooltip">{{ c.duties_ar }}{% if locked %}
+
+{{ c.aria_label }}{% endif %}</span>
   </a>
 {% endfor %}
 </div>

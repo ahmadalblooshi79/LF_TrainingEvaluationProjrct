@@ -33,15 +33,15 @@ class UserModel {
   }
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'username': username,
-    'full_name': fullName,
-    'judge_display_name': judgeDisplayName,
-    'role_key': roleKey,
-    'role_label': roleLabel,
-    'is_chief_judge': isChiefJudge,
-    'is_admin': isAdmin,
-  };
+        'id': id,
+        'username': username,
+        'full_name': fullName,
+        'judge_display_name': judgeDisplayName,
+        'role_key': roleKey,
+        'role_label': roleLabel,
+        'is_chief_judge': isChiefJudge,
+        'is_admin': isAdmin,
+      };
 }
 
 class ExerciseModel {
@@ -53,6 +53,9 @@ class ExerciseModel {
   final String endDate;
   final String periodLabel;
   final String typeLabel;
+  final String levelLabel;
+  final String trainedUnit;
+  final String missionLabel;
 
   const ExerciseModel({
     required this.id,
@@ -63,6 +66,9 @@ class ExerciseModel {
     required this.endDate,
     required this.periodLabel,
     required this.typeLabel,
+    this.levelLabel = '',
+    this.trainedUnit = '',
+    this.missionLabel = '',
   });
 
   factory ExerciseModel.fromJson(Map<String, dynamic> json) {
@@ -75,19 +81,25 @@ class ExerciseModel {
       endDate: (json['end_date'] ?? '').toString(),
       periodLabel: (json['period_label'] ?? '').toString(),
       typeLabel: (json['type_label'] ?? '').toString(),
+      levelLabel: (json['level_label'] ?? '').toString(),
+      trainedUnit: (json['trained_unit'] ?? '').toString(),
+      missionLabel: (json['mission_label'] ?? '').toString(),
     );
   }
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'name': name,
-    'code': code,
-    'location': location,
-    'start_date': startDate,
-    'end_date': endDate,
-    'period_label': periodLabel,
-    'type_label': typeLabel,
-  };
+        'id': id,
+        'name': name,
+        'code': code,
+        'location': location,
+        'start_date': startDate,
+        'end_date': endDate,
+        'period_label': periodLabel,
+        'type_label': typeLabel,
+        'level_label': levelLabel,
+        'trained_unit': trainedUnit,
+        'mission_label': missionLabel,
+      };
 }
 
 /// Common bundle returned by /me, /home, /bootstrap, /auth/login.
@@ -120,10 +132,10 @@ class SessionBundle {
   }
 
   Map<String, dynamic> toJson() => {
-    'user': user.toJson(),
-    'exercise': exercise?.toJson(),
-    'unit_key': unitKey,
-    'unit_label': unitLabel,
-    'server_time': serverTime,
-  };
+        'user': user.toJson(),
+        'exercise': exercise?.toJson(),
+        'unit_key': unitKey,
+        'unit_label': unitLabel,
+        'server_time': serverTime,
+      };
 }

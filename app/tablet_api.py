@@ -27,6 +27,85 @@ def _json_error(message: str, status: int = 400, **extra):
     return jsonify(body), status
 
 
+def _client_op_id_from_request(data: dict | None = None) -> str:
+    hdr = (
+        request.headers.get("Idempotency-Key")
+        or request.headers.get("X-Client-Op-Id")
+        or ""
+    ).strip()
+    if hdr:
+        return hdr[:120]
+    if isinstance(data, dict):
+        return str(data.get("client_op_id") or "").strip()[:120]
+    form_id = (request.form.get("client_op_id") or "").strip()
+    return form_id[:120]
+
+
+def _idempotent_response(user: User, client_op_id: str):
+    """إن وُجدت نفس العملية مسبقاً لنفس المستخدم — أعد النتيجة المخزّنة."""
+    if not client_op_id:
+        return None
+    from app.models.domain import TabletClientOp
+
+    row = (
+        g.db.query(TabletClientOp)
+        .filter(
+            TabletClientOp.user_id == int(user.id),
+            TabletClientOp.client_op_id == client_op_id,
+        )
+        .first()
+    )
+    if row is None:
+        return None
+    try:
+        payload = json.loads(row.response_json or "{}")
+    except Exception:
+        payload = {"ok": True, "idempotent_replay": True}
+    if not isinstance(payload, dict):
+        payload = {"ok": True, "data": payload}
+    payload["idempotent_replay"] = True
+    return jsonify(payload)
+
+
+def _record_client_op(
+    user: User,
+    *,
+    client_op_id: str,
+    op_type: str,
+    path: str,
+    response_body: dict,
+    exercise_id: int | None = None,
+) -> None:
+    if not client_op_id:
+        return
+    from app.models.domain import TabletClientOp
+
+    existing = (
+        g.db.query(TabletClientOp)
+        .filter(
+            TabletClientOp.user_id == int(user.id),
+            TabletClientOp.client_op_id == client_op_id,
+        )
+        .first()
+    )
+    if existing is not None:
+        return
+    g.db.add(
+        TabletClientOp(
+            user_id=int(user.id),
+            exercise_id=int(exercise_id) if exercise_id else None,
+            client_op_id=client_op_id[:120],
+            op_type=(op_type or "")[:64],
+            path=(path or "")[:400],
+            response_json=json.dumps(response_body, ensure_ascii=False),
+        )
+    )
+    try:
+        g.db.commit()
+    except Exception:
+        g.db.rollback()
+
+
 def _require_judge_json(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
@@ -128,9 +207,13 @@ def _serialize_user_bundle(user: User, ex: Exercise | None) -> dict:
             "end_date": _period_label(ex).split(" — ")[-1] if ex.planned_end else "",
             "period_label": _period_label(ex),
             "type_label": (
-                (ex.exercise_type_level_text or "").strip()
-                or (ex.exercise_type or "").strip()
+                (ex.exercise_type or "").strip()
+                or (ex.exercise_type_level_text or "").strip()
             ),
+            "level_label": (ex.exercise_level or "").strip(),
+            "trained_unit": (ex.trained_unit or "").strip(),
+            "mission_label": (ex.mission_label or "").strip(),
+            "exercise_type_level_text": (ex.exercise_type_level_text or "").strip(),
         },
         "unit_key": uk,
         "unit_label": label_for_unit_level_key(uk, db=g.db) if uk else "",
@@ -168,6 +251,18 @@ def _safe_row(r: dict) -> dict:
         "unit_label": _as_text(r.get("unit_label") or ""),
         "phase_key": _as_text(r.get("phase_key") or ""),
         "list_type": _as_text(r.get("list_type_kind") or r.get("list_type") or ""),
+        "list_type_label": _as_text(
+            r.get("list_type_label")
+            or (
+                "قائمة التقييم"
+                if (r.get("list_type_kind") or "") == "judge_eval"
+                else (
+                    "قائمة المعاضل"
+                    if (r.get("list_type_kind") or "") == "planner_flow_action"
+                    else ""
+                )
+            )
+        ),
         "open_href": _as_text(r.get("open_href") or ""),
         "workflow_label": _as_text(r.get("workflow_label") or ""),
         "dilemma_no": r.get("dilemma_no"),
@@ -532,12 +627,17 @@ def tablet_action_eval_save(user: User, slot: int):
         _planner_bundle_eval_commit_payload_save,
     )
 
+    data = request.get_json(silent=True) or {}
+    client_op_id = _client_op_id_from_request(data)
+    replay = _idempotent_response(user, client_op_id)
+    if replay is not None:
+        return replay
+
     ex = _exercise_for(user)
     pair = _judge_planner_flow_action_bundle_row(g.db, user, ex, slot)
     if pair is None or ex is None:
         return _json_error("القائمة غير موجودة", 404)
     _, action_row = pair
-    data = request.get_json(silent=True) or {}
     payload = data.get("payload") if isinstance(data.get("payload"), dict) else data
     if not isinstance(payload, dict):
         return _json_error("حمولة غير صالحة")
@@ -548,7 +648,16 @@ def tablet_action_eval_save(user: User, slot: int):
         )
     except Exception as exc:
         return _json_error(str(exc) or "فشل الحفظ", 400)
-    return jsonify({"ok": True, "saved": True})
+    body = {"ok": True, "saved": True, "client_op_id": client_op_id or None}
+    _record_client_op(
+        user,
+        client_op_id=client_op_id,
+        op_type="save_action_eval",
+        path=request.path,
+        response_body=body,
+        exercise_id=getattr(ex, "id", None),
+    )
+    return jsonify(body)
 
 
 @bp.post("/action-eval/<int:slot>/approve")
@@ -560,6 +669,12 @@ def tablet_action_eval_approve(user: User, slot: int):
         _planner_bundle_eval_canonical_saved,
     )
 
+    data = request.get_json(silent=True) or {}
+    client_op_id = _client_op_id_from_request(data)
+    replay = _idempotent_response(user, client_op_id)
+    if replay is not None:
+        return replay
+
     ex = _exercise_for(user)
     pair = _judge_planner_flow_action_bundle_row(g.db, user, ex, slot)
     if pair is None or ex is None:
@@ -569,10 +684,31 @@ def tablet_action_eval_approve(user: User, slot: int):
     if saved is None:
         return _json_error("احفظ النتائج قبل الاعتماد", 400)
     if not eval_judge_can_edit(saved):
+        # إن كانت معتمدة مسبقاً لنفس المحكم — نجاح Idempotent بدون خطأ
+        if getattr(saved, "is_approved", False):
+            body = {"ok": True, "approved": True, "already_approved": True}
+            _record_client_op(
+                user,
+                client_op_id=client_op_id,
+                op_type="approve_action_eval",
+                path=request.path,
+                response_body=body,
+                exercise_id=getattr(ex, "id", None),
+            )
+            return jsonify(body)
         return _json_error("لا يمكن اعتماد هذه القائمة حالياً", 403)
     apply_judge_approve(saved, getattr(user, "id", None))
     g.db.commit()
-    return jsonify({"ok": True, "approved": True})
+    body = {"ok": True, "approved": True, "client_op_id": client_op_id or None}
+    _record_client_op(
+        user,
+        client_op_id=client_op_id,
+        op_type="approve_action_eval",
+        path=request.path,
+        response_body=body,
+        exercise_id=getattr(ex, "id", None),
+    )
+    return jsonify(body)
 
 
 @bp.get("/evaluation-lists")
@@ -784,6 +920,12 @@ def tablet_evaluation_list_save(user: User, unit_key: str, item_id: int):
         _judge_assigned_unit_key,
     )
 
+    data = request.get_json(silent=True) or {}
+    client_op_id = _client_op_id_from_request(data)
+    replay = _idempotent_response(user, client_op_id)
+    if replay is not None:
+        return replay
+
     ex = _exercise_for(user)
     if ex is None:
         return _json_error("لا يوجد تمرين نشط", 404)
@@ -804,7 +946,6 @@ def tablet_evaluation_list_save(user: User, unit_key: str, item_id: int):
         assigned = (_judge_assigned_unit_key(g.db, user, ex) or "").strip()
         if assigned and effective_uk and assigned != effective_uk:
             return _json_error("هذه القائمة خارج نطاق وحدتك", 403)
-    data = request.get_json(silent=True) or {}
     payload = data.get("payload") if isinstance(data.get("payload"), dict) else data
     raw = json.dumps(payload, ensure_ascii=False)
     try:
@@ -813,7 +954,16 @@ def tablet_evaluation_list_save(user: User, unit_key: str, item_id: int):
         )
     except Exception as exc:
         return _json_error(str(exc) or "فشل الحفظ", 400)
-    return jsonify({"ok": True, "saved": True})
+    body = {"ok": True, "saved": True, "client_op_id": client_op_id or None}
+    _record_client_op(
+        user,
+        client_op_id=client_op_id,
+        op_type="save_evaluation_list",
+        path=request.path,
+        response_body=body,
+        exercise_id=getattr(ex, "id", None),
+    )
+    return jsonify(body)
 
 
 @bp.post("/evaluation-lists/<unit_key>/<int:item_id>/approve")
@@ -828,6 +978,12 @@ def tablet_evaluation_list_approve(user: User, unit_key: str, item_id: int):
         _evaluation_canonical_saved_row,
         _judge_assigned_unit_key,
     )
+
+    data = request.get_json(silent=True) or {}
+    client_op_id = _client_op_id_from_request(data)
+    replay = _idempotent_response(user, client_op_id)
+    if replay is not None:
+        return replay
 
     ex = _exercise_for(user)
     if ex is None:
@@ -853,10 +1009,30 @@ def tablet_evaluation_list_approve(user: User, unit_key: str, item_id: int):
     if saved is None:
         return _json_error("احفظ النتائج قبل الاعتماد", 400)
     if not eval_judge_can_edit(saved):
+        if getattr(saved, "is_approved", False):
+            body = {"ok": True, "approved": True, "already_approved": True}
+            _record_client_op(
+                user,
+                client_op_id=client_op_id,
+                op_type="approve_evaluation_list",
+                path=request.path,
+                response_body=body,
+                exercise_id=getattr(ex, "id", None),
+            )
+            return jsonify(body)
         return _json_error("لا يمكن اعتماد هذه القائمة حالياً", 403)
     apply_judge_approve(saved, getattr(user, "id", None))
     g.db.commit()
-    return jsonify({"ok": True, "approved": True})
+    body = {"ok": True, "approved": True, "client_op_id": client_op_id or None}
+    _record_client_op(
+        user,
+        client_op_id=client_op_id,
+        op_type="approve_evaluation_list",
+        path=request.path,
+        response_body=body,
+        exercise_id=getattr(ex, "id", None),
+    )
+    return jsonify(body)
 
 
 @bp.get("/objectives")
@@ -997,7 +1173,79 @@ def tablet_bootstrap(user: User):
 @bp.post("/media/criterion")
 @_require_judge_json
 def tablet_media_upload(user: User):
-    """رفع صورة/فيديو لعنصر تقييم — يغلف مسار النظام الحالي."""
+    """رفع صورة/فيديو لعنصر تقييم — يغلف مسار النظام الحالي مع Idempotency."""
+    from app.models.domain import EvaluationCriterionMedia
     from app.views import eval_criterion_media_upload
 
-    return eval_criterion_media_upload()
+    client_op_id = _client_op_id_from_request()
+    replay = _idempotent_response(user, client_op_id)
+    if replay is not None:
+        return replay
+
+    if client_op_id:
+        existing_media = (
+            g.db.query(EvaluationCriterionMedia)
+            .filter(
+                EvaluationCriterionMedia.uploaded_by_id == int(user.id),
+                EvaluationCriterionMedia.client_op_id == client_op_id,
+            )
+            .first()
+        )
+        if existing_media is not None:
+            body = {
+                "ok": True,
+                "id": int(existing_media.id),
+                "idempotent_replay": True,
+                "client_op_id": client_op_id,
+            }
+            _record_client_op(
+                user,
+                client_op_id=client_op_id,
+                op_type="media_upload",
+                path=request.path,
+                response_body=body,
+                exercise_id=getattr(existing_media, "exercise_id", None),
+            )
+            return jsonify(body)
+
+    resp = eval_criterion_media_upload()
+    # بعد الرفع الناجح: اربط client_op_id إن أمكن
+    if client_op_id:
+        try:
+            status = getattr(resp, "status_code", None)
+            if status is None and isinstance(resp, tuple):
+                status = resp[1] if len(resp) > 1 else 200
+                payload = resp[0]
+            else:
+                payload = resp
+            if int(status or 200) < 300:
+                # أحدث وسائط رفعها هذا المستخدم
+                row = (
+                    g.db.query(EvaluationCriterionMedia)
+                    .filter(EvaluationCriterionMedia.uploaded_by_id == int(user.id))
+                    .order_by(EvaluationCriterionMedia.id.desc())
+                    .first()
+                )
+                if row is not None and not (row.client_op_id or "").strip():
+                    row.client_op_id = client_op_id
+                    g.db.commit()
+                body = {"ok": True, "client_op_id": client_op_id}
+                if hasattr(payload, "get_json"):
+                    try:
+                        body = payload.get_json(silent=True) or body
+                    except Exception:
+                        pass
+                elif isinstance(payload, dict):
+                    body = payload
+                body["client_op_id"] = client_op_id
+                _record_client_op(
+                    user,
+                    client_op_id=client_op_id,
+                    op_type="media_upload",
+                    path=request.path,
+                    response_body=body if isinstance(body, dict) else {"ok": True},
+                    exercise_id=getattr(row, "exercise_id", None) if row else None,
+                )
+        except Exception:
+            pass
+    return resp

@@ -1550,6 +1550,15 @@ body.page-dashboard .role-grid .dashboard-role-card > h3 .fa-icon-role {
 body.page-dashboard .role-grid .dashboard-role-card > .dashboard-role-start {
   font-size: clamp(0.68rem, 0.88vw, 0.84rem) !important;
 }
+body.page-dashboard .role-grid .dashboard-role-card.is-locked {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: grayscale(0.35);
+  pointer-events: none;
+}
+body.page-dashboard .role-grid .dashboard-role-card.is-locked > .dashboard-role-start {
+  color: #6b6b66;
+}
 @media (max-width: 720px) {
   .page-crest-strip {
     --crest-logo-size: clamp(6.5rem, 32vw, 9.5rem);

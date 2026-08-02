@@ -178,25 +178,32 @@ class FigmaTableHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       color: AppColors.tableHeader,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
-      child: Row(
-        children: cells
-            .map(
-              (c) => Expanded(
-                flex: c.flex,
-                child: Text(
-                  c.label,
-                  textAlign: TextAlign.center,
-                  style: AppTextStyles.cairo(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.white,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < cells.length; i++) ...[
+              if (i > 0)
+                Container(width: 1.2, color: AppColors.white.withValues(alpha: 0.35)),
+              Expanded(
+                flex: cells[i].flex,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 11),
+                  child: Text(
+                    cells[i].label,
+                    textAlign: TextAlign.center,
+                    style: AppTextStyles.cairo(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.white,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-            )
-            .toList(),
+            ],
+          ],
+        ),
       ),
     );
   }

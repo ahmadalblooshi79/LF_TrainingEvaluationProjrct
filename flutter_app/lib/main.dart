@@ -6,6 +6,7 @@ import 'app.dart';
 import 'services/api_client.dart';
 import 'services/auth_service.dart';
 import 'services/connectivity_service.dart';
+import 'services/health_service.dart';
 import 'services/offline_store.dart';
 import 'services/sync_service.dart';
 import 'services/tablet_repository.dart';
@@ -18,11 +19,11 @@ Future<void> main() async {
   await ConnectivityService.instance.init();
   await AuthService.instance.restoreFromCache();
 
-  // Best-effort: confirm the cached session cookie is still valid and start
-  // flushing any writes queued while offline. Neither call blocks startup.
-  unawaited(AuthService.instance.refreshFromServer());
+  // Health check قصير يحدد وضع Offline دون تعليق الواجهة.
+  unawaited(HealthService.instance.start());
   unawaited(SyncService.instance.start());
   if (AuthService.instance.isLoggedIn) {
+    unawaited(AuthService.instance.refreshFromServer());
     unawaited(TabletRepository.instance.prefetchForOffline());
   }
 

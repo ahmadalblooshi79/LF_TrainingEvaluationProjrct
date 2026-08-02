@@ -153,41 +153,93 @@ class _Row extends StatelessWidget {
     }
   }
 
+  static final _whiteCell = AppTextStyles.cairo(
+    fontSize: 15,
+    fontWeight: FontWeight.w600,
+    color: AppColors.darkText,
+  );
+
+  Widget _cell(String text, {int flex = 1, TextAlign align = TextAlign.center}) {
+    return Expanded(
+      flex: flex,
+      child: Container(
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+        decoration: const BoxDecoration(
+          border: Border(left: BorderSide(color: AppColors.divider, width: 1)),
+        ),
+        child: Text(
+          text,
+          textAlign: align,
+          style: _whiteCell,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final span = row.tone == 'event' || row.tone == 'dilemma';
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         color: _bg,
-        border: const Border(bottom: BorderSide(color: AppColors.divider, width: 0.7)),
+        border: const Border(bottom: BorderSide(color: AppColors.divider, width: 1)),
       ),
       child: span
-          ? Row(
-              children: [
-                Expanded(
-                  flex: 1,
-                  child: Text('${row.seq}', textAlign: TextAlign.center, style: AppTextStyles.small),
-                ),
-                Expanded(
-                  flex: 14,
-                  child: Text(
-                    row.text,
-                    style: AppTextStyles.cairo(fontSize: 14, fontWeight: FontWeight.w700),
+          ? Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 36,
+                    child: Text(
+                      '${row.seq}',
+                      textAlign: TextAlign.center,
+                      style: AppTextStyles.cairo(fontSize: 15, fontWeight: FontWeight.w800),
+                    ),
                   ),
-                ),
-              ],
+                  Expanded(
+                    child: Text(
+                      row.text,
+                      textAlign: TextAlign.center,
+                      style: AppTextStyles.cairo(fontSize: 16, fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ],
+              ),
             )
-          : Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(flex: 1, child: Text('${row.seq}', textAlign: TextAlign.center, style: AppTextStyles.small)),
-                Expanded(flex: 2, child: Text(row.time, textAlign: TextAlign.center, style: AppTextStyles.small)),
-                Expanded(flex: 5, child: Text(row.text, style: AppTextStyles.body)),
-                Expanded(flex: 2, child: Text(row.assignee, textAlign: TextAlign.center, style: AppTextStyles.small)),
-                Expanded(flex: 2, child: Text(row.method, textAlign: TextAlign.center, style: AppTextStyles.small)),
-                Expanded(flex: 3, child: Text(row.expected, style: AppTextStyles.small)),
-              ],
+          : IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _cell('${row.seq}', flex: 1),
+                  _cell(row.time, flex: 2),
+                  Expanded(
+                    flex: 5,
+                    child: Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                      decoration: const BoxDecoration(
+                        border: Border(left: BorderSide(color: AppColors.divider, width: 1)),
+                      ),
+                      child: Text(row.text, style: _whiteCell, textAlign: TextAlign.right),
+                    ),
+                  ),
+                  _cell(row.assignee, flex: 2),
+                  _cell(row.method, flex: 2),
+                  Expanded(
+                    flex: 3,
+                    child: Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                      decoration: const BoxDecoration(
+                        border: Border(left: BorderSide(color: AppColors.divider, width: 1)),
+                      ),
+                      child: Text(row.expected, style: _whiteCell, textAlign: TextAlign.right),
+                    ),
+                  ),
+                ],
+              ),
             ),
     );
   }

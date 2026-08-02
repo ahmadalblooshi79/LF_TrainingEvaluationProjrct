@@ -16,6 +16,7 @@ class ListRow {
   final String unitLabel;
   final String phaseKey;
   final String listType;
+  final String listTypeLabel;
   final String openHref;
   final String workflowLabel;
   final dynamic dilemmaNo;
@@ -37,11 +38,28 @@ class ListRow {
     required this.unitLabel,
     required this.phaseKey,
     required this.listType,
+    this.listTypeLabel = '',
     required this.openHref,
     required this.workflowLabel,
     this.dilemmaNo,
     this.nodeId,
   });
+
+  /// تسمية عربية لعمود نوع القائمة.
+  String get displayListType {
+    final labeled = listTypeLabel.trim();
+    if (labeled.isNotEmpty) {
+      if (labeled.contains('إجراءات') || labeled.contains('المجرى')) {
+        return 'قائمة المعاضل';
+      }
+      if (labeled.contains('التقييم')) return 'قائمة التقييم';
+      return labeled;
+    }
+    final t = listType.toLowerCase();
+    if (t.contains('planner') || t.contains('action')) return 'قائمة المعاضل';
+    if (t.contains('judge') || t.contains('eval')) return 'قائمة التقييم';
+    return '—';
+  }
 
   factory ListRow.fromJson(Map<String, dynamic> json) {
     int? asInt(dynamic v) {
@@ -65,6 +83,7 @@ class ListRow {
       unitLabel: (json['unit_label'] ?? '').toString(),
       phaseKey: (json['phase_key'] ?? '').toString(),
       listType: (json['list_type'] ?? '').toString(),
+      listTypeLabel: (json['list_type_label'] ?? '').toString(),
       openHref: (json['open_href'] ?? '').toString(),
       workflowLabel: (json['workflow_label'] ?? '').toString(),
       dilemmaNo: json['dilemma_no'],

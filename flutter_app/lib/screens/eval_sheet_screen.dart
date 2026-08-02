@@ -199,18 +199,26 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
           ? await picker.pickVideo(source: ImageSource.camera)
           : await picker.pickImage(source: ImageSource.camera, imageQuality: 82);
       if (file == null) return;
-      setState(() => _rows[index].localMediaPaths.add(file.path));
       final detail = _detail;
       if (detail == null) return;
-      try {
-        await ApiClient.instance.uploadCriterionMedia(
-          filePath: file.path,
-          rowIndex: index,
-          mediaKind: video ? 'video' : 'photo',
-          evaluationListItemId: widget.mode == EvalSheetMode.evaluationList ? detail.itemId : null,
-          bundleActionEvalId: widget.mode == EvalSheetMode.actionEval ? detail.slotId : null,
-        );
-      } catch (_) {}
+      final sheetKey = widget.mode == EvalSheetMode.actionEval
+          ? 'action_eval_detail:${widget.slot}'
+          : 'evaluation_list_detail:${widget.unitKey}:${widget.itemId}';
+      final localPath = await TabletRepository.instance.queueCriterionMedia(
+        sourcePath: file.path,
+        rowIndex: index,
+        mediaKind: video ? 'video' : 'photo',
+        sheetCacheKey: sheetKey,
+        evaluationListItemId:
+            widget.mode == EvalSheetMode.evaluationList ? detail.itemId : null,
+        bundleActionEvalId:
+            widget.mode == EvalSheetMode.actionEval ? detail.slotId : null,
+      );
+      if (!mounted) return;
+      setState(() {
+        _rows[index].localMediaPaths.add(localPath);
+        _hint = 'حُفظت الوسائط محلياً — ستُرفع عند الاتصال';
+      });
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّر التقاط الوسائط: $e')));
@@ -225,17 +233,17 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
       _hint = null;
     });
     try {
-      final sentLive = widget.mode == EvalSheetMode.actionEval
-          ? await TabletRepository.instance.saveActionEvalResults(widget.slot!, _rows)
-          : await TabletRepository.instance.saveEvaluationListResults(
+      await (widget.mode == EvalSheetMode.actionEval
+          ? TabletRepository.instance.saveActionEvalResults(widget.slot!, _rows)
+          : TabletRepository.instance.saveEvaluationListResults(
               widget.unitKey!,
               widget.itemId!,
               _rows,
-            );
+            ));
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _hint = sentLive ? 'تم حفظ نتائج التقييم بنجاح' : 'حُفظ محلياً — سيُزامن عند الاتصال';
+        _hint = 'حُفظت النتائج محلياً — ستُزامن مع الخادم';
       });
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -269,33 +277,39 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
                 _rows,
               ));
       }
-      final sentLive = widget.mode == EvalSheetMode.actionEval
-          ? await TabletRepository.instance.approveActionEval(widget.slot!)
-          : await TabletRepository.instance.approveEvaluationList(widget.unitKey!, widget.itemId!);
+      await (widget.mode == EvalSheetMode.actionEval
+          ? TabletRepository.instance.approveActionEval(widget.slot!)
+          : TabletRepository.instance.approveEvaluationList(
+              widget.unitKey!,
+              widget.itemId!,
+            ));
       if (!mounted) return;
       setState(() {
         _approving = false;
-        _hint = sentLive ? 'تم اعتماد التقييم' : 'طلب الاعتماد محفوظ محلياً';
-        if (sentLive) {
-          _detail = EvalSheetDetail(
-            kind: detail.kind,
-            slot: detail.slot,
-            slotId: detail.slotId,
-            itemId: detail.itemId,
-            title: detail.title,
-            unitKey: detail.unitKey,
-            unitLabel: detail.unitLabel,
-            phaseKey: detail.phaseKey,
-            evalRows: detail.evalRows,
-            evalStructured: detail.evalStructured,
-            acquiredOptions: detail.acquiredOptions,
-            savedRows: detail.savedRows,
-            canEdit: false,
-            canApprove: false,
-            isApproved: true,
-            workflow: detail.workflow,
-          );
-        }
+        _hint = 'معتمد محلياً – بانتظار المزامنة';
+        _detail = EvalSheetDetail(
+          kind: detail.kind,
+          slot: detail.slot,
+          slotId: detail.slotId,
+          itemId: detail.itemId,
+          title: detail.title,
+          unitKey: detail.unitKey,
+          unitLabel: detail.unitLabel,
+          phaseKey: detail.phaseKey,
+          evalRows: detail.evalRows,
+          evalStructured: detail.evalStructured,
+          acquiredOptions: detail.acquiredOptions,
+          savedRows: List<EvalRowInput>.from(_rows),
+          canEdit: false,
+          canApprove: false,
+          isApproved: true,
+          locallyApproved: true,
+          approvalSyncStatus: 'pending',
+          workflow: const EvalWorkflow(
+            label: 'معتمد محلياً – بانتظار المزامنة',
+            reopened: false,
+          ),
+        );
       });
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -803,7 +817,13 @@ class _FooterBar extends StatelessWidget {
           if (alreadyApproved && !canEdit)
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text('معتمد', style: AppTextStyles.small, textAlign: TextAlign.center),
+              child: Text(
+                hint?.contains('بانتظار') == true
+                    ? 'معتمد محلياً – بانتظار المزامنة'
+                    : 'معتمد',
+                style: AppTextStyles.small,
+                textAlign: TextAlign.center,
+              ),
             ),
           if (canApprove) ...[
             const SizedBox(height: 8),

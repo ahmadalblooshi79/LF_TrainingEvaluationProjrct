@@ -6,12 +6,17 @@ import 'package:provider/provider.dart';
 import 'screens/action_eval_lists_screen.dart';
 import 'screens/eval_sheet_screen.dart';
 import 'screens/evaluation_lists_screen.dart';
+import 'screens/exercise_details_screen.dart';
 import 'screens/flow_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/library_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/messages_screen.dart';
+import 'screens/notifications_screen.dart';
 import 'screens/objectives_screen.dart';
 import 'screens/server_connect_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/sync_status_screen.dart';
 import 'services/auth_service.dart';
 import 'theme/app_theme.dart';
 
@@ -30,6 +35,10 @@ final GoRouter _router = GoRouter(
     GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
     GoRoute(path: '/server-connect', builder: (context, state) => const ServerConnectScreen()),
     GoRoute(path: '/home', builder: (context, state) => const HomeScreen()),
+    GoRoute(path: '/exercise-details', builder: (context, state) => const ExerciseDetailsScreen()),
+    GoRoute(path: '/library', builder: (context, state) => const LibraryScreen()),
+    GoRoute(path: '/notifications', builder: (context, state) => const NotificationsScreen()),
+    GoRoute(path: '/messages', builder: (context, state) => const MessagesScreen()),
     GoRoute(path: '/flow', builder: (context, state) => const FlowScreen()),
     GoRoute(
       path: '/action-eval',
@@ -63,6 +72,7 @@ final GoRouter _router = GoRouter(
     ),
     GoRoute(path: '/objectives', builder: (context, state) => const ObjectivesScreen()),
     GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
+    GoRoute(path: '/sync-status', builder: (context, state) => const SyncStatusScreen()),
   ],
 );
 

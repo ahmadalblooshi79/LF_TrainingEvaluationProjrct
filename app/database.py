@@ -575,6 +575,28 @@ def ensure_ai_training_center_tables() -> None:
         db.close()
 
 
+def ensure_tablet_offline_support() -> None:
+    """جداول/أعمدة Idempotency لتطبيق التابلت Offline-First."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    try:
+        insp = inspect(engine)
+        tables = set(insp.get_table_names())
+    except Exception:
+        return
+    if "evaluation_criterion_media" in tables:
+        cols = {c["name"] for c in insp.get_columns("evaluation_criterion_media")}
+        if "client_op_id" not in cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE evaluation_criterion_media "
+                        "ADD COLUMN client_op_id VARCHAR(120) DEFAULT ''"
+                    )
+                )
+    # الجدول الجديد يُنشأ عبر create_all؛ لا حاجة لـ CREATE يدوي هنا.
+
+
 def get_db():
     db = SessionLocal()
     try:
