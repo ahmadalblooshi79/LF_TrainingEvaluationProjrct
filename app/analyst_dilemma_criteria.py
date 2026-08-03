@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from app.analyst_flow_day_phase_link import (
     build_dilemma_reaction_table_for_unit_phase,
-    collect_flow_acquired_by_unit_phase,
     day_phase_link_rows_for_ui,
     load_analyst_day_phase_map,
     save_analyst_day_phase_links,
@@ -20,6 +19,7 @@ from app.models.domain import (
     AnalystDilemmaCriteriaUnit,
     EvaluationListPdfItem,
     Exercise,
+    ExercisePlannerFlowBundle,
 )
 from app.unit_levels_catalog import UNIT_LEVELS, label_for_unit_level_key
 
@@ -74,14 +74,68 @@ def sync_dilemma_criteria_units_from_planner(db: Session, ex: Exercise) -> list[
 
 
 def unit_keys_for_evaluation_list_phase(
-    db: Session, exercise_id: int, phase_key: str
+    db: Session,
+    exercise_id: int,
+    phase_key: str,
+    *,
+    day_to_phase: dict[str, str] | None = None,
+    flow_days: list[dict] | None = None,
 ) -> list[str]:
-    """مستويات الوحدات المعنية بمرحلة معيّنة حسب قوائم التقييم (المراحل)."""
-    from app.views import _unit_level_order_expr
+    """مستويات الوحدات المعنية بمرحلة معيّنة.
+
+    المصادر بالترتيب:
+    1) قوائم التقييم المنشورة للتمرين (المراحل)
+    2) حزم مجرى التخطيط لنفس المرحلة
+    3) وحدات المكلفين في معاضل أيام المجرى المرتبطة بالمرحلة
+    4) إن بقي فارغاً: مستويات الوحدة المعتمدة في التخطيط للتمرين
+    """
+    from app.exercise_phase_catalog import normalize_exercise_phase
+    from app.views import (
+        _analyst_criteria_phase_db_keys,
+        _planner_unit_keys_for_exercise,
+        _unit_level_order_expr,
+    )
 
     pk = (phase_key or "").strip()
     if not pk:
         return []
+
+    phase_match: set[str] = {pk}
+    for k in _analyst_criteria_phase_db_keys(pk):
+        if k:
+            phase_match.add(k)
+    norm = normalize_exercise_phase(pk)
+    if norm:
+        phase_match.add(norm)
+    # توافق مفاتيح كتالوج بنك المعلومات (battle_exposure / reorganization)
+    from app.analyst_flow_day_phase_link import _normalize_phase_key as _flow_norm
+
+    flow_pk = _flow_norm(pk)
+    if flow_pk:
+        phase_match.add(flow_pk)
+
+    keys: list[str] = []
+    seen: set[str] = set()
+
+    def _add(uk: str) -> None:
+        u = (uk or "").strip()
+        if not u or u in seen:
+            return
+        seen.add(u)
+        keys.append(u)
+
+    def _phase_matches(raw: str | None) -> bool:
+        r = (raw or "").strip()
+        if not r:
+            return False
+        if r in phase_match:
+            return True
+        rn = normalize_exercise_phase(r)
+        if rn and rn in phase_match:
+            return True
+        rf = _flow_norm(r)
+        return bool(rf and rf in phase_match)
+
     items = (
         db.query(EvaluationListPdfItem)
         .filter(EvaluationListPdfItem.exercise_id == int(exercise_id))
@@ -92,16 +146,65 @@ def unit_keys_for_evaluation_list_phase(
         )
         .all()
     )
-    filtered = filter_evaluation_items_by_phase(items, pk)
-    keys: list[str] = []
-    seen: set[str] = set()
-    for it in filtered:
-        uk = (it.unit_level_key or "").strip()
-        if not uk or uk in seen:
-            continue
-        seen.add(uk)
-        keys.append(uk)
-    return keys
+    for it in filter_evaluation_items_by_phase(items, pk):
+        _add(getattr(it, "unit_level_key", "") or "")
+
+    bundles = (
+        db.query(ExercisePlannerFlowBundle)
+        .filter(ExercisePlannerFlowBundle.exercise_id == int(exercise_id))
+        .order_by(
+            _unit_level_order_expr(ExercisePlannerFlowBundle.unit_level_key),
+            ExercisePlannerFlowBundle.id,
+        )
+        .all()
+    )
+    for b in bundles:
+        if _phase_matches(getattr(b, "exercise_phase", None)):
+            _add(getattr(b, "unit_level_key", "") or "")
+
+    try:
+        from app.ibank_action_eval_dilemma_tree import build_action_eval_dilemma_judge_tree
+        from app.info_bank_tree import ibank_event_flow_days
+
+        days_src = flow_days if flow_days is not None else ibank_event_flow_days(db)
+        mapping = day_to_phase
+        if mapping is None:
+            from app.analyst_flow_day_phase_link import (
+                ibank_flow_day_phase_map,
+                load_analyst_day_phase_map,
+            )
+
+            mapping = dict(ibank_flow_day_phase_map(days_src))
+            mapping.update(load_analyst_day_phase_map(db, int(exercise_id)))
+
+        day_ids_for_phase: set[str] = set()
+        for d in days_src or []:
+            did = str(d.get("id") or "").strip()
+            if not did:
+                continue
+            linked = (mapping or {}).get(did) or d.get("phase_key") or ""
+            if _phase_matches(str(linked)):
+                day_ids_for_phase.add(did)
+
+        if day_ids_for_phase:
+            tree = build_action_eval_dilemma_judge_tree(
+                db, exercise_id=int(exercise_id)
+            )
+            for did in day_ids_for_phase:
+                for dilemma in tree.get(did) or []:
+                    for judge in dilemma.get("judges") or []:
+                        _add(str(judge.get("unit_key") or ""))
+    except Exception:
+        pass
+
+    if not keys:
+        ex = db.get(Exercise, int(exercise_id))
+        if ex is not None:
+            for uk in _planner_unit_keys_for_exercise(db, ex):
+                _add(uk)
+
+    order = {u["key"]: idx for idx, u in enumerate(UNIT_LEVELS)}
+    return sorted(keys, key=lambda k: order.get(k, len(order)))
 
 
 def _ensure_dilemma_unit_for_key(
@@ -195,7 +298,13 @@ def build_dilemma_criteria_distribution(
         phase_label = active_phase
 
     phase_unit_keys = (
-        unit_keys_for_evaluation_list_phase(db, int(ex.id), active_phase)
+        unit_keys_for_evaluation_list_phase(
+            db,
+            int(ex.id),
+            active_phase,
+            day_to_phase=day_to_phase,
+            flow_days=flow_days,
+        )
         if active_phase
         else []
     )
@@ -230,12 +339,9 @@ def build_dilemma_criteria_distribution(
             if uk:
                 existing_by_key[uk] = row
 
-    flow_acquired = collect_flow_acquired_by_unit_phase(
-        db,
-        exercise_id=int(ex.id),
-        day_to_phase=day_to_phase,
-        flow_days=flow_days,
-    )
+    # مثل تبويب المراحل: التوزيع من العلامات المدخلة في «تفاصيل» فقط
+    # (مجموع allocated_mark) — دون سحب تلقائي من نتائج المجرى في جدول التوزيع.
+    from app.views import _analyst_criteria_phase_db_keys
 
     phase_items = (
         db.query(AnalystDilemmaCriteriaPhaseItem)
@@ -251,6 +357,12 @@ def build_dilemma_criteria_distribution(
             [],
         ).append(float(item.allocated_mark))
 
+    phase_db_keys = [
+        k for k in _analyst_criteria_phase_db_keys(active_phase) if (k or "").strip()
+    ]
+    if active_phase and active_phase not in phase_db_keys:
+        phase_db_keys.append(active_phase)
+
     phase_key_set = {uk for uk in phase_unit_keys}
     rows: list[dict] = []
     grand_total = 0.0
@@ -258,14 +370,11 @@ def build_dilemma_criteria_distribution(
         unit = existing_by_key.get(uk)
         if unit is None:
             continue
-        marks = marks_by_unit_phase.get((unit.id, active_phase), [])
-        if marks:
-            phase_total: float | None = sum(marks)
-        else:
-            flow_v = flow_acquired.get((uk, active_phase))
-            phase_total = (
-                float(flow_v) if flow_v is not None and flow_v > 0 else None
-            )
+        marks: list[float] = []
+        for pk in phase_db_keys:
+            marks.extend(marks_by_unit_phase.get((unit.id, pk), []))
+        phase_total: float | None = sum(marks) if marks else None
+        # نفس فكرة المراحل: الإجمالي = مجموع علامات المرحلة المعروضة
         total_mark = phase_total
         if total_mark is not None:
             grand_total += total_mark
@@ -283,6 +392,7 @@ def build_dilemma_criteria_distribution(
             }
         )
 
+    # نفس صيغة تبويب المراحل: نسبة الوحدة = إجماليها ÷ إجمالي كل الوحدات × 100
     if grand_total > 0:
         for row in rows:
             if row["total_mark"] is not None:
@@ -395,7 +505,11 @@ def dilemma_criteria_phase_items_for_unit(
     unit: AnalystDilemmaCriteriaUnit,
     phase_key: str,
 ) -> tuple[list[dict], list[str]]:
-    """عناصر تفاصيل المرحلة + تسميات الأيام المشمولة."""
+    """عناصر تفاصيل المرحلة + تسميات الأيام — مثل قوائم التقييم (المراحل):
+
+    العناوين من قوائم المجرى/المعاضل، والعلامات من المحفوظ يدوياً فقط
+    (بدون سحب تلقائي للمكتسبة من المحكم).
+    """
     from app.views import (
         _analyst_criteria_phase_db_keys,
         _resolve_unit_level_key_for_criteria_label,
@@ -439,15 +553,12 @@ def dilemma_criteria_phase_items_for_unit(
 
     list_titles: list[str] = []
     seen: set[str] = set()
-    reaction_acq: dict[str, float | None] = {}
     for r in reaction.get("rows") or []:
         title = (r.get("list_title") or "").strip()
         if not title or title == "—" or title in seen:
             continue
         seen.add(title)
         list_titles.append(title[:1000])
-        acq = r.get("acquired")
-        reaction_acq[title] = float(acq) if isinstance(acq, (int, float)) else None
 
     if not list_titles and saved_rows:
         for row in saved_rows:
@@ -456,13 +567,12 @@ def dilemma_criteria_phase_items_for_unit(
                 seen.add(title)
                 list_titles.append(title[:1000])
 
+    # مثل المراحل: العلامة من المحفوظ فقط — لا تعبئة تلقائية من مكتسبة المحكم
     merged: list[dict] = []
     for idx, title in enumerate(list_titles):
         mark = marks_by_text.get(title)
         if mark is None and idx < len(marks_by_index):
             mark = marks_by_index[idx]
-        if mark is None:
-            mark = reaction_acq.get(title)
         merged.append(
             {
                 "criteria_text": title,
@@ -482,6 +592,49 @@ def dilemma_criteria_phase_items_for_unit(
             else None
         )
     return merged, day_labels
+
+
+def collect_dilemma_acquired_for_unit_phase(
+    db: Session,
+    ex: Exercise,
+    unit: AnalystDilemmaCriteriaUnit,
+    phase_key: str,
+) -> list[dict]:
+    """مكتسبة قوائم تقييم المعاضل/الإجراءات لملء تلقائي (مثل autofill في المراحل)."""
+    from app.views import _resolve_unit_level_key_for_criteria_label
+
+    unit_level_key = _resolve_unit_level_key_for_criteria_label(unit.label or "")
+    day_to_phase = load_analyst_day_phase_map(db, int(ex.id))
+    flow_days = ibank_event_flow_days(db)
+    reaction = build_dilemma_reaction_table_for_unit_phase(
+        db,
+        exercise_id=int(ex.id),
+        unit_level_key=unit_level_key,
+        phase_key=phase_key,
+        day_to_phase=day_to_phase,
+        flow_days=flow_days,
+    )
+    out: list[dict] = []
+    seen: set[str] = set()
+    for r in reaction.get("rows") or []:
+        title = (r.get("list_title") or "").strip()
+        if not title or title == "—" or title in seen:
+            continue
+        seen.add(title)
+        acq = r.get("acquired")
+        mx = r.get("max_mark")
+        out.append(
+            {
+                "criteria_text": title[:1000],
+                "acquired_mark": (
+                    round(float(acq), 4) if isinstance(acq, (int, float)) else None
+                ),
+                "max_mark": (
+                    round(float(mx), 4) if isinstance(mx, (int, float)) else None
+                ),
+            }
+        )
+    return out
 
 
 def save_dilemma_criteria_phase_items(

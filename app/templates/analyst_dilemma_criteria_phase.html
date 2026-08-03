@@ -48,7 +48,7 @@
             <tr>
               <td class="analyst-criteria-seq criteria-seq-cell">{{ loop.index }}</td>
               <td class="criteria-text-cell">
-                <span class="criteria-text-from-eval-list" title="من قوائم تقييم المعاضل حسب الأيام">{{ item.criteria_text }}</span>
+                <span class="criteria-text-from-eval-list" title="من قوائم تقييم المعاضل — يُدخل المحلل العلامة يدوياً أو عبر ملء تلقائي">{{ item.criteria_text }}</span>
                 <input type="hidden" name="criteria_text" value="{{ item.criteria_text }}">
               </td>
               <td><input class="unit-level-select mark-input" style="max-width:9rem;" type="number" name="allocated_mark" min="0" step="0.01" value="{% if allocated_mark is number %}{{ allocated_mark|round(2) }}{% endif %}"></td>
@@ -78,6 +78,9 @@
     </div>
     <div class="btn-group" style="margin-top:1rem;">
       <button class="btn" type="submit"{% if list_driven is defined and list_driven and not items %} disabled{% endif %}><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ وعودة</button>
+      {% if autofill_url is defined and autofill_url and items %}
+      <button type="button" class="btn btn-ghost" id="dilemma-criteria-autofill-btn" title="ملء الدرجات تلقائياً من نتائج قوائم تقييم المعاضل/الإجراءات المحفوظة"><i class="fa-solid fa-magic-wand-sparkles" aria-hidden="true"></i> ملء تلقائي</button>
+      {% endif %}
     </div>
   </form>
 </section>
@@ -88,6 +91,35 @@
   const totalMarkCell = document.getElementById("total-mark-cell");
   const totalPctCell = document.getElementById("total-pct-cell");
   if (!body || !totalMarkCell || !totalPctCell) return;
+
+  var autofillBtn = document.getElementById("dilemma-criteria-autofill-btn");
+  var AUTOFILL_URL = {{ autofill_url | tojson if autofill_url is defined and autofill_url else '""' }};
+  if (autofillBtn && AUTOFILL_URL) {
+    autofillBtn.addEventListener("click", function () {
+      autofillBtn.disabled = true;
+      autofillBtn.textContent = "جاري الجلب…";
+      fetch(AUTOFILL_URL, { credentials: "same-origin", headers: { Accept: "application/json" } })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data.ok || !Array.isArray(data.items) || !data.items.length) {
+            alert("لا توجد نتائج محفوظة من قوائم تقييم المعاضل لهذه المرحلة والوحدة بعد.");
+            return;
+          }
+          var inputs = Array.from(body.querySelectorAll(".mark-input:not([disabled])"));
+          data.items.forEach(function (item, idx) {
+            if (idx < inputs.length && item.acquired_mark !== null && item.acquired_mark !== undefined) {
+              inputs[idx].value = String(Math.round(item.acquired_mark * 100) / 100);
+            }
+          });
+          recalc();
+        })
+        .catch(function () { alert("تعذّر جلب البيانات."); })
+        .finally(function () {
+          autofillBtn.disabled = false;
+          autofillBtn.innerHTML = '<i class="fa-solid fa-magic-wand-sparkles" aria-hidden="true"></i> ملء تلقائي';
+        });
+    });
+  }
 
   function fmt(n) {
     if (!Number.isFinite(n)) return "0";

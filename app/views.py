@@ -5869,6 +5869,11 @@ def analyst_dilemma_criteria_phase(unit_id: int, phase_key: str):
         for item in items
         if item.get("allocated_mark") is not None
     )
+    autofill_url = url_for(
+        "views.analyst_dilemma_criteria_phase_autofill",
+        unit_id=unit_id,
+        phase_key=phase_key_raw,
+    )
     return render_template(
         "analyst_dilemma_criteria_phase.html",
         **_ctx(
@@ -5885,9 +5890,45 @@ def analyst_dilemma_criteria_phase(unit_id: int, phase_key: str):
             criteria_unit_level_key=unit_level_key,
             total_mark=total_mark if total_mark > 0 else None,
             ok_msg="تم حفظ جدول المرحلة." if request.args.get("ok") else "",
+            autofill_url=autofill_url,
             **_subpage_close_ctx(close_url),
         ),
     )
+
+
+@bp.route(
+    "/analyst/evaluation-criteria/dilemma/<int:unit_id>/<phase_key>/autofill",
+    methods=["GET"],
+)
+def analyst_dilemma_criteria_phase_autofill(unit_id: int, phase_key: str):
+    """JSON: مكتسبة قوائم تقييم المعاضل/الإجراءات لملء تلقائي — مثل المراحل."""
+    user = get_current_user_optional()
+    if not user:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    if not can_access_analyst_hub(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    phase_key_raw = (phase_key or "").strip()
+    phase_key_resolved = _resolve_analyst_criteria_phase_key(phase_key_raw)
+    if not phase_key_resolved:
+        return jsonify({"ok": False, "error": "invalid_phase"}), 400
+    from flask import g
+
+    from app.analyst_dilemma_criteria import collect_dilemma_acquired_for_unit_phase
+
+    db = g.db
+    ex0 = _current_workspace_exercise(db, user)
+    if ex0 is None:
+        return jsonify({"ok": False, "error": "no_exercise"}), 400
+    ex = db.query(Exercise).filter(Exercise.id == ex0.id).first()
+    if ex is None:
+        return jsonify({"ok": False, "error": "no_exercise"}), 400
+    unit = db.get(AnalystDilemmaCriteriaUnit, unit_id)
+    if unit is None or unit.exercise_id != ex.id:
+        return jsonify({"ok": False, "error": "not_found"}), 404
+    items = collect_dilemma_acquired_for_unit_phase(
+        db, ex, unit, phase_key_resolved
+    )
+    return jsonify({"ok": True, "items": items})
 
 
 @bp.route(

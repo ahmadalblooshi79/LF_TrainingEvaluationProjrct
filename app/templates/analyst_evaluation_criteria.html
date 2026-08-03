@@ -150,7 +150,7 @@
       <section class="card analyst-criteria-distribution-card">
         <h2 class="h2-in-card"><i class="fa-solid fa-percent fa-icon-title" aria-hidden="true"></i> توزيع النسبة المئوية لقوائم تقييم المعاضل</h2>
         {% if dilemma_active_phase_label %}
-        <p class="muted" dir="rtl">الوحدات المعروضة هي المعنية بـ <strong>{{ dilemma_active_phase_label }}</strong> حسب قوائم التقييم (المراحل){% if dilemma_active_day_id %} لليوم المحدد{% endif %}.</p>
+        <p class="muted" dir="rtl">مثل قوائم التقييم (المراحل): تُحسب علامة المرحلة من مجموع العلامات في «تفاصيل»، والإجمالي والنسبة المئوية المخصصة = حصة الوحدة من مجموع كل الوحدات المعروضة.</p>
         {% endif %}
         <form method="post" action="{{ url_for('views.analyst_hub_section', slug='evaluation-criteria', tab='dilemma', day=dilemma_active_day_id or none, phase=dilemma_active_phase_key or none) }}" id="analyst-dilemma-criteria-distribution-form">
           <input type="hidden" name="form_action" value="dilemma_distribution">
@@ -190,7 +190,7 @@
                 {% elif not dilemma_distribution_rows %}
                 <tr class="analyst-criteria-empty-row">
                   <td class="analyst-criteria-seq muted">—</td>
-                  <td class="muted analyst-criteria-empty-msg">لا توجد وحدات معنية بهذه المرحلة في قوائم التقييم (المراحل) بعد.</td>
+                  <td class="muted analyst-criteria-empty-msg">لا توجد وحدات معنية بهذه المرحلة بعد (قوائم التقييم، حزم المجرى، أو مكلفو المعاضل في الأيام المرتبطة).</td>
                   <td class="muted">—</td>
                   <td class="muted">—</td>
                   <td class="muted">—</td>
