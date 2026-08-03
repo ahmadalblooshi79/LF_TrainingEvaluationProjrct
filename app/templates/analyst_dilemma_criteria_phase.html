@@ -26,6 +26,10 @@
   {% endif %}
 
   <form method="post" id="dilemma-criteria-phase-form">
+    {% if request.args.get('day') %}
+    <input type="hidden" name="day" value="{{ request.args.get('day') }}">
+    {% endif %}
+    <input type="hidden" name="phase" value="{{ phase_key }}">
     <div class="table-wrap">
       <table dir="rtl" id="dilemma-criteria-phase-table" class="analyst-criteria-phase-table" aria-label="جدول {{ phase_label }}">
         <thead>
@@ -55,7 +59,7 @@
             <tr>
               <td class="analyst-criteria-seq criteria-seq-cell">1</td>
               <td class="criteria-text-cell">
-                <span class="muted">لا توجد قوائم تقييم معاضل لأيام هذه المرحلة لهذه الوحدة بعد. اربط الأيام بالمرحلة أولاً.</span>
+                <span class="muted">لا توجد قوائم تقييم معاضل لأيام هذه المرحلة لهذه الوحدة بعد. اختر اليوم والمرحلة من تبويب قوائم تقييم المعاضل أولاً.</span>
               </td>
               <td><input class="unit-level-select mark-input" style="max-width:9rem;" type="number" name="allocated_mark" min="0" step="0.01" value="" disabled></td>
               <td class="pct-cell">—</td>

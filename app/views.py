@@ -5004,6 +5004,8 @@ def analyst_hub_section(slug: str):
                         "views.analyst_hub_section",
                         slug=slug_norm,
                         tab="dilemma",
+                        day=request.form.get("day") or request.args.get("day") or None,
+                        phase=request.form.get("phase") or request.args.get("phase") or None,
                         ok=1,
                     )
                 )
@@ -5014,6 +5016,8 @@ def analyst_hub_section(slug: str):
                         "views.analyst_hub_section",
                         slug=slug_norm,
                         tab="dilemma",
+                        day=request.form.get("day") or request.args.get("day") or None,
+                        phase=request.form.get("phase") or request.args.get("phase") or None,
                         ok=1,
                     )
                 )
@@ -5027,7 +5031,17 @@ def analyst_hub_section(slug: str):
                 )
             )
 
-        dilemma_dist = build_dilemma_criteria_distribution(db, user)
+        active_day = (request.args.get("day") or "").strip() or None
+        active_phase = (request.args.get("phase") or "").strip() or None
+        # عند اختيار مرحلة عبر التمرير — احفظ ربط اليوم→المرحلة
+        persist_link = bool(active_day and active_phase)
+        dilemma_dist = build_dilemma_criteria_distribution(
+            db,
+            user,
+            active_day_id=active_day,
+            active_phase_key=active_phase,
+            persist_day_phase=persist_link,
+        )
         criteria_phases = dist.get("criteria_phases") or _analyst_criteria_phases_for_display(
             bool(dist.get("distribution_rows"))
         )
@@ -5045,6 +5059,10 @@ def analyst_hub_section(slug: str):
                 dilemma_distribution_rows=dilemma_dist.get("distribution_rows") or [],
                 dilemma_grand_total=dilemma_dist.get("grand_total"),
                 day_phase_links=dilemma_dist.get("day_phase_links") or [],
+                dilemma_day_tabs=dilemma_dist.get("day_tabs") or [],
+                dilemma_active_day_id=dilemma_dist.get("active_day_id") or "",
+                dilemma_active_phase_key=dilemma_dist.get("active_phase_key") or "",
+                dilemma_active_phase_label=dilemma_dist.get("active_phase_label") or "",
                 ok_msg="تم الحفظ بنجاح." if request.args.get("ok") else "",
             ),
         )
@@ -5800,8 +5818,14 @@ def analyst_dilemma_criteria_phase(unit_id: int, phase_key: str):
     section_title = "قوائم تقييم المعاضل"
     db = g.db
     ex0 = _current_workspace_exercise(db, user)
+    ret_day = (request.args.get("day") or request.form.get("day") or "").strip()
+    ret_phase = (request.args.get("phase") or request.form.get("phase") or phase_key or "").strip()
     close_url = url_for(
-        "views.analyst_hub_section", slug="evaluation-criteria", tab="dilemma"
+        "views.analyst_hub_section",
+        slug="evaluation-criteria",
+        tab="dilemma",
+        day=ret_day or None,
+        phase=ret_phase or None,
     )
     if ex0 is None:
         return render_template(
@@ -5832,6 +5856,8 @@ def analyst_dilemma_criteria_phase(unit_id: int, phase_key: str):
                 "views.analyst_hub_section",
                 slug="evaluation-criteria",
                 tab="dilemma",
+                day=ret_day or None,
+                phase=ret_phase or phase_key or None,
                 ok=1,
             )
         )

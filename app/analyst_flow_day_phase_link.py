@@ -433,6 +433,32 @@ def day_phase_link_rows_for_ui(
     return rows
 
 
+def set_analyst_day_phase_link(
+    db: Session,
+    exercise_id: int,
+    *,
+    day_id: str,
+    phase_key: str,
+) -> None:
+    """تعيين/تحديث ربط يوم واحد بمرحلة مع الإبقاء على بقية الروابط."""
+    did = (day_id or "").strip()
+    if not did:
+        return
+    current = load_analyst_day_phase_map(db, int(exercise_id))
+    pk = _normalize_phase_key(phase_key or "")
+    if pk:
+        current[did] = pk
+    else:
+        current.pop(did, None)
+    save_analyst_day_phase_links(
+        db,
+        int(exercise_id),
+        day_ids=list(current.keys()),
+        phase_keys=list(current.values()),
+        delete_day_ids=set(),
+    )
+
+
 def save_analyst_day_phase_links(
     db: Session,
     exercise_id: int,

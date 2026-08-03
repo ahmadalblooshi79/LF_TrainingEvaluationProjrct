@@ -10974,6 +10974,26 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   line-height: 1.2 !important;
   vertical-align: middle !important;
 }
+.analyst-criteria-distribution-table {
+  width: 100%;
+  table-layout: fixed;
+}
+.analyst-criteria-distribution-table tbody tr,
+.analyst-criteria-distribution-table tfoot tr,
+.analyst-criteria-distribution-table thead tr {
+  height: 2.75rem;
+}
+.analyst-criteria-phase-table {
+  width: 100%;
+  table-layout: fixed;
+}
+.analyst-criteria-phase-table th,
+.analyst-criteria-phase-table td {
+  height: 2.75rem;
+  min-height: 2.75rem;
+  vertical-align: middle !important;
+  box-sizing: border-box;
+}
 .analyst-criteria-distribution-table .analyst-criteria-unit-label {
   padding: 0 !important;
   line-height: 1.25;
@@ -11098,6 +11118,82 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
 }
 .analyst-criteria-new-unit-select {
   max-width: 22rem;
+}
+.analyst-dilemma-day-phase-card .analyst-dilemma-day-tabs-bar {
+  margin-bottom: 1rem;
+}
+.analyst-dilemma-phase-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 0.85rem;
+  margin-top: 0.75rem;
+}
+.analyst-dilemma-phase-field__label {
+  font-weight: 700;
+  color: #2a2a28;
+  white-space: nowrap;
+}
+.analyst-dilemma-phase-select {
+  min-width: 16rem;
+  max-width: 28rem;
+  flex: 1 1 16rem;
+}
+/* تثبيت أبعاد جدول توزيع المعاضل بين كل الأيام/المراحل */
+.analyst-dilemma-distribution-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.analyst-dilemma-distribution-table .col-seq { width: 3.25rem; }
+.analyst-dilemma-distribution-table .col-unit { width: 26%; }
+.analyst-dilemma-distribution-table .col-phase { width: 16%; }
+.analyst-dilemma-distribution-table .col-total { width: 12%; }
+.analyst-dilemma-distribution-table .col-pct { width: 16%; }
+.analyst-dilemma-distribution-table .col-actions { width: 18%; }
+.analyst-dilemma-distribution-table th,
+.analyst-dilemma-distribution-table td,
+.analyst-dilemma-distribution-table tbody th {
+  height: 2.75rem;
+  min-height: 2.75rem;
+  box-sizing: border-box;
+  vertical-align: middle !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.analyst-dilemma-distribution-table .analyst-dilemma-phase-col-head {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 0; /* يعمل مع table-layout:fixed لإجبار القص */
+}
+.analyst-dilemma-distribution-table .analyst-criteria-num-cell {
+  text-align: center;
+}
+.analyst-dilemma-distribution-table .analyst-criteria-unit-label,
+.analyst-dilemma-distribution-table .analyst-criteria-empty-msg {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.analyst-dilemma-distribution-table .analyst-criteria-empty-msg {
+  white-space: normal;
+  line-height: 1.25;
+  font-weight: 400;
+}
+.analyst-dilemma-distribution-table .analyst-criteria-actions {
+  flex-wrap: nowrap;
+  justify-content: center;
+  gap: 0.35rem;
+}
+.analyst-dilemma-distribution-table .analyst-criteria-actions-cell {
+  text-align: center;
+}
+.analyst-criteria-actions .btn-sm-compact {
+  white-space: nowrap;
 }
 
 /* بنك المعلومات — عرض شجري */
