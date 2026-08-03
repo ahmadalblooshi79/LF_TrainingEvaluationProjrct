@@ -6,7 +6,7 @@
   <title>شاشة العرض المباشر — Live Presentation</title>
   <style>
     html, body { margin:0; padding:0; height:100%; background:#0b2421; overflow:hidden; }
-    #frame { border:0; width:100%; height:100%; background:#fff; }
+    #frame { border:0; width:100%; height:100%; background:#fff; display:none; }
     #banner {
       position:fixed; top:0; left:0; right:0; z-index:20;
       background:rgba(11,36,33,.92); color:#f5f2e8; font:700 13px Tahoma,Arial,sans-serif;
@@ -21,6 +21,26 @@
     body.fullscreen #banner { display:none; }
     #frame-wrap { position:absolute; inset:0; top:40px; }
     body.fullscreen #frame-wrap { top:0; }
+    #idle {
+      position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+      background:linear-gradient(160deg, #0b2421 0%, #143d38 55%, #0b2421 100%);
+      color:#f5f2e8; text-align:center; padding:32px 20px;
+      font-family:Tahoma,Arial,sans-serif;
+    }
+    #idle.hidden { display:none; }
+    #idle h1 { margin:0 0 12px; font-size:1.6rem; font-weight:800; color:#c9a227; }
+    #idle p { margin:0 auto 10px; max-width:520px; line-height:1.7; color:#d9e6e2; font-size:1rem; }
+    #idle .hint {
+      margin-top:18px; padding:12px 16px; border:1px solid rgba(201,162,39,.45);
+      border-radius:8px; background:rgba(0,0,0,.18); font-size:.92rem; color:#ffd27a;
+      max-width:560px;
+    }
+    #idle code {
+      direction:ltr; display:inline-block; margin-top:6px; color:#8dffb0;
+      font-size:.85rem; word-break:break-all;
+    }
+    body.has-content #frame { display:block; }
+    body.has-content #idle { display:none; }
   </style>
 </head>
 <body>
@@ -37,6 +57,18 @@
     </div>
   </div>
   <div id="frame-wrap">
+    <div id="idle">
+      <div>
+        <h1>قناة العرض جاهزة</h1>
+        <p>الشاشة بانتظار بدء التحكم المباشر من تابلت النظام.</p>
+        <p>بعد تفعيل التحكم ستظهر هنا نفس الصفحة التي يفتحها جهاز التحكم.</p>
+        <div class="hint">
+          تأكد أن هذا المتصفح مسجّل دخوله في النظام، ثم من التابلت اضغط «بدء التحكم المباشر».
+          <br>
+          <code id="idle-url"></code>
+        </div>
+      </div>
+    </div>
     <iframe id="frame" title="Presentation" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-downloads"></iframe>
   </div>
   <script>
@@ -46,11 +78,21 @@
   var frame = document.getElementById("frame");
   var statusEl = document.getElementById("status");
   var pathEl = document.getElementById("path-label");
+  var idleUrl = document.getElementById("idle-url");
   var currentPath = "";
+  var connected = false;
+
+  if (idleUrl) {
+    idleUrl.textContent = location.origin + "/presentation/live?display_id=" + DISPLAY_ID;
+  }
 
   function setStatus(text, ok) {
     statusEl.textContent = text;
     statusEl.className = ok ? "ok" : "warn";
+  }
+
+  function showContent(on) {
+    document.body.classList.toggle("has-content", !!on);
   }
 
   /** تمرير فقط — بدون أي transform/scale (كان يسبب تكبيراً عشوائياً). */
@@ -84,26 +126,39 @@
     } catch (e) {}
   }
 
-  function navigate(path) {
+  function navigate(path, force) {
     if (!path) return;
-    if (path === currentPath) return;
+    if (!force && path === currentPath) return;
     currentPath = path;
     pathEl.textContent = path;
     var url = path;
     if (path.indexOf("http") !== 0) {
       url = path.charAt(0) === "/" ? path : "/" + path;
     }
+    showContent(true);
     frame.src = url;
+  }
+
+  function markConnected(label) {
+    connected = true;
+    setStatus("متصل — " + (label || "جهاز تحكم"), true);
   }
 
   function handleEvent(evt) {
     if (!evt || !evt.type) return;
     if (evt.type === "session_started") {
-      setStatus("متصل — " + (evt.username || evt.device_label || "جهاز تحكم"), true);
+      markConnected(evt.username || evt.device_label || "جهاز تحكم");
+      if (evt.path) navigate(evt.path);
+      else refreshStatus(true);
       return;
     }
     if (evt.type === "session_ended") {
-      setStatus("انتهت جلسة التحكم", false);
+      connected = false;
+      currentPath = "";
+      showContent(false);
+      pathEl.textContent = "";
+      try { frame.removeAttribute("src"); } catch (e) {}
+      setStatus("انتهت جلسة التحكم — بانتظار جهاز جديد", false);
       return;
     }
     if (evt.type === "session_lock") {
@@ -111,7 +166,7 @@
       return;
     }
     if (evt.type === "navigate" || evt.type === "open" || evt.type === "tab") {
-      setStatus("عرض مباشر نشط", true);
+      markConnected(evt.username || "");
       navigate(evt.path || (evt.payload && evt.payload.path));
       return;
     }
@@ -133,16 +188,38 @@
     }
   }
 
+  function refreshStatus(forceNavigate) {
+    fetch("/api/remote-control/status?display_id=" + encodeURIComponent(DISPLAY_ID), {
+      credentials: "same-origin",
+      cache: "no-store"
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.active) {
+          markConnected(d.active.username || "");
+          var path = d.active.last_path || "/dashboard";
+          if (forceNavigate || !currentPath) navigate(path);
+        } else if (!connected) {
+          setStatus("قناة العرض جاهزة — بانتظار التحكم", false);
+        }
+        if (d.last_state && (d.last_state.type === "navigate" || d.last_state.type === "open" || d.last_state.type === "tab")) {
+          handleEvent(d.last_state);
+        }
+      })
+      .catch(function () {});
+  }
+
   function connectSse() {
     var es = new EventSource("/api/remote-control/stream?display_id=" + encodeURIComponent(DISPLAY_ID));
     es.addEventListener("remote", function (e) {
       try { handleEvent(JSON.parse(e.data)); } catch (err) {}
     });
     es.addEventListener("hello", function () {
-      setStatus("قناة العرض جاهزة — بانتظار التحكم", false);
+      if (!connected) setStatus("قناة العرض جاهزة — بانتظار التحكم", false);
+      refreshStatus(false);
     });
     es.onerror = function () {
-      setStatus("إعادة الاتصال بقناة العرض…", false);
+      if (!connected) setStatus("إعادة الاتصال بقناة العرض…", false);
     };
   }
 
@@ -173,21 +250,10 @@
     clearAnyScale();
   });
 
-  fetch("/api/remote-control/status?display_id=" + encodeURIComponent(DISPLAY_ID))
-    .then(function (r) { return r.json(); })
-    .then(function (d) {
-      if (d.active) {
-        setStatus("متصل — " + (d.active.username || ""), true);
-        if (d.active.last_path) navigate(d.active.last_path);
-      }
-      if (d.last_state && d.last_state.type === "navigate") {
-        handleEvent(d.last_state);
-      }
-    })
-    .catch(function () {});
-
+  refreshStatus(true);
   connectSse();
   connectWs();
+  setInterval(function () { refreshStatus(false); }, 8000);
 })();
   </script>
 </body>

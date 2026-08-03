@@ -12114,7 +12114,7 @@ def admin_exercise_import_full_json():
 
 @bp.route("/admin/exercises/finish", methods=["GET", "POST"])
 def admin_exercise_finish():
-    """إنهاء التمرين الحالي: أرشفة JSON كامل ثم مسح بيانات التمرين (يبقى بنك المعلومات)."""
+    """إنهاء التمرين الحالي: أرشفة اختيارية في مجلد دائم ثم مسح بيانات التمرين من النظام فقط."""
     user = get_current_user_optional()
     if not user:
         return redirect("/login?next=/admin/exercises/create")
@@ -12166,7 +12166,7 @@ def admin_exercise_finish():
                     + quote("تعذر مسح التمرين الحالي.", safe="")
                 )
             db.commit()
-            msg = "تم مسح جميع بيانات التمرين والنتائج والتقييمات من النظام (بدون أرشفة). بنك المعلومات لم يُمس."
+            msg = "تم مسح جميع بيانات التمرين من النظام فقط. أرشيف مجلد التصدير وبنك المعلومات لم يُمسا."
     except Exception:
         db.rollback()
         return redirect(

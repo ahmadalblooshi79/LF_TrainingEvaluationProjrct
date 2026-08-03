@@ -308,7 +308,14 @@ def main() -> None:
 
         serve(app, host=HOST, port=PORT, threads=8)
         return
-    app.run(host=HOST, port=PORT, debug=debug, use_reloader=use_reloader)
+    # threaded=True ضروري: قناة SSE لشاشة العرض تبقى مفتوحة؛ بدونها تتجمّد أوامر التحكم والتنقل.
+    app.run(
+        host=HOST,
+        port=PORT,
+        debug=debug,
+        use_reloader=use_reloader,
+        threaded=True,
+    )
 
 
 if __name__ == "__main__":

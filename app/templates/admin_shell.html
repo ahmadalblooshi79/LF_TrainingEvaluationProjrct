@@ -46,7 +46,7 @@
     </a>
     {% if workspace_exercise %}
     <hr class="admin-shell__divider" aria-hidden="true">
-    <button type="button" class="admin-action-btn admin-action-btn--finish" id="btn-finish-exercise" title="مسح التمرين من النظام — بنك المعلومات لا يتأثر">
+    <button type="button" class="admin-action-btn admin-action-btn--finish" id="btn-finish-exercise" title="مسح التمرين من النظام فقط — الأرشيف وبنك المعلومات لا يتأثران">
       <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
       <span>مسح بيانات التمرين</span>
     </button>
@@ -62,11 +62,11 @@
 <div id="finish-exercise-overlay" class="import-password-overlay" role="dialog" aria-modal="true" aria-labelledby="finish-exercise-title" aria-hidden="true">
   <div class="import-password-dialog card">
     <h2 id="finish-exercise-title" class="h2-in-card" style="margin-top:0;"><i class="fa-solid fa-trash-can fa-icon-title" aria-hidden="true"></i> مسح بيانات التمرين</h2>
-    <p class="muted">سيتم حذف التمرين الحالي (<strong>{{ workspace_exercise.title }}</strong>) وجميع معلوماته ونتائجه وتقييماته من النظام (قوائم، محكمين، محادثات، تقارير…). <strong>بنك المعلومات لا يتأثر.</strong></p>
+    <p class="muted">سيتم حذف التمرين الحالي (<strong>{{ workspace_exercise.title }}</strong>) وجميع معلوماته ونتائجه وتقييماته من النظام فقط (قوائم، محكمين، محادثات، تقارير…). <strong>بنك المعلومات ومجلد الأرشيف لا يتأثران.</strong></p>
     <div class="form-group" style="margin:0.75rem 0;">
       <label class="checkbox-label" style="display:flex;align-items:flex-start;gap:0.5rem;cursor:pointer;">
         <input type="checkbox" id="finish-exercise-save-archive" checked style="margin-top:0.2rem;">
-        <span>حفظ نسخة أرشيف (JSON + ملفات) في مجلد التصدير قبل المسح — يمكن فتحها لاحقاً من «فتح تمرين»</span>
+        <span>تحديث/حفظ نسخة أرشيف (JSON + ملفات) في مجلد التصدير قبل المسح — المجلد أرشيف دائم ويمكن فتحه لاحقاً من «فتح تمرين»</span>
       </label>
     </div>
     <p class="muted">أدخل كلمة مرور حساب إدارة النظام للتأكيد.</p>
@@ -93,7 +93,7 @@
   const cancelBtn = document.getElementById("finish-exercise-cancel");
   if (!btn || !overlay || !pwdInput || !form || !pwdHidden) return;
 
-  const MSG_CONFIRM = "هل تريد مسح التمرين الحالي من النظام؟\n\nسيتم حذف جميع المعلومات والنتائج والتقييمات (قوائم، محكمين، محادثات، تقارير…).\nبنك المعلومات لا يتأثر.\n\nلا يمكن التراجع عن المسح داخل النظام.";
+  const MSG_CONFIRM = "هل تريد مسح التمرين الحالي من النظام فقط؟\n\nسيتم حذف جميع المعلومات والنتائج والتقييمات من النظام (قوائم، محكمين، محادثات، تقارير…).\nبنك المعلومات ومجلد الأرشيف لا يتأثران.\n\nلا يمكن التراجع عن المسح داخل النظام.";
 
   function openOverlay() {
     pwdInput.value = "";

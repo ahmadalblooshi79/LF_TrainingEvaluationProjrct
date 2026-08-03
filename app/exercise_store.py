@@ -28,12 +28,16 @@ from app.config import (
 from app.exercise_phase_catalog import normalize_exercise_phase
 from app.unit_levels_catalog import label_for_unit_level_key, normalize_unit_level_key
 from app.models import (
+    AnalystDilemmaCriteriaPhaseItem,
+    AnalystDilemmaCriteriaUnit,
     AnalystEvaluationCriteriaPhaseItem,
     AnalystEvaluationCriteriaResult,
     AnalystEvaluationCriteriaUnit,
     AnalystFinalEvaluationAllocatedMax,
     AnalystFinalEvaluationPhaseAllocatedMax,
+    AnalystFlowDayPhaseLink,
     ChatMessage,
+    ChatMessageRead,
     ChatRoom,
     ChatRoomMember,
     Checklist,
@@ -62,11 +66,15 @@ from app.models import (
     Problem,
     ProblemStatus,
     Reference,
+    RoleDef,
+    RoleKey,
+    TabletClientOp,
     User,
     VisualDocument,
 )
+from app.models.remote_control import RemoteControlAuditLog, RemoteControlSession
 
-EXPORT_SCHEMA_VERSION = 3
+EXPORT_SCHEMA_VERSION = 5
 
 # أسماء مجلدات داخل حزمة الملفات `{اسم_التمرين}_files/` — تطابق مجلدات instance
 FILE_BUCKET_ROOTS: dict[str, Path] = {
@@ -239,6 +247,37 @@ def exercise_to_export_dict(ex: Exercise, db: Session) -> dict[str, Any]:
         .filter(AnalystEvaluationCriteriaResult.exercise_id == ex.id)
         .all()
     )
+    analyst_dilemma_units = (
+        db.query(AnalystDilemmaCriteriaUnit)
+        .filter(AnalystDilemmaCriteriaUnit.exercise_id == ex.id)
+        .order_by(AnalystDilemmaCriteriaUnit.sort_order, AnalystDilemmaCriteriaUnit.id)
+        .all()
+    )
+    analyst_dilemma_phase_items = (
+        db.query(AnalystDilemmaCriteriaPhaseItem)
+        .filter(AnalystDilemmaCriteriaPhaseItem.exercise_id == ex.id)
+        .order_by(
+            AnalystDilemmaCriteriaPhaseItem.criteria_unit_id,
+            AnalystDilemmaCriteriaPhaseItem.sort_order,
+        )
+        .all()
+    )
+    analyst_flow_day_links = (
+        db.query(AnalystFlowDayPhaseLink)
+        .filter(AnalystFlowDayPhaseLink.exercise_id == ex.id)
+        .order_by(AnalystFlowDayPhaseLink.flow_day_id)
+        .all()
+    )
+    analyst_final_phase_max = (
+        db.query(AnalystFinalEvaluationPhaseAllocatedMax)
+        .filter(AnalystFinalEvaluationPhaseAllocatedMax.exercise_id == ex.id)
+        .all()
+    )
+    analyst_final_item_max = (
+        db.query(AnalystFinalEvaluationAllocatedMax)
+        .filter(AnalystFinalEvaluationAllocatedMax.exercise_id == ex.id)
+        .all()
+    )
     judge_tasks = (
         db.query(JudgeIncompleteTaskStatus)
         .filter(JudgeIncompleteTaskStatus.exercise_id == ex.id)
@@ -257,7 +296,10 @@ def exercise_to_export_dict(ex: Exercise, db: Session) -> dict[str, Any]:
     )
     chat_rooms = (
         db.query(ChatRoom)
-        .options(joinedload(ChatRoom.members), joinedload(ChatRoom.messages))
+        .options(
+            joinedload(ChatRoom.members),
+            joinedload(ChatRoom.messages).joinedload(ChatMessage.reads),
+        )
         .filter(ChatRoom.exercise_id == ex.id)
         .order_by(ChatRoom.id)
         .all()
@@ -266,6 +308,19 @@ def exercise_to_export_dict(ex: Exercise, db: Session) -> dict[str, Any]:
         db.query(ExerciseNotification)
         .filter(ExerciseNotification.exercise_id == ex.id)
         .order_by(ExerciseNotification.created_at)
+        .all()
+    )
+    ai_pn_cache = _read_ai_pn_cache_payload(ex.id)
+    users_rows = db.query(User).order_by(User.id).all()
+    role_defs = db.query(RoleDef).order_by(RoleDef.role_key).all()
+    rc_sessions = (
+        db.query(RemoteControlSession)
+        .order_by(RemoteControlSession.id)
+        .all()
+    )
+    rc_audit = (
+        db.query(RemoteControlAuditLog)
+        .order_by(RemoteControlAuditLog.id)
         .all()
     )
 
@@ -541,6 +596,62 @@ def exercise_to_export_dict(ex: Exercise, db: Session) -> dict[str, Any]:
             }
             for r in analyst_results
         ],
+        "analyst_dilemma_criteria_units": [
+            {
+                "id": u.id,
+                "sort_order": u.sort_order,
+                "label": u.label or "",
+                "created_at": _iso(u.created_at),
+                "updated_at": _iso(u.updated_at),
+            }
+            for u in analyst_dilemma_units
+        ],
+        "analyst_dilemma_criteria_phase_items": [
+            {
+                "id": pi.id,
+                "criteria_unit_id": pi.criteria_unit_id,
+                "phase_key": pi.phase_key or "",
+                "sort_order": pi.sort_order,
+                "criteria_text": pi.criteria_text or "",
+                "allocated_mark": pi.allocated_mark,
+                "created_at": _iso(pi.created_at),
+                "updated_at": _iso(pi.updated_at),
+            }
+            for pi in analyst_dilemma_phase_items
+        ],
+        "analyst_flow_day_phase_links": [
+            {
+                "id": ln.id,
+                "flow_day_id": ln.flow_day_id or "",
+                "phase_key": ln.phase_key or "",
+                "created_at": _iso(ln.created_at),
+                "updated_at": _iso(ln.updated_at),
+            }
+            for ln in analyst_flow_day_links
+        ],
+        "analyst_final_eval_phase_allocated_max": [
+            {
+                "id": row.id,
+                "unit_level_key": row.unit_level_key or "",
+                "phase_key": row.phase_key or "",
+                "max_mark": row.max_mark,
+                "created_at": _iso(row.created_at),
+                "updated_at": _iso(row.updated_at),
+            }
+            for row in analyst_final_phase_max
+        ],
+        "analyst_final_eval_allocated_max": [
+            {
+                "id": row.id,
+                "evaluation_item_id": row.evaluation_item_id,
+                "unit_level_key": row.unit_level_key or "",
+                "phase_key": row.phase_key or "",
+                "max_mark": row.max_mark,
+                "created_at": _iso(row.created_at),
+                "updated_at": _iso(row.updated_at),
+            }
+            for row in analyst_final_item_max
+        ],
         "judge_incomplete_task_status": [
             {
                 "id": t.id,
@@ -615,6 +726,16 @@ def exercise_to_export_dict(ex: Exercise, db: Session) -> dict[str, Any]:
                         "mime_type": msg.mime_type or "",
                         "file_size": msg.file_size,
                         "created_at": _iso(msg.created_at),
+                        "reads": [
+                            {
+                                "user_id": rd.user_id,
+                                "read_at": _iso(rd.read_at),
+                            }
+                            for rd in sorted(
+                                msg.reads or [],
+                                key=lambda x: x.read_at or datetime.min,
+                            )
+                        ],
                     }
                     for msg in sorted(room.messages or [], key=lambda x: x.created_at or datetime.min)
                 ],
@@ -637,7 +758,98 @@ def exercise_to_export_dict(ex: Exercise, db: Session) -> dict[str, Any]:
             }
             for n in notifications
         ],
+        "users": [
+            {
+                "id": u.id,
+                "username": u.username or "",
+                "email": u.email or "",
+                "full_name": u.full_name or "",
+                "password_hash": u.password_hash or "",
+                "role_key": u.role_key or RoleKey.JUDGE.value,
+                "is_active": bool(u.is_active),
+                "created_at": _iso(u.created_at),
+                "last_login": _iso(u.last_login),
+            }
+            for u in users_rows
+        ],
+        "role_defs": [
+            {
+                "id": r.id,
+                "role_key": r.role_key or "",
+                "title_ar": r.title_ar or "",
+                "duties_ar": r.duties_ar or "",
+            }
+            for r in role_defs
+        ],
+        "remote_control_sessions": [
+            {
+                "id": s.id,
+                "session_token": s.session_token or "",
+                "user_id": s.user_id,
+                "username": s.username or "",
+                "device_id": s.device_id or "",
+                "device_label": s.device_label or "",
+                "display_id": s.display_id or "",
+                "is_active": bool(s.is_active),
+                "is_locked": bool(s.is_locked),
+                "started_at": _iso(s.started_at),
+                "ended_at": _iso(s.ended_at),
+                "ended_by": s.ended_by or "",
+                "last_path": s.last_path or "",
+                "last_state_json": s.last_state_json or "",
+            }
+            for s in rc_sessions
+        ],
+        "remote_control_audit_logs": [
+            {
+                "id": a.id,
+                "session_id": a.session_id,
+                "user_id": a.user_id,
+                "username": a.username or "",
+                "device_id": a.device_id or "",
+                "display_id": a.display_id or "",
+                "action": a.action or "",
+                "detail_json": a.detail_json or "",
+                "created_at": _iso(a.created_at),
+            }
+            for a in rc_audit
+        ],
+        "ai_positives_negatives_cache": ai_pn_cache,
     }
+
+
+def _ai_pn_cache_path(exercise_id: int) -> Path:
+    from app.paths import data_dir
+
+    return data_dir() / "instance" / "ai_pn_cache" / f"exercise_{int(exercise_id)}.json"
+
+
+def _read_ai_pn_cache_payload(exercise_id: int) -> dict[str, Any] | None:
+    path = _ai_pn_cache_path(exercise_id)
+    if not path.is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+    return raw if isinstance(raw, dict) else None
+
+
+def _write_ai_pn_cache_payload(exercise_id: int, payload: Any) -> None:
+    if not isinstance(payload, dict):
+        return
+    path = _ai_pn_cache_path(exercise_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _remove_ai_pn_cache(exercise_id: int) -> None:
+    path = _ai_pn_cache_path(exercise_id)
+    try:
+        if path.is_file():
+            path.unlink()
+    except OSError:
+        pass
 
 
 def _normalize_storage_relpath(relpath: str) -> str:
@@ -966,6 +1178,24 @@ def _purge_exercise_database_rows(db: Session, exercise_id: int) -> None:
         )
     )
     db.execute(
+        delete(AnalystDilemmaCriteriaPhaseItem).where(
+            AnalystDilemmaCriteriaPhaseItem.exercise_id == eid
+        )
+    )
+    db.execute(
+        delete(AnalystDilemmaCriteriaUnit).where(
+            AnalystDilemmaCriteriaUnit.exercise_id == eid
+        )
+    )
+    db.execute(
+        delete(AnalystFlowDayPhaseLink).where(
+            AnalystFlowDayPhaseLink.exercise_id == eid
+        )
+    )
+    db.execute(
+        delete(TabletClientOp).where(TabletClientOp.exercise_id == eid)
+    )
+    db.execute(
         delete(JudgeIncompleteTaskStatus).where(
             JudgeIncompleteTaskStatus.exercise_id == eid
         )
@@ -1020,42 +1250,17 @@ def _purge_exercise_database_rows(db: Session, exercise_id: int) -> None:
 
 
 def _remove_exercise_export_artifacts(ex: Exercise) -> None:
-    """حذف ملف JSON للتمرين ومجلد الملفات المرفقة بجانبه في exercise_store."""
-    directory = export_directory()
-    candidates: set[Path] = set()
-    candidates.add(_export_path_for_exercise(directory, ex.title, ex.code, ex.id))
-    for p in directory.glob("*.json"):
-        if p.is_file():
-            candidates.add(p)
-    for path in candidates:
-        if not path.is_file():
-            continue
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        ex_blob = data.get("exercise") if isinstance(data, dict) else None
-        if not isinstance(ex_blob, dict) or ex_blob.get("id") != ex.id:
-            continue
-        bundle = archive_bundle_dir_for_json(path)
-        try:
-            path.unlink()
-        except OSError:
-            pass
-        if bundle.is_dir():
-            try:
-                shutil.rmtree(bundle)
-            except OSError:
-                pass
+    """مجلد exercise_store أرشيف دائم — لا يُحذف عند مسح التمرين من النظام."""
+    return
 
 
 def wipe_exercise_from_system(db: Session, exercise_id: int) -> bool:
-    """حذف التمرين وكل بياناته من النظام (دون بنك المعلومات ولا أرشفة)."""
+    """حذف التمرين وكل بياناته من النظام فقط (دون بنك المعلومات ودون مساس بأرشيف exercise_store)."""
     ex = db.get(Exercise, exercise_id)
     if not ex:
         return False
     _remove_exercise_upload_files(db, exercise_id)
-    _remove_exercise_export_artifacts(ex)
+    _remove_ai_pn_cache(exercise_id)
     _purge_exercise_database_rows(db, exercise_id)
     return True
 
@@ -1063,7 +1268,7 @@ def wipe_exercise_from_system(db: Session, exercise_id: int) -> bool:
 def archive_and_clear_current_exercise(
     db: Session, exercise_id: int, *, finished_by_id: int
 ) -> Path | None:
-    """حفظ نسخة أرشيف كاملة (JSON + ملفات) ثم حذف التمرين وكل بياناته (دون بنك المعلومات)."""
+    """حفظ نسخة أرشيف دائمة في exercise_store ثم حذف بيانات التمرين من النظام فقط."""
     ex = db.get(Exercise, exercise_id)
     if not ex:
         return None
@@ -1215,7 +1420,7 @@ def _reset_upload_directory(root: Path) -> None:
 
 
 def purge_exercise_export_archives() -> None:
-    """حذف ملفات JSON وأرشيفات _files في مجلد تصدير التمارين (نموذج إنشاء/فتح تمرين)."""
+    """حذف يدوي لملفات الأرشيف في exercise_store (سكربتات صيانة فقط — ليس مسار مسح التمرين)."""
     d = export_directory()
     d.mkdir(parents=True, exist_ok=True)
     for p in list(d.iterdir()):
@@ -1229,13 +1434,12 @@ def purge_exercise_export_archives() -> None:
 
 
 def purge_all_exercises_and_dilemmas(db: Session) -> None:
-    """حذف جميع التمارين وملفاتها وملفات التصدير (دون commit). يبقى بنك المعلومات والمستخدمون."""
+    """حذف جميع التمارين وملفات الرفع من النظام (دون commit). يبقى بنك المعلومات والمستخدمون وأرشيف exercise_store."""
     exercise_ids = [int(row[0]) for row in db.query(Exercise.id).all()]
     for eid in exercise_ids:
         wipe_exercise_from_system(db, eid)
     for root in FILE_BUCKET_ROOTS.values():
         _reset_upload_directory(root)
-    purge_exercise_export_archives()
 
 
 def clear_app_unit_level_data(db: Session) -> dict[str, int]:
@@ -1380,12 +1584,197 @@ def _parse_dt(val: Any) -> datetime | None:
         return None
 
 
-def _uid_or(db: Session, uid: Any, fallback: int) -> int:
+def _uid_or(
+    db: Session,
+    uid: Any,
+    fallback: int,
+    user_old_to_new: dict[int, int] | None = None,
+) -> int:
     try:
         i = int(uid)
     except (TypeError, ValueError):
         return fallback
+    if user_old_to_new is not None and i in user_old_to_new:
+        return user_old_to_new[i]
     return i if db.get(User, i) is not None else fallback
+
+
+def _import_role_defs_bundle(db: Session, data: dict[str, Any]) -> None:
+    rows = data.get("role_defs") or []
+    if not isinstance(rows, list):
+        return
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        rk = str(row.get("role_key") or "").strip()[:32]
+        if not rk:
+            continue
+        existing = db.query(RoleDef).filter(RoleDef.role_key == rk).first()
+        title = str(row.get("title_ar") or "")[:200]
+        duties = str(row.get("duties_ar") or "")
+        if existing:
+            if title:
+                existing.title_ar = title
+            if duties:
+                existing.duties_ar = duties
+        else:
+            db.add(
+                RoleDef(
+                    role_key=rk,
+                    title_ar=title or rk,
+                    duties_ar=duties,
+                )
+            )
+    db.flush()
+
+
+def _import_users_bundle(db: Session, data: dict[str, Any]) -> dict[int, int]:
+    """يستورد/يحدّث حسابات المستخدمين ويعيد خريطة old_id → new_id."""
+    old_to_new: dict[int, int] = {}
+    rows = data.get("users") or []
+    if not isinstance(rows, list):
+        return old_to_new
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        username = str(row.get("username") or "").strip()[:64]
+        if not username:
+            continue
+        try:
+            old_id = int(row.get("id")) if row.get("id") is not None else 0
+        except (TypeError, ValueError):
+            old_id = 0
+        role_key = str(row.get("role_key") or RoleKey.JUDGE.value).strip()[:32]
+        if role_key not in {r.value for r in RoleKey}:
+            role_key = RoleKey.JUDGE.value
+        password_hash = str(row.get("password_hash") or "")[:256]
+        existing = db.query(User).filter(User.username == username).first()
+        if existing:
+            if password_hash:
+                existing.password_hash = password_hash
+            existing.email = str(row.get("email") or existing.email or "")[:256]
+            existing.full_name = str(row.get("full_name") or existing.full_name or "")[:256]
+            existing.role_key = role_key
+            existing.is_active = bool(row.get("is_active", True))
+            ll = _parse_dt(row.get("last_login"))
+            if ll is not None:
+                existing.last_login = ll
+            db.flush()
+            if old_id:
+                old_to_new[old_id] = existing.id
+            continue
+        u = User(
+            username=username,
+            email=str(row.get("email") or "")[:256],
+            full_name=str(row.get("full_name") or "")[:256],
+            password_hash=password_hash or "!",
+            role_key=role_key,
+            is_active=bool(row.get("is_active", True)),
+            created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
+            last_login=_parse_dt(row.get("last_login")),
+        )
+        db.add(u)
+        db.flush()
+        if old_id:
+            old_to_new[old_id] = u.id
+    return old_to_new
+
+
+def _import_remote_control_bundle(
+    db: Session,
+    data: dict[str, Any],
+    user_old_to_new: dict[int, int],
+    fallback_user_id: int,
+) -> None:
+    """استيراد جلسات التحكم المباشر وسجل الأوامر (تُستعاد غير نشطة لتفادي تعارض الأجهزة)."""
+    session_old_to_new: dict[int, int] = {}
+    sessions = data.get("remote_control_sessions") or []
+    if isinstance(sessions, list):
+        for row in sessions:
+            if not isinstance(row, dict):
+                continue
+            token = str(row.get("session_token") or "").strip()[:64]
+            if not token:
+                continue
+            try:
+                old_sid = int(row.get("id")) if row.get("id") is not None else 0
+            except (TypeError, ValueError):
+                old_sid = 0
+            existing = (
+                db.query(RemoteControlSession)
+                .filter(RemoteControlSession.session_token == token)
+                .first()
+            )
+            uid = _uid_or(db, row.get("user_id"), fallback_user_id, user_old_to_new)
+            if existing:
+                existing.user_id = uid
+                existing.username = str(row.get("username") or existing.username or "")[:64]
+                existing.device_id = str(row.get("device_id") or existing.device_id or "")[:128]
+                existing.device_label = str(row.get("device_label") or existing.device_label or "")[:200]
+                existing.display_id = str(row.get("display_id") or existing.display_id or "default")[:64]
+                existing.is_active = False
+                existing.is_locked = bool(row.get("is_locked"))
+                existing.started_at = _parse_dt(row.get("started_at")) or existing.started_at
+                existing.ended_at = _parse_dt(row.get("ended_at")) or existing.ended_at or datetime.utcnow()
+                existing.ended_by = str(row.get("ended_by") or existing.ended_by or "import")[:64]
+                existing.last_path = str(row.get("last_path") or existing.last_path or "")[:500]
+                existing.last_state_json = str(
+                    row.get("last_state_json") or existing.last_state_json or "{}"
+                )
+                db.flush()
+                if old_sid:
+                    session_old_to_new[old_sid] = existing.id
+                continue
+            s = RemoteControlSession(
+                session_token=token,
+                user_id=uid,
+                username=str(row.get("username") or "")[:64],
+                device_id=str(row.get("device_id") or "")[:128],
+                device_label=str(row.get("device_label") or "")[:200],
+                display_id=str(row.get("display_id") or "default")[:64],
+                is_active=False,
+                is_locked=bool(row.get("is_locked")),
+                started_at=_parse_dt(row.get("started_at")) or datetime.utcnow(),
+                ended_at=_parse_dt(row.get("ended_at")) or datetime.utcnow(),
+                ended_by=str(row.get("ended_by") or "import")[:64],
+                last_path=str(row.get("last_path") or "/dashboard")[:500],
+                last_state_json=str(row.get("last_state_json") or "{}"),
+            )
+            db.add(s)
+            db.flush()
+            if old_sid:
+                session_old_to_new[old_sid] = s.id
+
+    audits = data.get("remote_control_audit_logs") or []
+    if not isinstance(audits, list):
+        return
+    for row in audits:
+        if not isinstance(row, dict):
+            continue
+        try:
+            old_sid = int(row.get("session_id")) if row.get("session_id") else 0
+        except (TypeError, ValueError):
+            old_sid = 0
+        new_sid = session_old_to_new.get(old_sid) if old_sid else None
+        uid_raw = row.get("user_id")
+        uid = (
+            _uid_or(db, uid_raw, fallback_user_id, user_old_to_new)
+            if uid_raw not in (None, "")
+            else None
+        )
+        db.add(
+            RemoteControlAuditLog(
+                session_id=new_sid,
+                user_id=uid,
+                username=str(row.get("username") or "")[:64],
+                device_id=str(row.get("device_id") or "")[:128],
+                display_id=str(row.get("display_id") or "")[:64],
+                action=str(row.get("action") or "")[:64],
+                detail_json=str(row.get("detail_json") or "{}"),
+                created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
+            )
+        )
+    db.flush()
 
 
 def _import_saved_eval_row(
@@ -1395,6 +1784,7 @@ def _import_saved_eval_row(
     *,
     evaluation_item_id: int | None,
     bundle_action_eval_id: int | None,
+    user_old_to_new: dict[int, int] | None = None,
 ) -> None:
     if evaluation_item_id is None and bundle_action_eval_id is None:
         return
@@ -1410,20 +1800,24 @@ def _import_saved_eval_row(
         payload_json=str(row.get("payload_json") or ""),
         total_pct=total_pct,
         grade_label=str(row.get("grade_label") or "")[:64],
-        saved_by_id=_uid_or(db, row.get("saved_by_id"), ex.owner_id),
+        saved_by_id=_uid_or(db, row.get("saved_by_id"), ex.owner_id, user_old_to_new),
         is_approved=bool(row.get("is_approved")),
-        approved_by_id=_uid_or(db, row.get("approved_by_id"), ex.owner_id)
+        approved_by_id=_uid_or(db, row.get("approved_by_id"), ex.owner_id, user_old_to_new)
         if row.get("approved_by_id")
         else None,
         approved_at=_parse_dt(row.get("approved_at")),
         reopened_for_judge=bool(row.get("reopened_for_judge")),
         is_chief_approved=bool(row.get("is_chief_approved")),
-        chief_approved_by_id=_uid_or(db, row.get("chief_approved_by_id"), ex.owner_id)
+        chief_approved_by_id=_uid_or(
+            db, row.get("chief_approved_by_id"), ex.owner_id, user_old_to_new
+        )
         if row.get("chief_approved_by_id")
         else None,
         chief_approved_at=_parse_dt(row.get("chief_approved_at")),
         is_control_approved=bool(row.get("is_control_approved")),
-        control_approved_by_id=_uid_or(db, row.get("control_approved_by_id"), ex.owner_id)
+        control_approved_by_id=_uid_or(
+            db, row.get("control_approved_by_id"), ex.owner_id, user_old_to_new
+        )
         if row.get("control_approved_by_id")
         else None,
         control_approved_at=_parse_dt(row.get("control_approved_at")),
@@ -1455,8 +1849,10 @@ def _import_v3_exercise_bundle(
     eval_item_old_to_new: dict[int, int],
     dilemma_old_to_new: dict[int, int],
     timeline_old_to_new: dict[int, int],
+    user_old_to_new: dict[int, int] | None = None,
 ) -> None:
-    """استيراد أقسام مخطط التصدير 3 (نتائج، حزم مجرى، محادثات، …)."""
+    """استيراد أقسام مخطط التصدير 3+ (نتائج، حزم مجرى، محادثات، معايير محلل، …)."""
+    umap = user_old_to_new or {}
     personnel = data.get("battle_unit_personnel") or []
     if isinstance(personnel, list):
         for row in personnel:
@@ -1568,6 +1964,7 @@ def _import_v3_exercise_bundle(
                         es,
                         evaluation_item_id=None,
                         bundle_action_eval_id=ae_row.id,
+                        user_old_to_new=umap,
                     )
 
     saved_list = data.get("evaluation_list_saved_results") or []
@@ -1588,6 +1985,7 @@ def _import_v3_exercise_bundle(
                 row,
                 evaluation_item_id=new_eid,
                 bundle_action_eval_id=None,
+                user_old_to_new=umap,
             )
 
     assignments = data.get("judge_trainee_assignments") or []
@@ -1602,7 +2000,7 @@ def _import_v3_exercise_bundle(
             db.add(
                 JudgeTraineeAssignment(
                     exercise_id=ex.id,
-                    judge_user_id=_uid_or(db, row.get("judge_user_id"), owner_id),
+                    judge_user_id=_uid_or(db, row.get("judge_user_id"), owner_id, umap),
                     unit_level_key=str(row.get("unit_level_key") or "")[:64],
                     trainee_name=str(row.get("trainee_name") or "")[:256],
                     trainee_military_number=str(row.get("trainee_military_number") or "")[:128],
@@ -1689,9 +2087,138 @@ def _import_v3_exercise_bundle(
                     unit_level_key=str(row.get("unit_level_key") or "")[:64],
                     preparation_pct=prep,
                     operations_pct=ops,
-                    updated_by_id=_uid_or(db, row.get("updated_by_id"), owner_id)
+                    updated_by_id=_uid_or(db, row.get("updated_by_id"), owner_id, umap)
                     if row.get("updated_by_id")
                     else None,
+                    updated_at=_parse_dt(row.get("updated_at")) or datetime.utcnow(),
+                )
+            )
+
+    dilemma_unit_old_to_new: dict[int, int] = {}
+    dilemma_units = data.get("analyst_dilemma_criteria_units") or []
+    if isinstance(dilemma_units, list):
+        for row in dilemma_units:
+            if not isinstance(row, dict):
+                continue
+            try:
+                old_uid = int(row.get("id")) if row.get("id") is not None else 0
+            except (TypeError, ValueError):
+                old_uid = 0
+            try:
+                so = int(row.get("sort_order") or 0)
+            except (TypeError, ValueError):
+                so = 0
+            u = AnalystDilemmaCriteriaUnit(
+                exercise_id=ex.id,
+                sort_order=so,
+                label=str(row.get("label") or "")[:300],
+                created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
+                updated_at=_parse_dt(row.get("updated_at")) or datetime.utcnow(),
+            )
+            db.add(u)
+            db.flush()
+            if old_uid:
+                dilemma_unit_old_to_new[old_uid] = u.id
+
+    dilemma_phase_items = data.get("analyst_dilemma_criteria_phase_items") or []
+    if isinstance(dilemma_phase_items, list):
+        for row in dilemma_phase_items:
+            if not isinstance(row, dict):
+                continue
+            try:
+                old_cuid = int(row.get("criteria_unit_id")) if row.get("criteria_unit_id") else 0
+            except (TypeError, ValueError):
+                old_cuid = 0
+            new_cuid = dilemma_unit_old_to_new.get(old_cuid)
+            if not new_cuid:
+                continue
+            try:
+                so = int(row.get("sort_order") or 0)
+            except (TypeError, ValueError):
+                so = 0
+            try:
+                mark = float(row["allocated_mark"]) if row.get("allocated_mark") is not None else None
+            except (TypeError, ValueError):
+                mark = None
+            db.add(
+                AnalystDilemmaCriteriaPhaseItem(
+                    exercise_id=ex.id,
+                    criteria_unit_id=new_cuid,
+                    phase_key=str(row.get("phase_key") or "")[:32],
+                    sort_order=so,
+                    criteria_text=str(row.get("criteria_text") or "")[:1000],
+                    allocated_mark=mark,
+                    created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
+                    updated_at=_parse_dt(row.get("updated_at")) or datetime.utcnow(),
+                )
+            )
+
+    flow_day_links = data.get("analyst_flow_day_phase_links") or []
+    if isinstance(flow_day_links, list):
+        for row in flow_day_links:
+            if not isinstance(row, dict):
+                continue
+            day_id = str(row.get("flow_day_id") or "").strip()[:64]
+            if not day_id:
+                continue
+            db.add(
+                AnalystFlowDayPhaseLink(
+                    exercise_id=ex.id,
+                    flow_day_id=day_id,
+                    phase_key=str(row.get("phase_key") or "")[:32],
+                    created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
+                    updated_at=_parse_dt(row.get("updated_at")) or datetime.utcnow(),
+                )
+            )
+
+    final_phase_max = data.get("analyst_final_eval_phase_allocated_max") or []
+    if isinstance(final_phase_max, list):
+        for row in final_phase_max:
+            if not isinstance(row, dict):
+                continue
+            uk = str(row.get("unit_level_key") or "").strip()[:64]
+            pk = str(row.get("phase_key") or "").strip()[:32]
+            if not uk or not pk:
+                continue
+            try:
+                mark = float(row["max_mark"]) if row.get("max_mark") is not None else None
+            except (TypeError, ValueError):
+                mark = None
+            db.add(
+                AnalystFinalEvaluationPhaseAllocatedMax(
+                    exercise_id=ex.id,
+                    unit_level_key=uk,
+                    phase_key=pk,
+                    max_mark=mark,
+                    created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
+                    updated_at=_parse_dt(row.get("updated_at")) or datetime.utcnow(),
+                )
+            )
+
+    final_item_max = data.get("analyst_final_eval_allocated_max") or []
+    if isinstance(final_item_max, list):
+        for row in final_item_max:
+            if not isinstance(row, dict):
+                continue
+            try:
+                old_eid = int(row.get("evaluation_item_id")) if row.get("evaluation_item_id") else 0
+            except (TypeError, ValueError):
+                old_eid = 0
+            new_eid = eval_item_old_to_new.get(old_eid)
+            if not new_eid:
+                continue
+            try:
+                mark = float(row["max_mark"]) if row.get("max_mark") is not None else None
+            except (TypeError, ValueError):
+                mark = None
+            db.add(
+                AnalystFinalEvaluationAllocatedMax(
+                    exercise_id=ex.id,
+                    evaluation_item_id=new_eid,
+                    unit_level_key=str(row.get("unit_level_key") or "")[:64],
+                    phase_key=str(row.get("phase_key") or "")[:32],
+                    max_mark=mark,
+                    created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
                     updated_at=_parse_dt(row.get("updated_at")) or datetime.utcnow(),
                 )
             )
@@ -1716,7 +2243,7 @@ def _import_v3_exercise_bundle(
             db.add(
                 JudgeIncompleteTaskStatus(
                     exercise_id=ex.id,
-                    judge_id=_uid_or(db, row.get("judge_id"), owner_id),
+                    judge_id=_uid_or(db, row.get("judge_id"), owner_id, umap),
                     unit_level_key=str(row.get("unit_level_key") or "")[:64],
                     exercise_phase=normalize_exercise_phase(str(row.get("exercise_phase") or "")),
                     pair_index=pair_i,
@@ -1752,7 +2279,7 @@ def _import_v3_exercise_bundle(
                 media_kind=str(row.get("media_kind") or "photo")[:16],
                 mime_type=str(row.get("mime_type") or "")[:120],
                 file_relpath=str(row.get("file_relpath") or "")[:700],
-                uploaded_by_id=_uid_or(db, row.get("uploaded_by_id"), owner_id)
+                uploaded_by_id=_uid_or(db, row.get("uploaded_by_id"), owner_id, umap)
                 if row.get("uploaded_by_id")
                 else None,
                 created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
@@ -1776,7 +2303,7 @@ def _import_v3_exercise_bundle(
                 event_id=timeline_old_to_new.get(old_ev) if old_ev else None,
                 dilemma_id=dilemma_old_to_new.get(old_did) if old_did else None,
                 unit_level_key=str(row.get("unit_level_key") or "")[:64],
-                uploaded_by_id=_uid_or(db, row.get("uploaded_by_id"), owner_id),
+                uploaded_by_id=_uid_or(db, row.get("uploaded_by_id"), owner_id, umap),
                 file_type=str(row.get("file_type") or "image")[:16],
                 file_relpath=str(row.get("file_relpath") or "")[:700],
                 description=str(row.get("description") or ""),
@@ -1799,7 +2326,7 @@ def _import_v3_exercise_bundle(
             description=str(row.get("description") or ""),
             room_kind=str(row.get("room_kind") or "custom")[:64],
             unit_level_key=str(row.get("unit_level_key") or "")[:64],
-            created_by_id=_uid_or(db, row.get("created_by_id"), owner_id)
+            created_by_id=_uid_or(db, row.get("created_by_id"), owner_id, umap)
             if row.get("created_by_id")
             else None,
             created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
@@ -1816,7 +2343,7 @@ def _import_v3_exercise_bundle(
             db.add(
                 ChatRoomMember(
                     room_id=room.id,
-                    user_id=_uid_or(db, mem.get("user_id"), owner_id),
+                    user_id=_uid_or(db, mem.get("user_id"), owner_id, umap),
                     role_in_room=str(mem.get("role_in_room") or "member")[:32],
                     joined_at=_parse_dt(mem.get("joined_at")) or datetime.utcnow(),
                 )
@@ -1828,19 +2355,29 @@ def _import_v3_exercise_bundle(
                 fsize = int(msg.get("file_size") or 0)
             except (TypeError, ValueError):
                 fsize = 0
-            db.add(
-                ChatMessage(
-                    room_id=room.id,
-                    sender_id=_uid_or(db, msg.get("sender_id"), owner_id),
-                    message_type=str(msg.get("message_type") or "text")[:32],
-                    body_text=str(msg.get("body_text") or ""),
-                    file_relpath=str(msg.get("file_relpath") or "")[:600],
-                    original_filename=str(msg.get("original_filename") or "")[:500],
-                    mime_type=str(msg.get("mime_type") or "")[:200],
-                    file_size=fsize,
-                    created_at=_parse_dt(msg.get("created_at")) or datetime.utcnow(),
-                )
+            msg_row = ChatMessage(
+                room_id=room.id,
+                sender_id=_uid_or(db, msg.get("sender_id"), owner_id, umap),
+                message_type=str(msg.get("message_type") or "text")[:32],
+                body_text=str(msg.get("body_text") or ""),
+                file_relpath=str(msg.get("file_relpath") or "")[:600],
+                original_filename=str(msg.get("original_filename") or "")[:500],
+                mime_type=str(msg.get("mime_type") or "")[:200],
+                file_size=fsize,
+                created_at=_parse_dt(msg.get("created_at")) or datetime.utcnow(),
             )
+            db.add(msg_row)
+            db.flush()
+            for rd in msg.get("reads") or []:
+                if not isinstance(rd, dict):
+                    continue
+                db.add(
+                    ChatMessageRead(
+                        message_id=msg_row.id,
+                        user_id=_uid_or(db, rd.get("user_id"), owner_id, umap),
+                        read_at=_parse_dt(rd.get("read_at")) or datetime.utcnow(),
+                    )
+                )
 
     for row in data.get("exercise_notifications") or []:
         if not isinstance(row, dict):
@@ -1852,7 +2389,7 @@ def _import_v3_exercise_bundle(
         db.add(
             ExerciseNotification(
                 exercise_id=ex.id,
-                user_id=_uid_or(db, row.get("user_id"), owner_id),
+                user_id=_uid_or(db, row.get("user_id"), owner_id, umap),
                 type=str(row.get("type") or "system")[:32],
                 title=str(row.get("title") or "")[:500],
                 body=str(row.get("body") or ""),
@@ -1868,7 +2405,8 @@ def _import_v3_exercise_bundle(
 
 def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id: int) -> int | None:
     """
-    يستورد تمريناً كاملاً من قاموس JSON بنفس مخطط التصدير (نسخة 1 أو 2).
+    يستورد تمريناً كاملاً من قاموس JSON بمخطط التصدير (نسخ 1–5).
+    يستورد أيضاً حسابات المستخدمين وتعريفات الأدوار وجلسات التحكم المباشر إن وُجدت.
     يُفترض أن قاعدة البيانات خالية من التمارين مسبقاً.
     """
     if not isinstance(data, dict):
@@ -1876,6 +2414,19 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
     exj = data.get("exercise")
     if not isinstance(exj, dict):
         return None
+
+    _import_role_defs_bundle(db, data)
+    user_old_to_new = _import_users_bundle(db, data)
+    # اجعل المستخدم الحالي الذي يفتح الملف ضمن الخريطة إن لزم
+    if owner_id and owner_id not in user_old_to_new.values():
+        pass
+    try:
+        archived_owner = int(exj.get("owner_id")) if exj.get("owner_id") is not None else 0
+    except (TypeError, ValueError):
+        archived_owner = 0
+    mapped_owner = user_old_to_new.get(archived_owner, owner_id) if archived_owner else owner_id
+    if db.get(User, mapped_owner) is None:
+        mapped_owner = owner_id
 
     code = str(exj.get("code") or "").strip() or f"EX-{uuid.uuid4().hex[:8].upper()}"
     if db.query(Exercise).filter(Exercise.code == code).first():
@@ -1901,7 +2452,7 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
         program_table_json=str(exj.get("program_table_json") or ""),
         map_text=str(exj.get("map_text") or ""),
         status=status,
-        owner_id=owner_id,
+        owner_id=mapped_owner,
         planned_start=_parse_dt(exj.get("planned_start")),
         planned_end=_parse_dt(exj.get("planned_end")),
         control_approved=bool(exj.get("control_approved")),
@@ -1910,6 +2461,10 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
     )
     db.add(ex)
     db.flush()
+
+    # استخدم المالك الفعلي للتمرين كمرجع احتياطي لربط المعرّفات
+    owner_id = mapped_owner
+    umap = user_old_to_new
 
     objectives = data.get("objectives") or []
     if isinstance(objectives, list):
@@ -2055,7 +2610,7 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
         for row in problems:
             if not isinstance(row, dict):
                 continue
-            rid = _uid_or(db, row.get("reported_by_id"), owner_id)
+            rid = _uid_or(db, row.get("reported_by_id"), owner_id, umap)
             try:
                 sev = int(row.get("severity") or 1)
             except (TypeError, ValueError):
@@ -2080,7 +2635,7 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
         for cl in checklists:
             if not isinstance(cl, dict):
                 continue
-            cid = _uid_or(db, cl.get("created_by_id"), owner_id)
+            cid = _uid_or(db, cl.get("created_by_id"), owner_id, umap)
             c = Checklist(
                 exercise_id=ex.id,
                 title=str(cl.get("title") or "")[:500],
@@ -2118,7 +2673,7 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
         for row in notes:
             if not isinstance(row, dict):
                 continue
-            uid = _uid_or(db, row.get("user_id"), owner_id)
+            uid = _uid_or(db, row.get("user_id"), owner_id, umap)
             db.add(
                 EvaluationNote(
                     exercise_id=ex.id,
@@ -2221,11 +2776,16 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
         eval_item_old_to_new=eval_item_old_to_new,
         dilemma_old_to_new=dilemma_old_to_new,
         timeline_old_to_new=timeline_old_to_new,
+        user_old_to_new=umap,
     )
+
+    _import_remote_control_bundle(db, data, umap, owner_id)
 
     bundle_dir = resolve_archive_bundle_dir_for_import(data)
     if bundle_dir is not None:
         restore_exercise_files_from_archive(bundle_dir, data)
+
+    _write_ai_pn_cache_payload(ex.id, data.get("ai_positives_negatives_cache"))
 
     db.flush()
     db.refresh(ex)

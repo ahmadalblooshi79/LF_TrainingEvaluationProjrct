@@ -175,6 +175,27 @@ def api_session_start():
             action="session_resume",
             detail={"device_label": device_label},
         )
+        hub.publish(
+            display_id,
+            {
+                "type": "session_started",
+                "session_token": token,
+                "username": user.username,
+                "device_label": device_label,
+                "path": existing.last_path or "/dashboard",
+                "resumed": True,
+            },
+        )
+        hub.publish(
+            display_id,
+            {
+                "type": "navigate",
+                "path": existing.last_path or "/dashboard",
+                "payload": {},
+                "session_token": token,
+                "username": user.username,
+            },
+        )
         return jsonify(
             {
                 "ok": True,
@@ -215,6 +236,18 @@ def api_session_start():
             "session_token": token,
             "username": user.username,
             "device_label": device_label,
+            "path": row.last_path or "/dashboard",
+        },
+    )
+    # إرسال مسار أولي فوراً حتى لا تبقى شاشة العرض بيضاء بانتظار أول تنقل من التابلت
+    hub.publish(
+        display_id,
+        {
+            "type": "navigate",
+            "path": row.last_path or "/dashboard",
+            "payload": {},
+            "session_token": token,
+            "username": user.username,
         },
     )
     return jsonify(
