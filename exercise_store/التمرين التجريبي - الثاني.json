@@ -1,0 +1,623 @@
+{
+  "schema_version": 5,
+  "exported_at": "2026-08-03T08:20:22.792367",
+  "exercise": {
+    "id": 1,
+    "code": "EX-B1690681",
+    "title": "التمرين التجريبي - الثاني",
+    "description": "",
+    "exercise_type": "تمرين جاهزية المهمة",
+    "exercise_level": "مجموعة لواء",
+    "mission_label": "عملية تعرضيه",
+    "trained_unit": "لواء تجريبي",
+    "location_label": "دبي",
+    "exercise_purpose": "",
+    "exercise_type_level_text": "",
+    "exercise_participants": "",
+    "general_idea_text": "",
+    "specific_idea_text": "",
+    "program_text": "",
+    "program_table_json": "",
+    "map_text": "",
+    "status": "draft",
+    "owner_id": 1,
+    "planned_start": "2026-08-03T12:18:00",
+    "planned_end": "2026-08-20T12:18:00",
+    "control_approved": false,
+    "created_at": "2026-08-03T08:18:16.459673",
+    "updated_at": "2026-08-03T08:18:16.459677"
+  },
+  "objectives": [
+    {
+      "id": 1,
+      "sort_order": 0,
+      "text": "8. الأهداف التدريبية.",
+      "created_at": "2026-08-03T08:19:07.333192"
+    },
+    {
+      "id": 2,
+      "sort_order": 1,
+      "text": "أ. تقييم القادة وهيئة ركن مجموعة اللواء المتدرب باستخدام نظام مشبهات لعبات الحرب (كورا) من خلال تنفيذ قيادة المهمة في العمليات الدفاعية وتنفيذ واجبات مختارة من قائمة الواجبات الأساسية للمهمة.",
+      "created_at": "2026-08-03T08:19:07.333196"
+    },
+    {
+      "id": 3,
+      "sort_order": 2,
+      "text": "ب. تنفيذ عملية صنع القرار العسكري لتجهيز خطط وأوامر العمليات.",
+      "created_at": "2026-08-03T08:19:07.333198"
+    },
+    {
+      "id": 4,
+      "sort_order": 3,
+      "text": "جـ. تقييم مركز قيادة مجموعة اللواء والكتائب مع التركيز على إدارة المعلومات، إعداد تقديرات الموقف، كيفية إسناد هيئة الركن لعملية صنع القرار، عمل إيجازات تبديل المناوبات، إيجازات تحديث معلومات القائد ورفع التقارير للمستوى الأعلى.",
+      "created_at": "2026-08-03T08:19:07.333199"
+    },
+    {
+      "id": 5,
+      "sort_order": 4,
+      "text": "د. الإشراف على تخطيط نيران الإسناد المشتركة ونيران مدفعية الاسناد المباشر.",
+      "created_at": "2026-08-03T08:19:07.333201"
+    },
+    {
+      "id": 6,
+      "sort_order": 5,
+      "text": "هـ. التأكد من إلمام الوحدة المتدربة بالعقائد والإجراءات والأساليب التعبوية للقوات البرية.",
+      "created_at": "2026-08-03T08:19:07.333203"
+    },
+    {
+      "id": 7,
+      "sort_order": 6,
+      "text": "و. التقييم على استخدام نظام الاتصالات التعبوية (C4I ).",
+      "created_at": "2026-08-03T08:19:07.333204"
+    }
+  ],
+  "trainee_unit_roster": [
+    {
+      "sort_order": 0,
+      "military_number": "1111",
+      "rank_ar": "مدني/5",
+      "full_name": "خليفة عبدالله مبارك البلوشي",
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "position_ar": "قيادة مجموعة اللواء",
+      "created_at": "2026-08-03T08:20:10.294389"
+    },
+    {
+      "sort_order": 1,
+      "military_number": "2222",
+      "rank_ar": "مدني/6",
+      "full_name": "راشد سيف راشد الجابري",
+      "unit_level_key": "ul_mech2_bn_cmd",
+      "position_ar": "قيادة كتيبة المشاة الآلية/12",
+      "created_at": "2026-08-03T08:20:10.294393"
+    },
+    {
+      "sort_order": 2,
+      "military_number": "3333",
+      "rank_ar": "مدني/7",
+      "full_name": "زايد أحمد عبدالله البلوشي",
+      "unit_level_key": "ul_recon",
+      "position_ar": "سرية الاستطلاع",
+      "created_at": "2026-08-03T08:20:10.294395"
+    },
+    {
+      "sort_order": 3,
+      "military_number": "4444",
+      "rank_ar": "مدني/8",
+      "full_name": "حمدان خالد حمدان السويدي",
+      "unit_level_key": "ul_arty_bn_cmd",
+      "position_ar": "قيادة كتيبة المدفعية",
+      "created_at": "2026-08-03T08:20:10.294397"
+    }
+  ],
+  "judge_unit_roster": [
+    {
+      "sort_order": 0,
+      "military_number": "123456",
+      "rank_ar": "مدني/1",
+      "full_name": "أحمد عبدالله مبارك البلوشي",
+      "unit_level_key": "ul_brigade_grp_cmd",
+      "position_ar": "قيادة مجموعة اللواء",
+      "created_at": "2026-08-03T08:20:22.661751"
+    },
+    {
+      "sort_order": 1,
+      "military_number": "654321",
+      "rank_ar": "مدني/2",
+      "full_name": "عارف عيضة الجابري",
+      "unit_level_key": "ul_mech2_bn_cmd",
+      "position_ar": "قيادة كتيبة المشاة الآلية/12",
+      "created_at": "2026-08-03T08:20:22.661755"
+    },
+    {
+      "sort_order": 2,
+      "military_number": "456789",
+      "rank_ar": "مدني/3",
+      "full_name": "عبدالله أحمد مبارك آل علي",
+      "unit_level_key": "ul_recon",
+      "position_ar": "سرية الاستطلاع",
+      "created_at": "2026-08-03T08:20:22.661757"
+    },
+    {
+      "sort_order": 3,
+      "military_number": "987654",
+      "rank_ar": "مدني/3",
+      "full_name": "سعيد سالم سعيد الحنطوبي",
+      "unit_level_key": "ul_arty_bn_cmd",
+      "position_ar": "قيادة كتيبة المدفعية",
+      "created_at": "2026-08-03T08:20:22.661759"
+    }
+  ],
+  "event_flows": [],
+  "problems": [],
+  "checklists": [],
+  "evaluation_notes": [],
+  "exercise_ref_links": [],
+  "dilemma_items": [],
+  "evaluation_list_items": [],
+  "timeline_items": [],
+  "battle_unit_personnel": [],
+  "planner_flow_bundles": [],
+  "evaluation_list_saved_results": [],
+  "judge_trainee_assignments": [
+    {
+      "id": 5,
+      "judge_user_id": 30,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-08-03T08:20:22.687079"
+    },
+    {
+      "id": 6,
+      "judge_user_id": 9,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-08-03T08:20:22.711450"
+    },
+    {
+      "id": 7,
+      "judge_user_id": 10,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-08-03T08:20:22.732888"
+    },
+    {
+      "id": 8,
+      "judge_user_id": 11,
+      "unit_level_key": "",
+      "trainee_name": "",
+      "trainee_military_number": "",
+      "planner_flow_bundle_id": null,
+      "created_at": "2026-08-03T08:20:22.754807"
+    }
+  ],
+  "analyst_evaluation_criteria_units": [],
+  "analyst_evaluation_criteria_phase_items": [],
+  "analyst_evaluation_criteria_results": [],
+  "analyst_dilemma_criteria_units": [],
+  "analyst_dilemma_criteria_phase_items": [],
+  "analyst_flow_day_phase_links": [],
+  "analyst_final_eval_phase_allocated_max": [],
+  "analyst_final_eval_allocated_max": [],
+  "judge_incomplete_task_status": [],
+  "evaluation_criterion_media": [],
+  "visual_documents": [],
+  "chat_rooms": [],
+  "exercise_notifications": [],
+  "users": [
+    {
+      "id": 1,
+      "username": "admin",
+      "email": "",
+      "full_name": "إدارة النظام",
+      "password_hash": "$pbkdf2-sha256$29000$6L33HqPU.n9vTYlR6n2PEQ$5.fmlwfQa6aLpO40EpfHmzmvhIlHxUAVTXZ4RyyTOBs",
+      "role_key": "system_admin",
+      "is_active": true,
+      "created_at": "2026-07-04T08:24:16.387271",
+      "last_login": "2026-08-03T08:17:47.344778"
+    },
+    {
+      "id": 2,
+      "username": "analyst",
+      "email": "",
+      "full_name": "المحللين",
+      "password_hash": "$pbkdf2-sha256$29000$pJSSEoIwZgyh9B5D6J2TMg$8CGGX.H4QpMsuKLiVvH2zarCvyr175kwcf9C0Lz7vJs",
+      "role_key": "analyst",
+      "is_active": true,
+      "created_at": "2026-07-04T08:24:16.387276",
+      "last_login": "2026-07-14T03:12:07.647326"
+    },
+    {
+      "id": 3,
+      "username": "planner",
+      "email": "",
+      "full_name": "التخطيط",
+      "password_hash": "$pbkdf2-sha256$29000$FuLcu/c.hxACwPhfq7W29g$d4c9uEqavKnZWQ.KOJO40pNX2kn83kcviPtpRA2NpiI",
+      "role_key": "planner",
+      "is_active": true,
+      "created_at": "2026-07-04T08:24:16.387277",
+      "last_login": "2026-07-14T03:12:06.798581"
+    },
+    {
+      "id": 4,
+      "username": "judge",
+      "email": "",
+      "full_name": "المحكمين",
+      "password_hash": "$pbkdf2-sha256$29000$BwAg5BwDQCgFwDinVEoJwQ$1yrSQvxaBpoU6g/Uq5yPTESOM1W3F8hV0wb97Rc/828",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T08:24:16.387279",
+      "last_login": "2026-07-14T03:12:07.361103"
+    },
+    {
+      "id": 5,
+      "username": "chief_judge",
+      "email": "",
+      "full_name": "كبير المحكمين",
+      "password_hash": "$pbkdf2-sha256$29000$lZJSqjXGGKN0LoXw3nvv/Q$E4QwoPCltw/8Z7nsD2hdlsJSibC9RRKHZ6NC2v0.Upo",
+      "role_key": "chief_judge",
+      "is_active": true,
+      "created_at": "2026-07-04T08:24:16.387280",
+      "last_login": "2026-07-14T03:12:07.880539"
+    },
+    {
+      "id": 6,
+      "username": "standards",
+      "email": "",
+      "full_name": "مكتبة المراجع والمعايير",
+      "password_hash": "$pbkdf2-sha256$29000$cm7tPafUem9trVXq3XuP0Q$mzTlUtZFEibVz489VwsUugRa/CmVvTvHrGkPId5zfLE",
+      "role_key": "standards_library",
+      "is_active": true,
+      "created_at": "2026-07-04T08:24:16.387281",
+      "last_login": null
+    },
+    {
+      "id": 7,
+      "username": "control",
+      "email": "",
+      "full_name": "السيطرة",
+      "password_hash": "$pbkdf2-sha256$29000$GuNcKyUEAKB0jhECgBCitA$RITMmjihj7ho0d3m9mS/r8ELzfEC85OxJ.WRkEdr8lQ",
+      "role_key": "control",
+      "is_active": true,
+      "created_at": "2026-07-04T08:24:16.387283",
+      "last_login": "2026-07-14T03:12:07.107298"
+    },
+    {
+      "id": 8,
+      "username": "206109",
+      "email": "",
+      "full_name": "أحمد عبدالله مبارك البلوشي",
+      "password_hash": "$pbkdf2-sha256$29000$/Z8TAmAMQYix1nqv9X4vBQ$CUUaAx9UzNMH6EWwqi3MjTC29Drx59PbFDu/eFZu3Oo",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:36:09.058888",
+      "last_login": "2026-07-23T07:41:35.114346"
+    },
+    {
+      "id": 9,
+      "username": "654321",
+      "email": "",
+      "full_name": "عارف عيضة الجابري",
+      "password_hash": "$pbkdf2-sha256$29000$xXiPUYpxLqUUAsB4TymllA$hND6ryKFz/Mmp6508TJ/K/Sz1/5C1RP7oMztCfw6.O4",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:36:09.087181",
+      "last_login": null
+    },
+    {
+      "id": 10,
+      "username": "456789",
+      "email": "",
+      "full_name": "عبدالله أحمد مبارك آل علي",
+      "password_hash": "$pbkdf2-sha256$29000$2RtDiLGWknJuTSlF6N2bEw$DBf14mlvxytZoBne45qy9yBUFmRiTaIxlqGkzDBDxto",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:36:09.111930",
+      "last_login": null
+    },
+    {
+      "id": 11,
+      "username": "987654",
+      "email": "",
+      "full_name": "سعيد سالم سعيد الحنطوبي",
+      "password_hash": "$pbkdf2-sha256$29000$ynkvpfTem1NKKYVQ6t3b2w$xcGc1IhgSx3Gqi/2RN9bOddLix74.vuGtctjOO48UCc",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:36:09.137873",
+      "last_login": null
+    },
+    {
+      "id": 12,
+      "username": "13439",
+      "email": "",
+      "full_name": "سعيد محمد سالم  العامري",
+      "password_hash": "$pbkdf2-sha256$29000$Q6gVImRsrZWyNoZQSimFMA$ZPqFYeGdk3iMAnONB.pVmQNCrcpJeTEAEGth1Yq78EQ",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:36:09.163658",
+      "last_login": "2026-07-16T04:34:15.336173"
+    },
+    {
+      "id": 13,
+      "username": "13248",
+      "email": "",
+      "full_name": "جابر محمد خاتم الشامسي",
+      "password_hash": "$pbkdf2-sha256$29000$O6e01rp3jtG6V6qVkvIeIw$U37Lnv81cAY8HYoMHYQYSda7SLrG/lzKifKVkb3HA.g",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:36:09.190003",
+      "last_login": null
+    },
+    {
+      "id": 14,
+      "username": "18112",
+      "email": "",
+      "full_name": "سعيد مصبح  محمد الغفلي",
+      "password_hash": "$pbkdf2-sha256$29000$vVdKSckZ4zyHkNKak5LS.g$mkmmeOp7szDmHZlyPLqHwAKdobODzKp5Aa.C3bdmgIg",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:36:09.214278",
+      "last_login": null
+    },
+    {
+      "id": 15,
+      "username": "9288",
+      "email": "",
+      "full_name": "مصبح مفتاح علي الخاطري",
+      "password_hash": "$pbkdf2-sha256$29000$.N8b4/y/994bQ.ids1bKGQ$ZuNfLn0zWZRx3ais.gPnu4xArsvMQhIIVJf4gDpGmAA",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:36:09.241688",
+      "last_login": null
+    },
+    {
+      "id": 16,
+      "username": "10683",
+      "email": "",
+      "full_name": "عبدالله محمد سلطان الحبسي",
+      "password_hash": "$pbkdf2-sha256$29000$rFUKoVQK4XwPAWCM8T5nDA$pcF3auHGTRCZF7ltO7RLbFkpYgeLDOqQRc/fHDSW/Vs",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:36:09.269792",
+      "last_login": null
+    },
+    {
+      "id": 17,
+      "username": "9181",
+      "email": "",
+      "full_name": "سالم محمد سعيد العفاري",
+      "password_hash": "$pbkdf2-sha256$29000$ktJaa.1dq5WyljKmFKL0vg$X/W9rqInk0hEG4fXSVh1E2D/KIR.eT9icby.cYjXny8",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:36:09.295817",
+      "last_login": null
+    },
+    {
+      "id": 18,
+      "username": "13202",
+      "email": "",
+      "full_name": "حمد راشد سليمان الزيودي",
+      "password_hash": "$pbkdf2-sha256$29000$3Ps/R4hx7l2rdQ7hPIcwBg$wySN7dCBBRgtgF.Yh.KGlV2F0JR0kzCXmM9FKXc.1AA",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:36:09.323584",
+      "last_login": null
+    },
+    {
+      "id": 19,
+      "username": "14965",
+      "email": "",
+      "full_name": "راشد ضاوي  راشدالطنيجي",
+      "password_hash": "$pbkdf2-sha256$29000$mXOulfIeA8AYI.Tcu1dKCQ$dm34BkbAEch4hy9pcA7d6HPpwyyowBIdMUcPFs7G/2o",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:36:09.351384",
+      "last_login": null
+    },
+    {
+      "id": 20,
+      "username": "7752",
+      "email": "",
+      "full_name": "علي سيف حامد الطنيجي",
+      "password_hash": "$pbkdf2-sha256$29000$AwCAsPZ.D8HYG6MUYqy1Ng$/zGXmpJLRniAylCj1agWoxYiy4swSrwWitauJ5SLHxY",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:36:09.376137",
+      "last_login": null
+    },
+    {
+      "id": 21,
+      "username": "19044",
+      "email": "",
+      "full_name": "أحمد حمد حمود الدرعي",
+      "password_hash": "$pbkdf2-sha256$29000$SmnNGQMgpPT.X4sRYkzpPQ$PGa/icDjWi6G6ahLIhwFI5xhnajWQE4eHZP7CE545UU",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:36:09.400430",
+      "last_login": null
+    },
+    {
+      "id": 22,
+      "username": "16654",
+      "email": "",
+      "full_name": "سالم جمعة محمد الكتبي",
+      "password_hash": "$pbkdf2-sha256$29000$gFAqRehd691b610LQUjpHQ$BtKlK6sIVt5iNVRzx4q.ZC7lYxHMXfQ1D/maNVQEzHI",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:36:09.424582",
+      "last_login": null
+    },
+    {
+      "id": 23,
+      "username": "9574",
+      "email": "",
+      "full_name": "خليفة عبدالله سلطان السويدي",
+      "password_hash": "$pbkdf2-sha256$29000$rFXKuRcipHSO8b7XmnMuZQ$fmH66fLkAs43MK8Siugi9cR5hpZ0WbHF02P5DWQw7yo",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:36:09.449897",
+      "last_login": null
+    },
+    {
+      "id": 24,
+      "username": "206110",
+      "email": "",
+      "full_name": "عارف عيضة الجابري",
+      "password_hash": "$pbkdf2-sha256$29000$ipHyvndOiVHK.X8PYUzJ2Q$HOQ4nA517cm4JWNUAMt0yClN1YdwdKV7wdhI2W9xhMY",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:37:16.821854",
+      "last_login": "2026-07-04T20:49:02.835968"
+    },
+    {
+      "id": 25,
+      "username": "206111",
+      "email": "",
+      "full_name": "عبدالله أحمد مبارك آل علي",
+      "password_hash": "$pbkdf2-sha256$29000$L2VsLQWA0HoPwdi7N.YcYw$heeoZM1iD2xrk29OZGYfgCTPllhAaq0pgduKa49P7Xc",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:37:16.848105",
+      "last_login": "2026-07-04T20:49:19.137542"
+    },
+    {
+      "id": 26,
+      "username": "206112",
+      "email": "",
+      "full_name": "سعيد سالم سعيد الحنطوبي",
+      "password_hash": "$pbkdf2-sha256$29000$IuRc6z3H.P//H.OcsxbinA$OvEOr3hfOS65DUy4MhP/ygxYgd6xKyfHCHC/s2ldOQk",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-04T20:37:16.873069",
+      "last_login": "2026-07-04T20:49:31.994627"
+    },
+    {
+      "id": 27,
+      "username": "u1-new",
+      "email": "",
+      "full_name": "",
+      "password_hash": "$pbkdf2-sha256$29000$j3FOaQ2htNZ6rzUmBEBISQ$SP9piDtO.PHGx9gPBxJya8UVNbMpkr9fhk5t5GCz4wg",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-14T03:12:06.636809",
+      "last_login": null
+    },
+    {
+      "id": 28,
+      "username": "321321",
+      "email": "",
+      "full_name": "محمد محمد الخوري",
+      "password_hash": "$pbkdf2-sha256$29000$JIQwJmQMwZhT6h1jzJnz/g$eRGnVYbJOjw89XKqP8i9b6aSxo1q7Ilv2Tv7UYpaV0k",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-30T04:39:19.876885",
+      "last_login": null
+    },
+    {
+      "id": 29,
+      "username": "654654",
+      "email": "",
+      "full_name": "سلطان عبدالله الحوسني",
+      "password_hash": "$pbkdf2-sha256$29000$C6EUQoiRUgrB.N9bi/H.Hw$B3Ffat7ktz0OBAbc8sBmFsSyhMNSAasD0lX14YJYkqQ",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-07-30T04:39:19.905879",
+      "last_login": null
+    },
+    {
+      "id": 30,
+      "username": "123456",
+      "email": "",
+      "full_name": "أحمد عبدالله مبارك البلوشي",
+      "password_hash": "$pbkdf2-sha256$29000$vpfyHoPQGsMYwxgjRIgRAg$cmdeQA.4tSffuiR.pTQMo4bauWTtkPivsiW.oggX08U",
+      "role_key": "judge",
+      "is_active": true,
+      "created_at": "2026-08-03T08:19:44.474827",
+      "last_login": null
+    }
+  ],
+  "role_defs": [
+    {
+      "id": 2,
+      "role_key": "analyst",
+      "title_ar": "المحللين",
+      "duties_ar": "متابعة البيانات بعد التمرين، مؤشرات الأداء، تلخيص الأنماط، إعداد التقارير لصناع القرار، وربط النتائج بالمراجع دون تعديل المعايير."
+    },
+    {
+      "id": 5,
+      "role_key": "chief_judge",
+      "title_ar": "كبير المحكمين",
+      "duties_ar": "مراجعة قوائم التقييم بعد اعتماد المحكمين: الاعتماد الثاني أو إعادة القائمة للمحكم لإعادة التقييم قبل الاعتماد النهائي من هيئة السيطرة."
+    },
+    {
+      "id": 7,
+      "role_key": "control",
+      "title_ar": "السيطرة",
+      "duties_ar": "الرقابة السيريّة للتمرين، اعتماد مسار الأحداث، تتبع المشكلات، مواءمة مخرجات التقييم مع خطة التمرين، وإسناد الاعتمادات النهائية لإغلاق الملف."
+    },
+    {
+      "id": 4,
+      "role_key": "judge",
+      "title_ar": "المحكمين",
+      "duties_ar": "تطبيق قوائم التقييم بموضوعية، تدوين الملاحظات بسرعة ودقة، الالتزام بالتعليمات، وعدم اختلاق معايير جديدة خارج مكتبة المراجع المعتمدة."
+    },
+    {
+      "id": 3,
+      "role_key": "planner",
+      "title_ar": "التخطيط",
+      "duties_ar": "تصميم وثائق التمرين، جدول الأحداث، الربط بالمراجع، وتحديد الافتراضات والمخرجات المتوقعة. التنسيق مع مكتبة المعايير والتأكد من اكتمال القوائم قبل التنفيذ."
+    },
+    {
+      "id": 6,
+      "role_key": "standards_library",
+      "title_ar": "مكتبة المراجع والمعايير",
+      "duties_ar": "حفظ وصيانة وتحديث الأدلة، اللوائح، النماذج، وربط إصدارات المستندات بتمارين محددة. مسار الموافقات لإدخال مرجع جديد وتوثيق المصدر."
+    },
+    {
+      "id": 1,
+      "role_key": "system_admin",
+      "title_ar": "إدارة النظام",
+      "duties_ar": "إدارة المستخدمين، الصلاحيات، إعدادات الخادم، النسخ الاحتياطي، ومراقبة الاستقرار. لا يتدخل في مضمون التمرين بقدر تقليل الصلاحيات الافتراضية، مع ترك تنفيذ الميدان لأصحاب الاختصاص فيه."
+    }
+  ],
+  "remote_control_sessions": [],
+  "remote_control_audit_logs": [],
+  "ai_positives_negatives_cache": {
+    "fingerprint": "032fcadeec52b1536ff8337cd746bc645e4e79ae65aa3869af1876798683f42b",
+    "generated_at": "2026-08-03T06:13:10.000065+00:00",
+    "units": [
+      {
+        "unit_key": "ul_brigade_grp_cmd",
+        "unit_label": "قيادة مجموعة اللواء",
+        "positives": [
+          "نقطة قوة: «2.        وجود كشف معتمد من القائد بالمرتب والموجود ونسبة الصلاحية للآليات.» (100% — 02 تقييم الحالة الفنية للآليات ( أ ).xlsx)",
+          "نقطة قوة: «3.        وجود وإدامة سجل تدوين إطلاق الذخائر من المدفع او الآلية.» (100% — 02 تقييم الحالة الفنية للآليات ( أ ).xlsx)",
+          "نقطة قوة: «4.        وجود وإدامة سجلات الصيانة الدورية لكل آلية.» (100% — 02 تقييم الحالة الفنية للآليات ( أ ).xlsx)",
+          "نقطة قوة: «5.        وجود تعليمات وإجراءات الصيانة الدورية واللوحات الإرشادية.» (100% — 02 تقييم الحالة الفنية للآليات ( أ ).xlsx)",
+          "نقطة قوة: «7.        وجود وإدامة سجل تسليم واستلام الآليات.» (100% — 02 تقييم الحالة الفنية للآليات ( أ ).xlsx)",
+          "نقطة قوة: «4.        وجود صناديق العدة والتأكد من محتوياتها وصلاحية الطفاية اليدوية.» (100% — 02 تقييم الحالة الفنية للآليات ( أ ).xlsx)"
+        ],
+        "negatives": [
+          "نقطة ضعف: «7.        مولد الطاقة الرئيس / الإضافي.» (0% — 02 تقييم الحالة الفنية للآليات ( أ ).xlsx)",
+          "نقطة ضعف: «1.        استكمال المرتب من الآليات ونسبة الصلاحية.» (5% — 02 تقييم الحالة الفنية للآليات ( أ ).xlsx)",
+          "نقطة ضعف: «مدى التقيد بقيود الاستخدام.» (70% — 2. تفتيش جاهزية الآليات (ب).xlsx)",
+          "نقطة ضعف: «2.        مستودع قطع الغيار.» (70% — 2. تفتيش جاهزية الآليات (ب).xlsx)",
+          "نقطة ضعف: «1.        مستــودع الـعــــدة وأغطيـــة التمويه وأعمدة التثبيت.» (70% — 2. تفتيش جاهزية الآليات (ب).xlsx)",
+          "نقطة ضعف: «3.        نظام التكييف / نظام التهوية.» (70% — 2. تفتيش جاهزية الآليات (ب).xlsx)"
+        ],
+        "source": "fallback",
+        "n_criteria": 219
+      }
+    ]
+  },
+  "archive_files": {
+    "bundle_dir": "التمرين التجريبي - الثاني_files",
+    "entries": [],
+    "file_count": 0
+  }
+}
