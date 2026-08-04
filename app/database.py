@@ -463,6 +463,36 @@ def ensure_analyst_flow_day_phase_links_table() -> None:
         )
 
 
+def ensure_dilemma_criteria_phase_flow_day_column() -> None:
+    """عمود flow_day_id لعلامات قوائم تقييم المعاضل (حسب يوم المجرى)."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    try:
+        insp = inspect(engine)
+        tables = set(insp.get_table_names())
+    except Exception:
+        return
+    if "analyst_dilemma_criteria_phase_items" not in tables:
+        return
+    cols = {c["name"] for c in insp.get_columns("analyst_dilemma_criteria_phase_items")}
+    if "flow_day_id" not in cols:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "ALTER TABLE analyst_dilemma_criteria_phase_items "
+                    "ADD COLUMN flow_day_id VARCHAR(64) DEFAULT ''"
+                )
+            )
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_analyst_dilemma_criteria_phase_day "
+                "ON analyst_dilemma_criteria_phase_items "
+                "(criteria_unit_id, phase_key, flow_day_id)"
+            )
+        )
+
+
 def ensure_analyst_final_eval_manual_tables() -> None:
     """جداول علامات القصوى اليدوية في التقييم النهائي (SQLite)."""
     if not DATABASE_URL.startswith("sqlite"):

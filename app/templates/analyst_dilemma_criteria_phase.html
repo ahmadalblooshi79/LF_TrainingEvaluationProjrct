@@ -26,7 +26,9 @@
   {% endif %}
 
   <form method="post" id="dilemma-criteria-phase-form">
-    {% if request.args.get('day') %}
+    {% if flow_day_id %}
+    <input type="hidden" name="day" value="{{ flow_day_id }}">
+    {% elif request.args.get('day') %}
     <input type="hidden" name="day" value="{{ request.args.get('day') }}">
     {% endif %}
     <input type="hidden" name="phase" value="{{ phase_key }}">

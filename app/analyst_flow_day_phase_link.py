@@ -125,6 +125,7 @@ def build_dilemma_reaction_table_for_unit_phase(
     phase_key: str,
     day_to_phase: dict[str, str] | None = None,
     flow_days: list[dict[str, str]] | None = None,
+    flow_day_id: str | None = None,
 ) -> dict:
     """جدول تقييم رد الفعل على المعاضل لوحدة ومرحلة: أيام المجرى → معاضل → قوائم → نتائج.
 
@@ -132,6 +133,7 @@ def build_dilemma_reaction_table_for_unit_phase(
       title, day_labels, dilemma_count, list_count, rows, total_acquired, total_max, total_pct
 
     إن مُرّر day_to_phase يُعتمد بدل phase_key المحفوظ على أيام بنك المعلومات.
+    إن مُرّر flow_day_id تُقيَّد النتائج بذلك اليوم فقط ضمن المرحلة.
     """
     from app.action_eval_ibank_sync import parse_action_eval_storage_relpath
     from app.ibank_action_eval_dilemma_tree import build_action_eval_dilemma_judge_tree
@@ -139,6 +141,7 @@ def build_dilemma_reaction_table_for_unit_phase(
 
     uk = (unit_level_key or "").strip()
     want_phase = _normalize_phase_key(phase_key)
+    want_day = (flow_day_id or "").strip()
     days_src = flow_days if flow_days is not None else ibank_event_flow_days(db)
     day_map = (
         day_to_phase
@@ -150,6 +153,8 @@ def build_dilemma_reaction_table_for_unit_phase(
     for d in days_src or []:
         did = str(d.get("id") or "").strip()
         if not did or did in seen_day:
+            continue
+        if want_day and did != want_day:
             continue
         if day_to_phase is not None:
             pk = _normalize_phase_key(str(day_map.get(did) or ""))
@@ -242,33 +247,20 @@ def build_dilemma_reaction_table_for_unit_phase(
                             seen_nodes.add(nid)
                         unit_files.append(fmeta)
             if not unit_files:
-                # معضلة بلا قوائم لهذه الوحدة — صف فارغ للنتيجة
-                dilemma_nos.add(dno)
-                seq += 1
-                rows_out.append(
-                    {
-                        "seq": seq,
-                        "day_id": day_id,
-                        "day_label": day_label,
-                        "dilemma_no": dno,
-                        "dilemma_text": dtext,
-                        "list_title": "—",
-                        "node_id": None,
-                        "acquired": None,
-                        "max_mark": None,
-                        "pct": None,
-                        "published": False,
-                    }
-                )
+                # معضلة بلا قوائم لهذه الوحدة — لا تُدرج في الجدول
+                # (عدد الصفوف يجب أن يطابق قوائم المحكمين/التخطيط المنشورة فقط)
                 continue
             for fmeta in unit_files:
                 nid = int(fmeta.get("node_id") or 0)
+                # اعرض فقط القوائم المنشورة على حزمة الوحدة (مثل صفحة المحكمين)
+                if not nid or nid not in slot_by_node:
+                    continue
                 title_list = (
                     (fmeta.get("procedure_title") or "").strip()
                     or (fmeta.get("name") or "").strip()
                     or "قائمة تقييم إجراءات"
                 )
-                score = slot_by_node.get(nid) if nid else None
+                score = slot_by_node.get(nid)
                 dilemma_nos.add(dno)
                 seq += 1
                 acq_v = score.get("acquired") if score else None
@@ -288,11 +280,11 @@ def build_dilemma_reaction_table_for_unit_phase(
                         "dilemma_no": dno,
                         "dilemma_text": dtext,
                         "list_title": title_list[:500],
-                        "node_id": nid or None,
+                        "node_id": nid,
                         "acquired": acq_v,
                         "max_mark": max_v,
                         "pct": pct_v,
-                        "published": bool(score and score.get("published")),
+                        "published": True,
                     }
                 )
 
@@ -320,6 +312,23 @@ def collect_flow_acquired_by_unit_phase(
     flow_days: list[dict[str, str]] | None = None,
 ) -> dict[tuple[str, str], float]:
     """(unit_level_key, phase_key) → مكتسبة قوائم إجراءات المجرى حسب يوم الملف."""
+    totals = collect_flow_mark_totals_by_unit_phase(
+        db,
+        exercise_id=int(exercise_id),
+        day_to_phase=day_to_phase,
+        flow_days=flow_days,
+    )
+    return {k: float(v[0]) for k, v in totals.items() if float(v[0]) > 0}
+
+
+def collect_flow_mark_totals_by_unit_phase(
+    db: Session,
+    *,
+    exercise_id: int,
+    day_to_phase: dict[str, str] | None = None,
+    flow_days: list[dict[str, str]] | None = None,
+) -> dict[tuple[str, str], tuple[float, float]]:
+    """(unit_level_key, phase_key) → (مكتسبة, قصوى) من حمولات قوائم إجراءات المجرى."""
     from app.action_eval_ibank_sync import (
         _flow_day_id_for_node,
         parse_action_eval_storage_relpath,
@@ -341,7 +350,7 @@ def collect_flow_acquired_by_unit_phase(
     if not action_rows:
         return {}
 
-    out: dict[tuple[str, str], float] = {}
+    out: dict[tuple[str, str], tuple[float, float]] = {}
     for action_row in action_rows:
         bundle = action_row.bundle
         if bundle is None:
@@ -376,11 +385,12 @@ def collect_flow_acquired_by_unit_phase(
         if not uk:
             continue
 
-        acquired = _payload_acquired_total(saved.payload_json)
-        if acquired <= 0:
+        mx, acq = _payload_mark_totals(saved.payload_json)
+        if mx <= 0 and acq <= 0:
             continue
         key = (uk, phase_key)
-        out[key] = out.get(key, 0.0) + float(acquired)
+        prev_acq, prev_max = out.get(key, (0.0, 0.0))
+        out[key] = (prev_acq + float(acq), prev_max + float(mx))
     return out
 
 
@@ -400,6 +410,56 @@ def load_analyst_day_phase_map(db: Session, exercise_id: int) -> dict[str, str]:
         if day_id and pk:
             out[day_id] = pk
     return out
+
+
+def default_phase_key_for_flow_day_index(day_index: int) -> str:
+    """افتراضي: اليومان الأول والثاني → انفتاح، من الثالث فصاعداً → معركة تعرضية."""
+    return "opening" if int(day_index) < 2 else "battle_exposure"
+
+
+def ensure_default_analyst_day_phase_links(
+    db: Session,
+    exercise_id: int,
+    flow_days: list[dict[str, str]] | None = None,
+) -> dict[str, str]:
+    """دمج بنك المعلومات + روابط المحلل، مع تعبئة الافتراضي للأيام غير المرتبطة.
+
+    القاعدة الافتراضية (حسب ترتيب أيام المجرى):
+    - اليوم/1 واليوم/2 → مرحلة الإنفتاح
+    - اليوم/3 وما بعده → مرحلة المعركة التعرضية
+    """
+    from app.info_bank_tree import ibank_event_flow_days
+
+    days = flow_days if flow_days is not None else ibank_event_flow_days(db)
+    ibank = ibank_flow_day_phase_map(days)
+    current = load_analyst_day_phase_map(db, int(exercise_id))
+    merged: dict[str, str] = dict(ibank)
+    merged.update(current)
+
+    dirty = False
+    ordered_ids: list[str] = []
+    for idx, day in enumerate(days or []):
+        did = str(day.get("id") or "").strip()
+        if not did:
+            continue
+        ordered_ids.append(did)
+        if merged.get(did):
+            continue
+        merged[did] = default_phase_key_for_flow_day_index(idx)
+        dirty = True
+
+    if dirty or (merged and merged != current):
+        # احفظ فقط إن تغيّر شيء أو وُجدت روابط بنك غير محفوظة عند المحلل
+        if merged != current:
+            save_analyst_day_phase_links(
+                db,
+                int(exercise_id),
+                day_ids=list(merged.keys()),
+                phase_keys=list(merged.values()),
+                delete_day_ids=set(),
+            )
+            return load_analyst_day_phase_map(db, int(exercise_id))
+    return merged
 
 
 def day_phase_link_rows_for_ui(

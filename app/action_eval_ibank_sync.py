@@ -1364,7 +1364,13 @@ def build_action_eval_rows_for_group(
     *,
     ibank_sources: list[dict],
     published_by_node: dict[int, ExercisePlannerFlowBundleActionEval],
+    include_orphan_published: bool = True,
 ) -> list[dict]:
+    """صفوف القوائم لمستوى وحدة.
+
+    عند تصفية يوم مجرى لا تُدرج القوائم المنشورة من أيام أخرى (orphans)،
+    وإلا يتضخّم عدّ المحكمين مقارنة بالتخطيط لنفس اليوم.
+    """
     rows: list[dict] = []
     for src in ibank_sources:
         nid = int(src["node_id"])
@@ -1378,18 +1384,19 @@ def build_action_eval_rows_for_group(
                 "slot_id": int(slot.id) if slot is not None else None,
             }
         )
-    for nid, slot in published_by_node.items():
-        if any(r["node_id"] == nid for r in rows):
-            continue
-        rows.append(
-            {
-                "node_id": int(nid),
-                "title": (slot.title or "قائمة منشورة").strip(),
-                "published": True,
-                "selected": False,
-                "slot_id": int(slot.id),
-            }
-        )
+    if include_orphan_published:
+        for nid, slot in published_by_node.items():
+            if any(r["node_id"] == nid for r in rows):
+                continue
+            rows.append(
+                {
+                    "node_id": int(nid),
+                    "title": (slot.title or "قائمة منشورة").strip(),
+                    "published": True,
+                    "selected": False,
+                    "slot_id": int(slot.id),
+                }
+            )
     return rows
 
 
@@ -1549,9 +1556,12 @@ def build_action_eval_folder_groups(
     published_by_node: dict[int, ExercisePlannerFlowBundleActionEval],
     flow_day_id: str | None = None,
 ) -> list[dict]:
+    want_day = (flow_day_id or "").strip()
     rows = build_action_eval_rows_for_group(
         ibank_sources=ibank_sources,
         published_by_node=published_by_node,
+        # مع يوم محدد: فقط ملفات ذلك اليوم — لا تسرّب منشورات أيام أخرى.
+        include_orphan_published=not bool(want_day),
     )
     src_by_id = {int(s["node_id"]): s for s in ibank_sources}
     # إن وُجدت ملفات مربوطة بمعاضل البنك — جمّع حسب المعضلة لتسهيل النشر اليومي
@@ -1559,6 +1569,9 @@ def build_action_eval_folder_groups(
         grouped: dict[str, dict] = {}
         for row in rows:
             nid = int(row["node_id"])
+            # عند تصفية اليوم تجاهل أي صف بلا مصدر لذلك اليوم (حماية إضافية).
+            if want_day and nid not in src_by_id:
+                continue
             src = src_by_id.get(nid) or {}
             dno = int(src.get("dilemma_no") or 0)
             if dno > 0:

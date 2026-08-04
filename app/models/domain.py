@@ -728,11 +728,21 @@ class AnalystDilemmaCriteriaUnit(Base):
 
 
 class AnalystDilemmaCriteriaPhaseItem(Base):
-    """معايير وعلامات مرحلة لوحدة ضمن تبويب قوائم تقييم المعاضل."""
+    """معايير وعلامات مرحلة/يوم لوحدة ضمن تبويب قوائم تقييم المعاضل."""
 
     __tablename__ = "analyst_dilemma_criteria_phase_items"
     __table_args__ = (
-        Index("ix_analyst_dilemma_criteria_phase_unit", "criteria_unit_id", "phase_key"),
+        Index(
+            "ix_analyst_dilemma_criteria_phase_unit",
+            "criteria_unit_id",
+            "phase_key",
+        ),
+        Index(
+            "ix_analyst_dilemma_criteria_phase_day",
+            "criteria_unit_id",
+            "phase_key",
+            "flow_day_id",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -742,6 +752,8 @@ class AnalystDilemmaCriteriaPhaseItem(Base):
         index=True,
     )
     phase_key: Mapped[str] = mapped_column(String(32), index=True)
+    # يوم المجرى الذي أُدخلت عنده العلامة — يمنع مشاركة العلامات بين أيام نفس المرحلة
+    flow_day_id: Mapped[str] = mapped_column(String(64), default="", index=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     criteria_text: Mapped[str] = mapped_column(String(1000), default="")
     allocated_mark: Mapped[float | None] = mapped_column(Float, nullable=True)

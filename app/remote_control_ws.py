@@ -23,7 +23,7 @@ def start_remote_control_ws_server(host: str = "0.0.0.0", port: int = 8006) -> b
         try:
             from websockets.sync.server import serve
         except ImportError:
-            _log.warning("حزمة websockets غير مثبتة — البث عبر SSE فقط.")
+            _log.warning("websockets package not installed — streaming via SSE only.")
             return False
 
         def handler(websocket: Any) -> None:
@@ -59,7 +59,7 @@ def start_remote_control_ws_server(host: str = "0.0.0.0", port: int = 8006) -> b
                     _log.info("Remote Control WebSocket on %s:%s", host, port)
                     server.serve_forever()
             except OSError as exc:
-                _log.warning("تعذر تشغيل WebSocket على %s:%s — %s", host, port, exc)
+                _log.warning("Could not start WebSocket on %s:%s — %s", host, port, exc)
 
         t = threading.Thread(target=run, name="rc-websocket", daemon=True)
         t.start()

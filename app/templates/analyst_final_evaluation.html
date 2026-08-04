@@ -75,7 +75,7 @@
             {% set phase_key = (row.phase_key or '')|trim %}
             {% set is_unit_first = row.show_unit_total %}
             {% set is_unit_last = loop.last or (final_rows[loop.index0 + 1].unit_key != row.unit_key) %}
-            <tr class="final-report-row{% if phase_key %} final-report-row--{{ phase_key }}{% endif %}{% if is_unit_first %} final-report-row--unit-first{% endif %}{% if is_unit_last %} final-report-row--unit-last{% endif %}" data-unit-key="{{ row.unit_key }}">
+            <tr class="final-report-row{% if phase_key %} final-report-row--{{ phase_key }}{% endif %}{% if is_unit_first %} final-report-row--unit-first{% endif %}{% if is_unit_last %} final-report-row--unit-last{% endif %}{% if row.is_dilemma_reaction_aggregate %} final-report-row--dilemma-reaction{% endif %}" data-unit-key="{{ row.unit_key }}">
               <td>{{ loop.index }}</td>
               {% if row.show_unit_total %}
               <th scope="row" class="final-report-cell--unit" rowspan="{{ row.unit_rowspan }}">{{ row.unit_label }}</th>
@@ -92,7 +92,9 @@
               <td class="final-report-cell--phase-grade">{{ row.phase_grade }}</td>
               {% if row.show_unit_total %}
               <td class="final-report-cell--unit-block" rowspan="{{ row.unit_rowspan }}">{{ row.unit_grade }}</td>
-              <td class="final-report-cell--unit-block" rowspan="{{ row.unit_rowspan }}"><a class="btn btn-ghost" href="{{ url_for('views.analyst_final_evaluation_unit_detail', unit_key=row.unit_key) }}">عرض تفاصيل الوحدة</a></td>
+              <td class="final-report-cell--unit-block" rowspan="{{ row.unit_rowspan }}">
+                <a class="btn btn-ghost" href="{{ url_for('views.analyst_final_evaluation_unit_detail', unit_key=row.unit_key) }}">عرض تفاصيل الوحدة</a>
+              </td>
               {% endif %}
             </tr>
             {% endfor %}

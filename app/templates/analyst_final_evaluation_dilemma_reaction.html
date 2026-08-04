@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}تفاصيل {{ unit.unit_label }} — {{ section_title }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-flag fa-icon-title" aria-hidden="true"></i> تفاصيل {{ unit.unit_label }}</h1>
+  <div class="page-header__nav">
+    {% include 'partials/subpage_close.html' %}
+  </div>
+</div>
+
+<section class="card final-report-card">
+  <h2 class="h2-in-card"><i class="fa-solid fa-file-signature fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h2>
+  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
+    المرحلة: <strong>{{ unit.dilemma_phase_label }}</strong>
+    —
+    القصوى (توزيع المعاضل): <strong>{% if unit.max_mark is number %}{{ unit.max_mark|round(2) }}{% else %}—{% endif %}</strong>
+    —
+    المكتسبة (نسبة القوائم × القصوى): <strong>{% if unit.acquired_mark is number %}{{ unit.acquired_mark|round(2) }}{% else %}—{% endif %}</strong>
+    —
+    النسبة: <strong>{% if unit.phase_pct is not none %}{{ unit.phase_pct|round(2) }}%{% else %}—{% endif %}</strong>
+    ({{ unit.phase_grade }})
+  </p>
+  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">
+    الجدول أدناه يعرض نتائج قوائم الإجراءات لكل وحدة/يوم (قصوى ومكتسبة القوائم) التي تُحسب منها النسبة أعلاه.
+  </p>
+
+  <div class="final-report-table-scroll final-report-table-scroll--detail final-report-table-scroll--dilemma-reaction">
+    <div class="table-wrap final-report-table-wrap final-report-table-wrap--detail">
+      <table class="final-report-table final-report-table--detail final-report-table--dilemma-reaction" dir="rtl" aria-label="تفاصيل قوائم تقييم المعاضل">
+        <thead>
+          <tr>
+            <th scope="col">ت</th>
+            <th scope="col">اليوم</th>
+            <th scope="col">الوحدة</th>
+            <th scope="col">المعضلة</th>
+            <th scope="col">قائمة التقييم</th>
+            <th scope="col">القصوى</th>
+            <th scope="col">المكتسبة</th>
+            <th scope="col">النسبة</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set detail_rows = unit.dilemma_detail_rows or [] %}
+          {% if detail_rows %}
+          {% for r in detail_rows %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ r.day_label or "—" }}</td>
+            <td class="fr-dilemma-cell--unit">{{ r.unit_label or "—" }}</td>
+            <td class="fr-dilemma-cell--text">{% if r.dilemma_no %}المعضلة/{{ r.dilemma_no }}{% if r.dilemma_text %}: {{ r.dilemma_text }}{% endif %}{% else %}{{ r.dilemma_text or "—" }}{% endif %}</td>
+            <td class="fr-dilemma-cell--text">{{ r.list_title or "—" }}</td>
+            <td>{% if r.max_mark is number %}{{ r.max_mark|round(2) }}{% else %}—{% endif %}</td>
+            <td>{% if r.acquired is number %}{{ r.acquired|round(2) }}{% else %}—{% endif %}</td>
+            <td>{% if r.pct is number %}{{ r.pct|round(2) }}%{% else %}—{% endif %}</td>
+          </tr>
+          {% endfor %}
+          {% else %}
+          <tr>
+            <td colspan="8" class="muted">لا توجد قوائم إجراءات محفوظة لأيام هذه المرحلة بعد.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}

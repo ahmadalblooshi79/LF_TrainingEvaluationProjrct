@@ -1,7 +1,8 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title %}{{ section_title }} — المحللين{% endblock %}
+{% block body_class %}analyst-criteria-page-layout{% endblock %}
 {% block content %}
-<div class="page-header">
+<div class="page-header page-header--analyst-criteria">
   <h1><i class="fa-solid fa-list-check fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
   <div class="page-header__nav">
     {% include 'partials/control_hub_back.html' %}
@@ -115,13 +116,12 @@
 
       <section class="card analyst-dilemma-day-phase-card">
         <h2 class="h2-in-card"><i class="fa-solid fa-calendar-days fa-icon-title" aria-hidden="true"></i> أيام مجرى الأحداث والمعاضل</h2>
-        <p class="muted" dir="rtl">التبويبات تُضاف تلقائياً حسب الأيام المعرفة في بنك المعلومات / مجرى الأحداث والمعاضل. اختر اليوم ثم المرحلة لعرض الوحدات المعنية.</p>
 
         {% if dilemma_day_tabs %}
         <div class="eval-lists-day-tabs-bar analyst-dilemma-day-tabs-bar" dir="rtl">
           <nav class="eval-lists-day-tabs pf-flow-days-tabs" role="tablist" aria-label="أيام المجرى">
             {% for tab in dilemma_day_tabs %}
-            <a href="{{ url_for('views.analyst_hub_section', slug='evaluation-criteria', tab='dilemma', day=tab.day_id, phase=dilemma_active_phase_key or none) }}"
+            <a href="{{ url_for('views.analyst_hub_section', slug='evaluation-criteria', tab='dilemma', day=tab.day_id) }}"
                class="pf-flow-day-tab{% if tab.day_id == dilemma_active_day_id %} is-active{% endif %}"
                role="tab"
                aria-selected="{{ 'true' if tab.day_id == dilemma_active_day_id else 'false' }}">{{ tab.day_label }}</a>
@@ -133,10 +133,10 @@
         {% endif %}
 
         <div class="analyst-dilemma-phase-field" dir="rtl">
-          <label class="analyst-dilemma-phase-field__label" for="dilemma-phase-select">المرحلة</label>
+          <label class="analyst-dilemma-phase-field__label" for="dilemma-phase-select">المرحلة المرتبطة باليوم</label>
           <select id="dilemma-phase-select"
                   class="unit-level-select analyst-dilemma-phase-select"
-                  aria-label="اختيار المرحلة"
+                  aria-label="المرحلة المرتبطة باليوم المختار"
                   data-dilemma-phase-select>
             <option value="">— اختر المرحلة —</option>
             {% for phase_key, phase_label in criteria_phases %}
@@ -147,17 +147,14 @@
         </div>
       </section>
 
-      <section class="card analyst-criteria-distribution-card">
+      <section class="card analyst-criteria-distribution-card analyst-criteria-distribution-card--dilemma">
         <h2 class="h2-in-card"><i class="fa-solid fa-percent fa-icon-title" aria-hidden="true"></i> توزيع النسبة المئوية لقوائم تقييم المعاضل</h2>
-        {% if dilemma_active_phase_label %}
-        <p class="muted" dir="rtl">مثل قوائم التقييم (المراحل): تُحسب علامة المرحلة من مجموع العلامات في «تفاصيل»، والإجمالي والنسبة المئوية المخصصة = حصة الوحدة من مجموع كل الوحدات المعروضة.</p>
-        {% endif %}
-        <form method="post" action="{{ url_for('views.analyst_hub_section', slug='evaluation-criteria', tab='dilemma', day=dilemma_active_day_id or none, phase=dilemma_active_phase_key or none) }}" id="analyst-dilemma-criteria-distribution-form">
+        <form method="post" action="{{ url_for('views.analyst_hub_section', slug='evaluation-criteria', tab='dilemma', day=dilemma_active_day_id or none, phase=dilemma_active_phase_key or none) }}" id="analyst-dilemma-criteria-distribution-form" class="analyst-dilemma-distribution-form">
           <input type="hidden" name="form_action" value="dilemma_distribution">
           <input type="hidden" name="tab" value="dilemma">
           <input type="hidden" name="day" value="{{ dilemma_active_day_id }}">
           <input type="hidden" name="phase" value="{{ dilemma_active_phase_key }}">
-          <div class="table-wrap analyst-criteria-distribution-wrap">
+          <div class="table-wrap analyst-criteria-distribution-wrap analyst-criteria-distribution-wrap--dilemma">
             <table dir="rtl" aria-label="توزيع النسبة المئوية لقوائم تقييم المعاضل" class="analyst-criteria-distribution-table analyst-dilemma-distribution-table">
               <colgroup>
                 <col class="col-seq">

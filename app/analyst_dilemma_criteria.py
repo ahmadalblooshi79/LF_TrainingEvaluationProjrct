@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.analyst_flow_day_phase_link import (
     build_dilemma_reaction_table_for_unit_phase,
     day_phase_link_rows_for_ui,
+    ensure_default_analyst_day_phase_links,
     load_analyst_day_phase_map,
     save_analyst_day_phase_links,
     set_analyst_day_phase_link,
@@ -22,6 +23,48 @@ from app.models.domain import (
     ExercisePlannerFlowBundle,
 )
 from app.unit_levels_catalog import UNIT_LEVELS, label_for_unit_level_key
+
+
+def _first_flow_day_id_for_phase(
+    phase_key: str,
+    *,
+    day_to_phase: dict[str, str],
+    flow_days: list[dict],
+) -> str:
+    """أول يوم في المجرى مرتبط بهذه المرحلة (للتوافق مع العلامات القديمة بلا flow_day_id)."""
+    from app.analyst_flow_day_phase_link import _normalize_phase_key
+
+    want = _normalize_phase_key(phase_key)
+    if not want:
+        return ""
+    for d in flow_days or []:
+        did = str(d.get("id") or "").strip()
+        if not did:
+            continue
+        if _normalize_phase_key(day_to_phase.get(did) or "") == want:
+            return did
+    return ""
+
+
+def dilemma_item_belongs_to_day(
+    item: AnalystDilemmaCriteriaPhaseItem,
+    flow_day_id: str,
+    *,
+    legacy_owner_day_id: str = "",
+) -> bool:
+    """هل بند العلامة يخص اليوم المطلوب؟
+
+    العلامات الجديدة لها flow_day_id صريح.
+    العلامات القديمة (فارغة) تُنسب لأول يوم في المرحلة فقط — لا تُنسخ لباقي الأيام.
+    """
+    want = (flow_day_id or "").strip()
+    if not want:
+        return True
+    stored = (getattr(item, "flow_day_id", None) or "").strip()
+    if stored:
+        return stored == want
+    legacy = (legacy_owner_day_id or "").strip()
+    return bool(legacy) and want == legacy
 
 
 def sync_dilemma_criteria_units_from_planner(db: Session, ex: Exercise) -> list[AnalystDilemmaCriteriaUnit]:
@@ -73,6 +116,37 @@ def sync_dilemma_criteria_units_from_planner(db: Session, ex: Exercise) -> list[
     )
 
 
+def unit_keys_for_action_eval_flow_day(
+    db: Session,
+    exercise_id: int,
+    *,
+    phase_key: str | None = None,
+    flow_day_id: str | None = None,
+) -> list[str]:
+    """وحدات قوائم تقييم الإجراءات ليوم مجرى — نفس مصدر شاشة المحكمين."""
+    from app.action_eval_ibank_sync import build_judge_action_eval_display_groups
+
+    want_day = (flow_day_id or "").strip()
+    if not want_day:
+        return []
+    groups, _meta = build_judge_action_eval_display_groups(
+        db,
+        exercise_id=int(exercise_id),
+        phase_key=(phase_key or "").strip() or None,
+        flow_day_id=want_day,
+    )
+    keys: list[str] = []
+    seen: set[str] = set()
+    for g in groups:
+        uk = (g.get("unit_key") or "").strip()
+        if not uk or uk in seen:
+            continue
+        seen.add(uk)
+        keys.append(uk)
+    order = {u["key"]: idx for idx, u in enumerate(UNIT_LEVELS)}
+    return sorted(keys, key=lambda k: order.get(k, len(order)))
+
+
 def unit_keys_for_evaluation_list_phase(
     db: Session,
     exercise_id: int,
@@ -80,15 +154,28 @@ def unit_keys_for_evaluation_list_phase(
     *,
     day_to_phase: dict[str, str] | None = None,
     flow_days: list[dict] | None = None,
+    flow_day_id: str | None = None,
 ) -> list[str]:
-    """مستويات الوحدات المعنية بمرحلة معيّنة.
+    """مستويات الوحدات المعنية بمرحلة/يوم.
 
-    المصادر بالترتيب:
+    عند تحديد يوم مجرى: وحدات قوائم تقييم الإجراءات لذلك اليوم (مثل المحكمين).
+    بدون يوم — المصادر بالترتيب:
     1) قوائم التقييم المنشورة للتمرين (المراحل)
     2) حزم مجرى التخطيط لنفس المرحلة
     3) وحدات المكلفين في معاضل أيام المجرى المرتبطة بالمرحلة
     4) إن بقي فارغاً: مستويات الوحدة المعتمدة في التخطيط للتمرين
     """
+    want_day = (flow_day_id or "").strip()
+    if want_day:
+        # يوم محدد: نفس وحدات المحكمين لذلك اليوم فقط — حتى لو كانت فارغة
+        # (لا تسقط إلى تجميع المرحلة فيظهر اليوم 3 بوحدات وهمية).
+        return unit_keys_for_action_eval_flow_day(
+            db,
+            int(exercise_id),
+            phase_key=phase_key,
+            flow_day_id=want_day,
+        )
+
     from app.exercise_phase_catalog import normalize_exercise_phase
     from app.views import (
         _analyst_criteria_phase_db_keys,
@@ -270,24 +357,33 @@ def build_dilemma_criteria_distribution(
         if str(d.get("id") or "").strip()
     ]
 
-    day_to_phase = load_analyst_day_phase_map(db, int(ex.id))
+    day_to_phase = ensure_default_analyst_day_phase_links(
+        db, int(ex.id), flow_days=flow_days
+    )
     active_day = (active_day_id or "").strip()
     if not active_day and day_tabs:
         active_day = day_tabs[0]["day_id"]
 
-    active_phase = _resolve_analyst_criteria_phase_key(
+    requested_phase = _resolve_analyst_criteria_phase_key(
         (active_phase_key or "").strip()
     ) or (active_phase_key or "").strip()
-    if not active_phase and active_day:
-        active_phase = (day_to_phase.get(active_day) or "").strip()
-    if not active_phase and phases:
-        active_phase = phases[0][0]
 
-    if persist_day_phase and active_day and active_phase:
+    # تغيير المرحلة من القائمة المنسدلة يعيد تخصيص اليوم الحالي فقط.
+    if persist_day_phase and active_day and requested_phase:
         set_analyst_day_phase_link(
-            db, int(ex.id), day_id=active_day, phase_key=active_phase
+            db, int(ex.id), day_id=active_day, phase_key=requested_phase
         )
         day_to_phase = load_analyst_day_phase_map(db, int(ex.id))
+        active_phase = requested_phase
+    elif active_day:
+        # تبويب اليوم يقود المرحلة المرتبطة به (للتقييم النهائي حسب المراحل).
+        active_phase = (day_to_phase.get(active_day) or "").strip()
+        if not active_phase and phases:
+            active_phase = phases[0][0]
+    else:
+        active_phase = requested_phase
+        if not active_phase and phases:
+            active_phase = phases[0][0]
 
     phase_label = ""
     for pk, lbl in phases:
@@ -304,8 +400,9 @@ def build_dilemma_criteria_distribution(
             active_phase,
             day_to_phase=day_to_phase,
             flow_days=flow_days,
+            flow_day_id=active_day or None,
         )
-        if active_phase
+        if active_phase or active_day
         else []
     )
 
@@ -348,9 +445,18 @@ def build_dilemma_criteria_distribution(
         .filter(AnalystDilemmaCriteriaPhaseItem.exercise_id == ex.id)
         .all()
     )
+    legacy_owner = _first_flow_day_id_for_phase(
+        active_phase,
+        day_to_phase=day_to_phase,
+        flow_days=flow_days,
+    )
     marks_by_unit_phase: dict[tuple[int, str], list[float]] = {}
     for item in phase_items:
         if item.allocated_mark is None:
+            continue
+        if active_day and not dilemma_item_belongs_to_day(
+            item, active_day, legacy_owner_day_id=legacy_owner
+        ):
             continue
         marks_by_unit_phase.setdefault(
             (int(item.criteria_unit_id), item.phase_key or ""),
@@ -504,10 +610,12 @@ def dilemma_criteria_phase_items_for_unit(
     ex: Exercise,
     unit: AnalystDilemmaCriteriaUnit,
     phase_key: str,
+    *,
+    flow_day_id: str | None = None,
 ) -> tuple[list[dict], list[str]]:
-    """عناصر تفاصيل المرحلة + تسميات الأيام — مثل قوائم التقييم (المراحل):
+    """عناصر تفاصيل المرحلة ليوم محدد + تسميات الأيام — مثل قوائم التقييم (المراحل):
 
-    العناوين من قوائم المجرى/المعاضل، والعلامات من المحفوظ يدوياً فقط
+    العناوين من قوائم المجرى/المعاضل لذلك اليوم، والعلامات من المحفوظ يدوياً فقط
     (بدون سحب تلقائي للمكتسبة من المحكم).
     """
     from app.views import (
@@ -518,6 +626,7 @@ def dilemma_criteria_phase_items_for_unit(
     unit_level_key = _resolve_unit_level_key_for_criteria_label(unit.label or "")
     day_to_phase = load_analyst_day_phase_map(db, int(ex.id))
     flow_days = ibank_event_flow_days(db)
+    want_day = (flow_day_id or "").strip()
     reaction = build_dilemma_reaction_table_for_unit_phase(
         db,
         exercise_id=int(ex.id),
@@ -525,11 +634,15 @@ def dilemma_criteria_phase_items_for_unit(
         phase_key=phase_key,
         day_to_phase=day_to_phase,
         flow_days=flow_days,
+        flow_day_id=want_day or None,
     )
     day_labels = list(reaction.get("day_labels") or [])
 
     phase_db_keys = _analyst_criteria_phase_db_keys(phase_key)
-    saved_rows = (
+    legacy_owner = _first_flow_day_id_for_phase(
+        phase_key, day_to_phase=day_to_phase, flow_days=flow_days
+    )
+    saved_rows_all = (
         db.query(AnalystDilemmaCriteriaPhaseItem)
         .filter(
             AnalystDilemmaCriteriaPhaseItem.exercise_id == ex.id,
@@ -542,6 +655,14 @@ def dilemma_criteria_phase_items_for_unit(
         )
         .all()
     )
+    saved_rows = [
+        row
+        for row in saved_rows_all
+        if (not want_day)
+        or dilemma_item_belongs_to_day(
+            row, want_day, legacy_owner_day_id=legacy_owner
+        )
+    ]
     marks_by_text: dict[str, float | None] = {}
     marks_by_index: list[float | None] = []
     for row in saved_rows:
@@ -599,6 +720,8 @@ def collect_dilemma_acquired_for_unit_phase(
     ex: Exercise,
     unit: AnalystDilemmaCriteriaUnit,
     phase_key: str,
+    *,
+    flow_day_id: str | None = None,
 ) -> list[dict]:
     """مكتسبة قوائم تقييم المعاضل/الإجراءات لملء تلقائي (مثل autofill في المراحل)."""
     from app.views import _resolve_unit_level_key_for_criteria_label
@@ -606,6 +729,7 @@ def collect_dilemma_acquired_for_unit_phase(
     unit_level_key = _resolve_unit_level_key_for_criteria_label(unit.label or "")
     day_to_phase = load_analyst_day_phase_map(db, int(ex.id))
     flow_days = ibank_event_flow_days(db)
+    want_day = (flow_day_id or "").strip()
     reaction = build_dilemma_reaction_table_for_unit_phase(
         db,
         exercise_id=int(ex.id),
@@ -613,6 +737,7 @@ def collect_dilemma_acquired_for_unit_phase(
         phase_key=phase_key,
         day_to_phase=day_to_phase,
         flow_days=flow_days,
+        flow_day_id=want_day or None,
     )
     out: list[dict] = []
     seen: set[str] = set()
@@ -642,6 +767,8 @@ def save_dilemma_criteria_phase_items(
     ex: Exercise,
     unit: AnalystDilemmaCriteriaUnit,
     phase_key: str,
+    *,
+    flow_day_id: str | None = None,
 ) -> None:
     from app.views import (
         _analyst_criteria_phase_db_keys,
@@ -649,12 +776,30 @@ def save_dilemma_criteria_phase_items(
         _resolve_analyst_criteria_phase_key,
     )
 
+    want_day = (flow_day_id or "").strip()
     phase_db_keys = _analyst_criteria_phase_db_keys(phase_key)
-    db.query(AnalystDilemmaCriteriaPhaseItem).filter(
-        AnalystDilemmaCriteriaPhaseItem.exercise_id == ex.id,
-        AnalystDilemmaCriteriaPhaseItem.criteria_unit_id == unit.id,
-        AnalystDilemmaCriteriaPhaseItem.phase_key.in_(phase_db_keys),
-    ).delete(synchronize_session=False)
+    day_to_phase = load_analyst_day_phase_map(db, int(ex.id))
+    flow_days = ibank_event_flow_days(db)
+    legacy_owner = _first_flow_day_id_for_phase(
+        phase_key, day_to_phase=day_to_phase, flow_days=flow_days
+    )
+    existing = (
+        db.query(AnalystDilemmaCriteriaPhaseItem)
+        .filter(
+            AnalystDilemmaCriteriaPhaseItem.exercise_id == ex.id,
+            AnalystDilemmaCriteriaPhaseItem.criteria_unit_id == unit.id,
+            AnalystDilemmaCriteriaPhaseItem.phase_key.in_(phase_db_keys),
+        )
+        .all()
+    )
+    for row in existing:
+        if want_day:
+            if dilemma_item_belongs_to_day(
+                row, want_day, legacy_owner_day_id=legacy_owner
+            ):
+                db.delete(row)
+        else:
+            db.delete(row)
     storage_key = _resolve_analyst_criteria_phase_key(phase_key) or phase_key
     criteria_texts = [
         (t or "").strip()[:1000] for t in request.form.getlist("criteria_text")
@@ -673,6 +818,7 @@ def save_dilemma_criteria_phase_items(
                 exercise_id=ex.id,
                 criteria_unit_id=unit.id,
                 phase_key=storage_key,
+                flow_day_id=want_day[:64],
                 sort_order=idx,
                 criteria_text=text_value,
                 allocated_mark=mark,

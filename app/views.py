@@ -3601,35 +3601,8 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
             }
         )
 
-    # مساهمة مجرى الأيام حسب القاعدة الثابتة (مجرى 1–2 → الإنفتاح، …)
-    try:
-        from app.analyst_flow_day_phase_link import collect_flow_acquired_by_unit_phase
-        from app.info_bank_tree import ibank_event_flow_days
-
-        _flow_acq = collect_flow_acquired_by_unit_phase(
-            db, exercise_id=int(ex.id), flow_days=ibank_event_flow_days(db)
-        )
-        for (uk, pk), acq in _flow_acq.items():
-            if not uk or uk not in included_unit_keys or acq <= 0:
-                continue
-            pk_n = _normalized_exercise_phase(pk)
-            if not pk_n:
-                continue
-            block = phase_acquired_totals.setdefault(
-                (uk, pk_n),
-                {
-                    "unit_key": uk,
-                    "unit_label": label_for_unit_level_key(uk, db) or uk or "—",
-                    "phase_key": pk_n,
-                    "phase_label": _phase_label_ar(pk_n),
-                    "acquired_mark": 0.0,
-                },
-            )
-            block["acquired_mark"] += float(acq)
-            slot = unit_phase_slots.setdefault((uk, pk_n), {**block})
-            slot["acquired_mark"] = block["acquired_mark"]
-    except Exception:
-        current_app.logger.exception("analyst final eval flow-day merge failed")
+    # مكتسبة مجرى الأيام لا تُخلط هنا مع صفوف قوائم التقييم (المراحل).
+    # تُجمع لاحقاً في وحدتي «رد الفعل على المعاضل» حسب مرحلة الأيام.
 
     units_in_exercise: set[str] = set()
     for item in eval_items:
@@ -3956,9 +3929,28 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
             }
         )
 
+    # وحدتان تجميعيّتان من قوائم تقييم المعاضل — حسب مرحلة الأيام (دون المساس بصفوف المراحل).
+    dilemma_reaction_sort: dict[str, int] = {}
+    try:
+        from app.dilemma_reaction_final_eval import (
+            DILEMMA_REACTION_UNIT_SORT,
+            build_dilemma_reaction_final_eval_rows,
+        )
+
+        dilemma_reaction_sort = dict(DILEMMA_REACTION_UNIT_SORT)
+        dilemma_agg_rows = build_dilemma_reaction_final_eval_rows(db, int(ex.id))
+        for drow in dilemma_agg_rows:
+            drow["unit_anchor"] = f"final-dilemma-{drow.get('unit_key') or 'x'}"
+            final_rows_all.append(drow)
+    except Exception:
+        current_app.logger.exception("analyst final eval dilemma-reaction aggregate failed")
+
     final_rows_all.sort(
         key=lambda r: (
-            unit_order.get(r.get("unit_key") or "", len(unit_order)),
+            unit_order.get(
+                r.get("unit_key") or "",
+                dilemma_reaction_sort.get(r.get("unit_key") or "", len(unit_order)),
+            ),
             phase_order.get(r.get("phase_key") or "", len(phase_order)),
         )
     )
@@ -5032,8 +5024,8 @@ def analyst_hub_section(slug: str):
             )
 
         active_day = (request.args.get("day") or "").strip() or None
+        # المرحلة من القائمة المنسدلة فقط تعيد تخصيص اليوم؛ تبويب اليوم لا يمرّر phase.
         active_phase = (request.args.get("phase") or "").strip() or None
-        # عند اختيار مرحلة عبر التمرير — احفظ ربط اليوم→المرحلة
         persist_link = bool(active_day and active_phase)
         dilemma_dist = build_dilemma_criteria_distribution(
             db,
@@ -5556,6 +5548,31 @@ def analyst_final_evaluation_unit_detail(unit_key: str):
     report = _build_analyst_final_evaluation_report(db, user)
     if not report.get("has_exercise"):
         abort(404)
+
+    from app.dilemma_reaction_final_eval import (
+        build_dilemma_reaction_report_unit,
+        is_dilemma_reaction_unit_key,
+    )
+
+    if is_dilemma_reaction_unit_key(unit_key_norm):
+        unit = build_dilemma_reaction_report_unit(
+            db, int(report["exercise"].id), unit_key_norm
+        )
+        if unit is None:
+            abort(404)
+        return render_template(
+            "analyst_final_evaluation_dilemma_reaction.html",
+            **_ctx(
+                user,
+                section_title=ANALYST_HUB_SLUGS.get("final-evaluation", "التقييم نهائي"),
+                exercise=report["exercise"],
+                unit=unit,
+                **_subpage_close_ctx(
+                    url_for("views.analyst_hub_section", slug="final-evaluation")
+                ),
+            ),
+        )
+
     unit = next(
         (u for u in report.get("report_units", []) if (u.get("unit_key") or "").strip() == unit_key_norm),
         None,
@@ -5850,7 +5867,9 @@ def analyst_dilemma_criteria_phase(unit_id: int, phase_key: str):
     if unit is None or unit.exercise_id != ex.id:
         abort(404)
     if request.method == "POST":
-        save_dilemma_criteria_phase_items(db, ex, unit, phase_key)
+        save_dilemma_criteria_phase_items(
+            db, ex, unit, phase_key, flow_day_id=ret_day or None
+        )
         return redirect(
             url_for(
                 "views.analyst_hub_section",
@@ -5861,7 +5880,9 @@ def analyst_dilemma_criteria_phase(unit_id: int, phase_key: str):
                 ok=1,
             )
         )
-    items, day_labels = dilemma_criteria_phase_items_for_unit(db, ex, unit, phase_key)
+    items, day_labels = dilemma_criteria_phase_items_for_unit(
+        db, ex, unit, phase_key, flow_day_id=ret_day or None
+    )
     list_driven = bool(items)
     unit_level_key = _resolve_unit_level_key_for_criteria_label(unit.label or "")
     total_mark = sum(
@@ -5873,6 +5894,7 @@ def analyst_dilemma_criteria_phase(unit_id: int, phase_key: str):
         "views.analyst_dilemma_criteria_phase_autofill",
         unit_id=unit_id,
         phase_key=phase_key_raw,
+        day=ret_day or None,
     )
     return render_template(
         "analyst_dilemma_criteria_phase.html",
@@ -5884,6 +5906,7 @@ def analyst_dilemma_criteria_phase(unit_id: int, phase_key: str):
             unit=unit,
             phase_key=phase_key,
             phase_label=phase_label,
+            flow_day_id=ret_day,
             items=items,
             list_driven=list_driven,
             day_labels=day_labels,
@@ -5926,7 +5949,11 @@ def analyst_dilemma_criteria_phase_autofill(unit_id: int, phase_key: str):
     if unit is None or unit.exercise_id != ex.id:
         return jsonify({"ok": False, "error": "not_found"}), 404
     items = collect_dilemma_acquired_for_unit_phase(
-        db, ex, unit, phase_key_resolved
+        db,
+        ex,
+        unit,
+        phase_key_resolved,
+        flow_day_id=(request.args.get("day") or "").strip() or None,
     )
     return jsonify({"ok": True, "items": items})
 
@@ -6742,14 +6769,14 @@ def planner_flow_bundle_workspace():
 
 @bp.route("/chief-judge/planner-flow-bundle-overview", methods=["GET"])
 def chief_judge_planner_flow_bundle_overview():
-    """اعتماد تقييم الإجراءات — صفحة مستقبلية."""
+    """اعتماد قوائم تقييم الإجراءات — توجيه لمسار كبير المحكمين."""
     user = get_current_user_optional()
     if not user:
         return redirect("/login?next=/chief-judge/planner-flow-bundle-overview")
     if not can_access_chief_judge_hub(user):
         abort(403)
     return redirect(
-        url_for("views.judge_planner_flow_action_approval", from_chief_judge=1)
+        url_for("views.chief_judge_action_eval_lists_home", from_chief_judge=1)
     )
 
 
@@ -7527,7 +7554,10 @@ def _from_judge_action_eval_lists_request() -> bool:
 
 def _judge_action_eval_lists_url_kwargs() -> dict[str, str]:
     day = (request.args.get("day") or "").strip()
-    return {"day": day} if day else {}
+    kw: dict[str, str] = {"day": day} if day else {}
+    if _request_from_chief_judge_hub():
+        kw["from_chief_judge"] = "1"
+    return kw
 
 
 def _judge_action_eval_lists_query_kwargs() -> dict[str, int | str]:
@@ -7547,10 +7577,22 @@ def _judge_action_eval_flow_query_kwargs(user: User) -> dict[str, int | str]:
     return {**_planner_flow_materials_query_kwargs(user), **_judge_action_eval_lists_query_kwargs()}
 
 
+def _judge_action_eval_unit_list_endpoint(*, chief_approval_mode: bool = False) -> str:
+    if chief_approval_mode or _request_from_chief_judge_hub():
+        return "views.chief_judge_action_eval_lists"
+    return "views.judge_dilemmas"
+
+
+def _judge_action_eval_lists_home_endpoint(*, chief_approval_mode: bool = False) -> str:
+    if chief_approval_mode or _request_from_chief_judge_hub():
+        return "views.chief_judge_action_eval_lists_home"
+    return "views.judge_dilemmas_home"
+
+
 def _judge_action_eval_close_href(user: User, *, unit_key: str) -> str:
     if _from_judge_action_eval_lists_request():
         return url_for(
-            "views.judge_dilemmas",
+            _judge_action_eval_unit_list_endpoint(),
             unit_key=unit_key,
             **_judge_action_eval_lists_url_kwargs(),
         )
@@ -7645,15 +7687,34 @@ def _judge_action_eval_flat_rows(groups: list[dict]) -> list[dict]:
 
 
 def _render_judge_action_eval_lists_workspace(
-    db, user: User, *, unit_key: str | None = None
+    db, user: User, *, unit_key: str | None = None, chief_approval_mode: bool = False
 ):
     from app.exercise_phase_catalog import default_exercise_phase_key
 
+    chief_mode = bool(chief_approval_mode or _request_from_chief_judge_hub())
+    if chief_mode and not can_access_chief_judge_hub(user):
+        abort(403)
+
     ex = _current_workspace_exercise(db, user)
     assigned_uk = _judge_assigned_unit_key(db, user, ex)
-    judge_no_unit = _is_individual_judge_user(user) and not assigned_uk
-    parent_hub = url_for("views.judge_hub")
-    parent_home = url_for("views.judge_dilemmas_home")
+    judge_no_unit = (
+        (not chief_mode)
+        and _is_individual_judge_user(user)
+        and not assigned_uk
+    )
+    unit_endpoint = _judge_action_eval_unit_list_endpoint(chief_approval_mode=chief_mode)
+    home_endpoint = _judge_action_eval_lists_home_endpoint(chief_approval_mode=chief_mode)
+    parent_hub = (
+        url_for("views.chief_judge_hub")
+        if chief_mode
+        else url_for("views.judge_hub")
+    )
+    parent_home = url_for(home_endpoint)
+    page_title = (
+        "اعتماد قوائم تقييم الإجراءات (مجرى الأحداث والمعاضل)"
+        if chief_mode
+        else "قوائم تقييم الإجراءات"
+    )
 
     if ex is None:
         return render_template(
@@ -7665,7 +7726,8 @@ def _render_judge_action_eval_lists_workspace(
                 day_tabs=[],
                 active_day_id="",
                 judge_no_unit_assignment=judge_no_unit,
-                unit_list_endpoint="views.judge_dilemmas",
+                unit_list_endpoint=unit_endpoint,
+                page_title=page_title,
                 subpage_close_fallback=parent_hub,
                 **_hub_back_ctx_for_request_path(),
             ),
@@ -7673,10 +7735,19 @@ def _render_judge_action_eval_lists_workspace(
 
     if unit_key:
         _require_unit_level_row(unit_key)
-        _enforce_judge_unit_scope(db, user, ex, unit_key)
+        if not chief_mode:
+            _enforce_judge_unit_scope(db, user, ex, unit_key)
 
+    # كبير المحكمين يرى كل الوحدات — لا تقييد بوحدة إسناد المحكم
     restrict_uk = unit_key or (
-        assigned_uk if assigned_uk and not is_system_admin(user) else None
+        assigned_uk
+        if (
+            assigned_uk
+            and not is_system_admin(user)
+            and not chief_mode
+            and not can_access_chief_judge_hub(user)
+        )
+        else None
     )
     selected_phase = normalize_exercise_phase(
         (request.args.get("phase") or "").strip() or default_exercise_phase_key()
@@ -7702,7 +7773,9 @@ def _render_judge_action_eval_lists_workspace(
     if selected_day_id and not selected_day_label:
         selected_day_label = selected_day_id
 
-    if assigned_uk and not is_system_admin(user):
+    if chief_mode:
+        parent_href = parent_hub
+    elif assigned_uk and not is_system_admin(user):
         parent_href = parent_hub
     else:
         parent_href = parent_home
@@ -7717,9 +7790,9 @@ def _render_judge_action_eval_lists_workspace(
                 day_tabs=day_tabs,
                 active_day_id=selected_day_id,
                 judge_no_unit_assignment=judge_no_unit,
-                unit_list_endpoint="views.judge_dilemmas",
+                unit_list_endpoint=unit_endpoint,
                 subpage_close_fallback=parent_href,
-                page_title="قوائم تقييم الإجراءات",
+                page_title=page_title,
                 **_hub_back_ctx_for_request_path(),
             ),
         )
@@ -7734,10 +7807,10 @@ def _render_judge_action_eval_lists_workspace(
         active_groups = groups_per_day[0]
 
     list_close_href = url_for(
-        "views.judge_dilemmas_home",
+        home_endpoint,
         **_judge_action_eval_lists_url_kwargs(),
     )
-    if assigned_uk and not is_system_admin(user):
+    if (not chief_mode) and assigned_uk and not is_system_admin(user):
         list_close_href = parent_hub
 
     return render_template(
@@ -7751,9 +7824,12 @@ def _render_judge_action_eval_lists_workspace(
             active_day_id=selected_day_id,
             day_label=selected_day_label,
             action_eval_rows=_judge_action_eval_flat_rows(active_groups),
+            unit_list_endpoint=unit_endpoint,
+            page_title=page_title,
             eval_lists_parent_href=list_close_href,
             subpage_close_fallback=list_close_href,
             pf_reopened=request.args.get("pf_reopened", type=int) == 1,
+            pf_chief_approved=request.args.get("pf_chief_approved", type=int) == 1,
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -7927,15 +8003,18 @@ def judge_planner_flow_materials():
 
 @bp.route("/judge/planner-flow-action-approval", methods=["GET"])
 def judge_planner_flow_action_approval():
-    """اعتماد تقييم الإجراءات — قيد الإعداد."""
+    """اعتماد قوائم تقييم الإجراءات (مجرى/معاضل) — كبير المحكمين."""
     user = get_current_user_optional()
     if not user:
         return redirect("/login?next=/judge/planner-flow-action-approval")
-    if not can_access_chief_judge_hub(user) and not is_system_admin(user):
+    if not can_access_chief_judge_hub(user):
         abort(403)
-    return render_template(
-        "judge_planner_flow_action_approval.html",
-        **_ctx(user, **_hub_back_ctx_for_request_path()),
+    return redirect(
+        url_for(
+            "views.chief_judge_action_eval_lists_home",
+            from_chief_judge=1,
+            **_judge_action_eval_lists_url_kwargs(),
+        )
     )
 
 
@@ -8450,7 +8529,7 @@ def judge_planner_flow_materials_action_chief_reopen(slot: int):
     if _from_judge_action_eval_lists_request():
         return redirect(
             url_for(
-                "views.judge_dilemmas",
+                _judge_action_eval_unit_list_endpoint(),
                 unit_key=unit_key,
                 pf_reopened=1,
                 **_judge_action_eval_lists_url_kwargs(),
@@ -10303,6 +10382,12 @@ def _request_from_planner_hub() -> bool:
 
 
 def _request_from_chief_judge_hub() -> bool:
+    try:
+        path = (request.path or "").strip()
+        if path.startswith("/chief-judge"):
+            return True
+    except RuntimeError:
+        pass
     raw = (
         request.args.get("from")
         or request.args.get("from_chief_judge")
@@ -13869,7 +13954,7 @@ def chief_judge_hub_section(slug: str):
         return redirect(url_for("views.chief_judge_evaluation_lists_home"))
     if slug_norm == "planner-flow-bundle-overview":
         return redirect(
-            url_for("views.judge_planner_flow_action_approval", from_chief_judge=1)
+            url_for("views.chief_judge_action_eval_lists_home", from_chief_judge=1)
         )
     return render_template(
         "judge_section_placeholder.html",
@@ -13879,6 +13964,36 @@ def chief_judge_hub_section(slug: str):
             section_slug=slug_norm,
             **_hub_back_ctx_for_request_path(),
         ),
+    )
+
+
+@bp.route("/chief-judge/action-eval-lists", methods=["GET"])
+def chief_judge_action_eval_lists_home():
+    """اعتماد قوائم تقييم الإجراءات (مجرى/معاضل) — اختيار اليوم والوحدة."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/chief-judge/action-eval-lists")
+    if not can_access_chief_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    return _render_judge_action_eval_lists_workspace(
+        g.db, user, chief_approval_mode=True
+    )
+
+
+@bp.route("/chief-judge/action-eval-lists/<unit_key>", methods=["GET"])
+def chief_judge_action_eval_lists(unit_key: str):
+    """قوائم تقييم الإجراءات لوحدة — اعتماد/إعادة كبير المحكمين."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/chief-judge/action-eval-lists/{unit_key}")
+    if not can_access_chief_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    return _render_judge_action_eval_lists_workspace(
+        g.db, user, unit_key=unit_key, chief_approval_mode=True
     )
 
 

@@ -228,15 +228,15 @@ def _resolve_listen_port(preferred: int, host: str = "0.0.0.0") -> int:
             if _can_bind_exclusive(port, host):
                 if port != preferred:
                     print(
-                        f"\n[تنبيه] المنفذ {preferred} معطّل (socket شبح أو نسخة قديمة).\n"
-                        f"  يعمل الخادم على المنفذ {port}: {_app_url(port)}\n",
+                        f"\n[warn] Port {preferred} unavailable (ghost socket or old instance).\n"
+                        f"  Server listening on port {port}: {_app_url(port)}\n",
                         file=sys.stderr,
                     )
                 return port
             time.sleep(0.15)
     print(
-        f"\n[خطأ] لا يوجد منفذ متاح بين {preferred} و{preferred + 10}.\n"
-        f"  أعد تشغيل Windows أو عيّن PORT يدوياً.\n",
+        f"\n[error] No free port between {preferred} and {preferred + 10}.\n"
+        f"  Restart Windows or set PORT manually.\n",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -246,8 +246,8 @@ def _ensure_port_free(port: int, host: str = "0.0.0.0") -> None:
     """توافق — يُستدعى _resolve_listen_port من main."""
     if not _can_bind_exclusive(port, host):
         print(
-            f"\n[خطأ] المنفذ {port} ما زال مستخدماً.\n"
-            f"  ثم شغّل: .venv\\Scripts\\python.exe run.py\n",
+            f"\n[error] Port {port} is still in use.\n"
+            f"  Then run: .venv\\Scripts\\python.exe run.py\n",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -264,10 +264,10 @@ def main() -> None:
         from app.network_util import print_server_access_info
     except ModuleNotFoundError as exc:
         print(
-            f"\n[خطأ] تعذّر استيراد الحزمة المطلوبة: {exc}\n"
-            f"  المفسّر: {sys.executable}\n"
-            f"  شغّل: .venv\\Scripts\\python.exe run.py\n"
-            f"  أو: run.bat\n",
+            f"\n[error] Failed to import required package: {exc}\n"
+            f"  Interpreter: {sys.executable}\n"
+            f"  Run: .venv\\Scripts\\python.exe run.py\n"
+            f"  Or: run.bat\n",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -281,14 +281,14 @@ def main() -> None:
             print(f"  Remote Control WebSocket: ws://<host>:{ws_port}/", flush=True)
         print(f"  Presentation display: http://<host>:{PORT}/presentation/live", flush=True)
     except Exception as exc:
-        print(f"  [تحذير] WebSocket للتحكم المباشر: {exc}", flush=True)
+        print(f"  [warn] Remote-control WebSocket: {exc}", flush=True)
     debug = _env_flag("FLASK_DEBUG", default=False) and not getattr(sys, "frozen", False)
     if not getattr(sys, "frozen", False) and not str(sys.executable).lower().endswith(
         (r".venv\scripts\python.exe", r"/.venv/bin/python")
     ):
         print(
-            f"\n[تحذير] المفسّر الحالي ليس .venv:\n  {sys.executable}\n"
-            f"  يُفضّل: .venv\\Scripts\\python.exe run.py\n",
+            f"\n[warn] Current interpreter is not .venv:\n  {sys.executable}\n"
+            f"  Prefer: .venv\\Scripts\\python.exe run.py\n",
             file=sys.stderr,
         )
     open_browser = _env_flag("LF_OPEN_BROWSER", default=True)
@@ -326,7 +326,7 @@ if __name__ == "__main__":
     except SystemExit:
         raise
     except Exception as exc:
-        print(f"\n[خطأ] فشل تشغيل الخادم: {exc}", file=sys.stderr)
+        print(f"\n[error] Server failed to start: {exc}", file=sys.stderr)
         import traceback
 
         traceback.print_exc()

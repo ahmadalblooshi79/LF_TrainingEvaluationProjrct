@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 
-{% block title %}قوائم تقييم الإجراءات — {{ unit.label }}{% if day_label %} — {{ day_label }}{% endif %}{% endblock %}
+{% block title %}{{ page_title | default('قوائم تقييم الإجراءات') }} — {{ unit.label }}{% if day_label %} — {{ day_label }}{% endif %}{% endblock %}
 
 {% block body_class %}judge-eval-lists-page-layout{% endblock %}
 
 {% block content %}
 
 <div class="page-header page-header--judge-eval-lists">
-  <h1><i class="fa-solid fa-clipboard-list fa-icon-title" aria-hidden="true"></i> قوائم تقييم الإجراءات — {{ unit.label }}{% if day_label %} — {{ day_label }}{% endif %}</h1>
+  <h1><i class="fa-solid fa-clipboard-list fa-icon-title" aria-hidden="true"></i> {{ page_title | default('قوائم تقييم الإجراءات') }} — {{ unit.label }}{% if day_label %} — {{ day_label }}{% endif %}</h1>
   <div class="page-header__nav">
     {% include 'partials/subpage_close.html' %}
   </div>
@@ -16,13 +16,16 @@
 {% if pf_reopened %}
 <p class="form-ok-banner eval-lists-banner" role="status"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> تم إعادة التقييم — يظهر كـ <strong>معاد للتعديل</strong>.</p>
 {% endif %}
+{% if pf_chief_approved %}
+<p class="form-ok-banner eval-lists-banner" role="status"><i class="fa-solid fa-stamp" aria-hidden="true"></i> تم اعتماد كبير المحكمين.</p>
+{% endif %}
 
 <section class="card judge-eval-lists-fill-card">
   {% if day_tabs %}
   <div class="eval-lists-day-tabs-bar" dir="rtl" style="margin-bottom:1rem;">
     <nav class="eval-lists-day-tabs pf-flow-days-tabs" role="tablist" aria-label="أيام المجرى">
       {% for tab in day_tabs %}
-      <a href="{{ url_for('views.judge_dilemmas', unit_key=unit_key, day=tab.day_id) }}"
+      <a href="{{ url_for(unit_list_endpoint | default('views.judge_dilemmas'), unit_key=unit_key, day=tab.day_id) }}"
          class="pf-flow-day-tab{% if tab.day_id == active_day_id %} is-active{% endif %}"
          role="tab"
          aria-selected="{{ 'true' if tab.day_id == active_day_id else 'false' }}">{{ tab.day_label }}</a>
