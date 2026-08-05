@@ -11181,6 +11181,25 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
 }
 .analyst-criteria-new-unit-select {
   max-width: 22rem;
+  min-width: 14rem;
+  flex: 1 1 14rem;
+}
+.analyst-criteria-add-unit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.75rem;
+  margin: 0 0 0.75rem;
+  flex-shrink: 0;
+}
+.analyst-criteria-add-unit__label {
+  font-weight: 700;
+  color: #2a2a28;
+  white-space: nowrap;
+}
+.analyst-criteria-add-unit__hint {
+  flex: 1 1 100%;
+  font-size: 0.9rem;
 }
 .analyst-dilemma-day-phase-card .analyst-dilemma-day-tabs-bar {
   margin-bottom: 1rem;
@@ -11266,6 +11285,9 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+.analyst-criteria-page-layout .ibank-tabpane[data-tab-pane="phases"].is-active .analyst-criteria-add-unit {
+  flex-shrink: 0;
 }
 .analyst-criteria-page-layout .ibank-tabpane[data-tab-pane="phases"].is-active .analyst-criteria-distribution-wrap {
   flex: 1 1 auto;
@@ -11403,6 +11425,23 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   gap: 0.35rem;
   margin: 0;
   min-width: 0;
+}
+.ibank-tree-dir-pick-status {
+  margin: 0.35rem 0 0;
+  padding: 0.35rem 0.55rem;
+  border-radius: 0.35rem;
+  background: #f3efe6;
+  color: #2a2a28;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.ibank-tree-dir-pick-status[hidden] {
+  display: none !important;
+}
+.ibank-tree-toolbar.ibank-tree-drop-active {
+  outline: 2px dashed #8a6a3a;
+  outline-offset: 2px;
+  background: #faf6ee;
 }
 .ibank-tree-inline-form--grow {
   grid-column: 1 / -1;

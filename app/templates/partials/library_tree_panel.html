@@ -24,10 +24,11 @@
           <input type="hidden" name="kind" value="{{ kind }}">
           <input type="hidden" name="parent_id" value="" class="js-ibank-tree-upload-parent">
           <input type="file" name="files" multiple class="ibank-tree-file-input js-ibank-tree-dir" tabindex="-1" aria-hidden="true" webkitdirectory directory>
-          <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-pick-dir"><i class="fa-solid fa-folder-open" aria-hidden="true"></i> إرفاق مجلد</button>
+          <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-pick-dir" title="يُدرج المجلد فوراً بعد الاختيار. لعدة مجلدات: كرر الزر أو اسحبها إلى الشريط."><i class="fa-solid fa-folder-open" aria-hidden="true"></i> إرفاق مجلد</button>
         </form>
         <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-clear-select"><i class="fa-solid fa-xmark" aria-hidden="true"></i> إلغاء التحديد</button>
       </div>
+      <p class="ibank-tree-dir-pick-status js-ibank-dir-pick-status" role="status" hidden></p>
       <p class="ibank-tree-selection-label js-ibank-tree-target-label" role="status">المستهدف: الجذر — انقر «تحديد» على مجلد في الشجرة (أو ارفع مباشرة إلى الجذر)</p>
     </div>
     {% endif %}

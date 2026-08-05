@@ -331,35 +331,94 @@
         dlParentInputs.forEach(function (inp) {
           if (!dlRootId) dlRootId = String(inp.value || '').trim();
         });
-        function dlBindPick(btnSel, inpSel, formSel) {
-          var pick = page.querySelector(btnSel);
-          var inp = page.querySelector(inpSel);
-          var form = page.querySelector(formSel);
+        function dlSubmitPending(pending) {
+          if (!pending || !pending.length) return;
+          if (!dlRootId) {
+            alert('تعذر تحديد جذر قوائم تقييم المعاضل. أعد تحميل الصفحة.');
+            return;
+          }
+          var form = page.querySelector('.js-ibank-tree-upload-dir-form')
+            || page.querySelector('.js-ibank-tree-upload-files-form');
+          if (!form) return;
+          dlParentInputs.forEach(function (pInp) { pInp.value = dlRootId; });
+          ibankSubmitting = true;
+          btns.forEach(function (b) { b.disabled = true; });
+          if (window.ibankTreeMultiFolder && window.ibankTreeMultiFolder.uploadPendingChunked) {
+            window.ibankTreeMultiFolder.uploadPendingChunked({
+              form: form,
+              parentId: dlRootId,
+              pending: pending,
+              statusEl: page.querySelector('.js-ibank-dir-pick-status'),
+              onError: function (msg) {
+                ibankSubmitting = false;
+                btns.forEach(function (b) { b.disabled = false; });
+                alert(msg || 'تعذر الإدراج.');
+              },
+            });
+            return;
+          }
+          var fd = new FormData();
+          var kindInp = form.querySelector('input[name="kind"]');
+          if (kindInp) fd.append('kind', kindInp.value);
+          fd.append('parent_id', dlRootId);
+          pending.forEach(function (item) {
+            fd.append('files', item.file, item.rel || item.file.name);
+          });
+          fetch(form.action, { method: 'POST', body: fd, credentials: 'same-origin', redirect: 'follow' })
+            .then(function (r) { window.location.href = r.url; })
+            .catch(function () {
+              ibankSubmitting = false;
+              btns.forEach(function (b) { b.disabled = false; });
+              alert('تعذر الاتصال بالخادم.');
+            });
+        }
+        function dlBindPickFiles() {
+          var pick = page.querySelector('.js-ibank-tree-pick-files');
+          var inp = page.querySelector('.js-ibank-tree-files');
+          var form = page.querySelector('.js-ibank-tree-upload-files-form');
           if (!pick || !inp || !form) return;
           pick.addEventListener('click', function () {
             try {
-              if (typeof inp.showPicker === 'function') {
-                inp.showPicker();
-                return;
-              }
-            } catch (eShow) { /* fall through */ }
+              if (typeof inp.showPicker === 'function') { inp.showPicker(); return; }
+            } catch (eShow) {}
             inp.click();
           });
           inp.addEventListener('change', function () {
             if (!inp.files || inp.files.length === 0) return;
-            if (!dlRootId) {
-              alert('تعذر تحديد جذر قوائم تقييم المعاضل. أعد تحميل الصفحة.');
-              inp.value = '';
-              return;
+            var pending = [];
+            for (var i = 0; i < inp.files.length; i++) {
+              var f = inp.files[i];
+              var rel = (f.webkitRelativePath || f.name || '').replace(/\\/g, '/');
+              pending.push({ file: f, rel: rel || f.name });
             }
-            dlParentInputs.forEach(function (pInp) { pInp.value = dlRootId; });
-            ibankSubmitting = true;
-            btns.forEach(function (b) { b.disabled = true; });
-            form.submit();
+            dlSubmitPending(pending);
           });
         }
-        dlBindPick('.js-ibank-tree-pick-files', '.js-ibank-tree-files', '.js-ibank-tree-upload-files-form');
-        dlBindPick('.js-ibank-tree-pick-dir', '.js-ibank-tree-dir', '.js-ibank-tree-upload-dir-form');
+        dlBindPickFiles();
+        var dlStatusEl = page.querySelector('.js-ibank-dir-pick-status');
+        var dlToolbar = page.querySelector('.ibank-tree-toolbar');
+        if (window.ibankTreeMultiFolder) {
+          window.ibankTreeMultiFolder.bindMultiFolderPick({
+            pickBtn: page.querySelector('.js-ibank-tree-pick-dir'),
+            input: page.querySelector('.js-ibank-tree-dir'),
+            form: page.querySelector('.js-ibank-tree-upload-dir-form'),
+            statusEl: dlStatusEl,
+            validateAndPrepare: function () {
+              if (!dlRootId) return 'تعذر تحديد جذر قوائم تقييم المعاضل. أعد تحميل الصفحة.';
+              dlParentInputs.forEach(function (pInp) { pInp.value = dlRootId; });
+              return { parentId: dlRootId };
+            },
+          });
+          window.ibankTreeMultiFolder.bindFolderDropZone(dlToolbar, {
+            form: page.querySelector('.js-ibank-tree-upload-dir-form'),
+            statusEl: dlStatusEl,
+            validateAndPrepare: function () {
+              if (!dlRootId) return 'تعذر تحديد جذر قوائم تقييم المعاضل. أعد تحميل الصفحة.';
+              dlParentInputs.forEach(function (pInp) { pInp.value = dlRootId; });
+              return { parentId: dlRootId };
+            },
+          });
+        }
 
         var assignUrl = page.getAttribute('data-dilemma-lists-assign-url') || '';
         var saveTimers = {};
@@ -671,24 +730,65 @@
           else form.submit();
           return;
         }
-        saveTreeUiState();
-        var fd = new FormData();
-        var kindInp = form.querySelector('input[name="kind"]');
-        if (kindInp) fd.append('kind', kindInp.value);
-        var parentVal = '';
-        var parentInp = form.querySelector('input[name="parent_id"]');
-        if (parentInp && parentInp.value) parentVal = parentInp.value;
-        if (parentVal) fd.append('parent_id', parentVal);
-        var dayInp = form.querySelector('input[name="action_eval_day"]');
-        if (dayInp && dayInp.value) fd.append('action_eval_day', dayInp.value);
+        var pending = [];
         for (var fi = 0; fi < inp.files.length; fi++) {
           var f = inp.files[fi];
           var rel = (f.webkitRelativePath || f.name || '').replace(/\\/g, '/');
-          fd.append('files', f, rel || f.name);
+          pending.push({ file: f, rel: rel || f.name });
         }
+        submitPendingUpload(form, pending, form.classList.contains('js-ibank-tree-upload-dir-form'));
+      }
+
+      function submitPendingUpload(form, pending, isDirForm) {
+        if (!form || !pending || !pending.length) return;
+        var uploadId = effectiveUploadTargetId(!!isDirForm);
+        var pseudo = pending.map(function (p) {
+          return { name: p.rel, webkitRelativePath: p.rel };
+        });
+        if (isUnitEvalTree && !validateUnitEvalUpload(uploadId, !!isDirForm, pseudo)) {
+          return;
+        }
+        if (!uploadId) {
+          alert(dayTabsMode && isDirForm
+            ? 'اختر يوماً ثم «إرفاق مجلد» (مجلد كامل لمستويات الوحدات).'
+            : 'حدّد مجلداً مستهدفاً في الشجرة (زر «تحديد») قبل الإدراج.');
+          return;
+        }
+        parentInputs.forEach(function (pInp) { pInp.value = uploadId; });
+        saveTreeUiState();
+        ibankSubmitting = true;
+        btns.forEach(function (b) { b.disabled = true; });
+        var statusEl = page.querySelector('.js-ibank-dir-pick-status');
+        if (window.ibankTreeMultiFolder && window.ibankTreeMultiFolder.uploadPendingChunked) {
+          window.ibankTreeMultiFolder.uploadPendingChunked({
+            form: form,
+            parentId: uploadId,
+            pending: pending,
+            statusEl: statusEl,
+            onError: function (msg) {
+              ibankSubmitting = false;
+              btns.forEach(function (b) { b.disabled = false; });
+              alert(msg || 'تعذر الإدراج.');
+            },
+          });
+          return;
+        }
+        var fd = new FormData();
+        var kindInp = form.querySelector('input[name="kind"]');
+        if (kindInp) fd.append('kind', kindInp.value);
+        fd.append('parent_id', uploadId);
+        var dayInp = form.querySelector('input[name="action_eval_day"]');
+        if (dayInp && dayInp.value) fd.append('action_eval_day', dayInp.value);
+        pending.forEach(function (item) {
+          fd.append('files', item.file, item.rel || item.file.name);
+        });
         fetch(form.action, { method: 'POST', body: fd, credentials: 'same-origin', redirect: 'follow' })
           .then(function (r) { window.location.href = r.url; })
-          .catch(function () { alert('تعذر الاتصال بالخادم.'); });
+          .catch(function () {
+            ibankSubmitting = false;
+            btns.forEach(function (b) { b.disabled = false; });
+            alert('تعذر الاتصال بالخادم.');
+          });
       }
 
       function syncReorderControls() {
@@ -1245,39 +1345,68 @@
         });
       });
 
-      function bindPick(btnSel, inpSel, formSel) {
-        var pick = page.querySelector(btnSel);
-        var inp = page.querySelector(inpSel);
-        var form = page.querySelector(formSel);
+      function bindPickFiles() {
+        var pick = page.querySelector('.js-ibank-tree-pick-files');
+        var inp = page.querySelector('.js-ibank-tree-files');
+        var form = page.querySelector('.js-ibank-tree-upload-files-form');
         if (!pick || !inp || !form) return;
         pick.addEventListener('click', function () {
           try {
-            if (typeof inp.showPicker === 'function') {
-              inp.showPicker();
-              return;
-            }
-          } catch (eShow) { /* fall through */ }
+            if (typeof inp.showPicker === 'function') { inp.showPicker(); return; }
+          } catch (eShow) {}
           inp.click();
         });
         inp.addEventListener('change', function () {
           if (!inp.files || inp.files.length === 0) return;
-          var isDirForm = form.classList.contains('js-ibank-tree-upload-dir-form');
-          var uploadId = effectiveUploadTargetId(isDirForm);
-          if (isUnitEvalTree && !validateUnitEvalUpload(uploadId, isDirForm, inp.files)) {
-            inp.value = '';
-            return;
-          }
+          submitUploadForm(form);
+        });
+      }
+      function bindPickDirs() {
+        var form = page.querySelector('.js-ibank-tree-upload-dir-form');
+        var statusEl = page.querySelector('.js-ibank-dir-pick-status');
+        var toolbar = page.querySelector('.ibank-tree-toolbar');
+        if (!window.ibankTreeMultiFolder || !form) {
+          // احتياط: سلوك المجلد الواحد
+          var pick = page.querySelector('.js-ibank-tree-pick-dir');
+          var inp = page.querySelector('.js-ibank-tree-dir');
+          if (!pick || !inp) return;
+          pick.addEventListener('click', function () {
+            try {
+              if (typeof inp.showPicker === 'function') { inp.showPicker(); return; }
+            } catch (e2) {}
+            inp.click();
+          });
+          inp.addEventListener('change', function () {
+            if (!inp.files || !inp.files.length) return;
+            submitUploadForm(form);
+          });
+          return;
+        }
+        function validateDirPending(pending) {
+          var uploadId = effectiveUploadTargetId(true);
+          var pseudo = pending.map(function (p) {
+            return { name: p.rel, webkitRelativePath: p.rel };
+          });
+          if (isUnitEvalTree && !validateUnitEvalUpload(uploadId, true, pseudo)) return false;
           if (!uploadId) {
-            alert(dayTabsMode && isDirForm
+            return dayTabsMode
               ? 'اختر يوماً ثم «إرفاق مجلد» (مجلد كامل لمستويات الوحدات).'
-              : 'حدّد مجلداً مستهدفاً في الشجرة (زر «تحديد») قبل الإدراج.');
-            inp.value = '';
-            return;
+              : 'حدّد مجلداً مستهدفاً في الشجرة (زر «تحديد») قبل الإدراج.';
           }
           parentInputs.forEach(function (pInp) { pInp.value = uploadId; });
-          ibankSubmitting = true;
-          btns.forEach(function (b) { b.disabled = true; });
-          submitUploadForm(form);
+          return { parentId: uploadId };
+        }
+        window.ibankTreeMultiFolder.bindMultiFolderPick({
+          pickBtn: page.querySelector('.js-ibank-tree-pick-dir'),
+          input: page.querySelector('.js-ibank-tree-dir'),
+          form: form,
+          statusEl: statusEl,
+          validateAndPrepare: validateDirPending,
+        });
+        window.ibankTreeMultiFolder.bindFolderDropZone(toolbar, {
+          form: form,
+          statusEl: statusEl,
+          validateAndPrepare: validateDirPending,
         });
       }
       var folderForm = page.querySelector('.js-ibank-tree-folder-form');
@@ -1291,8 +1420,8 @@
           }
         });
       }
-      bindPick('.js-ibank-tree-pick-files', '.js-ibank-tree-files', '.js-ibank-tree-upload-files-form');
-      bindPick('.js-ibank-tree-pick-dir', '.js-ibank-tree-dir', '.js-ibank-tree-upload-dir-form');
+      bindPickFiles();
+      bindPickDirs();
 
       restoreTreeUiState();
       setTarget('', '');

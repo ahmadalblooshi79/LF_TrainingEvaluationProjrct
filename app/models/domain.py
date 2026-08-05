@@ -640,6 +640,25 @@ class AnalystEvaluationCriteriaUnit(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class AnalystEvaluationCriteriaUnitSuppression(Base):
+    """منع إعادة إدراج وحدة حُذفت يدوياً من جدول توزيع معايير التقييم (المراحل)."""
+
+    __tablename__ = "analyst_evaluation_criteria_unit_suppressions"
+    __table_args__ = (
+        UniqueConstraint(
+            "exercise_id",
+            "unit_level_key",
+            name="uq_analyst_criteria_unit_suppression",
+        ),
+        Index("ix_analyst_criteria_unit_supp_exercise", "exercise_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    exercise_id: Mapped[int] = mapped_column(ForeignKey("exercises.id", ondelete="CASCADE"), index=True)
+    unit_level_key: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class AnalystFinalEvaluationPhaseAllocatedMax(Base):
     """علامة القصوى اليدوية لصف وحدة+مرحلة في جدول التقرير النهائي (غير مرتبطة بجداول أخرى)."""
 

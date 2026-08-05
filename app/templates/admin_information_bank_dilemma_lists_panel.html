@@ -22,13 +22,14 @@
           <input type="hidden" name="kind" value="dilemma_lists">
           <input type="hidden" name="parent_id" value="{{ dl_root_id }}" class="js-ibank-tree-upload-parent">
           <input type="file" name="files" multiple class="ibank-tree-file-input js-ibank-tree-dir" tabindex="-1" aria-hidden="true" webkitdirectory directory>
-          <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-pick-dir"><i class="fa-solid fa-folder-open" aria-hidden="true"></i> إرفاق مجلد</button>
+          <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-pick-dir" title="يُدرج المجلد فوراً بعد الاختيار. لعدة مجلدات: كرر الزر أو اسحبها إلى الشريط."><i class="fa-solid fa-folder-open" aria-hidden="true"></i> إرفاق مجلد</button>
         </form>
         <form method="post" action="/admin/information-bank/eval-list/purge-all" class="ibank-tree-purge-form" onsubmit="return confirm('مسح جميع قوائم تقييم المعاضل والوحدات المفروضة؟ لا يمكن التراجع.');">
           <input type="hidden" name="kind" value="dilemma_lists">
           <button type="submit" class="btn btn-danger btn-sm-compact"><i class="fa-solid fa-trash-can" aria-hidden="true"></i> مسح كل المحتويات</button>
         </form>
       </div>
+      <p class="ibank-tree-dir-pick-status js-ibank-dir-pick-status" role="status" hidden></p>
     </div>
     {% endif %}
 

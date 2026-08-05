@@ -207,10 +207,6 @@ def upload_files_to_tree(
         if not ext:
             errors.append(f"{file_name}: الملف غير صالح.")
             continue
-        max_sz = 50 * 1024 * 1024 if ext in (".pdf", ".doc", ".docx") else 30 * 1024 * 1024
-        if len(data) > max_sz:
-            errors.append(f"{file_name}: حجم الملف يتجاوز الحد.")
-            continue
         if parent_id is not None:
             target_parent = _ensure_folder_path(
                 db,

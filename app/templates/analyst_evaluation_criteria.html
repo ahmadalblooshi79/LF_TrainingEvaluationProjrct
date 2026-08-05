@@ -34,6 +34,30 @@
         <form method="post" action="{{ url_for('views.analyst_hub_section', slug='evaluation-criteria', tab='phases') }}" id="analyst-criteria-distribution-form">
           <input type="hidden" name="form_action" value="phases_distribution">
           <input type="hidden" name="tab" value="phases">
+          <div class="analyst-criteria-add-unit" dir="rtl">
+            <label class="analyst-criteria-add-unit__label" for="new-unit-level-key">إضافة وحدة</label>
+            <select
+              id="new-unit-level-key"
+              name="new_unit_level_key"
+              class="unit-level-select analyst-criteria-new-unit-select"
+              aria-label="اختيار وحدة لإضافتها إلى توزيع النسبة المئوية"
+              {% if not (available_unit_levels|default([])) %}disabled{% endif %}>
+              <option value="">— اختر وحدة —</option>
+              {% for u in available_unit_levels|default([]) %}
+              <option value="{{ u.key }}">{{ u.label }}</option>
+              {% endfor %}
+            </select>
+            <button
+              type="submit"
+              class="btn btn-primary btn-sm-compact"
+              {% if not (available_unit_levels|default([])) %}disabled{% endif %}
+              title="{% if available_unit_levels|default([]) %}إضافة الوحدة المختارة إلى الجدول{% else %}لا توجد وحدات متاحة للإضافة من كتالوج التخطيط{% endif %}">
+              <i class="fa-solid fa-plus" aria-hidden="true"></i> إضافة
+            </button>
+            {% if not (available_unit_levels|default([])) %}
+            <span class="muted analyst-criteria-add-unit__hint">جميع وحدات التخطيط المدرجة موجودة في الجدول، أو لا توجد وحدات مدرجة في التمرين.</span>
+            {% endif %}
+          </div>
           <div class="table-wrap analyst-criteria-distribution-wrap">
             <table dir="rtl" aria-label="توزيع النسبة المئوية الاجماليه للتقييم" class="analyst-criteria-distribution-table">
               <thead>

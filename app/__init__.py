@@ -28,6 +28,7 @@ from app.database import (
     ensure_analyst_final_eval_manual_tables,
     ensure_analyst_flow_day_phase_links_table,
     ensure_dilemma_criteria_phase_flow_day_column,
+    ensure_analyst_criteria_unit_suppressions_table,
     ensure_ai_settings_table,
     ensure_ai_report_library_tables,
     ensure_ai_agentic_foundation_tables,
@@ -59,6 +60,8 @@ def create_app() -> Flask:
         template_folder=os.path.join(os.path.dirname(__file__), "templates"),
     )
     app.config["SECRET_KEY"] = SECRET_KEY
+    # رفع مجلدات بنك المعلومات قد يشمل مئات الملفات — بلا حد طلب عملي
+    app.config["MAX_CONTENT_LENGTH"] = None
     app.config["TEMPLATES_AUTO_RELOAD"] = os.getenv("FLASK_DEBUG", "0").strip().lower() in (
         "1",
         "true",
@@ -87,6 +90,7 @@ def create_app() -> Flask:
         ensure_analyst_final_eval_manual_tables()
         ensure_analyst_flow_day_phase_links_table()
         ensure_dilemma_criteria_phase_flow_day_column()
+        ensure_analyst_criteria_unit_suppressions_table()
         ensure_ai_settings_table()
         ensure_ai_report_library_tables()
         ensure_ai_agentic_foundation_tables()

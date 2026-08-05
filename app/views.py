@@ -60,6 +60,7 @@ from app.models import (
     EvaluationListSavedResult,
     AnalystEvaluationCriteriaResult,
     AnalystEvaluationCriteriaUnit,
+    AnalystEvaluationCriteriaUnitSuppression,
     AnalystEvaluationCriteriaPhaseItem,
     AnalystDilemmaCriteriaUnit,
     AnalystFinalEvaluationAllocatedMax,
@@ -4106,11 +4107,46 @@ def _planner_unit_keys_for_exercise(db, ex: Exercise) -> list[str]:
     return sorted(keys, key=lambda k: order.get(k, len(order)))
 
 
+def _criteria_unit_catalog_sort_index(label: str | None) -> int:
+    """موقع مستوى الوحدة ضمن ترتيب كتالوج التخطيط (UNIT_LEVELS)."""
+    uk = _resolve_unit_level_key_for_criteria_label(label or "")
+    if not uk:
+        return len(UNIT_LEVELS)
+    order = {u["key"]: idx for idx, u in enumerate(UNIT_LEVELS)}
+    return order.get(uk, len(UNIT_LEVELS))
+
+
+def _reorder_analyst_criteria_units_by_catalog(db, exercise_id: int) -> bool:
+    """إعادة ترتيب صفوف وحدات معايير التقييم حسب تنظيم كتالوج التخطيط."""
+    rows = (
+        db.query(AnalystEvaluationCriteriaUnit)
+        .filter(AnalystEvaluationCriteriaUnit.exercise_id == int(exercise_id))
+        .all()
+    )
+    ordered = sorted(
+        rows,
+        key=lambda r: (
+            _criteria_unit_catalog_sort_index(r.label or ""),
+            int(r.id or 0),
+        ),
+    )
+    dirty = False
+    for idx, row in enumerate(ordered):
+        if int(row.sort_order or 0) != idx:
+            row.sort_order = idx
+            dirty = True
+    return dirty
+
+
 def _sync_analyst_criteria_units_from_planner(
     db,
     ex: Exercise,
 ) -> list[AnalystEvaluationCriteriaUnit]:
-    """مزامنة وحدات معايير التقييم مع مستويات الوحدة في التخطيط (إضافة الجديد وتحديث التسميات)."""
+    """مزامنة وحدات معايير التقييم مع التخطيط: تهيئة أولية + تحديث التسميات.
+
+    الوحدات المحذوفة يدوياً تُسجَّل في suppressions فلا تُعاد تلقائياً،
+    وتظهر في القائمة المنسدلة لإعادة الإضافة في موقعها حسب التنظيم.
+    """
     planner_keys = _planner_unit_keys_for_exercise(db, ex)
     existing = (
         db.query(AnalystEvaluationCriteriaUnit)
@@ -4124,17 +4160,31 @@ def _sync_analyst_criteria_units_from_planner(
         if uk:
             by_key[uk] = row
 
-    max_sort = max((int(r.sort_order or 0) for r in existing), default=-1)
+    suppressed = {
+        (r.unit_level_key or "").strip()
+        for r in (
+            db.query(AnalystEvaluationCriteriaUnitSuppression)
+            .filter(AnalystEvaluationCriteriaUnitSuppression.exercise_id == ex.id)
+            .all()
+        )
+        if (r.unit_level_key or "").strip()
+    }
+
+    # التهيئة الأولى فقط عندما يكون الجدول فارغاً؛ مع احترام suppressions بعد الحذف.
+    allow_bootstrap = len(existing) == 0
     dirty = False
     for key in planner_keys:
+        if key in suppressed:
+            continue
         catalog_label = (label_for_unit_level_key(key, db=db) or key)[:300]
         row = by_key.get(key)
         if row is None:
-            max_sort += 1
+            if not allow_bootstrap:
+                continue
             db.add(
                 AnalystEvaluationCriteriaUnit(
                     exercise_id=ex.id,
-                    sort_order=max_sort,
+                    sort_order=0,
                     label=catalog_label,
                 )
             )
@@ -4143,6 +4193,10 @@ def _sync_analyst_criteria_units_from_planner(
             row.label = catalog_label
             dirty = True
 
+    if dirty:
+        db.flush()
+    if _reorder_analyst_criteria_units_by_catalog(db, int(ex.id)):
+        dirty = True
     if dirty:
         db.commit()
 
@@ -4192,11 +4246,32 @@ def _save_analyst_evaluation_criteria_distribution(db, user: User, ex: Exercise)
         for x in request.form.getlist("unit_ids")
         if (x or "").strip().isdigit()
     ]
-    for sort_order, uid in enumerate(ordered_ids):
+    for uid in ordered_ids:
         row = existing.get(uid)
         if row is None:
             continue
         if uid in delete_ids:
+            uk = _resolve_unit_level_key_for_criteria_label(row.label or "")
+            if not uk:
+                uk = normalize_unit_level_key(
+                    (request.form.get(f"unit_level_key__{uid}") or "").strip()
+                )
+            if uk:
+                already = (
+                    db.query(AnalystEvaluationCriteriaUnitSuppression)
+                    .filter(
+                        AnalystEvaluationCriteriaUnitSuppression.exercise_id == ex.id,
+                        AnalystEvaluationCriteriaUnitSuppression.unit_level_key == uk,
+                    )
+                    .first()
+                )
+                if already is None:
+                    db.add(
+                        AnalystEvaluationCriteriaUnitSuppression(
+                            exercise_id=ex.id,
+                            unit_level_key=uk,
+                        )
+                    )
             db.query(AnalystEvaluationCriteriaPhaseItem).filter(
                 AnalystEvaluationCriteriaPhaseItem.criteria_unit_id == uid
             ).delete(synchronize_session=False)
@@ -4204,13 +4279,14 @@ def _save_analyst_evaluation_criteria_distribution(db, user: User, ex: Exercise)
             continue
         unit_key = (request.form.get(f"unit_level_key__{uid}") or "").strip()
         if unit_key:
-            catalog_label = label_for_unit_level_key(unit_key)
+            catalog_label = label_for_unit_level_key(unit_key, db=db)
             if catalog_label:
                 row.label = catalog_label[:300]
-        row.sort_order = sort_order
-    new_key = (request.form.get("new_unit_level_key") or "").strip()
-    if new_key:
-        catalog_label = label_for_unit_level_key(new_key) or new_key
+    # إضافة يدوية: فقط من مستويات الوحدة المدرجة في التخطيط (نفس مصدر التقرير النهائي).
+    new_key = normalize_unit_level_key(request.form.get("new_unit_level_key"))
+    included = planning_included_unit_keys()
+    if new_key and (not included or new_key in included):
+        catalog_label = label_for_unit_level_key(new_key, db=db) or new_key
         exists = (
             db.query(AnalystEvaluationCriteriaUnit)
             .filter(AnalystEvaluationCriteriaUnit.exercise_id == ex.id)
@@ -4223,10 +4299,17 @@ def _save_analyst_evaluation_criteria_distribution(db, user: User, ex: Exercise)
             db.add(
                 AnalystEvaluationCriteriaUnit(
                     exercise_id=ex.id,
-                    sort_order=len(ordered_ids),
+                    sort_order=0,
                     label=catalog_label[:300],
                 )
             )
+        db.query(AnalystEvaluationCriteriaUnitSuppression).filter(
+            AnalystEvaluationCriteriaUnitSuppression.exercise_id == ex.id,
+            AnalystEvaluationCriteriaUnitSuppression.unit_level_key == new_key,
+        ).delete(synchronize_session=False)
+    db.flush()
+    # الترتيب النهائي دائماً حسب تنظيم كتالوج التخطيط وليس ترتيب النموذج.
+    _reorder_analyst_criteria_units_by_catalog(db, int(ex.id))
     db.commit()
 
 
@@ -16343,6 +16426,13 @@ def admin_information_bank_tree_upload():
         )
     _ensure_folder_unit_key_for_upload(db, parent)
     added, errors = upload_files_to_parent(db, kind=kind, parent_id=parent_id, file_storages=files)
+    chunk_mode = (request.form.get("chunk_mode") or "").strip() == "1"
+    wants_json = (
+        chunk_mode
+        or (request.headers.get("X-Requested-With") or "").strip() == "XMLHttpRequest"
+        or request.accept_mimetypes.best_match(["application/json", "text/html"])
+        == "application/json"
+    )
     if added:
         db.commit()
         if kind == "action_eval":
@@ -16361,6 +16451,28 @@ def admin_information_bank_tree_upload():
     else:
         db.rollback()
     err_q = " ".join(errors[:3])[:400] if errors else ""
+    chunk_final = (request.form.get("chunk_final") or "1").strip() != "0"
+    if wants_json:
+        # دفعات الرفع: شريحة فارغة من المدعوم لا تُفشل العملية؛ العميل يجمع الإجمالي.
+        if not files:
+            return jsonify(ok=False, error="اختر ملفاً أو مجلداً للإدراج.", added=0)
+        redirect_url = ""
+        if chunk_final:
+            from flask import url_for
+
+            ok_msg = "تم إدراج الملفات بنجاح."
+            kwargs: dict[str, str] = {"tab": tab, "ok": ok_msg}
+            if tab == "action-eval":
+                day = (request.form.get("action_eval_day") or "").strip()
+                if day:
+                    kwargs["day"] = day
+            redirect_url = url_for("views.admin_information_bank", **kwargs)
+        return jsonify(
+            ok=True,
+            added=int(added),
+            errors=errors[:20],
+            redirect=redirect_url if chunk_final else "",
+        )
     if not added:
         return _admin_information_bank_tree_redirect(
             tab=tab,
@@ -17274,11 +17386,33 @@ def library_tree_upload():
     added, errors = upload_files_to_tree(
         db, kind=kind, parent_id=parent_id, file_storages=files
     )
+    chunk_mode = (request.form.get("chunk_mode") or "").strip() == "1"
+    wants_json = (
+        chunk_mode
+        or (request.headers.get("X-Requested-With") or "").strip() == "XMLHttpRequest"
+        or request.accept_mimetypes.best_match(["application/json", "text/html"])
+        == "application/json"
+    )
     if added:
         db.commit()
     else:
         db.rollback()
     err_q = " ".join(errors[:3])[:400] if errors else ""
+    chunk_final = (request.form.get("chunk_final") or "1").strip() != "0"
+    if wants_json:
+        redirect_url = ""
+        if chunk_final:
+            redirect_url = url_for(
+                "views.library",
+                tab=tab,
+                ok="تم إدراج الملفات بنجاح.",
+            )
+        return jsonify(
+            ok=True,
+            added=int(added),
+            errors=errors[:20],
+            redirect=redirect_url if chunk_final else "",
+        )
     if not added:
         return _library_redirect(
             tab=tab,

@@ -33,6 +33,7 @@ from app.models import (
     AnalystEvaluationCriteriaPhaseItem,
     AnalystEvaluationCriteriaResult,
     AnalystEvaluationCriteriaUnit,
+    AnalystEvaluationCriteriaUnitSuppression,
     AnalystFinalEvaluationAllocatedMax,
     AnalystFinalEvaluationPhaseAllocatedMax,
     AnalystFlowDayPhaseLink,
@@ -1179,6 +1180,11 @@ def _purge_exercise_database_rows(db: Session, exercise_id: int) -> None:
         )
     )
     db.execute(
+        delete(AnalystEvaluationCriteriaUnitSuppression).where(
+            AnalystEvaluationCriteriaUnitSuppression.exercise_id == eid
+        )
+    )
+    db.execute(
         delete(AnalystDilemmaCriteriaPhaseItem).where(
             AnalystDilemmaCriteriaPhaseItem.exercise_id == eid
         )
@@ -1452,6 +1458,9 @@ def clear_app_unit_level_data(db: Session) -> dict[str, int]:
     )
     stats["analyst_criteria_units"] = (
         db.query(AnalystEvaluationCriteriaUnit).delete(synchronize_session=False)
+    )
+    stats["analyst_criteria_unit_suppressions"] = (
+        db.query(AnalystEvaluationCriteriaUnitSuppression).delete(synchronize_session=False)
     )
     stats["analyst_criteria_results"] = (
         db.query(AnalystEvaluationCriteriaResult).delete(synchronize_session=False)

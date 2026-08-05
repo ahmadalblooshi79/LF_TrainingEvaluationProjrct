@@ -235,33 +235,50 @@
     });
     function submitUploadForm(form, inp) {
       if (!inp.files || !inp.files.length) return;
+      var pending = [];
+      for (var i = 0; i < inp.files.length; i++) {
+        var f = inp.files[i];
+        var rel = (f.webkitRelativePath || f.name || '').replace(/\\/g, '/');
+        pending.push({ file: f, rel: rel || f.name });
+      }
+      submitPendingUpload(form, pending);
+    }
+
+    function submitPendingUpload(form, pending) {
+      if (!form || !pending || !pending.length) return;
       saveTreeUiState();
+      var statusEl = page.querySelector('.js-ibank-dir-pick-status');
+      if (window.ibankTreeMultiFolder && window.ibankTreeMultiFolder.uploadPendingChunked) {
+        window.ibankTreeMultiFolder.uploadPendingChunked({
+          form: form,
+          parentId: targetId || '',
+          pending: pending,
+          statusEl: statusEl,
+          onError: function (msg) { alert(msg || 'تعذر الإدراج.'); },
+        });
+        return;
+      }
       var fd = new FormData();
       var kindInp = form.querySelector('input[name="kind"]');
       if (kindInp) fd.append('kind', kindInp.value);
       if (targetId) fd.append('parent_id', targetId);
-      for (var i = 0; i < inp.files.length; i++) {
-        var f = inp.files[i];
-        var rel = (f.webkitRelativePath || f.name || '').replace(/\\/g, '/');
-        fd.append('files', f, rel || f.name);
-      }
+      pending.forEach(function (item) {
+        fd.append('files', item.file, item.rel || item.file.name);
+      });
       fetch(form.action, { method: 'POST', body: fd, credentials: 'same-origin', redirect: 'follow' })
         .then(function (r) { window.location.href = r.url; })
         .catch(function () { alert('تعذر الاتصال بالخادم.'); });
     }
 
-    function bindPick(btnSel, inpSel, formSel) {
-      var pick = page.querySelector(btnSel);
-      var inp = page.querySelector(inpSel);
-      var form = page.querySelector(formSel);
+    function bindPickFiles() {
+      var pick = page.querySelector('.js-ibank-tree-pick-files');
+      var inp = page.querySelector('.js-ibank-tree-files');
+      var form = page.querySelector('.js-ibank-tree-upload-files-form');
       if (!pick || !inp || !form) return;
       pick.addEventListener('click', function () {
         try {
-          if (typeof inp.showPicker === 'function') {
-            inp.showPicker();
-            return;
-          }
-        } catch (eShow) { /* fall through */ }
+          if (typeof inp.showPicker === 'function') { inp.showPicker(); return; }
+        } catch (eShow) {}
         inp.click();
       });
       inp.addEventListener('change', function () {
@@ -270,8 +287,43 @@
         inp.value = '';
       });
     }
-    bindPick('.js-ibank-tree-pick-files', '.js-ibank-tree-files', '.js-ibank-tree-upload-files-form');
-    bindPick('.js-ibank-tree-pick-dir', '.js-ibank-tree-dir', '.js-ibank-tree-upload-dir-form');
+
+    function bindPickDirs() {
+      var form = page.querySelector('.js-ibank-tree-upload-dir-form');
+      var statusEl = page.querySelector('.js-ibank-dir-pick-status');
+      var toolbar = page.querySelector('.ibank-tree-toolbar');
+      if (!window.ibankTreeMultiFolder || !form) {
+        var pick = page.querySelector('.js-ibank-tree-pick-dir');
+        var inp = page.querySelector('.js-ibank-tree-dir');
+        if (!pick || !inp) return;
+        pick.addEventListener('click', function () {
+          try {
+            if (typeof inp.showPicker === 'function') { inp.showPicker(); return; }
+          } catch (e2) {}
+          inp.click();
+        });
+        inp.addEventListener('change', function () {
+          if (!inp.files || !inp.files.length) return;
+          submitUploadForm(form, inp);
+          inp.value = '';
+        });
+        return;
+      }
+      window.ibankTreeMultiFolder.bindMultiFolderPick({
+        pickBtn: page.querySelector('.js-ibank-tree-pick-dir'),
+        input: page.querySelector('.js-ibank-tree-dir'),
+        form: form,
+        statusEl: statusEl,
+        validateAndPrepare: function () { return { parentId: targetId || '' }; },
+      });
+      window.ibankTreeMultiFolder.bindFolderDropZone(toolbar, {
+        form: form,
+        statusEl: statusEl,
+        validateAndPrepare: function () { return { parentId: targetId || '' }; },
+      });
+    }
+    bindPickFiles();
+    bindPickDirs();
     setTarget('', defaultRootLabel());
 
     var dragHoverLi = null;

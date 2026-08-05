@@ -493,6 +493,33 @@ def ensure_dilemma_criteria_phase_flow_day_column() -> None:
         )
 
 
+def ensure_analyst_criteria_unit_suppressions_table() -> None:
+    """منع إعادة إدراج وحدات حُذفت يدوياً من توزيع معايير التقييم."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS analyst_evaluation_criteria_unit_suppressions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    exercise_id INTEGER NOT NULL,
+                    unit_level_key VARCHAR(64) DEFAULT '',
+                    created_at DATETIME,
+                    FOREIGN KEY(exercise_id) REFERENCES exercises (id) ON DELETE CASCADE,
+                    UNIQUE (exercise_id, unit_level_key)
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_analyst_criteria_unit_supp_exercise "
+                "ON analyst_evaluation_criteria_unit_suppressions (exercise_id)"
+            )
+        )
+
+
 def ensure_analyst_final_eval_manual_tables() -> None:
     """جداول علامات القصوى اليدوية في التقييم النهائي (SQLite)."""
     if not DATABASE_URL.startswith("sqlite"):
