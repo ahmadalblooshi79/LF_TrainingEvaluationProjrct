@@ -640,11 +640,18 @@ def _is_folder_directly_under_phase(
 
 
 def _is_nested_unit_folder(db: Session, node: InformationBankTreeNode) -> bool:
-    """مجلد فرعي تحت مجلد وحدة (وليس مباشرة تحت جذر المرحلة)."""
+    """مجلد فرعي تحت مجلد لديه مستوى وحدة معيّن (وليس تحت حاوية مرحلة فقط)."""
     if not node.is_folder or _is_phase_root_folder(node) or node.parent_id is None:
         return False
     parent = db.get(InformationBankTreeNode, int(node.parent_id))
-    return parent is not None and parent.is_folder and not _is_phase_root_folder(parent)
+    if parent is None or not parent.is_folder:
+        return False
+    if _is_phase_root_folder(parent):
+        return False
+    # مجلد وسيط باسم مرحلة (مكرر تحت الجذر النظامي) — ليس مجلد وحدة
+    if _match_phase_key_by_folder_name(db, parent.name or ""):
+        return False
+    return bool((parent.catalog_unit_key or "").strip())
 
 
 def folder_resolved_unit_key(db: Session, node: InformationBankTreeNode) -> str:
@@ -738,6 +745,9 @@ def _sync_folder_unit_key_from_name(db: Session, node: InformationBankTreeNode) 
     """تصحيح catalog_unit_key من اسم المجلد (مثل السرية/2 → ul_mech2_bn_c2)."""
     if not node.is_folder or _is_phase_root_folder(node):
         return False
+    # لا تُعيَّن وحدة على مجلد باسم مرحلة تمرين
+    if _match_phase_key_by_folder_name(db, node.name or ""):
+        return False
     if _is_nested_unit_folder(db, node):
         return False
     from app.evaluation_list_ibank_sync import (
@@ -753,6 +763,12 @@ def _sync_folder_unit_key_from_name(db: Session, node: InformationBankTreeNode) 
     if cur == resolved:
         return False
     node.catalog_unit_key = resolved[:128]
+    node.catalog_phase_key = ""
+    phase_key = _phase_key_for_node(db, node)
+    if phase_key:
+        _propagate_catalog_to_subtree(
+            db, int(node.id), phase_key=phase_key, unit_key=resolved
+        )
     return True
 
 
@@ -850,10 +866,9 @@ def _phase_key_for_node(db: Session, node: InformationBankTreeNode) -> str:
         pk = (parent.catalog_phase_key or "").strip()
         if pk:
             return pk
-        if parent.parent_id is None and parent.is_folder:
-            guessed = _match_phase_key_by_folder_name(db, parent.name)
-            if guessed:
-                return guessed
+        guessed = _match_phase_key_by_folder_name(db, parent.name)
+        if guessed:
+            return guessed
         pid = parent.parent_id
         hops += 1
     if node.parent_id is None and node.is_folder:
@@ -1236,6 +1251,10 @@ def ensure_information_bank_tree(db: Session, kind: str) -> None:
     if is_unit_eval_tree_kind(kind):
         if _link_orphan_phase_root_folders(db, kind):
             db.commit()
+        if _backfill_unit_eval_folder_catalog(db, kind):
+            db.commit()
+        if repair_tree_natural_sibling_order(db, kind):
+            db.commit()
 
 
 def ensure_information_bank_kind(db: Session, kind: str) -> None:
@@ -1313,6 +1332,8 @@ def get_or_create_folder(
             parent = get_node(db, parent_id, kind)
             if parent is not None:
                 _apply_catalog_keys_from_parent(db, existing, parent)
+            if not (existing.catalog_unit_key or "").strip():
+                _sync_folder_unit_key_from_name(db, existing)
         return existing
     row = InformationBankTreeNode(
         kind=kind,
@@ -1330,6 +1351,8 @@ def get_or_create_folder(
             _apply_catalog_keys_from_parent(db, row, parent)
     db.add(row)
     db.flush()
+    if is_unit_eval_tree_kind(kind) and not (row.catalog_unit_key or "").strip():
+        _sync_folder_unit_key_from_name(db, row)
     return row
 
 

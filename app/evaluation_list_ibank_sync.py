@@ -152,30 +152,56 @@ def _resolve_phase_key(raw: str | None, db: Session) -> str:
 
 
 def _match_unit_key_by_folder_name(db: Session, folder_name: str) -> str:
-    """ربط اسم مجلد فرعي بمستوى وحدة (مثل «1. قيادة مجموعة اللواء»)."""
+    """ربط اسم مجلد فرعي بمستوى وحدة عبر كشف المسميات ثم كتالوج بنك المعلومات."""
     nm = (folder_name or "").strip()
     if not nm:
         return ""
     norm_nm = _normalize_tree_label(nm)
     norm_short = re.sub(r"^[\d\s.\-]+", "", norm_nm).strip()
+    short_raw = re.sub(r"^[\d\s.\-–]+", "", nm).strip() or nm
+
+    # 1) كشف المسميات والدلالات الرئيسية (Excel / UnitDesignation)
+    try:
+        from app.planner_flow_judge_labels import unit_key_for_assignee_label
+
+        for cand in (nm, short_raw):
+            keyed = unit_key_for_assignee_label(cand, db=db)
+            resolved = _resolve_unit_key(keyed, db) if keyed else ""
+            if resolved:
+                return resolved
+    except Exception:
+        pass
+
     from app.models import InformationBankUnitLevel
 
+    # 2) مستويات وحدات بنك المعلومات — تطابق أدق أولاً ثم احتواء
+    best_key = ""
+    best_score = 0
     for row in db.query(InformationBankUnitLevel).all():
         key = (row.key or "").strip()
         label = (row.label or "").strip()
         if not key:
             continue
-        if nm == label or nm == key:
+        if nm == label or nm == key or short_raw == label:
             return key
         norm_label = _normalize_tree_label(label)
         if not norm_label:
             continue
         if norm_nm == norm_label or norm_short == norm_label:
             return key
-        if norm_label in norm_nm or norm_nm in norm_label:
-            return key
-        if norm_short and (norm_label in norm_short or norm_short in norm_label):
-            return key
+        score = 0
+        if norm_short and norm_label == norm_short:
+            score = len(norm_label) + 100
+        elif norm_label in norm_nm or (norm_short and norm_label in norm_short):
+            score = len(norm_label)
+        elif norm_nm in norm_label or (norm_short and norm_short in norm_label):
+            score = len(norm_short or norm_nm)
+        if score > best_score:
+            best_score = score
+            best_key = key
+    if best_key:
+        return best_key
+
     from app.information_bank_catalog import INFO_BANK_UNIT_LEVEL_TEMPLATES
 
     for u in INFO_BANK_UNIT_LEVEL_TEMPLATES:
@@ -188,10 +214,10 @@ def _match_unit_key_by_folder_name(db: Session, folder_name: str) -> str:
             return key
         if norm_label and (norm_label in norm_nm or norm_nm in norm_label):
             return key
-    cm = re.match(r"^(?:ال)?سر(?:ية|يه)\s*(\d+)\s*$", norm_nm)
+    cm = re.match(r"^(?:ال)?سر(?:ية|يه)\s*(\d+)\s*$", norm_nm) or re.match(
+        r"^(?:ال)?سر(?:ية|يه)\s*(\d+)\s*$", norm_short
+    )
     if cm:
-        from app.information_bank_catalog import INFO_BANK_UNIT_LEVEL_TEMPLATES
-
         num = cm.group(1)
         for u in INFO_BANK_UNIT_LEVEL_TEMPLATES:
             key = (u.get("key") or "").strip()

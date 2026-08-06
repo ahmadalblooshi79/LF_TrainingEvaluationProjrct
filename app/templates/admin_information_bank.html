@@ -1206,15 +1206,79 @@
           sel.addEventListener('change', function () {
             var inpId = sel.getAttribute('data-judge-input') || '';
             var inp = inpId ? document.getElementById(inpId) : null;
+            var uk = (sel.value || '').trim();
             if (inp) {
-              var uk = (sel.value || '').trim();
               inp.value = uk ? (judgeByUnit[uk] || '—') : '—';
             }
-            if (!(sel.value || '').trim()) return;
-            // حفظ حالة الطي ثم الإرسال — بدون توسيع تلقائي بعد إعادة التحميل
-            try { saveTreeUiState(); } catch (eSave) {}
-            if (sel.form) sel.form.submit();
+            if (!uk || !sel.form) return;
+            var form = sel.form;
+            var prev = sel.getAttribute('data-last-unit-key') || '';
+            sel.disabled = true;
+            var body = new URLSearchParams();
+            var kindInp = form.querySelector('input[name="kind"]');
+            if (kindInp) body.set('kind', kindInp.value);
+            body.set('unit_key', uk);
+            var dayInp = form.querySelector('input[name="action_eval_day"]');
+            if (dayInp && dayInp.value) body.set('action_eval_day', dayInp.value);
+            fetch(form.action, {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                Accept: 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+              },
+              body: body.toString(),
+            })
+              .then(function (r) {
+                return r.json().then(function (j) {
+                  return { ok: r.ok && j && j.ok, json: j || {}, status: r.status };
+                }).catch(function () {
+                  return { ok: false, json: {}, status: r.status };
+                });
+              })
+              .then(function (res) {
+                sel.disabled = false;
+                if (!res.ok) {
+                  if (prev) sel.value = prev;
+                  else sel.selectedIndex = 0;
+                  if (inp) inp.value = prev ? (judgeByUnit[prev] || '—') : '—';
+                  window.alert((res.json && res.json.error) || 'تعذّر تعيين مستوى الوحدة.');
+                  return;
+                }
+                sel.setAttribute('data-last-unit-key', uk);
+                var li = sel.closest('.ibank-tree-node');
+                if (li) li.setAttribute('data-effective-unit-key', uk);
+                var statusEl = page.querySelector('.js-ibank-unit-save-status');
+                if (!statusEl) {
+                  statusEl = document.createElement('p');
+                  statusEl.className = 'ibank-tree-dir-pick-status js-ibank-unit-save-status';
+                  statusEl.setAttribute('role', 'status');
+                  var toolbar = page.querySelector('.ibank-tree-toolbar');
+                  if (toolbar && toolbar.parentNode) {
+                    toolbar.parentNode.insertBefore(statusEl, toolbar.nextSibling);
+                  } else {
+                    page.insertBefore(statusEl, page.firstChild);
+                  }
+                }
+                statusEl.hidden = false;
+                statusEl.textContent = (res.json && res.json.message) || 'تم التعيين.';
+                clearTimeout(statusEl._hideT);
+                statusEl._hideT = setTimeout(function () {
+                  statusEl.hidden = true;
+                  statusEl.textContent = '';
+                }, 2200);
+              })
+              .catch(function () {
+                sel.disabled = false;
+                if (prev) sel.value = prev;
+                else sel.selectedIndex = 0;
+                if (inp) inp.value = prev ? (judgeByUnit[prev] || '—') : '—';
+                window.alert('تعذر الاتصال بالخادم.');
+              });
           });
+          var cur = (sel.value || '').trim();
+          if (cur) sel.setAttribute('data-last-unit-key', cur);
         });
       }
 

@@ -16523,6 +16523,7 @@ def admin_information_bank_tree_unit_level(node_id: int):
     from flask import g
 
     from app.info_bank_tree import kind_tab, set_folder_unit_level, is_unit_eval_tree_kind
+    from app.unit_levels_catalog import label_for_unit_level_key
 
     db = g.db
     kind = (request.form.get("kind") or "").strip()
@@ -16532,19 +16533,34 @@ def admin_information_bank_tree_unit_level(node_id: int):
     unit_key = (request.form.get("unit_key") or "").strip()
     row = db.get(InformationBankTreeNode, node_id)
     is_folder = bool(row and row.is_folder)
+    wants_json = (
+        (request.headers.get("X-Requested-With") or "").strip() == "XMLHttpRequest"
+        or request.accept_mimetypes.best_match(["application/json", "text/html"])
+        == "application/json"
+    )
     try:
         set_folder_unit_level(db, kind=kind, node_id=node_id, unit_key=unit_key)
         db.commit()
     except ValueError as exc:
         db.rollback()
-        return _admin_information_bank_tree_redirect(
-            tab=tab, err=str(exc) or "تعذّر التعيين."
-        )
+        err = str(exc) or "تعذّر التعيين."
+        if wants_json:
+            return jsonify(ok=False, error=err), 400
+        return _admin_information_bank_tree_redirect(tab=tab, err=err)
     ok_msg = (
         "تم تعيين مستوى الوحدة لهذا المجلد ومحتوياته (المجلدات الفرعية ذات التعيين الخاص تبقى كما هي)."
         if is_folder
         else "تم تعيين مستوى الوحدة للملف."
     )
+    if wants_json:
+        return jsonify(
+            ok=True,
+            message=ok_msg,
+            node_id=int(node_id),
+            unit_key=unit_key,
+            unit_label=label_for_unit_level_key(unit_key, db=db) or unit_key,
+            is_folder=is_folder,
+        )
     return _admin_information_bank_tree_redirect(tab=tab, ok=ok_msg)
 
 

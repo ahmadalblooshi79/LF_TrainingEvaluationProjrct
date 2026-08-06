@@ -31,6 +31,10 @@ def normalize_designation_text(s: str) -> str:
     t = re.sub(r"(\d+)من", r"\1 من", t)
     t = re.sub(r"(كتيبة)\s+(\d+)\b", r"\1/\2", t)
     t = re.sub(r"(ك)\s+(\d+)\b", r"\1/\2", t)
+    # توحيد «م/د» و«م د» و«مـ د» الشائعة في أسماء المجلدات
+    t = re.sub(r"م\s*/\s*د", "م/د", t)
+    t = re.sub(r"م\s*ـ\s*د", "م/د", t)
+    t = re.sub(r"م\s+د\b", "م/د", t)
     t = re.sub(r"\s*/\s*", "/", t)
     t = re.sub(r"\s+", " ", t).strip().lower()
     return t
@@ -286,17 +290,43 @@ def resolve_unit_id_for_assignee(assignee_label: str) -> str:
     raw = re.sub(r"^[\s•·\-–]+", "", (assignee_label or "").strip()).strip()
     if not raw:
         return ""
+    stripped_num = re.sub(r"^[\d\s.\-–]+", "", raw).strip()
     candidates = [
         raw,
+        stripped_num,
         re.sub(r"(\d+)من", r"\1 من", raw),
         re.sub(r"\s+", " ", raw),
+        re.sub(r"\s+", " ", stripped_num),
     ]
+    seen: set[str] = set()
     for cand in candidates:
+        cand = (cand or "").strip()
+        if not cand or cand in seen:
+            continue
+        seen.add(cand)
         n = normalize_designation_text(cand)
         uid = _ALIAS_NORM_TO_UNIT.get(n)
         if uid:
             return uid
-    return ""
+    # أطول دلالة/مسمى محتواة في النص (مثل «كتيبة المدفعية» ↔ «قيادة كتيبة المدفعية»)
+    norm_raw = normalize_designation_text(stripped_num or raw)
+    if not norm_raw:
+        return ""
+    best_uid = ""
+    best_score = 0
+    for alias_norm, uid in _ALIAS_NORM_TO_UNIT.items():
+        if not alias_norm or not uid:
+            continue
+        if alias_norm in norm_raw:
+            score = len(alias_norm) + 1000
+        elif len(norm_raw) >= 8 and norm_raw in alias_norm:
+            score = len(norm_raw)
+        else:
+            continue
+        if score > best_score:
+            best_score = score
+            best_uid = uid
+    return best_uid
 
 
 def canonical_label_for_unit_id(unit_id: str) -> str:

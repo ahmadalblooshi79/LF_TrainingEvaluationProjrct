@@ -93,7 +93,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             TextField(
               controller: _serverCtrl,
               textDirection: TextDirection.ltr,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 hintText: kIsWeb ? 'فارغ = نفس السيرفر' : 'مثال: 192.168.1.10:8005',
               ),
             ),
