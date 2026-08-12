@@ -113,11 +113,16 @@
             {% if use_action_eval_day_tabs %}
             <input type="hidden" name="action_eval_day" value="{{ active_action_eval_day|default('') }}" class="js-ibank-action-eval-day">
             {% endif %}
-            <select id="ibank-unit-{{ n.id }}" name="unit_key" class="ibank-tree-unit-select js-ibank-tree-unit-select" aria-label="مستوى الوحدة — {{ n.name }}" data-judge-input="ibank-judge-{{ n.id }}">
+            <select id="ibank-unit-{{ n.id }}" name="unit_key" class="ibank-tree-unit-select js-ibank-tree-unit-select js-ibank-unit-select-lazy" aria-label="مستوى الوحدة — {{ n.name }}" data-judge-input="ibank-judge-{{ n.id }}" data-selected-unit="{{ (n.catalog_unit_key or n.effective_unit_key or '')|e }}">
               <option value="">— اختر مستوى الوحدة —</option>
+              {% set _sel = n.catalog_unit_key or n.effective_unit_key or '' %}
+              {% if _sel %}
               {% for u in ibank_tree_unit_levels|default([]) %}
-              <option value="{{ u['key'] }}"{% if n.catalog_unit_key == u['key'] or (not n.catalog_unit_key and n.effective_unit_key == u['key']) %} selected{% endif %}>{{ u['label'] }}</option>
+              {% if u['key'] == _sel %}
+              <option value="{{ u['key'] }}" selected>{{ u['label'] }}</option>
+              {% endif %}
               {% endfor %}
+              {% endif %}
             </select>
           </form>
           {% elif n.unit_level_label %}
@@ -247,6 +252,7 @@
 
   {% if is_unit_eval_tree %}
   <script type="application/json" class="js-ibank-judge-by-unit-data">{{ ibank_judge_names_by_unit|default({})|tojson }}</script>
+  <script type="application/json" class="js-ibank-unit-levels-data">{{ ibank_tree_unit_levels|default([])|tojson }}</script>
   {% endif %}
 
 </div>

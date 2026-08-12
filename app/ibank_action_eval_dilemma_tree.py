@@ -351,6 +351,9 @@ def _build_action_eval_dilemma_judge_tree_uncached(
     assignees_by_day = _assignees_by_dilemma_from_flow(raw)
     linked = collect_linked_files_by_dilemma(db)
     judge_names = exercise_judge_names_by_unit(db, exercise_id)
+    from app.ibank_dilemma_lists import assignments_by_basename
+
+    dilemma_assign_by_base = assignments_by_basename(db)
 
     # العرض يتبع المجرى فقط: تفريغ اليوم ⇒ قائمة فارغة حتى لو بقيت ملفات مستوردة في الشجرة
     all_day_ids = sorted(
@@ -390,7 +393,9 @@ def _build_action_eval_dilemma_judge_tree_uncached(
                 unit_key = (fr.get("unit_key") or "").strip()
                 if not unit_key and node is not None:
                     unit_key = (node.catalog_unit_key or "").strip()
-                assigned_unit_keys = assigned_units_for_action_eval_name(db, name)
+                assigned_unit_keys = assigned_units_for_action_eval_name(
+                    db, name, by_base=dilemma_assign_by_base
+                )
                 files_meta.append(
                     {
                         "node_id": node_id,

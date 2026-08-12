@@ -750,6 +750,9 @@ def _sync_folder_unit_key_from_name(db: Session, node: InformationBankTreeNode) 
         return False
     if _is_nested_unit_folder(db, node):
         return False
+    # إن وُجد مفتاح مسبقاً لا تُعاد مطابقة الاسم (مكلفة جداً على آلاف المجلدات).
+    if (node.catalog_unit_key or "").strip():
+        return False
     from app.evaluation_list_ibank_sync import (
         _match_unit_key_by_folder_name,
         _resolve_unit_key,
@@ -758,9 +761,6 @@ def _sync_folder_unit_key_from_name(db: Session, node: InformationBankTreeNode) 
     guessed = _match_unit_key_by_folder_name(db, node.name)
     resolved = _resolve_unit_key(guessed, db) if guessed else ""
     if not resolved:
-        return False
-    cur = (node.catalog_unit_key or "").strip()
-    if cur == resolved:
         return False
     node.catalog_unit_key = resolved[:128]
     node.catalog_phase_key = ""
@@ -1011,15 +1011,23 @@ def _backfill_unit_eval_folder_catalog(db: Session, kind: str) -> bool:
     if not is_unit_eval_tree_kind(kind):
         return False
     changed = False
-    phase_roots = (
+    all_rows = (
         db.query(InformationBankTreeNode)
-        .filter(
-            InformationBankTreeNode.kind == kind,
-            InformationBankTreeNode.parent_id.is_(None),
-            InformationBankTreeNode.is_folder.is_(True),
+        .filter(InformationBankTreeNode.kind == kind)
+        .order_by(
+            InformationBankTreeNode.sort_order,
+            InformationBankTreeNode.id,
         )
         .all()
     )
+    by_parent: dict[int | None, list[InformationBankTreeNode]] = defaultdict(list)
+    for r in all_rows:
+        by_parent[r.parent_id].append(r)
+    phase_roots = [
+        n
+        for n in by_parent.get(None, [])
+        if n.is_folder
+    ]
     queue: list[tuple[InformationBankTreeNode, InformationBankTreeNode | None]] = []
     for pr in phase_roots:
         pk = (pr.catalog_phase_key or "").strip() or _match_phase_key_by_folder_name(
@@ -1046,13 +1054,7 @@ def _backfill_unit_eval_folder_catalog(db: Session, kind: str) -> bool:
                 node.catalog_unit_key or ""
             ).strip() != before_uk:
                 changed = True
-        children = (
-            db.query(InformationBankTreeNode)
-            .filter(InformationBankTreeNode.parent_id == nid)
-            .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
-            .all()
-        )
-        for ch in children:
+        for ch in by_parent.get(nid, []):
             queue.append((ch, node))
     return changed
 
@@ -1115,14 +1117,17 @@ def _hoist_children_from_unit_folder(
             ch.catalog_phase_key = pk[:64] if uk else ""
 
 
-def repair_unit_eval_tree(db: Session, kind: str) -> None:
-    """إصلاح شجرة قوائم التقييم: ربط مجلدات المراحل القديمة وتسطيح مجلدات الوحدات."""
+def repair_unit_eval_tree(db: Session, kind: str, *, backfill: bool = False) -> bool:
+    """إصلاح شجرة قوائم التقييم: ربط مجلدات المراحل القديمة وتسطيح مجلدات الوحدات.
+
+    backfill=False (عرض): إصلاح هيكلي خفيف. backfill=True بعد رفع/استيراد فقط.
+    """
     if not is_unit_eval_tree_kind(kind):
-        return
+        return False
     changed = _link_orphan_phase_root_folders(db, kind)
     if _merge_duplicate_phase_root_folders(db, kind):
         changed = True
-    if _backfill_unit_eval_folder_catalog(db, kind):
+    if backfill and _backfill_unit_eval_folder_catalog(db, kind):
         changed = True
     phase_roots = (
         db.query(InformationBankTreeNode)
@@ -1166,16 +1171,17 @@ def repair_unit_eval_tree(db: Session, kind: str) -> None:
             changed = True
     if changed:
         db.commit()
+    return changed
 
 
-def ensure_information_bank_tree(db: Session, kind: str) -> None:
+def ensure_information_bank_tree(db: Session, kind: str, *, backfill: bool = False) -> None:
     """تهيئة مجلدات المراحل/الأيام والوحدات الفرعية لنوع مرفقات معيّن."""
     if kind not in INFO_BANK_TREE_KINDS:
         return
     if kind == "action_eval":
         if _ensure_action_eval_flow_day_roots(db):
             db.commit()
-        if repair_unit_eval_tree(db, kind):
+        if repair_unit_eval_tree(db, kind, backfill=backfill):
             db.commit()
         if repair_tree_natural_sibling_order(db, kind):
             db.commit()
@@ -1251,13 +1257,13 @@ def ensure_information_bank_tree(db: Session, kind: str) -> None:
     if is_unit_eval_tree_kind(kind):
         if _link_orphan_phase_root_folders(db, kind):
             db.commit()
-        if _backfill_unit_eval_folder_catalog(db, kind):
+        if backfill and _backfill_unit_eval_folder_catalog(db, kind):
             db.commit()
         if repair_tree_natural_sibling_order(db, kind):
             db.commit()
 
 
-def ensure_information_bank_kind(db: Session, kind: str) -> None:
+def ensure_information_bank_kind(db: Session, kind: str, *, backfill: bool | None = None) -> None:
     """تهيئة/ترحيل/إصلاح شجرة نوع واحد فقط — دون لمس تبويبات أخرى."""
     if kind not in INFO_BANK_TREE_KINDS:
         return
@@ -1266,14 +1272,16 @@ def ensure_information_bank_kind(db: Session, kind: str) -> None:
     if ensured is None:
         ensured = set()
         ensure_information_bank_kind._ensured = ensured  # type: ignore[attr-defined]
-    if kind in ensured:
+    needs_bf = getattr(ensure_information_bank_kind, "_needs_backfill", None)
+    if needs_bf is None:
+        needs_bf = set()
+        ensure_information_bank_kind._needs_backfill = needs_bf  # type: ignore[attr-defined]
+    do_backfill = bool(needs_bf & {kind}) if backfill is None else bool(backfill)
+    if kind in ensured and not do_backfill:
         return
-    ensure_information_bank_tree(db, kind)
+    ensure_information_bank_tree(db, kind, backfill=do_backfill)
     migrate_legacy_flat_files(db, kind)
-    if is_unit_eval_tree_kind(kind):
-        repair_unit_eval_tree(db, kind)
-        if repair_tree_natural_sibling_order(db, kind):
-            db.commit()
+    needs_bf.discard(kind)
     ensured.add(kind)
 
 
@@ -1281,11 +1289,18 @@ def invalidate_information_bank_kind_cache(kind: str | None = None) -> None:
     """إبطال كاش تهيئة الشجرة بعد تعديل الملفات."""
     ensured = getattr(ensure_information_bank_kind, "_ensured", None)
     if ensured is None:
-        return
+        ensured = set()
+        ensure_information_bank_kind._ensured = ensured  # type: ignore[attr-defined]
+    needs_bf = getattr(ensure_information_bank_kind, "_needs_backfill", None)
+    if needs_bf is None:
+        needs_bf = set()
+        ensure_information_bank_kind._needs_backfill = needs_bf  # type: ignore[attr-defined]
     if kind:
         ensured.discard(kind)
+        needs_bf.add(kind)
     else:
         ensured.clear()
+        needs_bf.update(INFO_BANK_TREE_KINDS)
 
 
 def ensure_all_information_bank_trees(db: Session) -> None:
@@ -1746,8 +1761,11 @@ def build_tree_payload(
     *,
     unit_label_by_key: dict[str, str] | None = None,
     judge_name_by_unit: dict[str, str] | None = None,
+    ensure: bool = True,
 ) -> list[dict]:
-    ensure_information_bank_tree(db, kind)
+    # ensure_information_bank_kind يُنفَّذ مرة لكل عملية (كاش) — لا تعِد إصلاح الشجرة في كل عرض.
+    if ensure:
+        ensure_information_bank_kind(db, kind)
     labels = dict(unit_label_by_key or {})
     if not labels:
         for r in _unit_rows(db):
@@ -1764,24 +1782,90 @@ def build_tree_payload(
         .all()
     )
     by_parent: dict[int | None, list[InformationBankTreeNode]] = defaultdict(list)
+    nodes_by_id: dict[int, InformationBankTreeNode] = {}
     for r in rows:
         by_parent[r.parent_id].append(r)
+        nodes_by_id[int(r.id)] = r
     # ترتيب طبيعي: م1، م2، … م10 (وليس م1، م10، م2)
     for pid, siblings in by_parent.items():
         siblings.sort(key=lambda n: (_natural_sort_key(n.name or ""), int(n.id or 0)))
     judge_map = dict(judge_name_by_unit or {})
+    phase_key_cache: dict[int, str] = {}
+    unit_key_cache: dict[int, str] = {}
+
+    def phase_key_mem(n: InformationBankTreeNode) -> str:
+        nid = int(n.id)
+        if nid in phase_key_cache:
+            return phase_key_cache[nid]
+        pk = (n.catalog_phase_key or "").strip()
+        if pk:
+            phase_key_cache[nid] = pk
+            return pk
+        pid = n.parent_id
+        hops = 0
+        while pid is not None and hops < 50:
+            parent = nodes_by_id.get(int(pid))
+            if parent is None:
+                break
+            pk = (parent.catalog_phase_key or "").strip()
+            if pk:
+                phase_key_cache[nid] = pk
+                return pk
+            guessed = _match_phase_key_by_folder_name(db, parent.name)
+            if guessed:
+                phase_key_cache[nid] = guessed
+                return guessed
+            pid = parent.parent_id
+            hops += 1
+        if n.parent_id is None and n.is_folder:
+            pk = _match_phase_key_by_folder_name(db, n.name)
+            phase_key_cache[nid] = pk
+            return pk
+        phase_key_cache[nid] = ""
+        return ""
+
+    def unit_key_mem(n: InformationBankTreeNode) -> str:
+        """مفتاح وحدة للعرض — من الكتالوج المخزّن دون N+1 استعلامات."""
+        nid = int(n.id)
+        if nid in unit_key_cache:
+            return unit_key_cache[nid]
+        uk = (n.catalog_unit_key or "").strip()
+        if uk:
+            unit_key_cache[nid] = uk
+            return uk
+        if n.is_folder:
+            # مجلد بدون مفتاح صريح: ورث من الأب المباشر غير الجذر
+            if n.parent_id is None:
+                unit_key_cache[nid] = ""
+                return ""
+            parent = nodes_by_id.get(int(n.parent_id))
+            if parent is None or not parent.is_folder or _is_phase_root_folder(parent):
+                unit_key_cache[nid] = ""
+                return ""
+            puk = (parent.catalog_unit_key or "").strip()
+            unit_key_cache[nid] = puk
+            return puk
+        if n.parent_id is None:
+            unit_key_cache[nid] = ""
+            return ""
+        parent = nodes_by_id.get(int(n.parent_id))
+        if parent is None or not parent.is_folder:
+            unit_key_cache[nid] = ""
+            return ""
+        puk = (parent.catalog_unit_key or "").strip()
+        unit_key_cache[nid] = puk
+        return puk
 
     def node_dict(n: InformationBankTreeNode) -> dict:
         children = [node_dict(c) for c in by_parent.get(int(n.id), [])]
-        eff_uk = (
-            _unit_key_for_upload_target(db, n)
-            if n.is_folder
-            else _unit_key_for_node(db, n)
-        )
+        eff_uk = unit_key_mem(n)
         is_phase_root = _is_phase_root_folder(n)
         flow_day_id = (
             parse_flow_day_catalog_key((n.catalog_phase_key or "").strip()) or ""
         )
+        show_unit = False
+        if is_unit_eval_tree_kind(kind) and not is_phase_root:
+            show_unit = bool(phase_key_mem(n))
         d: dict = {
             "id": int(n.id),
             "name": n.name,
@@ -1794,9 +1878,7 @@ def build_tree_payload(
             "effective_unit_key": eff_uk,
             "unit_level_label": labels.get(eff_uk, "") if eff_uk else "",
             "judge_name": judge_map.get(eff_uk, "") if eff_uk else "",
-            "show_unit_select": _unit_eval_show_unit_select(db, n)
-            if is_unit_eval_tree_kind(kind)
-            else False,
+            "show_unit_select": show_unit,
         }
         if not n.is_folder and n.file_relpath:
             d["file_url"] = True

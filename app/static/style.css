@@ -8491,7 +8491,7 @@ body.control-report-page #cr-panel-charts.control-report-tab-panel {
 .ibank-subheader__row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: "title close";
+  grid-template-areas: "title actions";
   align-items: center;
   gap: 0.22rem 0.45rem;
   direction: rtl;
@@ -8506,9 +8506,13 @@ body.control-report-page #cr-panel-charts.control-report-tab-panel {
   min-width: 0;
   width: auto;
 }
-.ibank-subheader__back {
-  grid-area: close;
+.ibank-subheader__actions {
+  grid-area: actions;
   justify-self: start;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
 }
 .ibank-subheader .ibank-page-header__title-row {
   gap: 0.45rem 0.55rem;
@@ -8516,6 +8520,24 @@ body.control-report-page #cr-panel-charts.control-report-tab-panel {
 .ibank-subheader__back {
   flex: 0 0 auto;
   font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+}
+.ibank-backup-restore-form {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+}
+.ibank-subheader .ibank-header-btn {
+  padding: 0.22rem 0.62rem;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  font-weight: 600;
+  min-height: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
 }
 .ibank-subheader__readonly-note {
   margin-top: 0.3rem;
@@ -11810,10 +11832,10 @@ html {
     grid-template-columns: 1fr;
     grid-template-areas:
       "title"
-      "close";
+      "actions";
     gap: 0.35rem;
   }
-  .ibank-subheader__back {
+  .ibank-subheader__actions {
     justify-self: start;
   }
   .ibank-inline-add-form {

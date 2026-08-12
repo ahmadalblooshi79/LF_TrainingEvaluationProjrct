@@ -15656,6 +15656,88 @@ def _ibank_action_eval_day_tabs_payload(db, *, exercise_id: int | None = None) -
     }
 
 
+@bp.route("/admin/information-bank/backup", methods=["GET"])
+def admin_information_bank_backup():
+    """تنزيل نسخة احتياطية كاملة لبنك المعلومات (جداول + ملفات + دلالات)."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/admin/information-bank/backup")
+    if not can_view_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.ibank_backup import build_information_bank_backup_zip
+
+    db = g.db
+    try:
+        zip_path = build_information_bank_backup_zip(db)
+    except Exception as exc:
+        return redirect(
+            url_for(
+                "views.admin_information_bank",
+                err=f"تعذّر إنشاء النسخة الاحتياطية: {exc}",
+            )
+        )
+    return send_file(
+        zip_path,
+        as_attachment=True,
+        download_name=zip_path.name,
+        mimetype="application/zip",
+    )
+
+
+@bp.route("/admin/information-bank/restore", methods=["POST"])
+def admin_information_bank_restore():
+    """استعادة بنك المعلومات بالكامل من أرشيف ZIP (مع نسخة أمان تلقائية)."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/admin/information-bank")
+    if not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.ibank_backup import (
+        restore_information_bank_from_zip,
+        save_uploaded_backup_to_temp,
+    )
+
+    db = g.db
+    upload = request.files.get("backup_file")
+    if upload is None or not (upload.filename or "").strip():
+        return redirect(
+            url_for(
+                "views.admin_information_bank",
+                err="اختر ملف نسخة احتياطية (ZIP) للاستعادة.",
+            )
+        )
+    tmp_path = None
+    try:
+        tmp_path = save_uploaded_backup_to_temp(upload)
+        result = restore_information_bank_from_zip(db, tmp_path, safety_backup=True)
+        counts = (result.get("manifest") or {}).get("counts") or {}
+        nodes = counts.get("information_bank_tree_nodes", 0)
+        files = result.get("file_count", 0)
+        ok = (
+            f"تمت استعادة بنك المعلومات بالكامل "
+            f"({nodes} عقدة شجرة، {files} ملف)."
+        )
+        return redirect(url_for("views.admin_information_bank", ok=ok))
+    except Exception as exc:
+        db.rollback()
+        return redirect(
+            url_for(
+                "views.admin_information_bank",
+                err=f"تعذّرت الاستعادة: {exc}",
+            )
+        )
+    finally:
+        if tmp_path is not None:
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 @bp.route("/admin/information-bank", methods=["GET"])
 def admin_information_bank():
     user = get_current_user_optional()
@@ -15706,77 +15788,94 @@ def admin_information_bank():
     allowed_tabs = {"phases", "dilemma-lists", "event-flow", "action-eval", "dilemma-eval"} | brigade_tabs
     if active_tab not in allowed_tabs:
         active_tab = "phases"
-    _ibank_active_tree_kind = {
-        "action-eval": "action_eval",
-        "dilemma-eval": "dilemma_eval",
-        "dilemma-lists": "dilemma_lists",
-    }.get(active_tab)
+    # تحميل ثقيل حسب التبويب فقط — فتح «مراحل التمرين» لا يبني كل الأشجار.
+    load_action_eval = active_tab == "action-eval"
+    load_dilemma_eval = active_tab == "dilemma-eval"
+    load_dilemma_lists = active_tab == "dilemma-lists"
+    load_event_flow = active_tab == "event-flow"
+    ibank_pane_ready = {
+        "action-eval": load_action_eval,
+        "dilemma-eval": load_dilemma_eval,
+        "dilemma-lists": load_dilemma_lists,
+        "event-flow": load_event_flow,
+    }
     try:
-        ensure_information_bank_kind(db, "action_eval")
-        ensure_information_bank_kind(db, "dilemma_eval")
-        ensure_information_bank_kind(db, "dilemma_lists")
-        from app.ibank_dilemma_lists import (
-            apply_dilemma_list_units_to_action_eval,
-            build_dilemma_lists_page_payload,
-        )
+        if load_dilemma_lists:
+            ensure_information_bank_kind(db, "dilemma_lists")
+            from app.ibank_dilemma_lists import build_dilemma_lists_page_payload
 
-        dilemma_lists_payload = build_dilemma_lists_page_payload(db)
-        if active_tab in ("action-eval", "dilemma-lists"):
+            dilemma_lists_payload = build_dilemma_lists_page_payload(db)
+        if load_action_eval:
+            ensure_information_bank_kind(db, "dilemma_lists")
+            ensure_information_bank_kind(db, "action_eval")
+            from app.ibank_dilemma_lists import apply_dilemma_list_units_to_action_eval
+
+            # مزامنة الوحدات من قوائم المعاضل عند فتح تبويب الإجراءات فقط
             if apply_dilemma_list_units_to_action_eval(db):
                 db.commit()
-        tree_action_eval = build_tree_payload(
-            db,
-            "action_eval",
-            unit_label_by_key=ibank_unit_labels,
-            judge_name_by_unit=ibank_judge_names_by_unit,
-        )
-        tree_dilemma_eval = build_tree_payload(
-            db,
-            "dilemma_eval",
-            unit_label_by_key=ibank_unit_labels,
-            judge_name_by_unit=ibank_judge_names_by_unit,
-        )
-        ibank_action_eval_flow_days = ibank_event_flow_days(db)
-        valid_day_ids = {d["id"] for d in ibank_action_eval_flow_days}
-        active_action_eval_day = (request.args.get("day") or "").strip()
-        if active_action_eval_day not in valid_day_ids:
-            active_action_eval_day = (
-                ibank_action_eval_flow_days[0]["id"] if ibank_action_eval_flow_days else "day-1"
+            tree_action_eval = build_tree_payload(
+                db,
+                "action_eval",
+                unit_label_by_key=ibank_unit_labels,
+                judge_name_by_unit=ibank_judge_names_by_unit,
             )
-        action_eval_trees_by_day = {d["id"]: [] for d in ibank_action_eval_flow_days}
-        action_eval_day_root_ids = {}
-        for root in tree_action_eval:
-            day_id = (root.get("flow_day_id") or "").strip()
-            if not day_id:
-                continue
-            action_eval_day_root_ids[day_id] = int(root["id"])
-            action_eval_trees_by_day[day_id] = list(root.get("children") or [])
+            ibank_action_eval_flow_days = ibank_event_flow_days(db)
+            valid_day_ids = {d["id"] for d in ibank_action_eval_flow_days}
+            active_action_eval_day = (request.args.get("day") or "").strip()
+            if active_action_eval_day not in valid_day_ids:
+                active_action_eval_day = (
+                    ibank_action_eval_flow_days[0]["id"] if ibank_action_eval_flow_days else "day-1"
+                )
+            action_eval_trees_by_day = {d["id"]: [] for d in ibank_action_eval_flow_days}
+            action_eval_day_root_ids = {}
+            for root in tree_action_eval:
+                day_id = (root.get("flow_day_id") or "").strip()
+                if not day_id:
+                    continue
+                action_eval_day_root_ids[day_id] = int(root["id"])
+                action_eval_trees_by_day[day_id] = list(root.get("children") or [])
+            from app.ibank_action_eval_dilemma_tree import build_action_eval_dilemma_judge_tree
+
+            ex_id = int(current_exercise.id) if current_exercise else None
+            ibank_action_eval_dilemma_tree = build_action_eval_dilemma_judge_tree(
+                db, exercise_id=ex_id
+            )
+            ibank_action_eval_dilemmas_by_day = {
+                day_id: [
+                    {
+                        "num": n.get("num"),
+                        "dilemma_no": n.get("dilemma_no"),
+                        "text": n.get("text"),
+                        "files": [
+                            {"node_id": f.get("node_id"), "name": f.get("name")}
+                            for j in (n.get("judges") or [])
+                            for f in (j.get("files") or [])
+                        ],
+                    }
+                    for n in nodes
+                ]
+                for day_id, nodes in ibank_action_eval_dilemma_tree.items()
+            }
+        if load_dilemma_eval:
+            ensure_information_bank_kind(db, "dilemma_eval")
+            tree_dilemma_eval = build_tree_payload(
+                db,
+                "dilemma_eval",
+                unit_label_by_key=ibank_unit_labels,
+                judge_name_by_unit=ibank_judge_names_by_unit,
+            )
     except Exception as exc:
         db.rollback()
         current_app.logger.exception("information bank tree build failed: %s", exc)
-    ibank_event_flow_ctx = _build_ibank_event_flow_table_context(db)
-    from app.ibank_action_eval_dilemma_tree import build_action_eval_dilemma_judge_tree
-
-    ex_id = int(current_exercise.id) if current_exercise else None
-    ibank_action_eval_dilemma_tree = build_action_eval_dilemma_judge_tree(
-        db, exercise_id=ex_id
-    )
-    ibank_action_eval_dilemmas_by_day = {
-        day_id: [
-            {
-                "num": n.get("num"),
-                "dilemma_no": n.get("dilemma_no"),
-                "text": n.get("text"),
-                "files": [
-                    {"node_id": f.get("node_id"), "name": f.get("name")}
-                    for j in (n.get("judges") or [])
-                    for f in (j.get("files") or [])
-                ],
-            }
-            for n in nodes
-        ]
-        for day_id, nodes in ibank_action_eval_dilemma_tree.items()
-    }
+    if load_event_flow:
+        ibank_event_flow_ctx = _build_ibank_event_flow_table_context(db)
+    else:
+        ibank_event_flow_ctx = {
+            "flow_table_days": [],
+            "flow_table_active_day_id": "day-1",
+            "flow_table_rows": [],
+            "flow_table_active_day_note": "",
+        }
     err = (request.args.get("err") or "").strip()[:2000]
     # لا تُعرض ملاحظات الرفع القديمة المزدحمة بأسماء صيغ غير مدعومة
     if "صيغة غير مدعومة" in err:
@@ -15804,6 +15903,7 @@ def admin_information_bank():
                 action_eval_day_root_ids=action_eval_day_root_ids,
                 ibank_action_eval_dilemmas_by_day=ibank_action_eval_dilemmas_by_day,
                 ibank_action_eval_dilemma_tree=ibank_action_eval_dilemma_tree,
+                ibank_pane_ready=ibank_pane_ready,
                 training_phase_label=lambda key: _information_bank_training_phase_label(
                     db, key
                 ),

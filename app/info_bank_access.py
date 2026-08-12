@@ -28,6 +28,7 @@ def is_information_bank_tree_manage_path(path: str | None) -> bool:
         INFO_BANK_PATH_PREFIX + "/tree/upload",
         INFO_BANK_PATH_PREFIX + "/dilemma-lists/assign",
         INFO_BANK_PATH_PREFIX + "/eval-list/purge-all",
+        INFO_BANK_PATH_PREFIX + "/restore",
     ):
         return True
     return bool(_TREE_DELETE_PATH_RE.match(p))

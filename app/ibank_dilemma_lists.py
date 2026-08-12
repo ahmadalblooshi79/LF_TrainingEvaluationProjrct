@@ -227,12 +227,18 @@ def assignments_by_basename(db: Session) -> dict[str, set[str]]:
     return out
 
 
-def assigned_units_for_action_eval_name(db: Session, name: str) -> set[str]:
+def assigned_units_for_action_eval_name(
+    db: Session,
+    name: str,
+    *,
+    by_base: dict[str, set[str]] | None = None,
+) -> set[str]:
     """الوحدات المفروضة على قائمة إجراءات حسب مطابقة اسم الملف مع قوائم المعاضل."""
     base = normalize_list_basename(name or "")
     if not base:
         return set()
-    return set(assignments_by_basename(db).get(base) or set())
+    mapping = by_base if by_base is not None else assignments_by_basename(db)
+    return set(mapping.get(base) or set())
 
 
 def apply_dilemma_list_units_to_action_eval(db: Session) -> int:

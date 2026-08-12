@@ -11,12 +11,47 @@
         {% endif %}
       </div>
     </div>
-    <div class="ibank-subheader__back">{% with subpage_close_fallback=url_for('views.admin_information_bank_exit', next='/dashboard') %}{% include 'partials/subpage_close.html' %}{% endwith %}</div>
+    <div class="ibank-subheader__actions" dir="rtl">
+      <a class="btn btn-ghost btn-sm ibank-header-btn" href="{{ url_for('views.admin_information_bank_backup') }}" title="تنزيل نسخة كاملة لكل جداول وملفات بنك المعلومات">
+        <i class="fa-solid fa-download" aria-hidden="true"></i> تنزيل نسخة احتياطية
+      </a>
+      {% if information_bank_can_manage %}
+      <form method="post" action="{{ url_for('views.admin_information_bank_restore') }}" enctype="multipart/form-data" class="ibank-backup-restore-form" id="ibank-backup-restore-form">
+        <input type="file" name="backup_file" id="ibank-backup-file" accept=".zip,application/zip" required hidden aria-label="ملف نسخة احتياطية ZIP">
+        <button type="button" class="btn btn-ghost btn-sm ibank-header-btn" id="ibank-backup-restore-btn" title="استعادة بنك المعلومات من ملف ZIP">
+          <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i> استعادة
+        </button>
+      </form>
+      {% endif %}
+      <span class="ibank-subheader__back">{% with subpage_close_fallback=url_for('views.admin_information_bank_exit', next='/dashboard') %}{% include 'partials/subpage_close.html' %}{% endwith %}</span>
+    </div>
   </div>
   {% if not information_bank_can_manage %}
   <p class="form-ok-banner ibank-subheader__readonly-note" role="status"><i class="fa-solid fa-eye" aria-hidden="true"></i> <strong>عرض وتنزيل فقط</strong> — الإضافة والتعديل والحذف من صلاحية إدارة النظام فقط. يمكنك استخدام الروابط والسحب في أدوات التخطيط المرتبطة بالتمرين.</p>
   {% endif %}
 </div>
+{% if information_bank_can_manage %}
+<script>
+(function () {
+  var form = document.getElementById("ibank-backup-restore-form");
+  var fileInput = document.getElementById("ibank-backup-file");
+  var btn = document.getElementById("ibank-backup-restore-btn");
+  if (!form || !fileInput || !btn) return;
+  btn.addEventListener("click", function () {
+    fileInput.value = "";
+    fileInput.click();
+  });
+  fileInput.addEventListener("change", function () {
+    if (!fileInput.files || !fileInput.files.length) return;
+    if (!confirm("سيتم استبدال كل محتويات بنك المعلومات الحالية بالنسخة المرفوعة. تُحفظ نسخة أمان تلقائياً قبل الاستعادة. هل تريد المتابعة؟")) {
+      fileInput.value = "";
+      return;
+    }
+    form.submit();
+  });
+})();
+</script>
+{% endif %}
 {% if ok_msg %}
 <script>
 (function () {
@@ -138,11 +173,16 @@
       </form>
       {% endif %}
 
-      <div class="ibank-tabpane{% if active_tab == 'dilemma-lists' %} is-active{% endif %}" data-tab-pane="dilemma-lists" role="tabpanel">
+      <div class="ibank-tabpane{% if active_tab == 'dilemma-lists' %} is-active{% endif %}" data-tab-pane="dilemma-lists" data-ibank-needs-server="{% if not ibank_pane_ready.get('dilemma-lists') %}1{% else %}0{% endif %}" role="tabpanel">
+        {% if ibank_pane_ready.get('dilemma-lists') %}
         {% include 'admin_information_bank_dilemma_lists_panel.html' %}
+        {% else %}
+        <p class="muted" dir="rtl">جاري تحميل قوائم تقييم المعاضل…</p>
+        {% endif %}
       </div>
 
-      <div class="ibank-tabpane{% if active_tab == 'event-flow' %} is-active{% endif %}" data-tab-pane="event-flow" role="tabpanel">
+      <div class="ibank-tabpane{% if active_tab == 'event-flow' %} is-active{% endif %}" data-tab-pane="event-flow" data-ibank-needs-server="{% if not ibank_pane_ready.get('event-flow') %}1{% else %}0{% endif %}" role="tabpanel">
+        {% if ibank_pane_ready.get('event-flow') %}
         <div class="ibank-event-flow-panel" dir="rtl">
           <div class="planner-flow-col-head planner-flow-col-head--page ibank-event-flow-panel__head">
             <div class="planner-flow-col-head__title-row">
@@ -159,18 +199,29 @@
           {% include 'partials/planner_action_flow_table.html' %}
           {% endwith %}
         </div>
+        {% else %}
+        <p class="muted" dir="rtl">جاري تحميل مجرى الأحداث…</p>
+        {% endif %}
       </div>
 
-      <div class="ibank-tabpane{% if active_tab == 'action-eval' %} is-active{% endif %}" data-tab-pane="action-eval" role="tabpanel">
+      <div class="ibank-tabpane{% if active_tab == 'action-eval' %} is-active{% endif %}" data-tab-pane="action-eval" data-ibank-needs-server="{% if not ibank_pane_ready.get('action-eval') %}1{% else %}0{% endif %}" role="tabpanel">
+        {% if ibank_pane_ready.get('action-eval') %}
         {% with kind='action_eval', tree_nodes=tree_action_eval, ibank_tree_unit_levels=ibank_tree_unit_levels, ibank_judge_names_by_unit=ibank_judge_names_by_unit, ibank_action_eval_flow_days=ibank_action_eval_flow_days, active_action_eval_day=active_action_eval_day, action_eval_trees_by_day=action_eval_trees_by_day, action_eval_day_root_ids=action_eval_day_root_ids, ibank_action_eval_dilemmas_by_day=ibank_action_eval_dilemmas_by_day, ibank_action_eval_dilemma_tree=ibank_action_eval_dilemma_tree %}
         {% include 'admin_information_bank_tree_panel.html' %}
         {% endwith %}
+        {% else %}
+        <p class="muted" dir="rtl">جاري تحميل قوائم تقييم الإجراءات…</p>
+        {% endif %}
       </div>
 
-      <div class="ibank-tabpane{% if active_tab == 'dilemma-eval' %} is-active{% endif %}" data-tab-pane="dilemma-eval" role="tabpanel">
+      <div class="ibank-tabpane{% if active_tab == 'dilemma-eval' %} is-active{% endif %}" data-tab-pane="dilemma-eval" data-ibank-needs-server="{% if not ibank_pane_ready.get('dilemma-eval') %}1{% else %}0{% endif %}" role="tabpanel">
+        {% if ibank_pane_ready.get('dilemma-eval') %}
         {% with kind='dilemma_eval', tree_nodes=tree_dilemma_eval, ibank_tree_unit_levels=ibank_tree_unit_levels, ibank_judge_names_by_unit=ibank_judge_names_by_unit %}
         {% include 'admin_information_bank_tree_panel.html' %}
         {% endwith %}
+        {% else %}
+        <p class="muted" dir="rtl">جاري تحميل قوائم التقييم…</p>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -242,6 +293,26 @@
     var returnTabInp = document.getElementById('ibank-units-return-tab');
     var unitsGlobalBar = card.querySelector('.ibank-units-included-form--global');
     function activate(id) {
+      var pane = card.querySelector('[data-tab-pane="' + id + '"]');
+      if (pane && pane.getAttribute('data-ibank-needs-server') === '1') {
+        try {
+          var jump = new URL(window.location.href);
+          jump.searchParams.set('tab', id);
+          pane.innerHTML = '<p class="muted" dir="rtl" style="padding:1rem"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> جاري التحميل…</p>';
+          btns.forEach(function (b) {
+            var on = (b.getAttribute('data-tab-btn') === id);
+            b.classList.toggle('is-active', on);
+            b.setAttribute('aria-selected', on ? 'true' : 'false');
+          });
+          panes.forEach(function (p) {
+            p.classList.toggle('is-active', p.getAttribute('data-tab-pane') === id);
+          });
+          window.location.href = jump.pathname + '?' + jump.searchParams.toString();
+        } catch (navErr) {
+          window.location.search = 'tab=' + encodeURIComponent(id);
+        }
+        return;
+      }
       btns.forEach(function (b) {
         var on = (b.getAttribute('data-tab-btn') === id);
         b.classList.toggle('is-active', on);
@@ -1202,6 +1273,39 @@
         } catch (errJudge) {
           judgeByUnit = {};
         }
+        var unitLevels = [];
+        try {
+          var levelsRaw = page.querySelector('.js-ibank-unit-levels-data');
+          unitLevels = levelsRaw && levelsRaw.textContent ? JSON.parse(levelsRaw.textContent) : [];
+        } catch (errLevels) {
+          unitLevels = [];
+        }
+        function fillLazyUnitSelect(sel) {
+          if (!sel || sel.getAttribute('data-options-filled') === '1') return;
+          var selected = (sel.getAttribute('data-selected-unit') || sel.value || '').trim();
+          var keepEmpty = sel.querySelector('option[value=""]');
+          sel.innerHTML = '';
+          if (keepEmpty) sel.appendChild(keepEmpty);
+          else {
+            var ph = document.createElement('option');
+            ph.value = '';
+            ph.textContent = '— اختر مستوى الوحدة —';
+            sel.appendChild(ph);
+          }
+          unitLevels.forEach(function (u) {
+            if (!u || !u.key) return;
+            var opt = document.createElement('option');
+            opt.value = u.key;
+            opt.textContent = u.label || u.key;
+            if (selected && selected === u.key) opt.selected = true;
+            sel.appendChild(opt);
+          });
+          sel.setAttribute('data-options-filled', '1');
+        }
+        page.querySelectorAll('.js-ibank-unit-select-lazy').forEach(function (sel) {
+          sel.addEventListener('focus', function () { fillLazyUnitSelect(sel); });
+          sel.addEventListener('mousedown', function () { fillLazyUnitSelect(sel); });
+        });
         page.querySelectorAll('.js-ibank-tree-unit-select').forEach(function (sel) {
           sel.addEventListener('change', function () {
             var inpId = sel.getAttribute('data-judge-input') || '';
