@@ -257,12 +257,13 @@ def unit_keys_for_evaluation_list_phase(
         mapping = day_to_phase
         if mapping is None:
             from app.analyst_flow_day_phase_link import (
-                ibank_flow_day_phase_map,
-                load_analyst_day_phase_map,
+                ensure_default_analyst_day_phase_links,
             )
 
-            mapping = dict(ibank_flow_day_phase_map(days_src))
-            mapping.update(load_analyst_day_phase_map(db, int(exercise_id)))
+            # بنك المعلومات يغلب روابط المحلل القديمة عبر ensure_*
+            mapping = ensure_default_analyst_day_phase_links(
+                db, int(exercise_id), flow_days=days_src
+            )
 
         day_ids_for_phase: set[str] = set()
         for d in days_src or []:
@@ -348,18 +349,29 @@ def build_dilemma_criteria_distribution(
     criteria_units = sync_dilemma_criteria_units_from_planner(db, ex)
     phases = _analyst_criteria_phases_for_display(True) or list(EXERCISE_PHASE_OPTIONS)
     flow_days = ibank_event_flow_days(db)
-    day_tabs = [
-        {
-            "day_id": str(d.get("id") or "").strip(),
-            "day_label": str(d.get("label") or d.get("id") or "").strip(),
-        }
-        for d in (flow_days or [])
-        if str(d.get("id") or "").strip()
-    ]
-
     day_to_phase = ensure_default_analyst_day_phase_links(
         db, int(ex.id), flow_days=flow_days
     )
+    phase_label_by_key = {pk: lbl for pk, lbl in phases}
+    day_tabs = []
+    for d in flow_days or []:
+        did = str(d.get("id") or "").strip()
+        if not did:
+            continue
+        pk = (day_to_phase.get(did) or d.get("phase_key") or "").strip()
+        day_tabs.append(
+            {
+                "day_id": did,
+                "day_label": str(d.get("label") or did).strip() or did,
+                "phase_key": pk,
+                "phase_label": (
+                    phase_label_by_key.get(pk, "")
+                    or str(d.get("phase_label") or "").strip()
+                    if pk
+                    else ""
+                ),
+            }
+        )
     active_day = (active_day_id or "").strip()
     if not active_day and day_tabs:
         active_day = day_tabs[0]["day_id"]
@@ -373,8 +385,14 @@ def build_dilemma_criteria_distribution(
         set_analyst_day_phase_link(
             db, int(ex.id), day_id=active_day, phase_key=requested_phase
         )
-        day_to_phase = load_analyst_day_phase_map(db, int(ex.id))
+        day_to_phase = ensure_default_analyst_day_phase_links(
+            db, int(ex.id), flow_days=ibank_event_flow_days(db)
+        )
         active_phase = requested_phase
+        for tab in day_tabs:
+            if tab.get("day_id") == active_day:
+                tab["phase_key"] = active_phase
+                tab["phase_label"] = phase_label_by_key.get(active_phase, "") or active_phase
     elif active_day:
         # تبويب اليوم يقود المرحلة المرتبطة به (للتقييم النهائي حسب المراحل).
         active_phase = (day_to_phase.get(active_day) or "").strip()

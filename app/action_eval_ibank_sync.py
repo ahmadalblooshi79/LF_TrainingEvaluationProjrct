@@ -683,29 +683,60 @@ def collect_flow_day_tabs_for_exercise(
     phase_key: str,
 ) -> list[dict[str, str]]:
     """تبويبات الأيام من جدول مجرى التمرين، مع الرجوع لأيام بنك المعلومات عند الحاجة."""
+    from app.information_bank_catalog import training_phase_label
+
+    ibank_days = ibank_event_flow_days(db)
+    ibank_by_id = {
+        str(d.get("id") or "").strip(): d
+        for d in (ibank_days or [])
+        if str(d.get("id") or "").strip()
+    }
+
+    def _tab_from(day_id: str, label: str, phase_key_raw: str = "") -> dict[str, str]:
+        ib = ibank_by_id.get(day_id) or {}
+        pk = (
+            str(ib.get("phase_key") or "").strip()
+            or (phase_key_raw or "").strip()
+        )
+        return {
+            "id": day_id,
+            "label": label or day_id,
+            "phase_key": pk,
+            "phase_label": (
+                str(ib.get("phase_label") or "").strip()
+                or training_phase_label(pk)
+                if pk
+                else ""
+            ),
+        }
+
     bundle = primary_flow_bundle_for_exercise(
         db, exercise_id=int(exercise_id), phase_key=phase_key
     )
     raw = (getattr(bundle, "flow_table_json", None) or "").strip() if bundle else ""
     days = _parse_flow_table_days(raw)
     tabs = [
-        {"id": str(d.get("id") or ""), "label": str(d.get("label") or "")}
+        _tab_from(
+            str(d.get("id") or "").strip(),
+            str(d.get("label") or "").strip(),
+            str(d.get("phase_key") or ""),
+        )
         for d in days
         if str(d.get("id") or "").strip()
     ]
     if tabs:
         return tabs
-    ibank_days = ibank_event_flow_days(db)
     if ibank_days:
         return [
-            {
-                "id": str(d.get("id") or "").strip(),
-                "label": str(d.get("label") or "").strip() or str(d.get("id") or ""),
-            }
+            _tab_from(
+                str(d.get("id") or "").strip(),
+                str(d.get("label") or "").strip() or str(d.get("id") or ""),
+                str(d.get("phase_key") or ""),
+            )
             for d in ibank_days
             if str(d.get("id") or "").strip()
         ]
-    return [{"id": "day-1", "label": "اليوم/1"}]
+    return [_tab_from("day-1", "اليوم/1")]
 
 
 def extract_assignee_judge_labels_from_bundle(

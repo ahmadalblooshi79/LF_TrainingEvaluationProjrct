@@ -7747,10 +7747,11 @@ def _judge_action_eval_groups_for_all_flow_days(
     flow_qs = _judge_action_eval_lists_query_kwargs()
     groups_per_day: list[list[dict]] = []
     for day in day_options:
+        day_phase = str(day.get("phase_key") or "").strip() or phase_key
         groups, _meta = build_judge_action_eval_display_groups(
             db,
             exercise_id=int(ex.id),
-            phase_key=phase_key or None,
+            phase_key=day_phase or None,
             flow_day_id=str(day.get("id") or "") or None,
             restrict_unit_key=restrict_unit_key,
         )
@@ -8687,6 +8688,7 @@ def _render_planner_action_eval_lists(db, user: User):
     selected_day_id = (request.args.get("day") or "").strip()
     selected_day_label = ""
     day_options: list[dict[str, str]] = []
+    phase_from_query = bool((request.args.get("phase") or "").strip())
 
     if current_exercise is not None:
         ex_id = int(current_exercise.id)
@@ -8701,6 +8703,11 @@ def _render_planner_action_eval_lists(db, user: User):
         for day in day_options:
             if day.get("id") == selected_day_id:
                 selected_day_label = str(day.get("label") or "")
+                # مرحلة اليوم من مجرى بنك المعلومات ما لم تُمرَّر صراحة في الرابط
+                if not phase_from_query and (day.get("phase_key") or "").strip():
+                    selected_phase = normalize_exercise_phase(
+                        str(day.get("phase_key") or "").strip()
+                    )
                 break
         if selected_day_id and not selected_day_label:
             selected_day_label = selected_day_id
@@ -16077,6 +16084,12 @@ def admin_information_bank_event_flow_save():
     invalidate_information_bank_kind_cache("action_eval")
     invalidate_action_eval_dilemma_tree_cache()
     ensure_information_bank_kind(db, "action_eval")
+    # مزامنة مرحلة اليوم في معايير التقييم مع مجرى بنك المعلومات
+    from app.analyst_flow_day_phase_link import (
+        sync_all_exercises_day_phase_links_from_ibank,
+    )
+
+    sync_all_exercises_day_phase_links_from_ibank(db)
     db.commit()
     active_rows = next(
         (d["rows"] for d in doc["days"] if d["id"] == doc["active_day_id"]),
@@ -16163,6 +16176,11 @@ def admin_information_bank_event_flow_import_docx():
     invalidate_information_bank_kind_cache("action_eval")
     invalidate_action_eval_dilemma_tree_cache()
     ensure_information_bank_kind(db, "action_eval")
+    from app.analyst_flow_day_phase_link import (
+        sync_all_exercises_day_phase_links_from_ibank,
+    )
+
+    sync_all_exercises_day_phase_links_from_ibank(db)
     db.commit()
     ex = _admin_current_workspace_exercise(db, user)
     action_eval = _ibank_action_eval_day_tabs_payload(

@@ -30,7 +30,10 @@
         role="tab"
         aria-selected="{{ 'true' if tab.day_id == initial_day else 'false' }}"
         aria-controls="judge-action-eval-day-pane-{{ tab.day_id }}">
-        {{ tab.day_label }}
+        <span class="pf-flow-day-tab__text">
+          <span class="pf-flow-day-tab__label">{{ tab.day_label }}</span>
+          {% if tab.phase_label %}<span class="pf-flow-day-tab__phase">{{ tab.phase_label }}</span>{% endif %}
+        </span>
         <span class="judge-eval-phase-tab__count">{{ tab.totals.total }}</span>
       </button>
       {% endfor %}

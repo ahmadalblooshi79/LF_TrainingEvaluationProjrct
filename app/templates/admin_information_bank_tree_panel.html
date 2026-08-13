@@ -19,12 +19,17 @@
                   class="pf-flow-day-tab ibank-action-eval-day-tab{% if day.id == active_action_eval_day %} is-active{% endif %}"
                   data-day-id="{{ day.id }}"
                   role="tab"
-                  aria-selected="{{ 'true' if day.id == active_action_eval_day else 'false' }}">{{ day.label }}</button>
+                  aria-selected="{{ 'true' if day.id == active_action_eval_day else 'false' }}">
+            <span class="pf-flow-day-tab__text">
+              <span class="pf-flow-day-tab__label">{{ day.label }}</span>
+              {% if day.phase_label %}<span class="pf-flow-day-tab__phase">{{ day.phase_label }}</span>{% endif %}
+            </span>
+          </button>
           {% endfor %}
         </nav>
       </div>
     </div>
-    <p class="muted ibank-action-eval-days-note" role="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> الأيام من تبويب <strong>مجرى الأحداث والمعاضل</strong> — عند إضافة يوم هناك يُنشأ تبويب مقابل هنا تلقائياً.</p>
+    <p class="muted ibank-action-eval-days-note" role="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> الأيام ومرحلة التمرين من تبويب <strong>مجرى الأحداث والمعاضل</strong> — عند إضافة يوم أو تعيين مرحلة هناك يُحدَّث التبويب هنا تلقائياً.</p>
     <script type="application/json" class="js-ibank-action-eval-day-roots">{{ action_eval_day_root_ids|default({})|tojson }}</script>
     {% endif %}
 

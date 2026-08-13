@@ -4046,7 +4046,7 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 }
 .eval-lists-day-tabs .pf-flow-day-tab {
   text-decoration: none;
-  display: inline-block;
+  display: inline-flex;
 }
 .ibank-action-eval-days-bar {
   margin: 0.2rem 0 0.1rem;
@@ -10191,6 +10191,34 @@ main:has(#pf-flow-table-section):not(:has(.ibank-event-flow-panel)) > #pf-flow-t
   font-weight: 600;
   cursor: pointer;
   line-height: 1.25;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  text-decoration: none;
+}
+.pf-flow-day-tab__text {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.08rem;
+  min-width: 0;
+}
+.pf-flow-day-tab__label {
+  display: block;
+}
+.pf-flow-day-tab__phase {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.2;
+  opacity: 0.88;
+  max-width: 12rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pf-flow-day-tab.is-active .pf-flow-day-tab__phase {
+  opacity: 0.95;
 }
 .pf-flow-day-tab:hover,
 .pf-flow-day-tab:focus {

@@ -330,6 +330,8 @@ def judge_action_eval_flow_day_tabs(
             {
                 "day_id": str(day.get("id") or ""),
                 "day_label": str(day.get("label") or ""),
+                "phase_key": str(day.get("phase_key") or ""),
+                "phase_label": str(day.get("phase_label") or ""),
                 "unit_rows": unit_rows,
                 "totals": evaluation_unit_home_totals(unit_rows),
             }

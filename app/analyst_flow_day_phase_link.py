@@ -422,9 +422,10 @@ def ensure_default_analyst_day_phase_links(
     exercise_id: int,
     flow_days: list[dict[str, str]] | None = None,
 ) -> dict[str, str]:
-    """دمج بنك المعلومات + روابط المحلل، مع تعبئة الافتراضي للأيام غير المرتبطة.
+    """مرحلة كل يوم من بنك المعلومات أولاً، ثم روابط المحلل، ثم الافتراضي.
 
-    القاعدة الافتراضية (حسب ترتيب أيام المجرى):
+    مصدر الحقيقة: ``phase_key`` المحفوظ على يوم المجرى في بنك المعلومات.
+    القاعدة الافتراضية (عند غياب المرحلة من البنك والروابط):
     - اليوم/1 واليوم/2 → مرحلة الإنفتاح
     - اليوم/3 وما بعده → مرحلة المعركة التعرضية
     """
@@ -433,33 +434,88 @@ def ensure_default_analyst_day_phase_links(
     days = flow_days if flow_days is not None else ibank_event_flow_days(db)
     ibank = ibank_flow_day_phase_map(days)
     current = load_analyst_day_phase_map(db, int(exercise_id))
-    merged: dict[str, str] = dict(ibank)
-    merged.update(current)
-
-    dirty = False
-    ordered_ids: list[str] = []
+    merged: dict[str, str] = {}
     for idx, day in enumerate(days or []):
         did = str(day.get("id") or "").strip()
         if not did:
             continue
-        ordered_ids.append(did)
-        if merged.get(did):
-            continue
-        merged[did] = default_phase_key_for_flow_day_index(idx)
-        dirty = True
+        pk = (
+            ibank.get(did)
+            or current.get(did)
+            or default_phase_key_for_flow_day_index(idx)
+        )
+        merged[did] = pk
 
-    if dirty or (merged and merged != current):
-        # احفظ فقط إن تغيّر شيء أو وُجدت روابط بنك غير محفوظة عند المحلل
-        if merged != current:
-            save_analyst_day_phase_links(
-                db,
-                int(exercise_id),
-                day_ids=list(merged.keys()),
-                phase_keys=list(merged.values()),
-                delete_day_ids=set(),
-            )
-            return load_analyst_day_phase_map(db, int(exercise_id))
+    if merged != current:
+        save_analyst_day_phase_links(
+            db,
+            int(exercise_id),
+            day_ids=list(merged.keys()),
+            phase_keys=list(merged.values()),
+            delete_day_ids=set(),
+        )
+        return load_analyst_day_phase_map(db, int(exercise_id))
     return merged
+
+
+def sync_all_exercises_day_phase_links_from_ibank(db: Session) -> None:
+    """مزامنة روابط يوم→مرحلة لكل التمارين من مجرى بنك المعلومات."""
+    from app.models.domain import Exercise
+    from app.info_bank_tree import ibank_event_flow_days
+
+    days = ibank_event_flow_days(db)
+    for (ex_id,) in db.query(Exercise.id).all():
+        ensure_default_analyst_day_phase_links(db, int(ex_id), flow_days=days)
+
+
+def set_ibank_flow_day_phase(
+    db: Session,
+    *,
+    day_id: str,
+    phase_key: str,
+) -> bool:
+    """تحديث مرحلة يوم في جدول مجرى بنك المعلومات (مصدر الحقيقة)."""
+    import json
+    from datetime import datetime
+
+    from app.models.domain import InformationBankEventFlowTable
+
+    did = (day_id or "").strip()
+    pk = _normalize_phase_key(phase_key or "")
+    if not did:
+        return False
+    row = (
+        db.query(InformationBankEventFlowTable)
+        .order_by(InformationBankEventFlowTable.id)
+        .first()
+    )
+    if row is None:
+        return False
+    raw = (getattr(row, "flow_table_json", None) or "").strip()
+    if not raw:
+        return False
+    try:
+        data = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return False
+    if not isinstance(data, dict) or not isinstance(data.get("days"), list):
+        return False
+    changed = False
+    for day in data["days"]:
+        if not isinstance(day, dict):
+            continue
+        if str(day.get("id") or "").strip() != did:
+            continue
+        cur = _normalize_phase_key(str(day.get("phase_key") or ""))
+        if cur != pk:
+            day["phase_key"] = pk
+            changed = True
+        break
+    if changed:
+        row.flow_table_json = json.dumps(data, ensure_ascii=False)
+        if hasattr(row, "updated_at"):
+            row.updated_at = datetime.utcnow()
+    return changed
 
 
 def day_phase_link_rows_for_ui(
@@ -473,20 +529,27 @@ def day_phase_link_rows_for_ui(
     from app.info_bank_tree import ibank_event_flow_days
 
     days = flow_days if flow_days is not None else ibank_event_flow_days(db)
-    saved = load_analyst_day_phase_map(db, exercise_id)
+    saved = ensure_default_analyst_day_phase_links(
+        db, int(exercise_id), flow_days=days
+    )
     phase_labels = {pk: lbl for pk, lbl in phase_options}
     rows: list[dict] = []
     for day in days or []:
         day_id = str(day.get("id") or "").strip()
         if not day_id:
             continue
-        pk = saved.get(day_id, "")
+        pk = saved.get(day_id, "") or str(day.get("phase_key") or "").strip()
         rows.append(
             {
                 "day_id": day_id,
                 "day_label": str(day.get("label") or day_id).strip() or day_id,
                 "phase_key": pk,
-                "phase_label": phase_labels.get(pk, "") if pk else "",
+                "phase_label": (
+                    phase_labels.get(pk, "")
+                    or str(day.get("phase_label") or "").strip()
+                    if pk
+                    else ""
+                ),
                 "linked": bool(pk),
             }
         )
@@ -500,12 +563,13 @@ def set_analyst_day_phase_link(
     day_id: str,
     phase_key: str,
 ) -> None:
-    """تعيين/تحديث ربط يوم واحد بمرحلة مع الإبقاء على بقية الروابط."""
+    """تعيين/تحديث ربط يوم واحد بمرحلة — يحدّث بنك المعلومات ثم جدول المحلل."""
     did = (day_id or "").strip()
     if not did:
         return
-    current = load_analyst_day_phase_map(db, int(exercise_id))
     pk = _normalize_phase_key(phase_key or "")
+    set_ibank_flow_day_phase(db, day_id=did, phase_key=pk)
+    current = load_analyst_day_phase_map(db, int(exercise_id))
     if pk:
         current[did] = pk
     else:

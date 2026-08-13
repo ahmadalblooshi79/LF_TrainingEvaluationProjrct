@@ -67,6 +67,7 @@ def ibank_event_flow_days(db: Session) -> list[dict[str, str]]:
     import json
     import re
 
+    from app.information_bank_catalog import training_phase_label
     from app.models.domain import InformationBankEventFlowTable
 
     aliases = {
@@ -81,6 +82,15 @@ def ibank_event_flow_days(db: Session) -> list[dict[str, str]]:
             return ""
         return pk if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", pk) else ""
 
+    def _day(day_id: str, label: str, phase_key: str = "") -> dict[str, str]:
+        pk = _phase_key(phase_key)
+        return {
+            "id": day_id[:64],
+            "label": label[:200],
+            "phase_key": pk,
+            "phase_label": training_phase_label(pk) if pk else "",
+        }
+
     row = (
         db.query(InformationBankEventFlowTable)
         .order_by(InformationBankEventFlowTable.id)
@@ -88,13 +98,13 @@ def ibank_event_flow_days(db: Session) -> list[dict[str, str]]:
     )
     raw = (getattr(row, "flow_table_json", None) or "").strip() if row else ""
     if not raw:
-        return [{"id": "day-1", "label": "اليوم/1", "phase_key": ""}]
+        return [_day("day-1", "اليوم/1")]
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        return [{"id": "day-1", "label": "اليوم/1", "phase_key": ""}]
+        return [_day("day-1", "اليوم/1")]
     if isinstance(data, list):
-        return [{"id": "day-1", "label": "اليوم/1", "phase_key": ""}]
+        return [_day("day-1", "اليوم/1")]
     if isinstance(data, dict) and isinstance(data.get("days"), list):
         out: list[dict[str, str]] = []
         for idx, item in enumerate(data["days"]):
@@ -102,16 +112,10 @@ def ibank_event_flow_days(db: Session) -> list[dict[str, str]]:
                 continue
             day_id = str(item.get("id") or "").strip() or f"day-{idx + 1}"
             label = str(item.get("label") or "").strip() or f"اليوم/{idx + 1}"
-            out.append(
-                {
-                    "id": day_id[:64],
-                    "label": label[:200],
-                    "phase_key": _phase_key(item.get("phase_key")),
-                }
-            )
+            out.append(_day(day_id, label, item.get("phase_key") or ""))
         if out:
             return out
-    return [{"id": "day-1", "label": "اليوم/1", "phase_key": ""}]
+    return [_day("day-1", "اليوم/1")]
 
 
 def _find_flow_day_folder(db: Session, day_id: str) -> InformationBankTreeNode | None:
