@@ -1630,6 +1630,56 @@ def build_action_eval_folder_groups(
     )
 
 
+def collect_published_action_eval_unit_map(
+    db: Session,
+    *,
+    exercise_id: int,
+    phase_key: str | None = None,
+    flow_day_id: str | None = None,
+) -> dict[str, str]:
+    """مستوى وحدة → مرحلة تخزين للحزم ذات قوائم تقييم منشورة.
+
+    يعتمد على صفوف النشر فقط — لا يشترط وجود الوحدة في مجرى الأحداث أو شجرة المعاضل.
+    """
+    want_day = (flow_day_id or "").strip()
+    q = db.query(ExercisePlannerFlowBundle).filter(
+        ExercisePlannerFlowBundle.exercise_id == int(exercise_id)
+    )
+    if phase_key:
+        pk = _resolve_phase_key(phase_key, db) or normalize_exercise_phase(phase_key)
+        if pk:
+            phase_keys = _phase_match_keys(pk) or {pk}
+            q = q.filter(ExercisePlannerFlowBundle.exercise_phase.in_(list(phase_keys)))
+
+    out: dict[str, str] = {}
+    for bundle in q.order_by(ExercisePlannerFlowBundle.id).all():
+        uk = _resolve_unit_key(bundle.unit_level_key, db) or normalize_unit_level_key(
+            bundle.unit_level_key
+        )
+        if not uk:
+            continue
+        published = _published_slots_by_node(db, bundle)
+        if not published:
+            continue
+        if want_day:
+            has_day = False
+            for nid in published:
+                node = db.get(InformationBankTreeNode, int(nid))
+                if node is not None and _flow_day_id_for_node(db, node) == want_day:
+                    has_day = True
+                    break
+            if not has_day:
+                continue
+        pk = (
+            _resolve_phase_key(bundle.exercise_phase, db)
+            or normalize_exercise_phase(bundle.exercise_phase)
+            or (bundle.exercise_phase or "").strip()
+        )
+        if uk not in out and pk:
+            out[uk] = pk
+    return out
+
+
 def build_judge_action_eval_display_groups(
     db: Session,
     *,
@@ -1638,8 +1688,10 @@ def build_judge_action_eval_display_groups(
     flow_day_id: str | None = None,
     restrict_unit_key: str | None = None,
 ) -> tuple[list[dict], dict[str, int]]:
-    """مجموعات مستويات الوحدة (مثل التخطيط) — صفوف منشورة فقط."""
-    groups, meta = build_action_eval_display_groups(
+    """مستويات الوحدة ذات القوائم المنشورة فقط — بغض النظر عن المجرى/المعاضل."""
+    from app.unit_levels_catalog import UNIT_LEVELS
+
+    published_units = collect_published_action_eval_unit_map(
         db,
         exercise_id=int(exercise_id),
         phase_key=phase_key,
@@ -1650,13 +1702,56 @@ def build_judge_action_eval_display_groups(
         restrict = _resolve_unit_key(restrict_unit_key, db) or normalize_unit_level_key(
             restrict_unit_key
         )
+    judge_by_unit, trainee_by_unit = exercise_roster_labels_by_unit(db, int(exercise_id))
+
+    # تسميات العرض من المكلف إن وُجدت — دون استخدامها كشرط ظهور
+    flow_labels: dict[str, list[str]] = {}
+    for pk in sorted(set(published_units.values())):
+        for uk, labels in collect_flow_assignee_units_for_phase(
+            db,
+            exercise_id=int(exercise_id),
+            phase_key=pk,
+            flow_day_id=flow_day_id,
+        ).items():
+            if uk not in flow_labels:
+                flow_labels[uk] = list(labels)
+            elif labels:
+                seen = {_normalize_tree_label(x) for x in flow_labels[uk]}
+                for lbl in labels:
+                    nrm = _normalize_tree_label(lbl)
+                    if nrm and nrm not in seen:
+                        seen.add(nrm)
+                        flow_labels[uk].append(lbl)
+
+    unit_order = {row["key"]: idx for idx, row in enumerate(UNIT_LEVELS)}
+    branch_parents = _unit_branch_parent_map()
+    ordered_keys = _ordered_flat_flow_unit_keys(
+        {uk: [] for uk in published_units}, unit_order, branch_parents
+    )
+
     out: list[dict] = []
     published_total = 0
-    for g in groups:
-        uk = (g.get("unit_key") or "").strip()
+    for uk in ordered_keys:
         guk = _resolve_unit_key(uk, db) or normalize_unit_level_key(uk)
         if restrict and guk != restrict:
             continue
+        pk = published_units.get(uk) or ""
+        if not pk:
+            continue
+        assignees = flow_labels.get(uk, [])
+        g = _build_action_eval_branch_group(
+            db,
+            exercise_id=int(exercise_id),
+            phase_key=pk,
+            unit_key=uk,
+            assignee_labels=assignees,
+            judge_by_unit=judge_by_unit,
+            trainee_by_unit=trainee_by_unit,
+            flow_day_id=flow_day_id,
+        )
+        g["unit_label"] = _flow_display_label(uk, assignees, db=db)
+        g["source"] = "published"
+
         bundle = None
         bundle_id = g.get("bundle_id")
         if bundle_id:
@@ -1686,6 +1781,8 @@ def build_judge_action_eval_display_groups(
             if rows:
                 folders.append({**folder, "rows": rows})
                 pub_count += len(rows)
+        if pub_count <= 0:
+            continue
         published_total += pub_count
         out.append(
             {
@@ -1694,8 +1791,15 @@ def build_judge_action_eval_display_groups(
                 "published_count": pub_count,
             }
         )
-    meta = dict(meta)
-    meta["published_count"] = published_total
+    meta = {
+        "roster_units": 0,
+        "judge_units": 0,
+        "flow_units": 0,
+        "ibank_units": 0,
+        "phases": len({g.get("phase_key") for g in out if g.get("phase_key")}),
+        "published_units": len(out),
+        "published_count": published_total,
+    }
     return out, meta
 
 
@@ -1731,8 +1835,7 @@ def build_judge_published_action_eval_lists(
         .first()
     )
     published_by_node = _published_slots_by_node(db, bundle) if bundle is not None else {}
-    if flow_day_id and not in_flow:
-        return [], {"in_flow": False, "published_count": len(published_by_node)}
+    # ظهور القوائم للمحكم يعتمد على النشر فقط — حتى لو خرجت الوحدة من المجرى/المعاضل
     if not published_by_node:
         return [], {"in_flow": in_flow, "published_count": 0}
 

@@ -417,6 +417,114 @@ def default_phase_key_for_flow_day_index(day_index: int) -> str:
     return "opening" if int(day_index) < 2 else "battle_exposure"
 
 
+def ensure_ibank_flow_day_phase_keys(db: Session) -> list[dict[str, str]]:
+    """يرتب/يملأ phase_key لأيام مجرى بنك المعلومات بالقاعدة الافتراضية ويحفظها.
+
+    - اليوم/1 واليوم/2 → مرحلة الإنفتاح
+    - اليوم/3 وما بعده → مرحلة المعركة التعرضية
+    """
+    import json
+
+    from app.models.domain import InformationBankEventFlowTable
+    from app.info_bank_tree import ibank_event_flow_days
+
+    days = list(ibank_event_flow_days(db) or [])
+    if not days:
+        return []
+
+    changed = False
+    for idx, day in enumerate(days):
+        pk = _normalize_phase_key(str(day.get("phase_key") or ""))
+        if pk:
+            if day.get("phase_key") != pk:
+                day["phase_key"] = pk
+                changed = True
+            continue
+        day["phase_key"] = default_phase_key_for_flow_day_index(idx)
+        changed = True
+
+    if not changed:
+        return days
+
+    row = (
+        db.query(InformationBankEventFlowTable)
+        .order_by(InformationBankEventFlowTable.id)
+        .first()
+    )
+    if row is None:
+        row = InformationBankEventFlowTable(flow_table_json="")
+        db.add(row)
+        db.flush()
+
+    raw = (getattr(row, "flow_table_json", None) or "").strip()
+    data: dict
+    try:
+        parsed = json.loads(raw) if raw else {}
+    except (TypeError, json.JSONDecodeError):
+        parsed = {}
+    if isinstance(parsed, dict) and isinstance(parsed.get("days"), list):
+        data = parsed
+    else:
+        data = {
+            "version": 2,
+            "active_day_id": str(days[0].get("id") or "day-1"),
+            "days": [],
+        }
+
+    phase_by_id = {
+        str(d.get("id") or "").strip(): _normalize_phase_key(str(d.get("phase_key") or ""))
+        for d in days
+        if str(d.get("id") or "").strip()
+    }
+    out_days: list[dict] = []
+    for idx, item in enumerate(data.get("days") or []):
+        if not isinstance(item, dict):
+            continue
+        did = str(item.get("id") or "").strip() or f"day-{idx + 1}"
+        item = dict(item)
+        item["phase_key"] = phase_by_id.get(did) or default_phase_key_for_flow_day_index(idx)
+        out_days.append(item)
+    if not out_days:
+        out_days = [
+            {
+                "id": str(d.get("id") or f"day-{i + 1}")[:64],
+                "label": str(d.get("label") or f"اليوم/{i + 1}")[:200],
+                "note": "",
+                "phase_key": _normalize_phase_key(str(d.get("phase_key") or ""))
+                or default_phase_key_for_flow_day_index(i),
+                "rows": [],
+            }
+            for i, d in enumerate(days)
+        ]
+    data["days"] = out_days
+    if not str(data.get("active_day_id") or "").strip():
+        data["active_day_id"] = str(out_days[0].get("id") or "day-1")
+    data["version"] = int(data.get("version") or 2)
+    row.flow_table_json = json.dumps(data, ensure_ascii=False)
+    db.commit()
+    return ibank_event_flow_days(db)
+
+
+def phase_keys_ordered_by_flow_days(
+    flow_days: list[dict[str, str]] | None,
+    day_to_phase: dict[str, str] | None = None,
+) -> list[str]:
+    """ترتيب مراحل التمرين حسب أول ظهور لها في أيام المجرى المرتبطة."""
+    mapping = day_to_phase or ibank_flow_day_phase_map(flow_days)
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for day in flow_days or []:
+        did = str(day.get("id") or "").strip()
+        pk = _normalize_phase_key(
+            (mapping.get(did) if did else "")
+            or str(day.get("phase_key") or "")
+        )
+        if pk and pk not in seen:
+            ordered.append(pk)
+            seen.add(pk)
+    return ordered
+
+
 def ensure_default_analyst_day_phase_links(
     db: Session,
     exercise_id: int,

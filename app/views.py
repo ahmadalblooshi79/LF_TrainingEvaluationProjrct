@@ -1007,18 +1007,30 @@ def _control_report_effective_phase_key(raw: str | None) -> str:
 
 def _control_active_phase_columns(
     dots_by_unit_phase: dict[tuple[str, str], list[dict]],
+    *,
+    phase_order: list[str] | None = None,
 ) -> list[tuple[str, str]]:
-    """مراحل لها تقييم محفوظ فعلياً فقط — بنفس ترتيب الكتالوج."""
+    """مراحل لها تقييم محفوظ فعلياً — بترتيب الأيام المرتبطة ثم الكتالوج."""
     active_keys = {
         pk
         for (_uk, pk), dots in dots_by_unit_phase.items()
         if pk and dots
     }
-    return [
-        (pk, lbl)
-        for pk, lbl in _control_report_catalog_phase_columns()
-        if pk in active_keys
-    ]
+    catalog = _control_report_catalog_phase_columns()
+    labels = {pk: lbl for pk, lbl in catalog}
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for pk in phase_order or []:
+        pk_n = _control_report_effective_phase_key(pk)
+        if not pk_n or pk_n not in active_keys or pk_n in seen:
+            continue
+        out.append((pk_n, labels.get(pk_n, pk_n)))
+        seen.add(pk_n)
+    for pk, lbl in catalog:
+        if pk in active_keys and pk not in seen:
+            out.append((pk, lbl))
+            seen.add(pk)
+    return out
 
 # مفتاح ألوان نتائج القوائم — متوافق مع grade_label_from_percent
 _CONTROL_REPORT_GRADE_LEGEND: tuple[tuple[str, str, str], ...] = (
@@ -1083,14 +1095,37 @@ def _control_report_dot_sort_key(dot: dict) -> tuple:
     return (0 if src == "judge_eval" else 1, int(dot.get("sort_id") or 0))
 
 
+def _control_flow_day_phase_context(db, exercise_id: int) -> tuple[dict[str, str], list[str]]:
+    """خريطة يوم→مرحلة وترتيب المراحل حسب أيام المجرى المرتبطة."""
+    from app.analyst_flow_day_phase_link import (
+        ensure_default_analyst_day_phase_links,
+        ensure_ibank_flow_day_phase_keys,
+        phase_keys_ordered_by_flow_days,
+    )
+
+    days = ensure_ibank_flow_day_phase_keys(db)
+    day_to_phase = ensure_default_analyst_day_phase_links(
+        db, int(exercise_id), flow_days=days
+    )
+    phase_order = phase_keys_ordered_by_flow_days(days, day_to_phase)
+    return day_to_phase, phase_order
+
+
 def _control_planner_flow_detail_dots(
     db,
     exercise_id: int,
     *,
     users_by_id: dict[int, str],
     judge_roster: dict[str, str],
+    day_to_phase: dict[str, str] | None = None,
 ) -> list[dict]:
-    """نقاط تقرير السيطرة من حزم المجرى — قوائم تقييم الإجراءات المحفوظة للمحكم."""
+    """نقاط تقرير السيطرة من حزم المجرى — المرحلة حسب يوم القائمة المرتبط."""
+    from app.action_eval_ibank_sync import (
+        _flow_day_id_for_node,
+        parse_action_eval_storage_relpath,
+    )
+    from app.analyst_flow_day_phase_link import _normalize_phase_key as _flow_phase_norm
+
     action_rows = (
         db.query(ExercisePlannerFlowBundleActionEval)
         .join(ExercisePlannerFlowBundle)
@@ -1105,6 +1140,7 @@ def _control_planner_flow_detail_dots(
     )
     if not action_rows:
         return []
+    mapping = dict(day_to_phase or {})
     dots: list[dict] = []
     for action_row in action_rows:
         bundle = action_row.bundle
@@ -1117,7 +1153,17 @@ def _control_planner_flow_detail_dots(
         if pct_f is None:
             continue
         uk = (getattr(bundle, "unit_level_key", None) or "").strip()
-        ph = _control_report_effective_phase_key(getattr(bundle, "exercise_phase", None))
+        day_id = ""
+        node_id = parse_action_eval_storage_relpath(action_row.file_relpath)
+        if node_id:
+            node = db.get(InformationBankTreeNode, int(node_id))
+            if node is not None:
+                day_id = (_flow_day_id_for_node(db, node) or "").strip()
+        ph = ""
+        if day_id and mapping.get(day_id):
+            ph = _control_report_effective_phase_key(_flow_phase_norm(mapping.get(day_id)))
+        if not ph:
+            ph = _control_report_effective_phase_key(getattr(bundle, "exercise_phase", None))
         if not uk or not ph:
             continue
         title = _planner_blob_display_filename(
@@ -1136,6 +1182,7 @@ def _control_planner_flow_detail_dots(
                 "sort_id": int(action_row.id),
                 "unit_key": uk,
                 "phase_key": ph,
+                "flow_day_id": day_id,
                 "pct": pv,
                 "color": _control_report_dot_color(pv),
                 "list_title": title,
@@ -1159,6 +1206,7 @@ def _control_build_unit_detail_rows(
 ) -> tuple[list[dict], list[tuple[str, str]]]:
     """صفوف جدول أداء الوحدات التفصيلي: نقطة ملونة لكل قائمة تقييم محفوظة ضمن مرحلة."""
     dots_by_unit_phase: dict[tuple[str, str], list[dict]] = {}
+    day_to_phase, phase_order = _control_flow_day_phase_context(db, int(exercise_id))
 
     user_ids = {
         int(sr.saved_by_id)
@@ -1226,13 +1274,16 @@ def _control_build_unit_detail_rows(
         exercise_id,
         users_by_id=users_by_id,
         judge_roster=judge_roster,
+        day_to_phase=day_to_phase,
     ):
         uk = (pdot.get("unit_key") or "").strip()
         ph = (pdot.get("phase_key") or "").strip()
         if uk and ph:
             dots_by_unit_phase.setdefault((uk, ph), []).append(pdot)
 
-    active_phase_columns = _control_active_phase_columns(dots_by_unit_phase)
+    active_phase_columns = _control_active_phase_columns(
+        dots_by_unit_phase, phase_order=phase_order
+    )
     units_with_data: list[str] = []
     seen_uk: set[str] = set()
     for ul in UNIT_LEVELS:
@@ -2238,6 +2289,14 @@ def _phase_summary_for_control_report(
         if uk and ph:
             _accumulate(uk, ph, rows)
 
+    from app.action_eval_ibank_sync import (
+        _flow_day_id_for_node,
+        parse_action_eval_storage_relpath,
+    )
+    from app.analyst_flow_day_phase_link import _normalize_phase_key as _flow_phase_norm
+
+    day_to_phase, _phase_order = _control_flow_day_phase_context(db, int(exercise_id))
+
     for action_row in (
         db.query(ExercisePlannerFlowBundleActionEval)
         .join(ExercisePlannerFlowBundle)
@@ -2252,7 +2311,19 @@ def _phase_summary_for_control_report(
             continue
         rows = _parse_saved_eval_rows(getattr(canon, "payload_json", None))
         uk = (getattr(bundle, "unit_level_key", None) or "").strip()
-        ph = _control_report_effective_phase_key(getattr(bundle, "exercise_phase", None))
+        day_id = ""
+        node_id = parse_action_eval_storage_relpath(action_row.file_relpath)
+        if node_id:
+            node = db.get(InformationBankTreeNode, int(node_id))
+            if node is not None:
+                day_id = (_flow_day_id_for_node(db, node) or "").strip()
+        ph = ""
+        if day_id and day_to_phase.get(day_id):
+            ph = _control_report_effective_phase_key(
+                _flow_phase_norm(day_to_phase.get(day_id))
+            )
+        if not ph:
+            ph = _control_report_effective_phase_key(getattr(bundle, "exercise_phase", None))
         if uk and ph:
             _accumulate(uk, ph, rows)
 

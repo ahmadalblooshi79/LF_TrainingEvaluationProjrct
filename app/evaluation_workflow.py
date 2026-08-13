@@ -294,7 +294,7 @@ def evaluation_unit_home_totals(unit_rows: list[dict]) -> dict[str, int]:
 
 
 def judge_action_eval_unit_home_rows(groups: list[dict]) -> list[dict]:
-    """صفوف مستويات الوحدات — قوائم تقييم الإجراءات المنشورة فقط."""
+    """صفوف مستويات الوحدات — فقط الوحدات التي لها قوائم منشورة."""
     rows: list[dict] = []
     for g in groups:
         uk = (g.get("unit_key") or "").strip()
@@ -306,6 +306,8 @@ def judge_action_eval_unit_home_rows(groups: list[dict]) -> list[dict]:
                 total += 1
                 if not row.get("status_done"):
                     not_done += 1
+        if total <= 0:
+            continue
         rows.append(
             {
                 "key": uk,
