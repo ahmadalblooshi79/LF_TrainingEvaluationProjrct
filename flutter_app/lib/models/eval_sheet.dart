@@ -217,9 +217,31 @@ class EvalSheetDetail {
       }
     }
 
-    final locallyApproved = json['locally_approved'] == true;
-    final isApproved = json['is_approved'] == true || locallyApproved;
-    final canEdit = json['can_edit'] == true && !isApproved;
+    final workflow = EvalWorkflow.fromJson(
+      json['workflow'] is Map
+          ? Map<String, dynamic>.from(json['workflow'] as Map)
+          : null,
+    );
+    // السيرفر بعد الإعادة يبقي is_approved=true مع can_edit=true حتى يحفظ المحكم.
+    // نثق بأعلام can_edit/can_approve من السيرفر؛ الاعتماد المحلي فقط يقفل قبل الإعادة.
+    final reopened = workflow.reopened;
+    final locallyApproved =
+        json['locally_approved'] == true && !reopened;
+    final serverCanEdit = json['can_edit'] == true;
+    final serverCanApprove = json['can_approve'] == true;
+    final bool canEdit;
+    final bool canApprove;
+    final bool isApproved;
+    if (locallyApproved) {
+      canEdit = false;
+      canApprove = false;
+      isApproved = true;
+    } else {
+      canEdit = serverCanEdit;
+      canApprove = serverCanApprove;
+      // واجهة «معتمد ومقفول» فقط عندما لا يُسمح بالتعديل
+      isApproved = json['is_approved'] == true && !canEdit;
+    }
     return EvalSheetDetail(
       kind: (json['kind'] ?? '').toString(),
       slot: (json['slot'] as num?)?.toInt(),
@@ -236,15 +258,11 @@ class EvalSheetDetail {
           .toList(),
       savedRows: editable,
       canEdit: canEdit,
-      canApprove: json['can_approve'] == true && !isApproved,
+      canApprove: canApprove,
       isApproved: isApproved,
       locallyApproved: locallyApproved,
       approvalSyncStatus: (json['approval_sync_status'] ?? '').toString(),
-      workflow: EvalWorkflow.fromJson(
-        json['workflow'] is Map
-            ? Map<String, dynamic>.from(json['workflow'] as Map)
-            : null,
-      ),
+      workflow: workflow,
     );
   }
 }

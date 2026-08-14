@@ -14,6 +14,7 @@ from app.models.user import RoleKey
 from app.permissions import (
     can_access_chief_judge_hub,
     can_access_judge_hub,
+    can_view_notifications_log,
     is_system_admin,
 )
 from app.unit_levels_catalog import label_for_unit_level_key
@@ -214,6 +215,10 @@ def _serialize_user_bundle(user: User, ex: Exercise | None) -> dict:
             "trained_unit": (ex.trained_unit or "").strip(),
             "mission_label": (ex.mission_label or "").strip(),
             "exercise_type_level_text": (ex.exercise_type_level_text or "").strip(),
+            "exercise_purpose": (getattr(ex, "exercise_purpose", None) or "").strip(),
+            "exercise_participants": (getattr(ex, "exercise_participants", None) or "").strip(),
+            "general_idea_text": (getattr(ex, "general_idea_text", None) or "").strip(),
+            "specific_idea_text": (getattr(ex, "specific_idea_text", None) or "").strip(),
         },
         "unit_key": uk,
         "unit_label": label_for_unit_level_key(uk, db=g.db) if uk else "",
@@ -233,6 +238,7 @@ def _as_text(v) -> str:
 
 
 def _safe_row(r: dict) -> dict:
+    dispatch = _as_text(r.get("dispatch_label") or r.get("workflow_label") or "")
     return {
         "id": r.get("item_id") or r.get("slot_id") or r.get("slot_index") or r.get("id"),
         "slot_index": r.get("slot_index"),
@@ -242,7 +248,7 @@ def _safe_row(r: dict) -> dict:
         "date": _as_text(r.get("dt") or r.get("date") or ""),
         "seq": r.get("seq") or r.get("sort_order") or "",
         "grade_label": _as_text(r.get("grade_label") or ""),
-        "delivery_dt": _as_text(r.get("delivery_dt") or r.get("dispatch_label") or ""),
+        "delivery_dt": _as_text(r.get("delivery_dt") or ""),
         "status_done": bool(r.get("status_done")),
         "status_label": _as_text(
             r.get("status_label") or ("منجز" if r.get("status_done") else "غير منجز")
@@ -264,7 +270,9 @@ def _safe_row(r: dict) -> dict:
             )
         ),
         "open_href": _as_text(r.get("open_href") or ""),
-        "workflow_label": _as_text(r.get("workflow_label") or ""),
+        "workflow_label": dispatch,
+        "dispatch_label": dispatch,
+        "row_tone": _as_text(r.get("row_tone") or ""),
         "dilemma_no": r.get("dilemma_no"),
         "node_id": r.get("node_id"),
     }
@@ -612,8 +620,10 @@ def tablet_action_eval_detail(user: User, slot: int):
             "can_approve": bool(wf.get("show_eval_approve")),
             "is_approved": bool(wf.get("saved_is_approved")),
             "workflow": {
-                "label": wf.get("workflow_label") or "",
-                "reopened": bool(wf.get("eval_reopened")),
+                "label": (wf.get("eval_workflow_label") or wf.get("workflow_label") or ""),
+                "reopened": bool(
+                    wf.get("saved_reopened_for_judge") or wf.get("eval_reopened")
+                ),
             },
         }
     )
@@ -901,8 +911,10 @@ def tablet_evaluation_list_detail(user: User, unit_key: str, item_id: int):
             "can_approve": bool(wf.get("show_eval_approve")),
             "is_approved": bool(wf.get("saved_is_approved")),
             "workflow": {
-                "label": wf.get("workflow_label") or "",
-                "reopened": bool(wf.get("eval_reopened")),
+                "label": (wf.get("eval_workflow_label") or wf.get("workflow_label") or ""),
+                "reopened": bool(
+                    wf.get("saved_reopened_for_judge") or wf.get("eval_reopened")
+                ),
             },
         }
     )
@@ -1249,3 +1261,239 @@ def tablet_media_upload(user: User):
         except Exception:
             pass
     return resp
+
+
+@bp.get("/library")
+@_require_judge_json
+def tablet_library(user: User):
+    """مكتبة النظام — قراءة فقط (نفس تبويبات/شجرة صفحة المكتبة)."""
+    from app.library_tree import LIBRARY_TAB_SPECS, LIBRARY_TREE_KINDS, build_tree_payload
+
+    trees = {kind: build_tree_payload(g.db, kind) for kind in LIBRARY_TREE_KINDS}
+    tabs = [
+        {"tab_id": tab_id, "kind": kind, "title": title}
+        for tab_id, kind, title in LIBRARY_TAB_SPECS
+    ]
+    return jsonify({"ok": True, "tabs": tabs, "trees": trees, "readonly": True})
+
+
+@bp.get("/library/nodes/<int:node_id>/file")
+@_require_judge_json
+def tablet_library_file(user: User, node_id: int):
+    """تنزيل/عرض ملف من المكتبة (جلسة التابلت)."""
+    from flask import send_file
+
+    from app.library_tree import is_library_tree_kind, node_file_abspath
+    from app.models.domain import InformationBankTreeNode
+    from app.views import _mimetype_info_bank_event_flow
+
+    row = g.db.get(InformationBankTreeNode, node_id)
+    if row is None or row.is_folder or not is_library_tree_kind(row.kind):
+        return _json_error("الملف غير موجود", 404)
+    if not (row.file_relpath or "").strip():
+        return _json_error("الملف غير موجود", 404)
+    path = node_file_abspath(row.kind, row.file_relpath)
+    if path is None:
+        return _json_error("الملف غير موجود على القرص", 404)
+    low = path.name.lower()
+    if low.endswith((".xlsx", ".xlsm")):
+        mt = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif low.endswith(".docx"):
+        mt = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    elif low.endswith(".doc"):
+        mt = "application/msword"
+    else:
+        try:
+            mt = _mimetype_info_bank_event_flow(path)
+        except Exception:
+            mt = "application/octet-stream"
+    return send_file(path, mimetype=mt, as_attachment=False, download_name=path.name)
+
+
+@bp.get("/notifications")
+@_require_judge_json
+def tablet_notifications(user: User):
+    """سجل الإشعارات — نفس نطاق صفحة النظام، مع تعليم مقروء."""
+    from sqlalchemy import desc
+
+    from app.models.domain import ExerciseNotification
+    from app.views import _notifications_scope_exercise
+
+    if not can_view_notifications_log(user):
+        return _json_error("غير مصرح", 403)
+    ex = _notifications_scope_exercise(g.db, user)
+    rows: list = []
+    if ex is not None:
+        rows = (
+            g.db.query(ExerciseNotification)
+            .filter(
+                ExerciseNotification.user_id == int(user.id),
+                ExerciseNotification.exercise_id == int(ex.id),
+            )
+            .order_by(desc(ExerciseNotification.created_at), desc(ExerciseNotification.id))
+            .limit(500)
+            .all()
+        )
+
+    def _type_label(t: str) -> str:
+        return {
+            "message": "رسالة",
+            "meeting": "اجتماع",
+            "document": "وثيقة / ملف",
+            "task": "مهمة",
+        }.get((t or "").strip(), "نظام")
+
+    def _prio_label(p: str) -> str:
+        return {
+            "urgent": "عاجل",
+            "important": "مهم",
+        }.get((p or "").strip(), "عادي")
+
+    items = []
+    for n in rows:
+        items.append(
+            {
+                "id": int(n.id),
+                "type": (n.type or "").strip() or "system",
+                "type_label": _type_label(n.type or ""),
+                "title": (n.title or "").strip(),
+                "body": (n.body or "").strip(),
+                "priority": (n.priority or "").strip() or "normal",
+                "priority_label": _prio_label(n.priority or ""),
+                "created_at": n.created_at.strftime("%Y-%m-%d %H:%M") if n.created_at else "",
+                "is_read": bool(n.is_read),
+                "action_url": (n.action_url or "").strip(),
+            }
+        )
+    return jsonify(
+        {
+            "ok": True,
+            "has_exercise": ex is not None,
+            "exercise_id": int(ex.id) if ex else None,
+            "notifications": items,
+            "unread_count": sum(1 for i in items if not i["is_read"]),
+        }
+    )
+
+
+@bp.post("/notifications/<int:nid>/read")
+@_require_judge_json
+def tablet_notification_read(user: User, nid: int):
+    from app.models.domain import ExerciseNotification
+    from app.views import _notifications_scope_exercise
+
+    if not can_view_notifications_log(user):
+        return _json_error("غير مصرح", 403)
+    ex = _notifications_scope_exercise(g.db, user)
+    if ex is None:
+        return _json_error("لا يوجد تمرين", 400)
+    row = g.db.get(ExerciseNotification, nid)
+    if (
+        row
+        and int(row.user_id) == int(user.id)
+        and int(row.exercise_id) == int(ex.id)
+    ):
+        row.is_read = True
+        g.db.add(row)
+        g.db.commit()
+        return jsonify({"ok": True, "id": int(nid), "is_read": True})
+    return _json_error("الإشعار غير موجود", 404)
+
+
+@bp.post("/notifications/read-all")
+@_require_judge_json
+def tablet_notifications_read_all(user: User):
+    from app.models.domain import ExerciseNotification
+    from app.views import _notifications_scope_exercise
+
+    if not can_view_notifications_log(user):
+        return _json_error("غير مصرح", 403)
+    ex = _notifications_scope_exercise(g.db, user)
+    if ex is None:
+        return jsonify({"ok": True, "updated": 0})
+    q = g.db.query(ExerciseNotification).filter(
+        ExerciseNotification.user_id == int(user.id),
+        ExerciseNotification.exercise_id == int(ex.id),
+        ExerciseNotification.is_read.is_(False),
+    )
+    updated = 0
+    for row in q.all():
+        row.is_read = True
+        g.db.add(row)
+        updated += 1
+    g.db.commit()
+    return jsonify({"ok": True, "updated": updated})
+
+
+@bp.get("/exercise-details")
+@_require_judge_json
+def tablet_exercise_details(user: User):
+    """معلومات التمرين — قراءة فقط بنفس أقسام صفحة النظام."""
+    from sqlalchemy.orm import joinedload
+
+    from app.exercise_text_format import split_idea_paragraphs
+    from app.views import _EXERCISE_WORKSPACE_TABS, _exercise_type_level_display_text
+
+    ex = _exercise_for(user)
+    if ex is None:
+        return _json_error("لا يوجد تمرين حالي", 404)
+    ex = (
+        g.db.query(Exercise)
+        .options(joinedload(Exercise.objectives))
+        .filter(Exercise.id == int(ex.id))
+        .first()
+    )
+    if ex is None:
+        return _json_error("لا يوجد تمرين حالي", 404)
+
+    objectives = [
+        {
+            "id": int(o.id),
+            "text": (o.text or "").strip(),
+            "sort_order": int(o.sort_order or 0),
+        }
+        for o in sorted(
+            ex.objectives or [], key=lambda x: (int(x.sort_order or 0), int(x.id))
+        )
+        if (o.text or "").strip()
+    ]
+    period = ""
+    if ex.planned_start or ex.planned_end:
+        ps = ex.planned_start.strftime("%d-%m-%Y") if ex.planned_start else "—"
+        pe = ex.planned_end.strftime("%d-%m-%Y") if ex.planned_end else "—"
+        period = f"من {ps} إلى {pe}"
+
+    return jsonify(
+        {
+            "ok": True,
+            "readonly": True,
+            "tabs": [{"key": k, "label": lab} for k, lab in _EXERCISE_WORKSPACE_TABS],
+            "exercise": {
+                "id": int(ex.id),
+                "name": (ex.title or "").strip(),
+                "code": (ex.code or "").strip(),
+                "trained_unit": (ex.trained_unit or "").strip(),
+                "location": (ex.location_label or "").strip(),
+                "type_label": (ex.exercise_type or "").strip(),
+                "level_label": (ex.exercise_level or "").strip(),
+                "period_label": period or _period_label(ex),
+                "mission_label": (ex.mission_label or "").strip(),
+                "exercise_purpose": (getattr(ex, "exercise_purpose", None) or "").strip(),
+                "exercise_participants": (
+                    getattr(ex, "exercise_participants", None) or ""
+                ).strip(),
+                "exercise_type_level_text": _exercise_type_level_display_text(ex),
+                "general_idea_paragraphs": split_idea_paragraphs(
+                    getattr(ex, "general_idea_text", None) or ""
+                ),
+                "specific_idea_paragraphs": split_idea_paragraphs(
+                    getattr(ex, "specific_idea_text", None) or ""
+                ),
+                "objectives": objectives,
+                "has_map": bool((getattr(ex, "map_image_relpath", None) or "").strip()),
+                "has_program": bool(
+                    (getattr(ex, "program_table_json", None) or "").strip()
+                ),
+            },
+        }
+    )

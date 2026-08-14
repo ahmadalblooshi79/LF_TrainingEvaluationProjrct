@@ -387,36 +387,34 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
         Expanded(
           child: StickyEvalScaffold(
             minTableWidth: 980,
-            columnHeader: const TableHeaderRow(
-              cells: [
-                TableHeaderCell('ت', flex: 1),
-                TableHeaderCell('عناصر التقييم القيادي والعملياتي', flex: 5),
-                TableHeaderCell('العلامة القصوى', flex: 2),
-                TableHeaderCell('المكتسبة', flex: 2),
-                TableHeaderCell('النسبة', flex: 2),
-                TableHeaderCell('النتيجة', flex: 2),
-                TableHeaderCell('التوثيق', flex: 2),
-              ],
-            ),
+            columnHeader: const _EvalSheetColumnHeader(),
             rows: _rows.isEmpty
                 ? EmptyView(
                     message: 'تعذّر عرض بنود التقييم (${detail.evalRows.length} في القالب)',
                     icon: Icons.table_rows_outlined,
                   )
                 : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+                    padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
                     itemCount: _rows.length,
                     itemBuilder: (context, index) {
                       final input = _rows[index];
                       if (input.rowKind == 'section') {
                         return Container(
                           margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.all(12),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                           decoration: BoxDecoration(
-                            color: AppColors.gold.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(10),
+                            color: const Color(0xFFE8DFC8),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: const Color(0xFFD4CBB4)),
                           ),
-                          child: Text(input.element, style: AppTextStyles.subtitle),
+                          child: Text(
+                            input.element,
+                            style: AppTextStyles.cairo(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.olive,
+                            ),
+                          ),
                         );
                       }
                       return _CriterionRow(
@@ -453,8 +451,74 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
   }
 }
 
-/// One criterion as a flex table row (matches header columns — no fixed widths
-/// that overflow and vanish on tablet/web).
+/// عرض صف التقييم مطابق لواجهة النظام (الصورة المرجعية).
+class _EvalSheetCol {
+  static const double index = 42;
+  static const double metric = 78;
+  static const double docs = 52;
+  static const Color cardBorder = Color(0xFFD5CFC0);
+  static const Color notesFill = Color(0xFFEFECE4);
+  static const Color indexTint = Color(0xFFF7F2E6);
+  static const Color selectBorder = Color(0xFFC8C2B2);
+}
+
+class _EvalSheetColumnHeader extends StatelessWidget {
+  const _EvalSheetColumnHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    TextStyle style(double size) => AppTextStyles.cairo(
+          fontSize: size,
+          fontWeight: FontWeight.w700,
+          color: AppColors.white,
+        );
+    Widget metric(String label) => SizedBox(
+          width: _EvalSheetCol.metric,
+          child: Text(label, textAlign: TextAlign.center, style: style(11)),
+        );
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.tableHeader,
+        boxShadow: [
+          BoxShadow(color: AppColors.cardShadow, blurRadius: 3, offset: Offset(0, 1)),
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      child: Row(
+        children: [
+          SizedBox(
+            width: _EvalSheetCol.index,
+            child: Text('ت', textAlign: TextAlign.center, style: style(13)),
+          ),
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'عناصر التقييم القيادي والعملياتي',
+                    textAlign: TextAlign.center,
+                    style: style(13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                metric('العلامة القصوى'),
+                metric('المكتسبة'),
+                metric('النسبة'),
+                metric('النتيجة'),
+              ],
+            ),
+          ),
+          SizedBox(
+            width: _EvalSheetCol.docs,
+            child: Text('التوثيق', textAlign: TextAlign.center, style: style(12)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// صف بند تقييم — شكل مطابق للصورة المرجعية دون تغيير آلية الحفظ/الاعتماد.
 class _CriterionRow extends StatefulWidget {
   const _CriterionRow({
     required this.index,
@@ -561,172 +625,285 @@ class _CriterionRowState extends State<_CriterionRow> {
       displayAcquired = widget.input.acquired;
     }
 
+    final gradeLabel = widget.grade.trim().isEmpty || widget.grade == 'غير محسوب'
+        ? '—'
+        : widget.grade;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
       decoration: BoxDecoration(
         color: AppColors.cardWhite,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.divider),
-        boxShadow: const [BoxShadow(color: AppColors.cardShadow, blurRadius: 4, offset: Offset(0, 1))],
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: _EvalSheetCol.cardBorder),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 3,
+            offset: Offset(0, 1),
+          ),
+        ],
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            flex: 1,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 6),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // ت
+            Container(
+              width: _EvalSheetCol.index,
+              alignment: Alignment.topCenter,
+              padding: const EdgeInsets.only(top: 14),
+              decoration: const BoxDecoration(
+                color: _EvalSheetCol.indexTint,
+                border: Border(
+                  left: BorderSide(color: _EvalSheetCol.cardBorder),
+                ),
+              ),
               child: Text(
                 '${widget.index + 1}',
                 textAlign: TextAlign.center,
-                style: AppTextStyles.cairo(fontWeight: FontWeight.w800),
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 5,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(widget.input.element, style: AppTextStyles.body),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _notesCtrl,
-                  enabled: widget.canEdit,
-                  minLines: 1,
-                  maxLines: 3,
-                  style: AppTextStyles.small,
-                  decoration: InputDecoration(
-                    hintText: 'اكتب ملاحظاتك هنا (اختياري)',
-                    filled: true,
-                    fillColor: AppColors.headerCream,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                  onChanged: widget.onNotesChanged,
+                style: AppTextStyles.cairo(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.darkText,
                 ),
-              ],
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                widget.input.maxVal.isEmpty ? '—' : widget.input.maxVal,
-                textAlign: TextAlign.center,
-                style: AppTextStyles.small,
               ),
             ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Material(
-                color: AppColors.headerCream,
-                borderRadius: BorderRadius.circular(8),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: widget.canEdit ? _pickScore : null,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+            // عنصر + مقاييس + ملاحظات تحتها بعرض المنطقة الوسطى
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        Flexible(
+                        Expanded(
                           child: Text(
-                            displayAcquired,
-                            textAlign: TextAlign.center,
-                            style: AppTextStyles.small,
-                            overflow: TextOverflow.ellipsis,
+                            widget.input.element,
+                            style: AppTextStyles.cairo(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w500,
+                              height: 1.35,
+                            ),
                           ),
                         ),
-                        if (widget.canEdit)
-                          const Icon(Icons.arrow_drop_down, size: 18, color: AppColors.olive),
+                        SizedBox(
+                          width: _EvalSheetCol.metric,
+                          child: Text(
+                            widget.input.maxVal.isEmpty ? '—' : widget.input.maxVal,
+                            textAlign: TextAlign.center,
+                            style: AppTextStyles.cairo(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        SizedBox(
+                          width: _EvalSheetCol.metric,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: Material(
+                              color: AppColors.cardWhite,
+                              borderRadius: BorderRadius.circular(6),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(6),
+                                onTap: widget.canEdit ? _pickScore : null,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 7,
+                                    horizontal: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: _EvalSheetCol.selectBorder,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          displayAcquired,
+                                          textAlign: TextAlign.center,
+                                          style: AppTextStyles.cairo(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      if (widget.canEdit)
+                                        const Icon(
+                                          Icons.keyboard_arrow_down,
+                                          size: 18,
+                                          color: AppColors.muted,
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        SizedBox(
+                          width: _EvalSheetCol.metric,
+                          child: Text(
+                            widget.percent == null
+                                ? '—'
+                                : '${widget.percent!.round()}%',
+                            textAlign: TextAlign.center,
+                            style: AppTextStyles.cairo(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        SizedBox(
+                          width: _EvalSheetCol.metric,
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 5,
+                                horizontal: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.resultBlueBg,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Text(
+                                gradeLabel,
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTextStyles.cairo(
+                                  fontSize: 12,
+                                  color: AppColors.resultBlue,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _notesCtrl,
+                      enabled: widget.canEdit,
+                      minLines: 1,
+                      maxLines: 2,
+                      style: AppTextStyles.cairo(fontSize: 12.5),
+                      decoration: InputDecoration(
+                        hintText: 'اكتب ملاحظاتك هنا (اختياري)',
+                        hintStyle: AppTextStyles.cairo(
+                          fontSize: 12.5,
+                          color: AppColors.muted,
+                        ),
+                        filled: true,
+                        fillColor: _EvalSheetCol.notesFill,
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(6),
+                          borderSide: BorderSide.none,
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(6),
+                          borderSide: BorderSide.none,
+                        ),
+                        disabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(6),
+                          borderSide: BorderSide.none,
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(6),
+                          borderSide: const BorderSide(
+                            color: AppColors.goldBorder,
+                            width: 1,
+                          ),
+                        ),
+                      ),
+                      onChanged: widget.onNotesChanged,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            // التوثيق — أزرار عمودية كما في الصورة
+            Container(
+              width: _EvalSheetCol.docs,
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              decoration: const BoxDecoration(
+                border: Border(
+                  right: BorderSide(color: _EvalSheetCol.cardBorder),
+                ),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _DocBtn(
+                    icon: Icons.camera_alt_outlined,
+                    enabled: widget.canEdit,
+                    onTap: () => widget.onCapture(false),
                   ),
-                ),
+                  const SizedBox(height: 6),
+                  _DocBtn(
+                    icon: Icons.videocam_outlined,
+                    enabled: widget.canEdit,
+                    onTap: () => widget.onCapture(true),
+                  ),
+                  if (widget.input.localMediaPaths.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '${widget.input.localMediaPaths.length}',
+                      style: AppTextStyles.cairo(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.goldDark,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                widget.percent == null ? '—' : '${widget.percent!.round()}%',
-                textAlign: TextAlign.center,
-                style: AppTextStyles.small,
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Container(
-              margin: const EdgeInsets.only(top: 4, left: 2, right: 2),
-              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-              decoration: BoxDecoration(
-                color: AppColors.resultBlueBg,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.resultBlue.withValues(alpha: 0.3)),
-              ),
-              child: Text(
-                widget.grade,
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTextStyles.cairo(
-                  fontSize: 12,
-                  color: AppColors.resultBlue,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (widget.canEdit)
-                  _DocBtn(icon: Icons.camera_alt_outlined, onTap: () => widget.onCapture(false)),
-                if (widget.canEdit)
-                  _DocBtn(icon: Icons.videocam_outlined, onTap: () => widget.onCapture(true)),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
 class _DocBtn extends StatelessWidget {
-  const _DocBtn({required this.icon, required this.onTap});
+  const _DocBtn({
+    required this.icon,
+    required this.onTap,
+    this.enabled = true,
+  });
   final IconData icon;
   final VoidCallback onTap;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2),
+    return Opacity(
+      opacity: enabled ? 1 : 0.45,
       child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(7),
         child: Container(
           width: 34,
           height: 34,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppColors.goldDark),
+            color: AppColors.cardWhite,
+            borderRadius: BorderRadius.circular(7),
+            border: Border.all(color: AppColors.goldDark, width: 1.2),
           ),
           child: Icon(icon, size: 17, color: AppColors.goldDark),
         ),

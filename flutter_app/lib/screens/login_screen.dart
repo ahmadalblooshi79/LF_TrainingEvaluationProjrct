@@ -14,7 +14,7 @@ import '../services/health_service.dart';
 import '../services/tablet_repository.dart';
 import '../theme/app_theme.dart';
 
-const String kDisplayedAppVersion = '2.4.0';
+const String kDisplayedAppVersion = '2.4.4';
 
 enum _ConnBadge { connected, offlineMode, unreachable }
 

@@ -41,6 +41,7 @@ class _EvaluationListsScreenState extends State<EvaluationListsScreen> {
         unitKey: unitKey ?? _unitKey,
         phase: phase ?? _phase,
       );
+      if (!mounted) return;
       setState(() {
         _data = r.data;
         _fromCache = r.fromCache;
@@ -48,6 +49,7 @@ class _EvaluationListsScreenState extends State<EvaluationListsScreen> {
         _phase = r.data.phaseKey;
       });
     } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -66,19 +68,32 @@ class _EvaluationListsScreenState extends State<EvaluationListsScreen> {
           ? const LoadingView()
           : _error != null
               ? ErrorView(message: _error!, onRetry: () => _load())
-              : _body(),
+              : RefreshIndicator(
+                  color: AppColors.goldDark,
+                  onRefresh: () => _load(),
+                  child: _body(),
+                ),
     );
   }
 
   Widget _body() {
     final data = _data;
-    if (data == null) return const EmptyView(message: 'لا توجد بيانات');
+    if (data == null) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: const [
+          SizedBox(height: 120),
+          EmptyView(message: 'لا توجد بيانات'),
+        ],
+      );
+    }
     final unitLabel = data.unitLevels
         .where((u) => u.key == (_unitKey ?? data.unitKey))
         .map((u) => u.label)
         .firstWhere((s) => s.isNotEmpty, orElse: () => data.unitKey);
 
-    return Column(
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
       children: [
         if (_fromCache) const CachedDataBanner(),
         Padding(
@@ -89,6 +104,18 @@ class _EvaluationListsScreenState extends State<EvaluationListsScreen> {
               'قوائم التقييم — ${unitLabel.isNotEmpty ? unitLabel : 'قيادة مجموعة اللواء'}',
               style: AppTextStyles.cairo(fontSize: 15, fontWeight: FontWeight.w800),
             ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Wrap(
+            spacing: 10,
+            runSpacing: 6,
+            children: const [
+              _LegendDot(color: Color(0xFFFFE0B2), label: 'بانتظار الإعتماد'),
+              _LegendDot(color: Color(0xFFC8E6C9), label: 'مرسل'),
+              _LegendDot(color: Color(0xFFFFCDD2), label: 'معاد للتعديل'),
+            ],
           ),
         ),
         if (data.unitLevels.length > 1)
@@ -121,39 +148,66 @@ class _EvaluationListsScreenState extends State<EvaluationListsScreen> {
               _load(phase: k);
             },
           ),
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-            child: FigmaPanel(
-              child: Column(
-                children: [
-                  const FigmaTableHeader(
-                    cells: [
-                      (label: 'ت', flex: 1),
-                      (label: 'قائمة التقييم', flex: 5),
-                      (label: 'التقرير العام', flex: 2),
-                      (label: 'توقيت التسليم', flex: 2),
-                      (label: 'الموقف', flex: 2),
-                      (label: 'فتح القائمة', flex: 2),
-                    ],
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+          child: FigmaPanel(
+            child: Column(
+              children: [
+                const FigmaTableHeader(
+                  cells: [
+                    (label: 'ت', flex: 1),
+                    (label: 'قائمة التقييم', flex: 4),
+                    (label: 'التقرير العام', flex: 2),
+                    (label: 'توقيت التسليم', flex: 2),
+                    (label: 'الموقف', flex: 2),
+                    (label: 'إرسال للاعتماد', flex: 2),
+                    (label: 'فتح', flex: 2),
+                  ],
+                ),
+                if (data.lists.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: EmptyView(message: 'لا توجد قوائم تقييم'),
+                  )
+                else
+                  ...List.generate(
+                    data.lists.length,
+                    (i) => _Row(
+                      index: i + 1,
+                      row: data.lists[i],
+                      unitKey: _unitKey ?? data.unitKey,
+                    ),
                   ),
-                  Expanded(
-                    child: data.lists.isEmpty
-                        ? const EmptyView(message: 'لا توجد قوائم تقييم')
-                        : ListView.builder(
-                            itemCount: data.lists.length,
-                            itemBuilder: (_, i) => _Row(
-                              index: i + 1,
-                              row: data.lists[i],
-                              unitKey: _unitKey ?? data.unitKey,
-                            ),
-                          ),
-                  ),
-                ],
-              ),
+              ],
             ),
           ),
         ),
+      ],
+    );
+  }
+}
+
+class _LegendDot extends StatelessWidget {
+  const _LegendDot({required this.color, required this.label});
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 14,
+          height: 14,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(3),
+            border: Border.all(color: AppColors.divider),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(label, style: AppTextStyles.cairo(fontSize: 11)),
       ],
     );
   }
@@ -165,28 +219,53 @@ class _Row extends StatelessWidget {
   final ListRow row;
   final String unitKey;
 
+  Color? get _rowBg {
+    switch (row.rowTone) {
+      case 'returned':
+        return const Color(0xFFFFCDD2);
+      case 'sent':
+        return const Color(0xFFC8E6C9);
+      case 'pending':
+        return const Color(0xFFFFE0B2);
+      default:
+        return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final itemId = row.itemId ?? (row.id is int ? row.id as int : int.tryParse('${row.id}'));
+    final itemId =
+        row.itemId ?? (row.id is int ? row.id as int : int.tryParse('${row.id}'));
     final uk = row.unitKey.isNotEmpty ? row.unitKey : unitKey;
     void open() {
       if (itemId == null) return;
       context.push('/evaluation-lists/$uk/$itemId', extra: row.title);
     }
 
+    final dispatch = row.displayDispatch;
+
     return InkWell(
       onTap: itemId == null ? null : open,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppColors.divider)),
+        decoration: BoxDecoration(
+          color: _rowBg,
+          border: const Border(bottom: BorderSide(color: AppColors.divider)),
         ),
         child: Row(
           children: [
-            Expanded(flex: 1, child: Text('$index', textAlign: TextAlign.center, style: AppTextStyles.small)),
             Expanded(
-              flex: 5,
-              child: Text(row.title, style: AppTextStyles.body, maxLines: 2, overflow: TextOverflow.ellipsis),
+              flex: 1,
+              child: Text('$index', textAlign: TextAlign.center, style: AppTextStyles.small),
+            ),
+            Expanded(
+              flex: 4,
+              child: Text(
+                row.title,
+                style: AppTextStyles.body,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             Expanded(
               flex: 2,
@@ -199,9 +278,7 @@ class _Row extends StatelessWidget {
             Expanded(
               flex: 2,
               child: Text(
-                row.deliveryDt.isNotEmpty
-                    ? row.deliveryDt
-                    : (row.statusDone ? '—' : 'لم يُرسل'),
+                row.deliveryDt.isNotEmpty ? row.deliveryDt : '—',
                 textAlign: TextAlign.center,
                 style: AppTextStyles.small,
               ),
@@ -213,13 +290,31 @@ class _Row extends StatelessWidget {
                   done: row.statusDone,
                   label: row.statusLabel.isNotEmpty
                       ? row.statusLabel
-                      : (row.statusDone ? 'منجز' : 'لم ينجز'),
+                      : (row.statusDone ? 'ينجز' : 'لم ينجز'),
                 ),
               ),
             ),
             Expanded(
               flex: 2,
-              child: Center(child: FigmaOpenButton(onPressed: itemId == null ? null : open)),
+              child: Center(
+                child: Text(
+                  dispatch.isNotEmpty ? dispatch : 'لم يُرسل',
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.cairo(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: row.rowTone == 'returned'
+                        ? AppColors.notDoneRed
+                        : AppColors.olive,
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              flex: 2,
+              child: Center(
+                child: FigmaOpenButton(onPressed: itemId == null ? null : open),
+              ),
             ),
           ],
         ),

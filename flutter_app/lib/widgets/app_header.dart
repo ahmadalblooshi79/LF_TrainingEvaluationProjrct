@@ -7,7 +7,8 @@ import '../services/sync_service.dart';
 import '../theme/app_theme.dart';
 import 'online_status_chip.dart';
 
-/// Figma shell header — brand | page title + judge | tools on far left (RTL).
+/// ترويسة التطبيق — الأدوات دائماً أقصى اليسار:
+/// خروج | Home | Back | إعدادات | مكتبة | تنبيهات | رسائل
 class AppHeader extends StatelessWidget implements PreferredSizeWidget {
   const AppHeader({
     super.key,
@@ -28,7 +29,6 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
   final bool showSettings;
   final bool showOnlineChip;
   final bool showUtilityActions;
-  /// Optional third brand line under system name (e.g. exercise short name).
   final String? brandLine3;
 
   @override
@@ -44,7 +44,9 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
             : (session?.user.fullName ?? ''))
         .trim();
 
-    final canPop = onBack != null || (Navigator.of(context).canPop());
+    final canPop = onBack != null || Navigator.of(context).canPop();
+    final loc = GoRouterState.of(context).matchedLocation;
+    final onHome = loc == '/home';
 
     return Material(
       color: AppColors.headerBar,
@@ -53,7 +55,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
         bottom: false,
         child: Container(
           height: 88,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: const BoxDecoration(
             border: Border(bottom: BorderSide(color: AppColors.divider, width: 1)),
           ),
@@ -62,12 +64,12 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
             children: [
               Image.asset(
                 'assets/images/uae_mod.png',
-                height: 56,
+                height: 52,
                 fit: BoxFit.contain,
                 errorBuilder: (_, __, ___) =>
-                    const Icon(Icons.shield, size: 44, color: AppColors.gold),
+                    const Icon(Icons.shield, size: 40, color: AppColors.gold),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Flexible(
                 flex: 3,
                 child: Column(
@@ -77,7 +79,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                     Text(
                       'التحكيم الذكي',
                       style: AppTextStyles.cairo(
-                        fontSize: 20,
+                        fontSize: 18,
                         fontWeight: FontWeight.w800,
                         color: AppColors.goldDark,
                       ),
@@ -87,7 +89,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                     Text(
                       'نظام إدارة التمارين',
                       style: AppTextStyles.cairo(
-                        fontSize: 12,
+                        fontSize: 11,
                         fontWeight: FontWeight.w600,
                         color: AppColors.olive,
                       ),
@@ -104,7 +106,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               Expanded(
                 flex: 4,
                 child: Column(
@@ -113,7 +115,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                     Text(
                       pageTitle,
                       style: AppTextStyles.cairo(
-                        fontSize: 18,
+                        fontSize: 17,
                         fontWeight: FontWeight.w800,
                         color: AppColors.olive,
                       ),
@@ -125,7 +127,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                       Text(
                         judgeName,
                         style: AppTextStyles.cairo(
-                          fontSize: 14,
+                          fontSize: 13,
                           fontWeight: FontWeight.w700,
                           color: AppColors.goldDark,
                         ),
@@ -137,7 +139,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                       Text(
                         unit,
                         style: AppTextStyles.cairo(
-                          fontSize: 12,
+                          fontSize: 11,
                           fontWeight: FontWeight.w600,
                           color: AppColors.muted,
                         ),
@@ -148,10 +150,9 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 6),
               if (showOnlineChip) ...[
-                const OnlineStatusChip(),
                 const SizedBox(width: 4),
+                const OnlineStatusChip(),
               ],
               ValueListenableBuilder<int>(
                 valueListenable: SyncService.instance.pendingCount,
@@ -168,27 +169,21 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                   );
                 },
               ),
-              // أقصى اليسار (نهاية الصف في RTL): رجوع بجانب الرسالة ثم الجرس فالمكتبة فالإعدادات فالخروج
-              if (canPop)
-                _SqIcon(
-                  icon: Icons.arrow_forward_ios,
-                  tooltip: 'رجوع',
-                  onTap: onBack ?? () => Navigator.of(context).maybePop(),
-                ),
+              // أقصى اليسار: ترتيب الصورة — رسائل ← تنبيهات ← مكتبة ← إعدادات ← رجوع ← رئيسية ← خروج
               if (showUtilityActions) ...[
                 _SqIcon(
                   icon: Icons.mail_outline,
-                  tooltip: 'الرسائل — تكليف مهمة خاصة',
+                  tooltip: 'الرسائل',
                   onTap: () => context.push('/messages'),
                 ),
                 _SqIcon(
                   icon: Icons.notifications_none,
-                  tooltip: 'التنبيهات والإشعارات',
+                  tooltip: 'سجل الإشعارات',
                   onTap: () => context.push('/notifications'),
                 ),
                 _SqIcon(
                   icon: Icons.menu_book_outlined,
-                  tooltip: 'المكتبة — التخطيط والسيطرة',
+                  tooltip: 'المكتبة',
                   onTap: () => context.push('/library'),
                 ),
               ],
@@ -197,6 +192,18 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                   icon: Icons.settings_outlined,
                   tooltip: 'الإعدادات',
                   onTap: () => context.push('/settings'),
+                ),
+              if (canPop)
+                _SqIcon(
+                  icon: Icons.arrow_forward,
+                  tooltip: 'رجوع',
+                  onTap: onBack ?? () => Navigator.of(context).maybePop(),
+                ),
+              if (!onHome)
+                _SqIcon(
+                  icon: Icons.home_outlined,
+                  tooltip: 'الصفحة الرئيسية',
+                  onTap: () => context.go('/home'),
                 ),
               if (showLogout)
                 Padding(

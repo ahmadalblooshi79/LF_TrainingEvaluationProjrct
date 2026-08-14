@@ -31,38 +31,79 @@ class TabletRepository {
   TabletRepository._internal();
   static final TabletRepository instance = TabletRepository._internal();
 
-  /// قراءة محلية أولاً؛ إن وُجدت تُعاد فوراً مع تحديث خلفي عند توفر السيرفر.
+  /// عند توفر السيرفر: جلب حيّ أولاً (لتوافق الإشعارات وإعادة القوائم).
+  /// عند الانقطاع فقط: إرجاع الكاش المحلي.
   Future<Fetched<Map<String, dynamic>>> _readLocalFirst(
     String path,
     String cacheKey, {
     Map<String, dynamic>? query,
   }) async {
     final local = await OfflineStore.instance.cacheGet(cacheKey);
-    if (local != null) {
-      if (HealthService.instance.serverReachable.value) {
-        unawaited(_refreshIntoCache(path, cacheKey, query: query));
+    final reachable = await HealthService.instance.check();
+
+    if (reachable) {
+      try {
+        final data = await ApiClient.instance.get(path, query: query);
+        final status = await OfflineStore.instance.cacheSyncStatus(cacheKey);
+        final existing = await OfflineStore.instance.cacheGet(cacheKey);
+        final serverReopened = _sheetReopenedOnServer(data);
+        // إعادة كبير المحكمين من السيرفر تلغي قفل الاعتماد المحلي القديم
+        if (serverReopened && existing != null) {
+          final merged = Map<String, dynamic>.from(data);
+          merged['locally_approved'] = false;
+          merged['locally_modified'] = existing['locally_modified'] == true;
+          if (existing['locally_modified'] == true &&
+              existing['saved_payload'] is Map) {
+            // أبقِ تعديلات الصفوف المحلية غير المتزامنة فوق حمولة السيرفر
+            merged['saved_payload'] = existing['saved_payload'];
+            if (existing['saved_rows'] != null) {
+              merged['saved_rows'] = existing['saved_rows'];
+            }
+          }
+          await OfflineStore.instance.cacheSet(
+            cacheKey,
+            merged,
+            syncStatus: existing['locally_modified'] == true
+                ? SyncStatuses.pending
+                : SyncStatuses.synced,
+          );
+          return Fetched(merged, false);
+        }
+        final hasLocalEdits = status == SyncStatuses.pending ||
+            status == SyncStatuses.failed ||
+            (existing != null &&
+                (existing['locally_modified'] == true ||
+                    existing['locally_approved'] == true));
+        if (!hasLocalEdits) {
+          await OfflineStore.instance.cacheSet(cacheKey, data);
+          return Fetched(Map<String, dynamic>.from(data), false);
+        }
+        // تعديلات معلّقة محلياً: أبقِ الكاش لكن لا تُظهر بانر «بدون اتصال»
+        return Fetched(
+          Map<String, dynamic>.from(existing ?? data),
+          false,
+        );
+      } catch (_) {
+        if (local != null) {
+          return Fetched(Map<String, dynamic>.from(local), true);
+        }
+        rethrow;
       }
-      return Fetched(Map<String, dynamic>.from(local), true);
     }
 
-    // لا بيانات محلية: محاولة تنزيل مرة واحدة إن كان السيرفر متاحاً
-    final reachable = await HealthService.instance.check();
-    if (!reachable) {
-      throw ApiOfflineException(
-        'لا توجد بيانات محلية لهذه الشاشة — اتصل بالخادم مرة واحدة للتنزيل',
-      );
+    if (local != null) {
+      return Fetched(Map<String, dynamic>.from(local), true);
     }
-    try {
-      final data = await ApiClient.instance.get(path, query: query);
-      await OfflineStore.instance.cacheSet(cacheKey, data);
-      return Fetched(data, false);
-    } on ApiOfflineException {
-      rethrow;
-    } on ApiException {
-      rethrow;
-    } catch (_) {
-      throw ApiOfflineException();
-    }
+    throw ApiOfflineException(
+      'لا توجد بيانات محلية لهذه الشاشة — اتصل بالخادم مرة واحدة للتنزيل',
+    );
+  }
+
+  /// هل أعلن السيرفر إعادة القائمة للمحكم؟
+  bool _sheetReopenedOnServer(Map<String, dynamic> data) {
+    final wf = data['workflow'];
+    if (wf is Map && wf['reopened'] == true) return true;
+    return false;
   }
 
   Future<void> _refreshIntoCache(
@@ -72,6 +113,28 @@ class TabletRepository {
   }) async {
     try {
       final data = await ApiClient.instance.get(path, query: query);
+      if (_sheetReopenedOnServer(data)) {
+        final existing = await OfflineStore.instance.cacheGet(cacheKey);
+        final merged = Map<String, dynamic>.from(data);
+        merged['locally_approved'] = false;
+        if (existing != null &&
+            existing['locally_modified'] == true &&
+            existing['saved_payload'] is Map) {
+          merged['locally_modified'] = true;
+          merged['saved_payload'] = existing['saved_payload'];
+          if (existing['saved_rows'] != null) {
+            merged['saved_rows'] = existing['saved_rows'];
+          }
+          await OfflineStore.instance.cacheSet(
+            cacheKey,
+            merged,
+            syncStatus: SyncStatuses.pending,
+          );
+        } else {
+          await OfflineStore.instance.cacheSet(cacheKey, merged);
+        }
+        return;
+      }
       // لا تستبدل تعديلات محلية معلّقة بمزامنة
       final status = await OfflineStore.instance.cacheSyncStatus(cacheKey);
       if (status == SyncStatuses.pending || status == SyncStatuses.failed) {
