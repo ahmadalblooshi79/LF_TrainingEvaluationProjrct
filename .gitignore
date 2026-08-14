@@ -19,14 +19,18 @@ _transcript_snippets.txt
 app/static/images/
 !app/static/images/crests/
 !app/static/images/crests/**
-# مخرجات بناء Setup — لا تُرفع (مع الإبقاء على ملفات APK)
+# مخرجات بناء Setup — لا تُرفع (مع الإبقاء على APK المحكمين وPWA)
 dist/*
 !dist/*.apk
+!dist/tablet_pwa/
+!dist/tablet_pwa/**
 build/
 *.spec
 packaging/*.7z
 packaging/advanced_installer/*.aip
-packaging/staging/# Flutter
+packaging/staging/
+
+# Flutter
 flutter_app/.dart_tool/
 flutter_app/.flutter-plugins
 flutter_app/.flutter-plugins-dependencies
