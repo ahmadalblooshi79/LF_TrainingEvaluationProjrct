@@ -14,3 +14,7 @@
 - ملف بيانات SQLite الافتراضي: `exercises.db` في جذر المشروع.
 - عند تعديل `style.css` رفع `?v=…` في `app/templates/base.html` لكسر كاش المتصفح.
 - **سكربتات البناء (PowerShell/BAT)**: رسائل الطرفية بالإنجليزية فقط — العربية تظهر معكوسة/مشوهة في PowerShell على Windows.
+- **تطبيق المحكم (Flutter)**: أي تحديث على `flutter_app/` (ميزات/إصلاحات واجهة التابلت) يجب أن يُنتج **كلاً من APK وPWA** في نفس الجلسة قبل اعتبار المهمة منتهية:
+  - PWA: `BUILD_PWA.bat` → `dist/tablet_pwa`
+  - APK: `BUILD_TABLET.bat` → `dist/judge-tablet-v*.apk`
+  - مواءمة رقم الإصدار في `flutter_app/pubspec.yaml` مع سكربت `BUILD_TABLET.bat` عند البناء.

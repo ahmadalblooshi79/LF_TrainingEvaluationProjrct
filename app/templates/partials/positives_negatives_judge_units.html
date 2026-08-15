@@ -1,0 +1,47 @@
+{# عرض قراءة فقط — إيجابيات/سلبيات من سجلات المحكمين #}
+{% if unit_summaries %}
+<div class="control-pn-units-stack" dir="rtl">
+  {% for u in unit_summaries %}
+  <section class="control-pn-unit-block" aria-label="{{ u.unit_label }}">
+    <header class="control-pn-unit-block__head">
+      <h2 class="control-pn-unit-block__title">{{ u.unit_label }}</h2>
+      <span class="control-pn-unit-block__meta">
+        إيجابيات {{ u.n_positives }} — سلبيات {{ u.n_negatives }}
+      </span>
+    </header>
+    <div class="control-pn-columns">
+      <section class="control-pn-panel control-pn-panel--positive" aria-label="إيجابيات {{ u.unit_label }}">
+        <h3><i class="fa-solid fa-thumbs-up" aria-hidden="true"></i> الإيجابيات</h3>
+        {% if u.positives %}
+        <ol class="control-pn-note-list control-pn-judge-list">
+          {% for item in u.positives %}
+          <li class="control-pn-note control-pn-note--positive">
+            <span class="control-pn-judge-text">{{ item.body }}</span>
+          </li>
+          {% endfor %}
+        </ol>
+        {% else %}
+        <p class="muted" style="margin:0;">لا توجد إيجابيات مسجّلة لهذه الوحدة.</p>
+        {% endif %}
+      </section>
+      <section class="control-pn-panel control-pn-panel--negative" aria-label="سلبيات {{ u.unit_label }}">
+        <h3><i class="fa-solid fa-thumbs-down" aria-hidden="true"></i> السلبيات</h3>
+        {% if u.negatives %}
+        <ol class="control-pn-note-list control-pn-judge-list">
+          {% for item in u.negatives %}
+          <li class="control-pn-note control-pn-note--negative">
+            <span class="control-pn-judge-text">{{ item.body }}</span>
+          </li>
+          {% endfor %}
+        </ol>
+        {% else %}
+        <p class="muted" style="margin:0;">لا توجد سلبيات مسجّلة لهذه الوحدة.</p>
+        {% endif %}
+      </section>
+    </div>
+  </section>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted" dir="rtl" style="margin:0;">لا توجد إيجابيات أو سلبيات مسجّلة من المحكمين بعد.</p>
+{% endif %}

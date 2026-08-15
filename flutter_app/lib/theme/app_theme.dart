@@ -76,9 +76,11 @@ class AppTextStyles {
 class AppTheme {
   AppTheme._();
 
-  static ThemeData light() {
+  static ThemeData light({bool compact = false}) {
     final base = ThemeData(
       useMaterial3: true,
+      visualDensity:
+          compact ? VisualDensity.compact : VisualDensity.standard,
       colorScheme: ColorScheme.fromSeed(
         seedColor: AppColors.gold,
         primary: AppColors.gold,
@@ -94,20 +96,46 @@ class AppTheme {
         backgroundColor: AppColors.headerBar,
         foregroundColor: AppColors.darkText,
         elevation: 0,
+        toolbarHeight: compact ? 48 : null,
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.gold,
           foregroundColor: AppColors.darkText,
-          textStyle: AppTextStyles.cairo(fontSize: 16, fontWeight: FontWeight.w700),
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+          textStyle: AppTextStyles.cairo(
+            fontSize: compact ? 14 : 16,
+            fontWeight: FontWeight.w700,
+          ),
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 14 : 22,
+            vertical: compact ? 10 : 14,
+          ),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      ),
+      listTileTheme: ListTileThemeData(
+        dense: compact,
+        visualDensity:
+            compact ? VisualDensity.compact : VisualDensity.standard,
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: compact ? 10 : 16,
+          vertical: compact ? 2 : 4,
+        ),
+      ),
+      cardTheme: CardThemeData(
+        margin: EdgeInsets.symmetric(
+          horizontal: compact ? 4 : 8,
+          vertical: compact ? 4 : 6,
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: AppColors.white,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        isDense: compact,
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: compact ? 10 : 14,
+          vertical: compact ? 10 : 12,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide.none,

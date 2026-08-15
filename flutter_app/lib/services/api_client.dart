@@ -163,6 +163,11 @@ class ApiClient {
               .put(uri, headers: headers, body: encodedBody)
               .timeout(effectiveTimeout);
           break;
+        case 'DELETE':
+          resp = await _http
+              .delete(uri, headers: headers)
+              .timeout(effectiveTimeout);
+          break;
         default:
           throw ApiException('طريقة غير مدعومة: $method');
       }
@@ -205,6 +210,54 @@ class ApiClient {
     return _send('GET', path, query: query, timeout: timeout);
   }
 
+  /// جلب بايتات ملف ثنائي (مثل PDF المكتبة) مع جلسة المصادقة.
+  Future<List<int>> getBytes(
+    String path, {
+    Map<String, dynamic>? query,
+    Duration? timeout,
+  }) async {
+    await init();
+    final uri = _uri(path, query);
+    final headers = await _headersFor(uri, json: false);
+    headers['Accept'] = '*/*';
+    final effectiveTimeout = timeout ?? const Duration(seconds: 90);
+    try {
+      final resp = await _http
+          .get(uri, headers: headers)
+          .timeout(effectiveTimeout);
+      await _saveCookies(uri, resp);
+      online.value = true;
+      if (resp.statusCode >= 200 && resp.statusCode < 300) {
+        return resp.bodyBytes;
+      }
+      if (resp.statusCode == 401) {
+        throw ApiException('غير مسجّل الدخول', status: 401);
+      }
+      throw ApiException('تعذّر فتح الملف (${resp.statusCode})',
+          status: resp.statusCode);
+    } on TimeoutException {
+      online.value = false;
+      throw ApiOfflineException('انتهت مهلة تحميل الملف');
+    } on ApiException {
+      rethrow;
+    } catch (e) {
+      if (io_env.isNetworkError(e)) {
+        online.value = false;
+        throw ApiOfflineException();
+      }
+      online.value = false;
+      throw ApiOfflineException();
+    }
+  }
+
+  /// مسار مطلق لملف على السيرفر (للعرض عبر iframe في الويب).
+  String absoluteUrl(String path) {
+    final base = _baseUrl.isEmpty ? Uri.base.origin : _baseUrl;
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    final p = path.startsWith('/') ? path : '/$path';
+    return '$base$p';
+  }
+
   Future<Map<String, dynamic>> post(
     String path, {
     Object? body,
@@ -230,6 +283,19 @@ class ApiClient {
       'PUT',
       path,
       body: body ?? const {},
+      idempotencyKey: idempotencyKey,
+      timeout: timeout,
+    );
+  }
+
+  Future<Map<String, dynamic>> delete(
+    String path, {
+    String? idempotencyKey,
+    Duration? timeout,
+  }) {
+    return _send(
+      'DELETE',
+      path,
       idempotencyKey: idempotencyKey,
       timeout: timeout,
     );
@@ -285,8 +351,60 @@ class ApiClient {
     }
   }
 
+  /// رفع جزء واحد من ملف وسائط (streaming من البايتات المحسوبة مسبقاً للجزء).
+  Future<Map<String, dynamic>> uploadMediaChunk({
+    required String uploadSessionId,
+    required String clientUuid,
+    required int chunkNumber,
+    required int totalChunks,
+    required String chunkChecksum,
+    required List<int> chunkBytes,
+  }) async {
+    await init();
+    final uri = _uri('/api/tablet/media/upload/chunk');
+    final headers = await _headersFor(uri, json: false);
+    final req = http.MultipartRequest('POST', uri);
+    req.headers.addAll(headers);
+    req.fields['upload_session_id'] = uploadSessionId;
+    req.fields['client_uuid'] = clientUuid;
+    req.fields['chunk_number'] = '$chunkNumber';
+    req.fields['total_chunks'] = '$totalChunks';
+    req.fields['chunk_checksum'] = chunkChecksum;
+    req.files.add(
+      http.MultipartFile.fromBytes(
+        'chunk',
+        chunkBytes,
+        filename: 'chunk_$chunkNumber.bin',
+      ),
+    );
+    try {
+      final streamed =
+          await req.send().timeout(const Duration(minutes: 10));
+      final resp = await http.Response.fromStream(streamed);
+      await _saveCookies(uri, resp);
+      online.value = true;
+      final data = await _decode(resp);
+      if (resp.statusCode >= 200 && resp.statusCode < 300) return data;
+      throw ApiException(
+        (data['error'] ?? 'فشل رفع الجزء').toString(),
+        status: resp.statusCode,
+      );
+    } on TimeoutException {
+      online.value = false;
+      throw ApiOfflineException();
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      online.value = false;
+      throw ApiOfflineException();
+    }
+  }
+
   Future<bool> ping({Duration timeout = const Duration(seconds: 3)}) async {
     try {
+      if (!isConfigured) {
+        online.value = false;
+        return false;
+      }
       await get('/api/tablet/health', timeout: timeout);
       return true;
     } catch (_) {

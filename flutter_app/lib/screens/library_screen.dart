@@ -4,6 +4,7 @@ import '../services/api_client.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_header.dart';
 import '../widgets/figma_ui.dart';
+import 'library_pdf_screen.dart';
 
 /// المكتبة — مطابقة لصفحة النظام (تبويبات + شجرة) — قراءة فقط.
 class LibraryScreen extends StatefulWidget {
@@ -296,11 +297,11 @@ class _TreeTileState extends State<_TreeTile> {
       ),
       onTap: n.hasFile
           ? () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'افتح الملف عبر السيرفر: /api/tablet/library/nodes/${n.id}/file',
-                    style: AppTextStyles.cairo(color: Colors.white),
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => LibraryPdfScreen(
+                    nodeId: n.id,
+                    title: n.name,
                   ),
                 ),
               );

@@ -50,6 +50,12 @@ class HealthService {
         lastCheckedAt.value = DateTime.now();
         return false;
       }
+      if (!ApiClient.instance.isConfigured) {
+        serverReachable.value = false;
+        ApiClient.instance.online.value = false;
+        lastCheckedAt.value = DateTime.now();
+        return false;
+      }
       final ok = await ApiClient.instance.ping(timeout: const Duration(seconds: 3));
       serverReachable.value = ok;
       ApiClient.instance.online.value = ok;

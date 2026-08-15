@@ -913,6 +913,50 @@ class EvaluationNote(Base):
     author = relationship("User", foreign_keys=[user_id])
 
 
+class JudgePolarityNote(Base):
+    """إيجابية أو سلبية يُدخلها المحكم (مستقلة عن ملاحظات المعايير)."""
+
+    __tablename__ = "judge_polarity_notes"
+    __table_args__ = (
+        Index("ix_judge_polarity_ex_user", "exercise_id", "judge_user_id"),
+        UniqueConstraint(
+            "judge_user_id",
+            "client_uuid",
+            name="uq_judge_polarity_user_client_uuid",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    client_uuid: Mapped[str] = mapped_column(String(120), default="", index=True)
+    exercise_id: Mapped[int] = mapped_column(
+        ForeignKey("exercises.id", ondelete="CASCADE"), index=True
+    )
+    judge_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    unit_level_key: Mapped[str] = mapped_column(String(64), default="", index=True)
+    judge_label: Mapped[str] = mapped_column(String(200), default="")
+    polarity: Mapped[str] = mapped_column(String(16), default="positive", index=True)
+    body: Mapped[str] = mapped_column(Text(), default="")
+    source_kind: Mapped[str] = mapped_column(String(32), default="general", index=True)
+    evaluation_list_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("evaluation_list_pdf_items.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    bundle_action_eval_id: Mapped[int | None] = mapped_column(
+        ForeignKey("exercise_planner_flow_bundle_action_evals.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    row_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    criterion_label: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
 class ChatRoomKind:
     """قيم مقترحة لعمود ``ChatRoom.room_kind`` (نص حر مع قيم مساعدة)."""
 

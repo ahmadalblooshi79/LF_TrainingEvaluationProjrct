@@ -13,6 +13,7 @@ class SyncStatuses {
   static const syncing = 'syncing';
   static const synced = 'synced';
   static const failed = 'failed';
+  static const conflict = 'conflict';
 }
 
 /// عملية معلقة للإرسال إلى السيرفر (Idempotent عبر [id]).
@@ -129,7 +130,7 @@ class PendingOp {
       PendingOp.fromRow(json);
 }
 
-/// ملف وسائط محفوظ محلياً بانتظار الرفع.
+/// ملف وسائط محفوظ محلياً بانتظار الرفع (Metadata فقط — الملف على القرص).
 class LocalMediaRecord {
   final String id;
   final String localPath;
@@ -142,6 +143,22 @@ class LocalMediaRecord {
   final String createdAt;
   final String? lastError;
   final String? sheetCacheKey;
+  final String? clientUuid;
+  final int? userId;
+  final String? militaryNumber;
+  final int? exerciseId;
+  final String? originalFilename;
+  final String? localFilename;
+  final String? mimeType;
+  final int fileSize;
+  final String? checksum;
+  final String? updatedAt;
+  final int uploadedBytes;
+  final int totalBytes;
+  final String? uploadSessionId;
+  final int attemptCount;
+  final String? lastAttemptAt;
+  final int? serverMediaId;
 
   const LocalMediaRecord({
     required this.id,
@@ -155,7 +172,70 @@ class LocalMediaRecord {
     required this.createdAt,
     this.lastError,
     this.sheetCacheKey,
+    this.clientUuid,
+    this.userId,
+    this.militaryNumber,
+    this.exerciseId,
+    this.originalFilename,
+    this.localFilename,
+    this.mimeType,
+    this.fileSize = 0,
+    this.checksum,
+    this.updatedAt,
+    this.uploadedBytes = 0,
+    this.totalBytes = 0,
+    this.uploadSessionId,
+    this.attemptCount = 0,
+    this.lastAttemptAt,
+    this.serverMediaId,
   });
+
+  LocalMediaRecord copyWith({
+    String? localPath,
+    String? syncStatus,
+    bool? serverConfirmed,
+    String? lastError,
+    String? checksum,
+    String? mimeType,
+    int? fileSize,
+    int? uploadedBytes,
+    int? totalBytes,
+    String? uploadSessionId,
+    int? attemptCount,
+    String? lastAttemptAt,
+    int? serverMediaId,
+    String? updatedAt,
+  }) {
+    return LocalMediaRecord(
+      id: id,
+      localPath: localPath ?? this.localPath,
+      rowIndex: rowIndex,
+      mediaKind: mediaKind,
+      evaluationListItemId: evaluationListItemId,
+      bundleActionEvalId: bundleActionEvalId,
+      syncStatus: syncStatus ?? this.syncStatus,
+      serverConfirmed: serverConfirmed ?? this.serverConfirmed,
+      createdAt: createdAt,
+      lastError: lastError ?? this.lastError,
+      sheetCacheKey: sheetCacheKey,
+      clientUuid: clientUuid,
+      userId: userId,
+      militaryNumber: militaryNumber,
+      exerciseId: exerciseId,
+      originalFilename: originalFilename,
+      localFilename: localFilename,
+      mimeType: mimeType ?? this.mimeType,
+      fileSize: fileSize ?? this.fileSize,
+      checksum: checksum ?? this.checksum,
+      updatedAt: updatedAt ?? this.updatedAt,
+      uploadedBytes: uploadedBytes ?? this.uploadedBytes,
+      totalBytes: totalBytes ?? this.totalBytes,
+      uploadSessionId: uploadSessionId ?? this.uploadSessionId,
+      attemptCount: attemptCount ?? this.attemptCount,
+      lastAttemptAt: lastAttemptAt ?? this.lastAttemptAt,
+      serverMediaId: serverMediaId ?? this.serverMediaId,
+    );
+  }
 
   Map<String, dynamic> toRow() => {
         'id': id,
@@ -169,6 +249,22 @@ class LocalMediaRecord {
         'created_at': createdAt,
         'last_error': lastError,
         'sheet_cache_key': sheetCacheKey,
+        'client_uuid': clientUuid ?? id,
+        'user_id': userId,
+        'military_number': militaryNumber,
+        'exercise_id': exerciseId,
+        'original_filename': originalFilename,
+        'local_filename': localFilename,
+        'mime_type': mimeType,
+        'file_size': fileSize,
+        'checksum': checksum,
+        'updated_at': updatedAt,
+        'uploaded_bytes': uploadedBytes,
+        'total_bytes': totalBytes,
+        'upload_session_id': uploadSessionId,
+        'attempt_count': attemptCount,
+        'last_attempt_at': lastAttemptAt,
+        'server_media_id': serverMediaId,
       };
 
   factory LocalMediaRecord.fromRow(Map<String, dynamic> row) {
@@ -184,6 +280,22 @@ class LocalMediaRecord {
       createdAt: (row['created_at'] as String?) ?? '',
       lastError: row['last_error'] as String?,
       sheetCacheKey: row['sheet_cache_key'] as String?,
+      clientUuid: row['client_uuid'] as String?,
+      userId: row['user_id'] as int?,
+      militaryNumber: row['military_number'] as String?,
+      exerciseId: row['exercise_id'] as int?,
+      originalFilename: row['original_filename'] as String?,
+      localFilename: row['local_filename'] as String?,
+      mimeType: row['mime_type'] as String?,
+      fileSize: (row['file_size'] as int?) ?? 0,
+      checksum: row['checksum'] as String?,
+      updatedAt: row['updated_at'] as String?,
+      uploadedBytes: (row['uploaded_bytes'] as int?) ?? 0,
+      totalBytes: (row['total_bytes'] as int?) ?? 0,
+      uploadSessionId: row['upload_session_id'] as String?,
+      attemptCount: (row['attempt_count'] as int?) ?? 0,
+      lastAttemptAt: row['last_attempt_at'] as String?,
+      serverMediaId: row['server_media_id'] as int?,
     );
   }
 }
@@ -213,13 +325,21 @@ class OfflineStore {
     final path = p.join(dbPath, 'tablet_offline.db');
     _db = await openDatabase(
       path,
-      version: 2,
+      version: 4,
       onCreate: (db, version) async {
         await _createV2(db);
+        await _upgradeToV3(db);
+        await _upgradeToV4(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           await _upgradeToV2(db);
+        }
+        if (oldVersion < 3) {
+          await _upgradeToV3(db);
+        }
+        if (oldVersion < 4) {
+          await _upgradeToV4(db);
         }
       },
     );
@@ -307,6 +427,175 @@ class OfflineStore {
         sheet_cache_key TEXT
       )
     ''');
+  }
+
+  Future<void> _upgradeToV3(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS local_users (
+        user_id INTEGER PRIMARY KEY,
+        username TEXT NOT NULL,
+        military_number TEXT,
+        password_hash TEXT NOT NULL,
+        session_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS device_meta (
+        meta_key TEXT PRIMARY KEY,
+        meta_value TEXT NOT NULL
+      )
+    ''');
+  }
+
+
+  Future<void> _upgradeToV4(Database db) async {
+    const cols = <String, String>{
+      'client_uuid': 'TEXT',
+      'user_id': 'INTEGER',
+      'military_number': 'TEXT',
+      'exercise_id': 'INTEGER',
+      'original_filename': 'TEXT',
+      'local_filename': 'TEXT',
+      'mime_type': 'TEXT',
+      'file_size': 'INTEGER NOT NULL DEFAULT 0',
+      'checksum': 'TEXT',
+      'updated_at': 'TEXT',
+      'uploaded_bytes': 'INTEGER NOT NULL DEFAULT 0',
+      'total_bytes': 'INTEGER NOT NULL DEFAULT 0',
+      'upload_session_id': 'TEXT',
+      'attempt_count': 'INTEGER NOT NULL DEFAULT 0',
+      'last_attempt_at': 'TEXT',
+      'server_media_id': 'INTEGER',
+    };
+    for (final e in cols.entries) {
+      try {
+        await db.execute('ALTER TABLE media_files ADD COLUMN ${e.key} ${e.value}');
+      } catch (_) {}
+    }
+  }
+
+  /// مفتاح كاش معزول بمستخدم — يمنع تسرّب بيانات محكم لآخر.
+  static String userKey(int userId, String key) => 'u$userId:$key';
+
+  Future<void> cacheSetForUser(
+    int userId,
+    String key,
+    Map<String, dynamic> data, {
+    String syncStatus = SyncStatuses.synced,
+  }) {
+    return cacheSet(userKey(userId, key), data, syncStatus: syncStatus);
+  }
+
+  Future<Map<String, dynamic>?> cacheGetForUser(int userId, String key) {
+    return cacheGet(userKey(userId, key));
+  }
+
+  Future<void> setDeviceMeta(String key, String value) async {
+    if (kIsWeb) {
+      final prefs = _prefs ?? await SharedPreferences.getInstance();
+      await prefs.setString('device_meta_$key', value);
+      return;
+    }
+    final db = await _database;
+    await db.insert(
+      'device_meta',
+      {'meta_key': key, 'meta_value': value},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<String?> getDeviceMeta(String key) async {
+    if (kIsWeb) {
+      final prefs = _prefs ?? await SharedPreferences.getInstance();
+      return prefs.getString('device_meta_$key');
+    }
+    final db = await _database;
+    final rows = await db.query(
+      'device_meta',
+      where: 'meta_key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['meta_value'] as String?;
+  }
+
+  Future<void> upsertLocalUser({
+    required int userId,
+    required String username,
+    required String passwordHash,
+    required Map<String, dynamic> session,
+    String militaryNumber = '',
+  }) async {
+    final payload = {
+      'user_id': userId,
+      'username': username.trim().toLowerCase(),
+      'military_number': militaryNumber,
+      'password_hash': passwordHash,
+      'session_json': jsonEncode(session),
+      'updated_at': DateTime.now().toIso8601String(),
+    };
+    if (kIsWeb) {
+      final prefs = _prefs ?? await SharedPreferences.getInstance();
+      await prefs.setString('local_user_$userId', jsonEncode(payload));
+      final idx = prefs.getStringList('local_user_ids') ?? <String>[];
+      if (!idx.contains('$userId')) {
+        idx.add('$userId');
+        await prefs.setStringList('local_user_ids', idx);
+      }
+      return;
+    }
+    final db = await _database;
+    await db.insert(
+      'local_users',
+      payload,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<Map<String, dynamic>?> localUserByUsername(String username) async {
+    final u = username.trim().toLowerCase();
+    if (kIsWeb) {
+      final prefs = _prefs ?? await SharedPreferences.getInstance();
+      final ids = prefs.getStringList('local_user_ids') ?? <String>[];
+      for (final id in ids) {
+        final raw = prefs.getString('local_user_$id');
+        if (raw == null) continue;
+        try {
+          final m = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+          if ((m['username'] ?? '').toString() == u) return m;
+        } catch (_) {}
+      }
+      return null;
+    }
+    final db = await _database;
+    final rows = await db.query(
+      'local_users',
+      where: 'username = ?',
+      whereArgs: [u],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : Map<String, dynamic>.from(rows.first);
+  }
+
+  Future<List<Map<String, dynamic>>> allLocalUsers() async {
+    if (kIsWeb) {
+      final prefs = _prefs ?? await SharedPreferences.getInstance();
+      final ids = prefs.getStringList('local_user_ids') ?? <String>[];
+      final out = <Map<String, dynamic>>[];
+      for (final id in ids) {
+        final raw = prefs.getString('local_user_$id');
+        if (raw == null) continue;
+        try {
+          out.add(Map<String, dynamic>.from(jsonDecode(raw) as Map));
+        } catch (_) {}
+      }
+      return out;
+    }
+    final db = await _database;
+    final rows = await db.query('local_users', orderBy: 'username ASC');
+    return rows.map(Map<String, dynamic>.from).toList();
   }
 
   Future<void> cacheSet(
@@ -434,7 +723,7 @@ class OfflineStore {
     );
   }
 
-  Future<List<PendingOp>> pendingOps() async {
+  Future<List<PendingOp>> pendingOps({int? userId}) async {
     if (kIsWeb) {
       final prefs = _prefs ?? await SharedPreferences.getInstance();
       final raw = prefs.getString(_opsKey);
@@ -445,6 +734,8 @@ class OfflineStore {
         return decoded
             .whereType<Map>()
             .map((e) => PendingOp.fromJson(Map<String, dynamic>.from(e)))
+            .where((o) => o.syncStatus != SyncStatuses.synced)
+            .where((o) => userId == null || o.userId == userId)
             .toList()
           ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
       } catch (_) {
@@ -452,10 +743,19 @@ class OfflineStore {
       }
     }
     final db = await _database;
+    if (userId == null) {
+      final rows = await db.query(
+        'pending_ops',
+        where: "sync_status != ?",
+        whereArgs: [SyncStatuses.synced],
+        orderBy: 'created_at ASC',
+      );
+      return rows.map(PendingOp.fromRow).toList();
+    }
     final rows = await db.query(
       'pending_ops',
-      where: "sync_status != ?",
-      whereArgs: [SyncStatuses.synced],
+      where: "sync_status != ? AND user_id = ?",
+      whereArgs: [SyncStatuses.synced, userId],
       orderBy: 'created_at ASC',
     );
     return rows.map(PendingOp.fromRow).toList();
@@ -469,16 +769,8 @@ class OfflineStore {
     );
   }
 
-  Future<int> pendingOpsCount() async {
-    if (kIsWeb) return (await pendingOps()).length;
-    final db = await _database;
-    final result = Sqflite.firstIntValue(
-      await db.rawQuery(
-        "SELECT COUNT(*) FROM pending_ops WHERE sync_status != ?",
-        [SyncStatuses.synced],
-      ),
-    );
-    return result ?? 0;
+  Future<int> pendingOpsCount({int? userId}) async {
+    return (await pendingOps(userId: userId)).length;
   }
 
   Future<void> removeOp(String id) async {
@@ -533,21 +825,42 @@ class OfflineStore {
     await updateOp(ops[i].copyWith(syncStatus: SyncStatuses.syncing));
   }
 
-  Future<Directory> mediaDirectory() async {
+  Future<Directory> mediaRoot() async {
     final root = await getApplicationDocumentsDirectory();
-    final dir = Directory(p.join(root.path, 'offline_media'));
+    final dir = Directory(p.join(root.path, 'media'));
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
     return dir;
   }
 
-  /// ينسخ الملف إلى التخزين الدائم للتطبيق ويعيد المسار الجديد.
-  Future<String> persistMediaFile(String sourcePath, String opId) async {
+  @Deprecated('Use mediaRoot')
+  Future<Directory> mediaDirectory() => mediaRoot();
+
+  Future<Directory> _mediaSubdir(String kind, {required bool pending}) async {
+    final root = await mediaRoot();
+    final branch = pending ? 'pending' : 'synced';
+    final folder = kind == 'video'
+        ? 'videos'
+        : (kind == 'file' ? 'files' : 'images');
+    final dir = Directory(p.join(root.path, branch, folder));
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
+  /// ينسخ الملف فوراً إلى App Private Storage (ليس content URI).
+  Future<String> persistMediaFile(
+    String sourcePath,
+    String opId, {
+    String mediaKind = 'photo',
+  }) async {
     if (kIsWeb) return sourcePath;
-    final dir = await mediaDirectory();
+    final dir = await _mediaSubdir(mediaKind, pending: true);
     final ext = p.extension(sourcePath);
-    final dest = p.join(dir.path, '$opId$ext');
+    final safeName = '$opId$ext';
+    final dest = p.join(dir.path, safeName);
     await File(sourcePath).copy(dest);
     return dest;
   }
@@ -614,45 +927,157 @@ class OfflineStore {
     }
   }
 
-  Future<void> markMediaConfirmed(String id) async {
+  Future<void> patchMedia(
+    String id, {
+    String? syncStatus,
+    String? lastError,
+    String? checksum,
+    String? mimeType,
+    int? fileSize,
+    int? uploadedBytes,
+    int? totalBytes,
+    String? uploadSessionId,
+    int? attemptCount,
+    int? serverMediaId,
+  }) async {
     final rec = await mediaById(id);
     if (rec == null) return;
-    final updated = LocalMediaRecord(
-      id: rec.id,
-      localPath: rec.localPath,
-      rowIndex: rec.rowIndex,
-      mediaKind: rec.mediaKind,
-      evaluationListItemId: rec.evaluationListItemId,
-      bundleActionEvalId: rec.bundleActionEvalId,
-      syncStatus: SyncStatuses.synced,
-      serverConfirmed: true,
-      createdAt: rec.createdAt,
-      sheetCacheKey: rec.sheetCacheKey,
+    await upsertMedia(
+      rec.copyWith(
+        syncStatus: syncStatus,
+        lastError: lastError,
+        checksum: checksum,
+        mimeType: mimeType,
+        fileSize: fileSize,
+        uploadedBytes: uploadedBytes,
+        totalBytes: totalBytes,
+        uploadSessionId: uploadSessionId,
+        attemptCount: attemptCount,
+        serverMediaId: serverMediaId,
+        updatedAt: DateTime.now().toIso8601String(),
+        lastAttemptAt: DateTime.now().toIso8601String(),
+      ),
     );
-    await upsertMedia(updated);
-    if (!kIsWeb) {
+  }
+
+  /// بعد تأكيد السيرفر: انقل إلى media/synced دون حذف فوري.
+  Future<void> markMediaSynced(String id, {int? serverMediaId}) async {
+    final rec = await mediaById(id);
+    if (rec == null) return;
+    var newPath = rec.localPath;
+    if (!kIsWeb && rec.localPath.isNotEmpty) {
       try {
-        final f = File(rec.localPath);
-        if (await f.exists()) await f.delete();
+        final src = File(rec.localPath);
+        if (await src.exists()) {
+          final dir = await _mediaSubdir(rec.mediaKind, pending: false);
+          final name = p.basename(rec.localPath);
+          final destPath = p.join(dir.path, name);
+          if (destPath != rec.localPath) {
+            await src.copy(destPath);
+            try {
+              await src.delete();
+            } catch (_) {}
+            newPath = destPath;
+          }
+        }
       } catch (_) {}
     }
+    await upsertMedia(
+      rec.copyWith(
+        localPath: newPath,
+        syncStatus: SyncStatuses.synced,
+        serverConfirmed: true,
+        uploadedBytes: rec.totalBytes > 0 ? rec.totalBytes : rec.fileSize,
+        serverMediaId: serverMediaId ?? rec.serverMediaId,
+        updatedAt: DateTime.now().toIso8601String(),
+      ),
+    );
+  }
+
+  @Deprecated('Use markMediaSynced')
+  Future<void> markMediaConfirmed(String id) => markMediaSynced(id);
+
+  Future<Map<String, int>> mediaStorageStats() async {
+    final all = await mediaRecords();
+    var pendingBytes = 0;
+    var syncedBytes = 0;
+    var pendingCount = 0;
+    var syncedCount = 0;
+    var images = 0;
+    var videos = 0;
+    for (final m in all) {
+      final sz = m.fileSize > 0 ? m.fileSize : m.totalBytes;
+      if (m.serverConfirmed || m.syncStatus == SyncStatuses.synced) {
+        syncedBytes += sz;
+        syncedCount++;
+      } else if (m.syncStatus != 'cancelled') {
+        pendingBytes += sz;
+        pendingCount++;
+        if (m.mediaKind == 'video') {
+          videos++;
+        } else {
+          images++;
+        }
+      }
+    }
+    return {
+      'pending_bytes': pendingBytes,
+      'synced_bytes': syncedBytes,
+      'pending_count': pendingCount,
+      'synced_count': syncedCount,
+      'pending_images': images,
+      'pending_videos': videos,
+    };
+  }
+
+  Future<int> deleteSyncedMediaFiles() async {
+    final all = await mediaRecords();
+    var n = 0;
+    for (final m in all) {
+      if (!(m.serverConfirmed || m.syncStatus == SyncStatuses.synced)) continue;
+      if (!kIsWeb && m.localPath.isNotEmpty) {
+        try {
+          final f = File(m.localPath);
+          if (await f.exists()) {
+            await f.delete();
+            n++;
+          }
+        } catch (_) {}
+      }
+      await upsertMedia(
+        m.copyWith(localPath: '', updatedAt: DateTime.now().toIso8601String()),
+      );
+    }
+    return n;
   }
 
   Future<void> clearAll() async {
     if (kIsWeb) {
       final prefs = _prefs ?? await SharedPreferences.getInstance();
-      final keys =
-          prefs.getKeys().where((k) => k.startsWith(_cachePrefix)).toList();
+      final keys = prefs
+          .getKeys()
+          .where(
+            (k) =>
+                k.startsWith(_cachePrefix) ||
+                k.startsWith('local_user_') ||
+                k.startsWith('device_meta_'),
+          )
+          .toList();
       for (final k in keys) {
         await prefs.remove(k);
       }
       await prefs.remove(_opsKey);
       await prefs.remove(_mediaKey);
+      await prefs.remove('local_user_ids');
       return;
     }
     final db = await _database;
     await db.delete('cache');
     await db.delete('pending_ops');
     await db.delete('media_files');
+    try {
+      await db.delete('local_users');
+      await db.delete('device_meta');
+    } catch (_) {}
   }
 }

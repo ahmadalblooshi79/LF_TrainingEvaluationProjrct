@@ -71,13 +71,13 @@ class OnlineStatusChip extends StatelessWidget {
       case SyncUiState.online:
         return ('متصل بالسيرفر', AppColors.doneGreen);
       case SyncUiState.offline:
-        return ('وضع عدم الاتصال', AppColors.notDoneRed);
+        return ('Offline Mode', AppColors.goldDark);
       case SyncUiState.pending:
         return ('بانتظار المزامنة • $pending', AppColors.goldDark);
       case SyncUiState.syncing:
         return ('جارٍ المزامنة • $pending', AppColors.olive);
       case SyncUiState.synced:
-        return ('تمت المزامنة', AppColors.doneGreen);
+        return ('متصل بالسيرفر', AppColors.doneGreen);
       case SyncUiState.failed:
         return ('فشل المزامنة • $pending', AppColors.notDoneRed);
     }

@@ -5,6 +5,7 @@ import '../models/eval_sheet.dart';
 import '../services/api_client.dart';
 import '../services/tablet_repository.dart';
 import '../theme/app_theme.dart';
+import '../theme/device_layout.dart';
 import '../widgets/app_header.dart';
 import '../widgets/async_state_views.dart';
 import '../widgets/sticky_eval_scaffold.dart';
@@ -192,12 +193,19 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
     return opts;
   }
 
-  Future<void> _pickMedia(int index, {required bool video}) async {
+  Future<void> _pickMedia(
+    int index, {
+    required bool video,
+    ImageSource source = ImageSource.camera,
+  }) async {
     final picker = ImagePicker();
     try {
       final XFile? file = video
-          ? await picker.pickVideo(source: ImageSource.camera)
-          : await picker.pickImage(source: ImageSource.camera, imageQuality: 82);
+          ? await picker.pickVideo(source: source)
+          : await picker.pickImage(
+              source: source,
+              // لا نضغط الجودة بدون طلب المستخدم
+            );
       if (file == null) return;
       final detail = _detail;
       if (detail == null) return;
@@ -217,11 +225,13 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
       if (!mounted) return;
       setState(() {
         _rows[index].localMediaPaths.add(localPath);
-        _hint = 'حُفظت الوسائط محلياً — ستُرفع عند الاتصال';
+        _hint = 'حُفظت الوسائط محلياً — ستُرفع عند Sync My Work';
       });
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّر التقاط الوسائط: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e')),
+      );
     }
   }
 
@@ -386,15 +396,20 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
         ),
         Expanded(
           child: StickyEvalScaffold(
-            minTableWidth: 980,
-            columnHeader: const _EvalSheetColumnHeader(),
+            // على الهاتف لا نفرض عرض جدول عريض — صفوف متكدّسة بعرض 480
+            minTableWidth: DeviceLayout.isPhoneWidth(context) ? null : 980,
+            columnHeader: DeviceLayout.isPhoneWidth(context)
+                ? const _EvalSheetColumnHeaderPhone()
+                : const _EvalSheetColumnHeader(),
             rows: _rows.isEmpty
                 ? EmptyView(
                     message: 'تعذّر عرض بنود التقييم (${detail.evalRows.length} في القالب)',
                     icon: Icons.table_rows_outlined,
                   )
                 : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                    padding: DeviceLayout.isPhoneWidth(context)
+                        ? const EdgeInsets.fromLTRB(6, 6, 6, 6)
+                        : const EdgeInsets.fromLTRB(10, 10, 10, 10),
                     itemCount: _rows.length,
                     itemBuilder: (context, index) {
                       final input = _rows[index];
@@ -424,9 +439,15 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
                         options: _optionsFor(index),
                         percent: _rowPercent(index),
                         grade: _gradeFromPct(_rowPercent(index)),
+                        phoneLayout: DeviceLayout.isPhoneWidth(context),
                         onAcquiredChanged: (v) => setState(() => _rows[index].acquired = v),
                         onNotesChanged: (v) => setState(() => _rows[index].notes = v),
                         onCapture: (video) => _pickMedia(index, video: video),
+                        onPickGallery: (video) => _pickMedia(
+                          index,
+                          video: video,
+                          source: ImageSource.gallery,
+                        ),
                       );
                     },
                   ),
@@ -460,6 +481,28 @@ class _EvalSheetCol {
   static const Color notesFill = Color(0xFFEFECE4);
   static const Color indexTint = Color(0xFFF7F2E6);
   static const Color selectBorder = Color(0xFFC8C2B2);
+}
+
+class _EvalSheetColumnHeaderPhone extends StatelessWidget {
+  const _EvalSheetColumnHeaderPhone();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: AppColors.tableHeader,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Text(
+        'عناصر التقييم — القصوى / المكتسبة / النسبة / النتيجة / التوثيق',
+        textAlign: TextAlign.center,
+        style: AppTextStyles.cairo(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: AppColors.white,
+        ),
+      ),
+    );
+  }
 }
 
 class _EvalSheetColumnHeader extends StatelessWidget {
@@ -530,6 +573,8 @@ class _CriterionRow extends StatefulWidget {
     required this.onAcquiredChanged,
     required this.onNotesChanged,
     required this.onCapture,
+    this.onPickGallery,
+    this.phoneLayout = false,
   });
 
   final int index;
@@ -541,6 +586,8 @@ class _CriterionRow extends StatefulWidget {
   final ValueChanged<String> onAcquiredChanged;
   final ValueChanged<String> onNotesChanged;
   final ValueChanged<bool> onCapture;
+  final ValueChanged<bool>? onPickGallery;
+  final bool phoneLayout;
 
   @override
   State<_CriterionRow> createState() => _CriterionRowState();
@@ -629,6 +676,241 @@ class _CriterionRowState extends State<_CriterionRow> {
         ? '—'
         : widget.grade;
 
+    if (widget.phoneLayout) {
+      return _buildPhoneCard(displayAcquired, gradeLabel);
+    }
+    return _buildTabletRow(displayAcquired, gradeLabel);
+  }
+
+  Widget _metricChip(String label, Widget child) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            label,
+            style: AppTextStyles.cairo(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: AppColors.muted,
+            ),
+          ),
+          const SizedBox(height: 4),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhoneCard(String displayAcquired, String gradeLabel) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: AppColors.cardWhite,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: _EvalSheetCol.cardBorder),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 3,
+            offset: Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: _EvalSheetCol.indexTint,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: _EvalSheetCol.cardBorder),
+                ),
+                child: Text(
+                  '${widget.index + 1}',
+                  style: AppTextStyles.cairo(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  widget.input.element,
+                  style: AppTextStyles.cairo(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+              Column(
+                children: [
+                  _DocBtn(
+                    icon: Icons.camera_alt_outlined,
+                    enabled: widget.canEdit,
+                    onTap: () => widget.onCapture(false),
+                  ),
+                  const SizedBox(height: 4),
+                  _DocBtn(
+                    icon: Icons.photo_library_outlined,
+                    enabled: widget.canEdit && widget.onPickGallery != null,
+                    onTap: () => widget.onPickGallery?.call(false),
+                  ),
+                  const SizedBox(height: 4),
+                  _DocBtn(
+                    icon: Icons.videocam_outlined,
+                    enabled: widget.canEdit,
+                    onTap: () => widget.onCapture(true),
+                  ),
+                  const SizedBox(height: 4),
+                  _DocBtn(
+                    icon: Icons.video_library_outlined,
+                    enabled: widget.canEdit && widget.onPickGallery != null,
+                    onTap: () => widget.onPickGallery?.call(true),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _metricChip(
+                'القصوى',
+                Text(
+                  widget.input.maxVal.isEmpty ? '—' : widget.input.maxVal,
+                  style: AppTextStyles.cairo(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              _metricChip(
+                'المكتسبة',
+                Material(
+                  color: AppColors.cardWhite,
+                  borderRadius: BorderRadius.circular(6),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(6),
+                    onTap: widget.canEdit ? _pickScore : null,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: _EvalSheetCol.selectBorder),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            displayAcquired,
+                            style: AppTextStyles.cairo(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          if (widget.canEdit)
+                            const Icon(
+                              Icons.keyboard_arrow_down,
+                              size: 16,
+                              color: AppColors.muted,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              _metricChip(
+                'النسبة',
+                Text(
+                  widget.percent == null ? '—' : '${widget.percent!.round()}%',
+                  style: AppTextStyles.cairo(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              _metricChip(
+                'النتيجة',
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.resultBlueBg,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Text(
+                    gradeLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.cairo(
+                      fontSize: 11,
+                      color: AppColors.resultBlue,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _notesCtrl,
+            enabled: widget.canEdit,
+            minLines: 1,
+            maxLines: 2,
+            style: AppTextStyles.cairo(fontSize: 12.5),
+            decoration: InputDecoration(
+              hintText: 'اكتب ملاحظاتك هنا (اختياري)',
+              hintStyle: AppTextStyles.cairo(
+                fontSize: 12.5,
+                color: AppColors.muted,
+              ),
+              filled: true,
+              fillColor: _EvalSheetCol.notesFill,
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+                borderSide: BorderSide.none,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+                borderSide: BorderSide.none,
+              ),
+              disabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+                borderSide: const BorderSide(
+                  color: AppColors.goldBorder,
+                  width: 1,
+                ),
+              ),
+            ),
+            onChanged: widget.onNotesChanged,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabletRow(String displayAcquired, String gradeLabel) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
@@ -852,11 +1134,23 @@ class _CriterionRowState extends State<_CriterionRow> {
                     enabled: widget.canEdit,
                     onTap: () => widget.onCapture(false),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
+                  _DocBtn(
+                    icon: Icons.photo_library_outlined,
+                    enabled: widget.canEdit && widget.onPickGallery != null,
+                    onTap: () => widget.onPickGallery?.call(false),
+                  ),
+                  const SizedBox(height: 4),
                   _DocBtn(
                     icon: Icons.videocam_outlined,
                     enabled: widget.canEdit,
                     onTap: () => widget.onCapture(true),
+                  ),
+                  const SizedBox(height: 4),
+                  _DocBtn(
+                    icon: Icons.video_library_outlined,
+                    enabled: widget.canEdit && widget.onPickGallery != null,
+                    onTap: () => widget.onPickGallery?.call(true),
                   ),
                   if (widget.input.localMediaPaths.isNotEmpty) ...[
                     const SizedBox(height: 4),

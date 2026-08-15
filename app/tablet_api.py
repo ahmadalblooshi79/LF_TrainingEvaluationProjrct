@@ -13,13 +13,40 @@ from app.models import Exercise, ExerciseObjective, User
 from app.models.user import RoleKey
 from app.permissions import (
     can_access_chief_judge_hub,
+    can_access_control_hub,
     can_access_judge_hub,
+    can_plan_exercises,
     can_view_notifications_log,
+    is_judge,
     is_system_admin,
 )
 from app.unit_levels_catalog import label_for_unit_level_key
 
 bp = Blueprint("tablet_api", __name__, url_prefix="/api/tablet")
+
+_TABLET_MAIN_MENU = [
+    {"id": "flow", "title": "مجرى الأحداث والمعاضل", "route": "/flow"},
+    {
+        "id": "action_eval",
+        "title": "قوائم تقييم الإجراءات",
+        "route": "/action-eval",
+    },
+    {
+        "id": "evaluation_lists",
+        "title": "قوائم التقييم",
+        "route": "/evaluation-lists",
+    },
+    {
+        "id": "positives_negatives",
+        "title": "الإيجابيات والسلبيات",
+        "route": "/positives-negatives",
+    },
+    {
+        "id": "objectives",
+        "title": "الأهداف التدريبية",
+        "route": "/objectives",
+    },
+]
 
 
 def _json_error(message: str, status: int = 400, **extra):
@@ -363,24 +390,7 @@ def tablet_home(user: User):
                 "incomplete_lists": max(total - done, 0),
             },
             "incomplete_tasks": incomplete_rows[:50],
-            "menu": [
-                {"id": "flow", "title": "مجرى الأحداث والمعاضل", "route": "/flow"},
-                {
-                    "id": "action_eval",
-                    "title": "قوائم تقييم الإجراءات",
-                    "route": "/action-eval",
-                },
-                {
-                    "id": "evaluation_lists",
-                    "title": "قوائم التقييم",
-                    "route": "/evaluation-lists",
-                },
-                {
-                    "id": "objectives",
-                    "title": "الأهداف التدريبية",
-                    "route": "/objectives",
-                },
-            ],
+            "menu": list(_TABLET_MAIN_MENU),
         }
     )
 
@@ -1143,24 +1153,7 @@ def tablet_bootstrap(user: User):
             "incomplete_lists": max(total - done, 0),
         },
         "incomplete_tasks": incomplete_rows[:50],
-        "menu": [
-            {"id": "flow", "title": "مجرى الأحداث والمعاضل", "route": "/flow"},
-            {
-                "id": "action_eval",
-                "title": "قوائم تقييم الإجراءات",
-                "route": "/action-eval",
-            },
-            {
-                "id": "evaluation_lists",
-                "title": "قوائم التقييم",
-                "route": "/evaluation-lists",
-            },
-            {
-                "id": "objectives",
-                "title": "الأهداف التدريبية",
-                "route": "/objectives",
-            },
-        ],
+        "menu": list(_TABLET_MAIN_MENU),
     }
 
     return jsonify(
@@ -1177,6 +1170,7 @@ def tablet_bootstrap(user: User):
                 }
                 for r in objectives
             ],
+            "polarity_notes": _polarity_notes_payload(user, ex),
             "cached_at": datetime.utcnow().isoformat() + "Z",
         }
     )
@@ -1263,6 +1257,54 @@ def tablet_media_upload(user: User):
     return resp
 
 
+@bp.post("/media/upload/init")
+@_require_judge_json
+def tablet_media_upload_init(user: User):
+    from app.tablet_media_resumable import init_upload
+
+    body, status = init_upload(user, g.db)
+    return jsonify(body), status
+
+
+@bp.post("/media/upload/chunk")
+@_require_judge_json
+def tablet_media_upload_chunk(user: User):
+    from app.tablet_media_resumable import upload_chunk
+
+    body, status = upload_chunk(user)
+    return jsonify(body), status
+
+
+@bp.get("/media/upload/status")
+@_require_judge_json
+def tablet_media_upload_status(user: User):
+    from app.tablet_media_resumable import upload_status
+
+    body, status = upload_status(user)
+    return jsonify(body), status
+
+
+@bp.post("/media/upload/complete")
+@_require_judge_json
+def tablet_media_upload_complete(user: User):
+    from app.tablet_media_resumable import complete_upload
+
+    body, status = complete_upload(user, g.db)
+    if status < 300 and body.get("ok") and body.get("client_uuid"):
+        try:
+            _record_client_op(
+                user,
+                client_op_id=str(body["client_uuid"]),
+                op_type="media_upload",
+                path=request.path,
+                response_body=body,
+                exercise_id=None,
+            )
+        except Exception:
+            pass
+    return jsonify(body), status
+
+
 @bp.get("/library")
 @_require_judge_json
 def tablet_library(user: User):
@@ -1341,6 +1383,7 @@ def tablet_notifications(user: User):
             "meeting": "اجتماع",
             "document": "وثيقة / ملف",
             "task": "مهمة",
+            "system": "نظام",
         }.get((t or "").strip(), "نظام")
 
     def _prio_label(p: str) -> str:
@@ -1425,6 +1468,47 @@ def tablet_notifications_read_all(user: User):
     return jsonify({"ok": True, "updated": updated})
 
 
+@bp.post("/notifications/sync-event")
+@_require_judge_json
+def tablet_notifications_sync_event(user: User):
+    """يسجّل تنبيهاً في سجل الإشعارات بعد مزامنة/تحديث ناجح من التابلت."""
+    from app.notifications_service import notify_tablet_sync_event
+    from app.views import _notifications_scope_exercise
+
+    if not can_view_notifications_log(user):
+        return _json_error("غير مصرح", 403)
+    ex = _notifications_scope_exercise(g.db, user)
+    if ex is None:
+        return _json_error("لا يوجد تمرين", 400)
+    data = request.get_json(silent=True) or {}
+    kind = (data.get("kind") or "sync").strip().lower()
+    detail = (data.get("detail") or "").strip()
+    notify_tablet_sync_event(
+        g.db,
+        exercise_id=int(ex.id),
+        user_id=int(user.id),
+        kind=kind,
+        detail=detail,
+    )
+    g.db.commit()
+    # أعِد العدد غير المقروء فوراً للشارة
+    from sqlalchemy import func
+
+    from app.models.domain import ExerciseNotification
+
+    unread = (
+        g.db.query(func.count(ExerciseNotification.id))
+        .filter(
+            ExerciseNotification.user_id == int(user.id),
+            ExerciseNotification.exercise_id == int(ex.id),
+            ExerciseNotification.is_read.is_(False),
+        )
+        .scalar()
+        or 0
+    )
+    return jsonify({"ok": True, "unread_count": int(unread)})
+
+
 @bp.get("/exercise-details")
 @_require_judge_json
 def tablet_exercise_details(user: User):
@@ -1497,3 +1581,401 @@ def tablet_exercise_details(user: User):
             },
         }
     )
+
+
+def _can_device_package_sync(user: User) -> bool:
+    """تهيئة جهاز التابلت: إدارة / تخطيط / سيطرة / كبير محكمين."""
+    return (
+        is_system_admin(user)
+        or can_plan_exercises(user)
+        or can_access_control_hub(user)
+        or can_access_chief_judge_hub(user)
+    )
+
+
+def _require_device_setup_user():
+    user = get_current_user_optional()
+    if user is None:
+        return None, _json_error("يلزم تسجيل الدخول", 401)
+    if not _can_device_package_sync(user):
+        return None, _json_error("لا صلاحية لتهيئة جهاز المحكمين", 403)
+    if not session.get("device_setup"):
+        return None, _json_error("جلسة تهيئة الجهاز غير نشطة", 403)
+    return user, None
+
+
+@bp.post("/device/setup-login")
+def tablet_device_setup_login():
+    """دخول فني لتهيئة الجهاز وتنزيل حزمة التمرين (ليس Local Admin المحلي)."""
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    if not username or not password:
+        return _json_error("أدخل اسم المستخدم وكلمة المرور", 400)
+    user = (
+        g.db.query(User)
+        .filter(User.username == username, User.is_active == True)  # noqa: E712
+        .first()
+    )
+    if user is None or not verify_password(password, user.password_hash or ""):
+        return _json_error("بيانات الدخول غير صحيحة", 401)
+    if not _can_device_package_sync(user):
+        return _json_error("هذا الحساب لا يملك صلاحية تهيئة أجهزة المحكمين", 403)
+    session.clear()
+    session["user_id"] = int(user.id)
+    session["device_setup"] = True
+    session.permanent = True
+    ex = _exercise_for(user)
+    return jsonify(
+        {
+            "ok": True,
+            "device_setup": True,
+            "user": {
+                "id": int(user.id),
+                "username": user.username,
+                "full_name": user.full_name or "",
+                "role_key": user.role_key or "",
+            },
+            "exercise": None
+            if ex is None
+            else {
+                "id": int(ex.id),
+                "name": (ex.title or "").strip(),
+                "code": (ex.code or "").strip(),
+            },
+        }
+    )
+
+
+@bp.get("/device/package")
+def tablet_device_package():
+    """حزمة تمرين كاملة للعمل Offline على التابلت — معزولة لكل محكم."""
+    from app.models.domain import JudgeTraineeAssignment
+    from app.views import (
+        _build_incomplete_evaluations_report,
+        _collect_all_eval_status_rows_flat,
+    )
+
+    setup_user, err = _require_device_setup_user()
+    if err is not None:
+        return err
+    assert setup_user is not None
+
+    ex = _exercise_for(setup_user)
+    if ex is None:
+        return _json_error("لا يوجد تمرين نشط", 404)
+
+    objectives = (
+        g.db.query(ExerciseObjective)
+        .filter(ExerciseObjective.exercise_id == int(ex.id))
+        .order_by(ExerciseObjective.sort_order, ExerciseObjective.id)
+        .all()
+    )
+    objectives_out = [
+        {
+            "id": int(r.id),
+            "sort_order": int(r.sort_order or 0),
+            "text": r.text or "",
+        }
+        for r in objectives
+    ]
+
+    judge_users = (
+        g.db.query(User)
+        .filter(User.is_active == True)  # noqa: E712
+        .all()
+    )
+    judges_out: list[dict] = []
+    for ju in judge_users:
+        if not can_access_judge_hub(ju):
+            continue
+        if not (is_judge(ju) or can_access_chief_judge_hub(ju)):
+            continue
+        me = _serialize_user_bundle(ju, ex)
+        mil = ""
+        try:
+            asg = (
+                g.db.query(JudgeTraineeAssignment)
+                .filter(
+                    JudgeTraineeAssignment.exercise_id == int(ex.id),
+                    JudgeTraineeAssignment.judge_user_id == int(ju.id),
+                )
+                .first()
+            )
+            if asg is not None:
+                mil = (asg.judge_military_number or "").strip()
+        except Exception:
+            mil = ""
+        if not mil:
+            mil = (ju.username or "").strip()
+
+        incomplete = _build_incomplete_evaluations_report(g.db, ju, role="judge")
+        incomplete_rows = [
+            _safe_row(r) for r in (incomplete.get("incomplete_rows") or [])
+        ]
+        incomplete_count = int(incomplete.get("incomplete_count") or 0)
+        uk = me.get("unit_key") or None
+        all_rows = _collect_all_eval_status_rows_flat(
+            g.db,
+            exercise=ex,
+            unit_filter=uk or None,
+            eval_open_endpoint="views.judge_evaluation_list_file_viewer",
+            planner_open_endpoint="views.judge_planner_flow_materials_action_evaluate",
+            planner_open_uses_slot=True,
+        )
+        total = len(all_rows)
+        done = sum(1 for r in all_rows if r.get("status_done"))
+        pct = int(round((done * 100.0 / total), 0)) if total else 0
+        home_payload = {
+            "ok": True,
+            **me,
+            "stats": {
+                "completion_pct": pct,
+                "completed_count": done,
+                "total_count": total,
+                "incomplete_count": incomplete_count,
+                "completed_lists": done,
+                "incomplete_lists": max(total - done, 0),
+            },
+            "incomplete_tasks": incomplete_rows[:50],
+            "menu": list(_TABLET_MAIN_MENU),
+        }
+        eval_lists = {
+            "ok": True,
+            "unit_key": uk or "",
+            "phase_key": "",
+            "lists": [_safe_row(r) for r in all_rows[:200]],
+            "rows": [_safe_row(r) for r in all_rows[:200]],
+            "unit_levels": [],
+            "phase_tabs": [],
+        }
+        judges_out.append(
+            {
+                "user_id": int(ju.id),
+                "username": (ju.username or "").strip(),
+                "military_number": mil,
+                "local_password_seed": mil or (ju.username or "").strip(),
+                "session": me,
+                "home": home_payload,
+                "objectives": objectives_out,
+                "incomplete_tasks": incomplete_rows,
+                "evaluation_lists": eval_lists,
+                "polarity_notes": _polarity_notes_payload(ju, ex),
+            }
+        )
+
+    return jsonify(
+        {
+            "ok": True,
+            "cached_at": datetime.utcnow().isoformat() + "Z",
+            "exercise": {
+                "id": int(ex.id),
+                "name": (ex.title or "").strip(),
+                "code": (ex.code or "").strip(),
+                "location": (ex.location_label or "").strip(),
+                "period_label": _period_label(ex),
+            },
+            "objectives": objectives_out,
+            "judges": judges_out,
+            "judge_count": len(judges_out),
+        }
+    )
+
+
+def _polarity_notes_payload(user: User, ex: Exercise | None) -> dict:
+    """قائمة الإيجابيات/السلبيات العامة للوحدة — مطابقة لصفحة الويب."""
+    from app.judge_polarity_notes import list_general_notes_for_scope
+
+    if ex is None:
+        return {
+            "ok": True,
+            "exercise_id": 0,
+            "unit_key": "",
+            "unit_label": "",
+            "notes": [],
+            "notes_pos_count": 0,
+            "notes_neg_count": 0,
+        }
+    uk = (_unit_key_for(user, ex) or "").strip()
+    ulabel = label_for_unit_level_key(uk, db=g.db) if uk else ""
+    pos = (
+        list_general_notes_for_scope(
+            g.db,
+            user,
+            exercise_id=int(ex.id),
+            unit_level_key=uk,
+            polarity="positive",
+        )
+        if uk
+        else []
+    )
+    neg = (
+        list_general_notes_for_scope(
+            g.db,
+            user,
+            exercise_id=int(ex.id),
+            unit_level_key=uk,
+            polarity="negative",
+        )
+        if uk
+        else []
+    )
+    return {
+        "ok": True,
+        "exercise_id": int(ex.id),
+        "unit_key": uk,
+        "unit_label": (ulabel or uk),
+        "notes": list(pos) + list(neg),
+        "notes_pos_count": len(pos),
+        "notes_neg_count": len(neg),
+    }
+
+
+@bp.get("/me/updates")
+@_require_judge_json
+def tablet_me_updates(user: User):
+    """تحديثات شخصية للمحكم الحالي فقط (Update My Data)."""
+    return tablet_bootstrap(user)
+
+
+@bp.get("/polarity-notes")
+@_require_judge_json
+def tablet_polarity_notes_list(user: User):
+    ex = _exercise_for(user)
+    if ex is None:
+        return _json_error("لا يوجد تمرين نشط", 404)
+    return jsonify(_polarity_notes_payload(user, ex))
+
+
+@bp.post("/polarity-notes/bulk")
+@_require_judge_json
+def tablet_polarity_notes_bulk(user: User):
+    """استبدال قائمة الإيجابيات أو السلبيات للوحدة — مثل حفظ صفحة الويب."""
+    from app.judge_polarity_notes import replace_general_notes_for_scope
+
+    ex = _exercise_for(user)
+    if ex is None:
+        return _json_error("لا يوجد تمرين نشط", 404)
+    data = request.get_json(silent=True) or {}
+    client_op_id = _client_op_id_from_request(data)
+    replay = _idempotent_response(user, client_op_id)
+    if replay is not None:
+        return replay
+
+    uk = (data.get("unit_level_key") or _unit_key_for(user, ex) or "").strip()
+    assigned = (_unit_key_for(user, ex) or "").strip()
+    # المحكم الفردي يُقيَّد بوحدته المسندة
+    if assigned and uk and uk != assigned and is_judge(user) and not is_system_admin(user):
+        if not can_access_chief_judge_hub(user):
+            uk = assigned
+    if not uk:
+        return _json_error("لا توجد وحدة مخصّصة", 400)
+
+    polarity = (data.get("polarity") or "positive").strip().lower()
+    raw_bodies = data.get("bodies")
+    if not isinstance(raw_bodies, list):
+        raw_bodies = data.get("pn_items") or []
+    if not isinstance(raw_bodies, list):
+        raw_bodies = []
+    bodies = [str(x) for x in raw_bodies]
+
+    body, status = replace_general_notes_for_scope(
+        g.db,
+        user,
+        exercise_id=int(ex.id),
+        unit_level_key=uk,
+        polarity=polarity,
+        bodies=bodies,
+        judge_label=_judge_display_name(user, ex),
+    )
+    if status >= 400:
+        g.db.rollback()
+        return jsonify(body), status
+    # أعد الحمولة الكاملة للوحدة بعد الاستبدال
+    payload = _polarity_notes_payload(user, ex)
+    payload["replaced_polarity"] = polarity
+    payload["replaced_count"] = int(body.get("count") or 0)
+    g.db.commit()
+    if client_op_id:
+        _record_client_op(
+            user,
+            client_op_id=client_op_id,
+            op_type="polarity_notes_bulk",
+            path=request.path,
+            response_body=payload,
+            exercise_id=int(ex.id),
+        )
+    return jsonify(payload), 200
+
+
+@bp.post("/polarity-notes")
+@_require_judge_json
+def tablet_polarity_notes_save(user: User):
+    from app.judge_polarity_notes import upsert_note
+
+    ex = _exercise_for(user)
+    if ex is None:
+        return _json_error("لا يوجد تمرين نشط", 404)
+    data = request.get_json(silent=True) or {}
+    client_op_id = _client_op_id_from_request(data)
+    if client_op_id and not data.get("client_uuid"):
+        data["client_uuid"] = client_op_id
+    replay = _idempotent_response(user, client_op_id)
+    if replay is not None:
+        return replay
+    # السجلات العامة المشتركة: فرض source_kind=general ووحدة المحكم
+    if (data.get("source_kind") or "general").strip().lower() == "general":
+        data["source_kind"] = "general"
+    body, status = upsert_note(
+        g.db,
+        user,
+        exercise_id=int(ex.id),
+        unit_level_key=_unit_key_for(user, ex) or "",
+        judge_label=_judge_display_name(user, ex),
+        data=data,
+    )
+    if status >= 400:
+        g.db.rollback()
+        return jsonify(body), status
+    g.db.commit()
+    if client_op_id:
+        _record_client_op(
+            user,
+            client_op_id=client_op_id,
+            op_type="polarity_note_save",
+            path=request.path,
+            response_body=body,
+            exercise_id=int(ex.id),
+        )
+    return jsonify(body), status
+
+
+@bp.delete("/polarity-notes/<int:note_id>")
+@_require_judge_json
+def tablet_polarity_notes_delete(user: User, note_id: int):
+    from app.judge_polarity_notes import delete_note
+    from app.models import JudgePolarityNote
+
+    # السجلات العامة المشتركة: أي محكم لنفس الوحدة يمكنه الحذف (مثل الاستبدال الجماعي)
+    row = g.db.get(JudgePolarityNote, int(note_id))
+    if row is None:
+        return jsonify({"ok": False, "error": "not_found"}), 404
+    ex = _exercise_for(user)
+    uk = (_unit_key_for(user, ex) or "").strip() if ex else ""
+    if (
+        (row.source_kind or "") == "general"
+        and ex is not None
+        and int(row.exercise_id) == int(ex.id)
+        and (row.unit_level_key or "").strip() == uk
+        and uk
+    ):
+        g.db.delete(row)
+        g.db.commit()
+        return jsonify({"ok": True, "deleted": True}), 200
+
+    body, status = delete_note(g.db, user, note_id, "")
+    if status >= 400:
+        g.db.rollback()
+        return jsonify(body), status
+    g.db.commit()
+    return jsonify(body), status

@@ -10,13 +10,17 @@ import 'package:provider/provider.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/connectivity_service.dart';
+import '../services/device_admin_service.dart';
 import '../services/health_service.dart';
 import '../services/tablet_repository.dart';
 import '../theme/app_theme.dart';
+import '../theme/device_layout.dart';
 
-const String kDisplayedAppVersion = '2.4.4';
+const String kDisplayedAppVersion = DeviceLayout.appVersion;
 
 enum _ConnBadge { connected, offlineMode, unreachable }
+
+enum _LoginMode { judge, deviceAdmin }
 
 /// Login — Figma split: branding left, dark card right + IP button.
 class LoginScreen extends StatefulWidget {
@@ -39,12 +43,18 @@ class _LoginScreenState extends State<LoginScreen> {
   String _serverHint = '';
   bool _offlineReady = false;
   DateTime? _lastSyncAt;
+  _LoginMode _mode = _LoginMode.judge;
 
   @override
   void initState() {
     super.initState();
+    final hint = AuthService.instance.savedUsernameHint;
+    if (hint != null && hint.isNotEmpty) {
+      _userCtrl.text = hint;
+    }
     _refreshServerHint();
     _loadMeta();
+    // حالة الاتصال للشارة فقط — لا تمنع الدخول
     unawaited(HealthService.instance.start());
     HealthService.instance.serverReachable.addListener(_onHealthChanged);
     ConnectivityService.instance.hasNetwork.addListener(_onHealthChanged);
@@ -79,8 +89,11 @@ class _LoginScreenState extends State<LoginScreen> {
     if (HealthService.instance.serverReachable.value) {
       return _ConnBadge.connected;
     }
-    if (_offlineReady) return _ConnBadge.offlineMode;
-    return _ConnBadge.unreachable;
+    // Offline Mode دائماً عند غياب السيرفر — لا شاشة خطأ تمنع الاستخدام
+    if (_offlineReady || AuthService.instance.offlineCredsAvailable) {
+      return _ConnBadge.offlineMode;
+    }
+    return _ConnBadge.offlineMode;
   }
 
   @override
@@ -112,13 +125,41 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
     setState(() {
       _testingConn = false;
-      _testHint = ok ? '✅ تم الاتصال بالخادم' : '⚠️ سيتم العمل بوضع offline';
+      _testHint = ok
+          ? '✅ تم الاتصال بالخادم'
+          : (_offlineReady
+              ? '⚠️ Offline Mode — يمكن الدخول بالبيانات المحلية'
+              : '⚠️ Offline Mode — يلزم أول دخول عبر السيرفر مرة واحدة');
     });
   }
 
   Future<void> _submit() async {
     if (_submitting) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    if (_mode == _LoginMode.deviceAdmin) {
+      setState(() {
+        _submitting = true;
+        _error = null;
+        _info = null;
+      });
+      final ok = await DeviceAdminService.instance.login(
+        _userCtrl.text.trim(),
+        _passCtrl.text,
+      );
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      if (ok) {
+        context.go('/device-admin');
+        return;
+      }
+      setState(() {
+        _error = DeviceAdminService.instance.lastError ??
+            'بيانات مدير الجهاز غير صحيحة';
+      });
+      return;
+    }
+
     final auth = context.read<AuthService>();
     await ApiClient.instance.init();
     if (!kIsWeb && ApiClient.instance.baseUrl.trim().isEmpty) {
@@ -126,7 +167,9 @@ class _LoginScreenState extends State<LoginScreen> {
           await AuthService.instance.canOfflineLoginAs(_userCtrl.text.trim());
       if (!offlineOk) {
         if (!mounted) return;
-        setState(() => _error = 'اضبط عنوان السيرفر أولاً عبر زر «ربط السيرفر»');
+        setState(() => _error =
+            'اضبط عنوان السيرفر وسجّل الدخول مرة واحدة عبر الشبكة،\n'
+            'أو اطلب من مدير الجهاز تنزيل حزمة التمرين.');
         return;
       }
     }
@@ -155,13 +198,13 @@ class _LoginScreenState extends State<LoginScreen> {
       context.go('/home');
       return;
     }
-    var err = auth.lastError ?? 'تعذر الاتصال بالخادم.';
-    if (err.contains('مهلة')) {
+    var err = auth.lastError ?? 'تعذر تسجيل الدخول.';
+    if (err.contains('مهلة') || err.contains('تعذر الاتصال')) {
       final offline = await AuthService.instance
           .canOfflineLoginAs(_userCtrl.text.trim());
       err = offline
-          ? 'تعذر الاتصال بالخادم.\nسيتم العمل باستخدام البيانات المحلية.'
-          : 'تعذر الاتصال بالخادم.';
+          ? 'السيرفر غير متاح — جرّب الدخول بالبيانات المحلية (Offline Mode).'
+          : 'يلزم تهيئة الجهاز أو اتصال بالسيرفر لأول تسجيل دخول فقط.';
     }
     setState(() {
       _submitting = false;
@@ -196,6 +239,14 @@ class _LoginScreenState extends State<LoginScreen> {
               badge: _badge,
               versionLabel: 'Version $kDisplayedAppVersion',
               syncLabel: _formatSync(_lastSyncAt),
+              mode: _mode,
+              onModeChanged: (m) => setState(() {
+                _mode = m;
+                _error = null;
+                if (m == _LoginMode.deviceAdmin) {
+                  _userCtrl.text = 'device_admin';
+                }
+              }),
               onSubmit: _submit,
               onServerConnect: _openServerConnect,
               onTestConnection: _testConnection,
@@ -300,6 +351,8 @@ class _LoginCard extends StatelessWidget {
     required this.badge,
     required this.versionLabel,
     required this.syncLabel,
+    required this.mode,
+    required this.onModeChanged,
     required this.onSubmit,
     required this.onServerConnect,
     required this.onTestConnection,
@@ -319,12 +372,15 @@ class _LoginCard extends StatelessWidget {
   final _ConnBadge badge;
   final String versionLabel;
   final String syncLabel;
+  final _LoginMode mode;
+  final ValueChanged<_LoginMode> onModeChanged;
   final VoidCallback onSubmit;
   final VoidCallback onServerConnect;
   final VoidCallback onTestConnection;
 
   @override
   Widget build(BuildContext context) {
+    final isAdmin = mode == _LoginMode.deviceAdmin;
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 400),
       child: Container(
@@ -343,6 +399,39 @@ class _LoginCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _ConnectionBadge(badge: badge),
+              const SizedBox(height: 12),
+              SegmentedButton<_LoginMode>(
+                segments: const [
+                  ButtonSegment(
+                    value: _LoginMode.judge,
+                    label: Text('محكم'),
+                    icon: Icon(Icons.gavel, size: 16),
+                  ),
+                  ButtonSegment(
+                    value: _LoginMode.deviceAdmin,
+                    label: Text('مدير الجهاز'),
+                    icon: Icon(Icons.tablet_android, size: 16),
+                  ),
+                ],
+                selected: {mode},
+                onSelectionChanged: submitting
+                    ? null
+                    : (s) => onModeChanged(s.first),
+                style: ButtonStyle(
+                  foregroundColor: WidgetStateProperty.resolveWith((states) {
+                    if (states.contains(WidgetState.selected)) {
+                      return AppColors.darkText;
+                    }
+                    return AppColors.goldLight;
+                  }),
+                  backgroundColor: WidgetStateProperty.resolveWith((states) {
+                    if (states.contains(WidgetState.selected)) {
+                      return AppColors.gold;
+                    }
+                    return Colors.transparent;
+                  }),
+                ),
+              ),
               const SizedBox(height: 14),
               Container(
                 width: 54,
@@ -352,11 +441,15 @@ class _LoginCard extends StatelessWidget {
                   shape: BoxShape.circle,
                   border: Border.all(color: AppColors.gold, width: 1.5),
                 ),
-                child: const Icon(Icons.person_outline, color: AppColors.gold, size: 28),
+                child: Icon(
+                  isAdmin ? Icons.admin_panel_settings_outlined : Icons.person_outline,
+                  color: AppColors.gold,
+                  size: 28,
+                ),
               ),
               const SizedBox(height: 10),
               Text(
-                'تسجيل الدخول',
+                isAdmin ? 'دخول مدير الجهاز' : 'تسجيل الدخول',
                 textAlign: TextAlign.center,
                 style: AppTextStyles.cairo(
                   fontSize: 22,
@@ -364,10 +457,21 @@ class _LoginCard extends StatelessWidget {
                   color: AppColors.white,
                 ),
               ),
+              if (isAdmin) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'إعدادات تقنية فقط — بدون تقييمات',
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.cairo(
+                    fontSize: 11,
+                    color: AppColors.goldLight,
+                  ),
+                ),
+              ],
               const SizedBox(height: 22),
               _field(
                 controller: userCtrl,
-                hint: 'اسم المستخدم',
+                hint: isAdmin ? 'device_admin' : 'اسم المستخدم',
                 icon: Icons.person_outline,
                 validator: (v) => (v == null || v.trim().isEmpty) ? 'مطلوب' : null,
               ),
@@ -393,59 +497,61 @@ class _LoginCard extends StatelessWidget {
                 validator: (v) => (v == null || v.isEmpty) ? 'مطلوب' : null,
                 onSubmit: onSubmit,
               ),
-              const SizedBox(height: 14),
-              OutlinedButton.icon(
-                onPressed: submitting ? null : onServerConnect,
-                icon: const Icon(Icons.dns_outlined, color: AppColors.gold, size: 18),
-                label: Text(
-                  'ربط السيرفر (IP Address)',
-                  style: AppTextStyles.cairo(
-                    color: AppColors.gold,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
+              if (!isAdmin) ...[
+                const SizedBox(height: 14),
+                OutlinedButton.icon(
+                  onPressed: submitting ? null : onServerConnect,
+                  icon: const Icon(Icons.dns_outlined, color: AppColors.gold, size: 18),
+                  label: Text(
+                    'ربط السيرفر (IP Address)',
+                    style: AppTextStyles.cairo(
+                      color: AppColors.gold,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppColors.gold, width: 1.2),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: AppColors.gold, width: 1.2),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                const SizedBox(height: 6),
+                Text(
+                  serverHint,
+                  textAlign: TextAlign.center,
+                  textDirection: ui.TextDirection.ltr,
+                  style: AppTextStyles.cairo(fontSize: 11, color: AppColors.goldLight),
                 ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                serverHint,
-                textAlign: TextAlign.center,
-                textDirection: ui.TextDirection.ltr,
-                style: AppTextStyles.cairo(fontSize: 11, color: AppColors.goldLight),
-              ),
-              Align(
-                alignment: Alignment.center,
-                child: TextButton(
-                  onPressed: (submitting || testingConn) ? null : onTestConnection,
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                Align(
+                  alignment: Alignment.center,
+                  child: TextButton(
+                    onPressed: (submitting || testingConn) ? null : onTestConnection,
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: testingConn
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.goldLight,
+                            ),
+                          )
+                        : Text(
+                            'اختبار الاتصال',
+                            style: AppTextStyles.cairo(
+                              fontSize: 12,
+                              color: AppColors.goldLight,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                   ),
-                  child: testingConn
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: AppColors.goldLight,
-                          ),
-                        )
-                      : Text(
-                          'اختبار الاتصال',
-                          style: AppTextStyles.cairo(
-                            fontSize: 12,
-                            color: AppColors.goldLight,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
                 ),
-              ),
+              ],
               if (testHint != null) ...[
                 const SizedBox(height: 4),
                 Text(
@@ -523,7 +629,7 @@ class _LoginCard extends StatelessWidget {
                           const Icon(Icons.login, size: 20),
                           const SizedBox(width: 8),
                           Text(
-                            'تسجيل الدخول',
+                            isAdmin ? 'دخول إدارة الجهاز' : 'تسجيل الدخول',
                             style: AppTextStyles.cairo(
                               fontWeight: FontWeight.w800,
                               color: AppColors.darkText,
@@ -614,11 +720,11 @@ class _ConnectionBadge extends StatelessWidget {
         break;
       case _ConnBadge.offlineMode:
         color = const Color(0xFFFF9800);
-        label = '🟠 وضع Offline';
+        label = '🟠 Offline Mode';
         break;
       case _ConnBadge.unreachable:
-        color = const Color(0xFFE53935);
-        label = '🔴 الخادم غير متاح';
+        color = const Color(0xFFFF9800);
+        label = '🟠 Offline Mode';
         break;
     }
     return Center(

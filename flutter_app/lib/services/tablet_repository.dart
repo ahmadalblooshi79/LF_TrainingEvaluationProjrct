@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
 
 import '../models/action_eval.dart';
 import '../models/eval_sheet.dart';
@@ -7,9 +10,11 @@ import '../models/flow.dart';
 import '../models/home_data.dart';
 import '../models/list_row.dart';
 import '../models/objective.dart';
+import '../models/polarity_note.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
 import 'health_service.dart';
+import 'media_upload_service.dart';
 import 'offline_store.dart';
 import 'sync_service.dart';
 
@@ -31,123 +36,61 @@ class TabletRepository {
   TabletRepository._internal();
   static final TabletRepository instance = TabletRepository._internal();
 
-  /// عند توفر السيرفر: جلب حيّ أولاً (لتوافق الإشعارات وإعادة القوائم).
-  /// عند الانقطاع فقط: إرجاع الكاش المحلي.
+  String _scoped(String cacheKey) {
+    final uid = AuthService.instance.currentUserId;
+    if (uid == null || uid <= 0) return cacheKey;
+    return OfflineStore.userKey(uid, cacheKey);
+  }
+
+  Future<Map<String, dynamic>?> _cacheGetScoped(String cacheKey) async {
+    final scoped = _scoped(cacheKey);
+    final a = await OfflineStore.instance.cacheGet(scoped);
+    if (a != null) return a;
+    if (scoped != cacheKey) {
+      return OfflineStore.instance.cacheGet(cacheKey);
+    }
+    return null;
+  }
+
+  Future<void> _cacheSetScoped(
+    String cacheKey,
+    Map<String, dynamic> data, {
+    String syncStatus = SyncStatuses.synced,
+  }) {
+    return OfflineStore.instance.cacheSet(
+      _scoped(cacheKey),
+      data,
+      syncStatus: syncStatus,
+    );
+  }
+
+  /// Local-First: اعرض المحلي فوراً. السحب الحي فقط عبر Update My Data.
   Future<Fetched<Map<String, dynamic>>> _readLocalFirst(
     String path,
     String cacheKey, {
     Map<String, dynamic>? query,
   }) async {
-    final local = await OfflineStore.instance.cacheGet(cacheKey);
+    final key = _scoped(cacheKey);
+    final local = await _cacheGetScoped(cacheKey);
     final reachable = await HealthService.instance.check();
+
+    if (local != null) {
+      return Fetched(Map<String, dynamic>.from(local), !reachable);
+    }
 
     if (reachable) {
       try {
         final data = await ApiClient.instance.get(path, query: query);
-        final status = await OfflineStore.instance.cacheSyncStatus(cacheKey);
-        final existing = await OfflineStore.instance.cacheGet(cacheKey);
-        final serverReopened = _sheetReopenedOnServer(data);
-        // إعادة كبير المحكمين من السيرفر تلغي قفل الاعتماد المحلي القديم
-        if (serverReopened && existing != null) {
-          final merged = Map<String, dynamic>.from(data);
-          merged['locally_approved'] = false;
-          merged['locally_modified'] = existing['locally_modified'] == true;
-          if (existing['locally_modified'] == true &&
-              existing['saved_payload'] is Map) {
-            // أبقِ تعديلات الصفوف المحلية غير المتزامنة فوق حمولة السيرفر
-            merged['saved_payload'] = existing['saved_payload'];
-            if (existing['saved_rows'] != null) {
-              merged['saved_rows'] = existing['saved_rows'];
-            }
-          }
-          await OfflineStore.instance.cacheSet(
-            cacheKey,
-            merged,
-            syncStatus: existing['locally_modified'] == true
-                ? SyncStatuses.pending
-                : SyncStatuses.synced,
-          );
-          return Fetched(merged, false);
-        }
-        final hasLocalEdits = status == SyncStatuses.pending ||
-            status == SyncStatuses.failed ||
-            (existing != null &&
-                (existing['locally_modified'] == true ||
-                    existing['locally_approved'] == true));
-        if (!hasLocalEdits) {
-          await OfflineStore.instance.cacheSet(cacheKey, data);
-          return Fetched(Map<String, dynamic>.from(data), false);
-        }
-        // تعديلات معلّقة محلياً: أبقِ الكاش لكن لا تُظهر بانر «بدون اتصال»
-        return Fetched(
-          Map<String, dynamic>.from(existing ?? data),
-          false,
-        );
+        await OfflineStore.instance.cacheSet(key, data);
+        return Fetched(Map<String, dynamic>.from(data), false);
       } catch (_) {
-        if (local != null) {
-          return Fetched(Map<String, dynamic>.from(local), true);
-        }
         rethrow;
       }
     }
 
-    if (local != null) {
-      return Fetched(Map<String, dynamic>.from(local), true);
-    }
     throw ApiOfflineException(
-      'لا توجد بيانات محلية لهذه الشاشة — اتصل بالخادم مرة واحدة للتنزيل',
+      'لا توجد بيانات محلية لهذه الشاشة — نفّذ «تحديث بياناتي» أو تهيئة الجهاز',
     );
-  }
-
-  /// هل أعلن السيرفر إعادة القائمة للمحكم؟
-  bool _sheetReopenedOnServer(Map<String, dynamic> data) {
-    final wf = data['workflow'];
-    if (wf is Map && wf['reopened'] == true) return true;
-    return false;
-  }
-
-  Future<void> _refreshIntoCache(
-    String path,
-    String cacheKey, {
-    Map<String, dynamic>? query,
-  }) async {
-    try {
-      final data = await ApiClient.instance.get(path, query: query);
-      if (_sheetReopenedOnServer(data)) {
-        final existing = await OfflineStore.instance.cacheGet(cacheKey);
-        final merged = Map<String, dynamic>.from(data);
-        merged['locally_approved'] = false;
-        if (existing != null &&
-            existing['locally_modified'] == true &&
-            existing['saved_payload'] is Map) {
-          merged['locally_modified'] = true;
-          merged['saved_payload'] = existing['saved_payload'];
-          if (existing['saved_rows'] != null) {
-            merged['saved_rows'] = existing['saved_rows'];
-          }
-          await OfflineStore.instance.cacheSet(
-            cacheKey,
-            merged,
-            syncStatus: SyncStatuses.pending,
-          );
-        } else {
-          await OfflineStore.instance.cacheSet(cacheKey, merged);
-        }
-        return;
-      }
-      // لا تستبدل تعديلات محلية معلّقة بمزامنة
-      final status = await OfflineStore.instance.cacheSyncStatus(cacheKey);
-      if (status == SyncStatuses.pending || status == SyncStatuses.failed) {
-        return;
-      }
-      final existing = await OfflineStore.instance.cacheGet(cacheKey);
-      if (existing != null &&
-          (existing['locally_modified'] == true ||
-              existing['locally_approved'] == true)) {
-        return;
-      }
-      await OfflineStore.instance.cacheSet(cacheKey, data);
-    } catch (_) {}
   }
 
   /// بعد الدخول: تنزيل كامل لبيانات المحكم للعمل دون شبكة.
@@ -157,6 +100,9 @@ class TabletRepository {
     } catch (_) {}
     try {
       await _downloadAndStore('/api/tablet/home', 'home');
+    } catch (_) {}
+    try {
+      await _downloadAndStore('/api/tablet/polarity-notes', 'polarity_notes');
     } catch (_) {}
     try {
       final flow = await _downloadAndStore('/api/tablet/flow', 'flow:');
@@ -217,11 +163,37 @@ class TabletRepository {
     Map<String, dynamic>? query,
   }) async {
     final data = await ApiClient.instance.get(path, query: query);
-    await OfflineStore.instance.cacheSet(cacheKey, data);
+    final scopedKey = _scoped(cacheKey);
+    final status = await OfflineStore.instance.cacheSyncStatus(scopedKey);
+    final existing = await _cacheGetScoped(cacheKey);
+    final hasLocalEdits = status == SyncStatuses.pending ||
+        status == SyncStatuses.failed ||
+        (existing != null &&
+            (existing['locally_modified'] == true ||
+                existing['locally_approved'] == true));
+    if (hasLocalEdits && existing != null) {
+      // لا تمسح تعديلات معلّقة عند Update My Data
+      final merged = Map<String, dynamic>.from(data);
+      merged['locally_modified'] = existing['locally_modified'] == true;
+      merged['locally_approved'] = existing['locally_approved'] == true;
+      if (existing['saved_payload'] is Map) {
+        merged['saved_payload'] = existing['saved_payload'];
+      }
+      if (existing['saved_rows'] != null) {
+        merged['saved_rows'] = existing['saved_rows'];
+      }
+      await OfflineStore.instance.cacheSet(
+        scopedKey,
+        merged,
+        syncStatus: SyncStatuses.pending,
+      );
+    } else {
+      await _cacheSetScoped(cacheKey, data);
+    }
     if (cacheKey.startsWith('flow:')) {
       final active = (data['active_day_id'] ?? '').toString();
       if (active.isNotEmpty && cacheKey == 'flow:') {
-        await OfflineStore.instance.cacheSet('flow:$active', data);
+        await _cacheSetScoped('flow:$active', data);
       }
     }
     return data;
@@ -282,7 +254,7 @@ class TabletRepository {
     if (day == null || day.isEmpty) {
       final active = (r.data['active_day_id'] ?? '').toString();
       if (active.isNotEmpty) {
-        await OfflineStore.instance.cacheSet('flow:$active', r.data);
+        await _cacheSetScoped('flow:$active', r.data);
       }
     }
     return Fetched(FlowData.fromJson(r.data), r.fromCache);
@@ -409,14 +381,14 @@ class TabletRepository {
     List<EvalRowInput> rows, {
     String syncStatus = SyncStatuses.pending,
   }) async {
-    final cached = await OfflineStore.instance.cacheGet(cacheKey) ??
+    final cached = await _cacheGetScoped(cacheKey) ??
         <String, dynamic>{};
     cached['saved_rows'] = rows.map((r) => r.toJson()).toList();
     cached['saved_payload'] = {
       'rows': rows.map((r) => r.toJson()).toList(),
     };
     cached['locally_modified'] = true;
-    await OfflineStore.instance.cacheSet(
+    await _cacheSetScoped(
       cacheKey,
       cached,
       syncStatus: syncStatus,
@@ -424,7 +396,7 @@ class TabletRepository {
   }
 
   Future<void> _markLocallyApproved(String cacheKey) async {
-    final cached = await OfflineStore.instance.cacheGet(cacheKey) ??
+    final cached = await _cacheGetScoped(cacheKey) ??
         <String, dynamic>{};
     cached['is_approved'] = true;
     cached['can_edit'] = false;
@@ -437,7 +409,7 @@ class TabletRepository {
           : <String, dynamic>{}),
       'label': 'معتمد محلياً – بانتظار المزامنة',
     };
-    await OfflineStore.instance.cacheSet(
+    await _cacheSetScoped(
       cacheKey,
       cached,
       syncStatus: SyncStatuses.pending,
@@ -454,22 +426,49 @@ class TabletRepository {
     int? bundleActionEvalId,
   }) async {
     final id = newClientOpId('media');
-    final localPath =
-        await OfflineStore.instance.persistMediaFile(sourcePath, id);
+    final src = sourcePath;
+    // فحص المساحة قبل النسخ
+    try {
+      final len = await File(src).length();
+      await MediaUploadService.instance.ensureStorageFor(len);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      // إن فشل length نتابع — persist قد يفشل لاحقاً
+    }
+
+    final localPath = await OfflineStore.instance.persistMediaFile(
+      src,
+      id,
+      mediaKind: mediaKind,
+    );
+    final file = File(localPath);
+    final size = await file.length();
+    final checksum = await MediaUploadService.instance.sha256File(localPath);
+    final mime = MediaUploadService.instance.guessMime(localPath, mediaKind);
+    final session = AuthService.instance.session;
     final rec = LocalMediaRecord(
       id: id,
+      clientUuid: id,
       localPath: localPath,
       rowIndex: rowIndex,
       mediaKind: mediaKind,
       evaluationListItemId: evaluationListItemId,
       bundleActionEvalId: bundleActionEvalId,
-      syncStatus: SyncStatuses.pending,
+      syncStatus: MediaSyncStatuses.pending,
       createdAt: DateTime.now().toIso8601String(),
+      updatedAt: DateTime.now().toIso8601String(),
       sheetCacheKey: sheetCacheKey,
+      userId: session?.user.id,
+      exerciseId: session?.exercise?.id,
+      originalFilename: p.basename(src),
+      localFilename: p.basename(localPath),
+      mimeType: mime,
+      fileSize: size,
+      totalBytes: size,
+      checksum: checksum,
     );
     await OfflineStore.instance.upsertMedia(rec);
 
-    // أرفق المسار المحلي في ورقة التقييم المخزّنة
     final cached = await OfflineStore.instance.cacheGet(sheetCacheKey);
     if (cached != null) {
       final media = (cached['local_media'] is List)
@@ -484,7 +483,8 @@ class TabletRepository {
         'row_index': rowIndex,
         'media_kind': mediaKind,
         'local_path': localPath,
-        'sync_status': SyncStatuses.pending,
+        'sync_status': MediaSyncStatuses.pending,
+        'file_size': size,
       });
       cached['local_media'] = media;
       await OfflineStore.instance.cacheSet(
@@ -497,7 +497,7 @@ class TabletRepository {
     await SyncService.instance.enqueueLocalFirst(
       id: id,
       method: 'POST',
-      path: '/api/tablet/media/criterion',
+      path: '/api/tablet/media/upload/init',
       body: {
         'row_index': rowIndex,
         'media_kind': mediaKind,
@@ -542,36 +542,211 @@ class TabletRepository {
   }
 
   Future<void> _seedFromBootstrap(Map<String, dynamic> data) async {
-    await OfflineStore.instance.cacheSet('session_bundle', data);
+    await _cacheSetScoped('session_bundle', data);
     if (data['incomplete_tasks'] is List) {
-      await OfflineStore.instance.cacheSet('incomplete', {
+      await _cacheSetScoped('incomplete', {
         'ok': true,
         'tasks': data['incomplete_tasks'],
       });
     }
     if (data['home'] is Map) {
-      await OfflineStore.instance.cacheSet(
+      await _cacheSetScoped(
         'home',
         Map<String, dynamic>.from(data['home'] as Map),
       );
     }
     if (data['objectives'] is List) {
-      await OfflineStore.instance.cacheSet('objectives', {
+      await _cacheSetScoped('objectives', {
         'ok': true,
         'exercise_id': data['exercise'] is Map ? data['exercise']['id'] : 0,
         'exercise_name': data['exercise'] is Map ? data['exercise']['name'] : '',
         'objectives': data['objectives'],
       });
     }
+    if (data['polarity_notes'] is Map) {
+      await _cacheSetScoped(
+        'polarity_notes',
+        Map<String, dynamic>.from(data['polarity_notes'] as Map),
+      );
+    }
     final user = AuthService.instance.session?.user;
     if (user != null) {
-      // احتفظ بهوية المحكم صراحةً في التخزين المحلي
-      await OfflineStore.instance.cacheSet('judge_profile', {
+      await _cacheSetScoped('judge_profile', {
         'user': user.toJson(),
         'exercise': AuthService.instance.session?.exercise?.toJson(),
         'unit_key': AuthService.instance.session?.unitKey,
         'unit_label': AuthService.instance.session?.unitLabel,
       });
+    }
+  }
+
+  Future<Fetched<PolarityNotesBundle>> fetchPolarityBundle() async {
+    final r = await _readLocalFirst(
+      '/api/tablet/polarity-notes',
+      'polarity_notes',
+    );
+    return Fetched(PolarityNotesBundle.fromJson(r.data), r.fromCache);
+  }
+
+  Future<Fetched<List<PolarityNote>>> fetchPolarityNotes() async {
+    final r = await fetchPolarityBundle();
+    return Fetched(r.data.notes, r.fromCache);
+  }
+
+  Future<PolarityNotesBundle> replaceGeneralPolarityNotes({
+    required String polarity,
+    required List<String> bodies,
+    String? unitLevelKey,
+  }) async {
+    final uuid = newClientOpId('pn-bulk');
+    final uk = (unitLevelKey ?? AuthService.instance.session?.unitKey ?? '')
+        .trim();
+    final cached = await _cacheGetScoped('polarity_notes') ??
+        <String, dynamic>{
+          'ok': true,
+          'unit_key': uk,
+          'unit_label': AuthService.instance.session?.unitLabel ?? '',
+          'notes': <dynamic>[],
+        };
+    final other = ((cached['notes'] as List?) ?? [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .where((e) => (e['polarity'] ?? '').toString() != polarity)
+        .toList();
+    final now = DateTime.now().toIso8601String();
+    final replaced = <Map<String, dynamic>>[];
+    var i = 0;
+    for (final raw in bodies) {
+      final body = raw.trim();
+      if (body.isEmpty) continue;
+      replaced.add({
+        'client_uuid': '$uuid-$i',
+        'polarity': polarity,
+        'body': body,
+        'source_kind': 'general',
+        'unit_level_key': uk,
+        'row_index': i,
+        'sync_status': SyncStatuses.pending,
+        'created_at': now,
+        'updated_at': now,
+      });
+      i++;
+    }
+    cached['notes'] = [...other, ...replaced];
+    cached['unit_key'] = uk;
+    cached['notes_pos_count'] = polarity == 'positive'
+        ? replaced.length
+        : other.where((e) => e['polarity'] == 'positive').length;
+    cached['notes_neg_count'] = polarity == 'negative'
+        ? replaced.length
+        : other.where((e) => e['polarity'] == 'negative').length;
+    await _cacheSetScoped(
+      'polarity_notes',
+      cached,
+      syncStatus: SyncStatuses.pending,
+    );
+
+    await SyncService.instance.enqueueLocalFirst(
+      id: uuid,
+      method: 'POST',
+      path: '/api/tablet/polarity-notes/bulk',
+      body: {
+        'client_op_id': uuid,
+        'polarity': polarity,
+        'unit_level_key': uk,
+        'bodies': bodies,
+      },
+      kind: polarity == 'positive'
+          ? 'حفظ قائمة الإيجابيات'
+          : 'حفظ قائمة السلبيات',
+      opType: 'polarity_notes_bulk',
+    );
+    return PolarityNotesBundle.fromJson(cached);
+  }
+
+  Future<void> savePolarityNote({
+    PolarityNote? existing,
+    required String polarity,
+    required String body,
+    String sourceKind = 'general',
+    int? evaluationListItemId,
+    int? bundleActionEvalId,
+    int? rowIndex,
+    String criterionLabel = '',
+  }) async {
+    final uuid = (existing?.clientUuid.isNotEmpty == true)
+        ? existing!.clientUuid
+        : newClientOpId('pn');
+    final now = DateTime.now().toIso8601String();
+    final note = PolarityNote(
+      id: existing?.id,
+      clientUuid: uuid,
+      polarity: polarity,
+      body: body.trim(),
+      sourceKind: sourceKind,
+      evaluationListItemId: evaluationListItemId,
+      bundleActionEvalId: bundleActionEvalId,
+      rowIndex: rowIndex,
+      criterionLabel: criterionLabel,
+      unitLevelKey: AuthService.instance.session?.unitKey ?? '',
+      syncStatus: SyncStatuses.pending,
+      createdAt: existing?.createdAt.isNotEmpty == true
+          ? existing!.createdAt
+          : now,
+      updatedAt: now,
+    );
+
+    final cached = await _cacheGetScoped('polarity_notes') ??
+        <String, dynamic>{'ok': true, 'notes': <dynamic>[]};
+    final list = ((cached['notes'] as List?) ?? [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    final idx = list.indexWhere(
+      (e) => (e['client_uuid'] ?? '').toString() == uuid,
+    );
+    if (idx >= 0) {
+      list[idx] = note.toJson();
+    } else {
+      list.insert(0, note.toJson());
+    }
+    cached['notes'] = list;
+    await _cacheSetScoped(
+      'polarity_notes',
+      cached,
+      syncStatus: SyncStatuses.pending,
+    );
+
+    await SyncService.instance.enqueueLocalFirst(
+      id: uuid,
+      method: 'POST',
+      path: '/api/tablet/polarity-notes',
+      body: note.toJson(),
+      kind: polarity == 'positive' ? 'حفظ إيجابية' : 'حفظ سلبية',
+      opType: 'polarity_note_save',
+    );
+  }
+
+  Future<void> deletePolarityNote(PolarityNote note) async {
+    final cached = await _cacheGetScoped('polarity_notes') ??
+        <String, dynamic>{'ok': true, 'notes': <dynamic>[]};
+    final list = ((cached['notes'] as List?) ?? [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .where((e) => (e['client_uuid'] ?? '') != note.clientUuid)
+        .toList();
+    cached['notes'] = list;
+    await _cacheSetScoped('polarity_notes', cached);
+
+    if (note.id != null && note.id! > 0) {
+      await SyncService.instance.enqueueLocalFirst(
+        id: newClientOpId('pn-del'),
+        method: 'DELETE',
+        path: '/api/tablet/polarity-notes/${note.id}',
+        body: const {},
+        kind: 'حذف ملاحظة قطبية',
+        opType: 'polarity_note_delete',
+      );
     }
   }
 }

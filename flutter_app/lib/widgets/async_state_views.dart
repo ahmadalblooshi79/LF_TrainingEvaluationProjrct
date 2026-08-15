@@ -84,7 +84,7 @@ class CachedDataBanner extends StatelessWidget {
       color: AppColors.notDoneRed.withValues(alpha: 0.12),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       child: Text(
-        'بيانات مخزّنة محلياً — لا يوجد اتصال حالياً بالخادم',
+        'Offline Mode — بيانات محلية',
         style: AppTextStyles.small.copyWith(
           color: AppColors.notDoneRed,
           fontWeight: FontWeight.w600,

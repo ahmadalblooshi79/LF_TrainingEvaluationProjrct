@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/api_client.dart';
+import '../services/notifications_badge_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_header.dart';
 import '../widgets/figma_ui.dart';
@@ -82,7 +83,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             .toList();
         _loading = false;
       });
-    } catch (e) {
+      final unread = (data['unread_count'] as num?)?.toInt();
+      if (unread != null) {
+        NotificationsBadgeService.instance.setUnread(unread);
+      } else {
+        await NotificationsBadgeService.instance.refresh();
+      }    } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
@@ -99,6 +105,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             .map((n) => n.id == id ? n.copyWith(isRead: true) : n)
             .toList();
       });
+      NotificationsBadgeService.instance.setUnread(
+        _items.where((e) => !e.isRead).length,
+      );
     } catch (_) {}
   }
 
@@ -108,6 +117,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       setState(() {
         _items = _items.map((n) => n.copyWith(isRead: true)).toList();
       });
+      NotificationsBadgeService.instance.setUnread(0);
     } catch (_) {}
   }
 

@@ -7,6 +7,7 @@ import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/tablet_repository.dart';
 import '../theme/app_theme.dart';
+import '../theme/device_layout.dart';
 import '../widgets/app_header.dart';
 import '../widgets/async_state_views.dart';
 import '../widgets/figma_ui.dart';
@@ -29,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
     'flow': Icons.timeline,
     'action_eval': Icons.fact_check_outlined,
     'evaluation_lists': Icons.checklist_rtl,
+    'positives_negatives': Icons.thumbs_up_down_outlined,
     'objectives': Icons.flag_outlined,
   };
 
@@ -92,13 +94,17 @@ class _HomeScreenState extends State<HomeScreen> {
           final main = _Main(data: data, fromCache: _fromCache, icons: _icons);
           if (!wide) {
             return ListView(
-              padding: const EdgeInsets.all(16),
-              children: [sidebar, const SizedBox(height: 14), main],
+              padding: DeviceLayout.pagePadding(context),
+              children: [
+                sidebar,
+                SizedBox(height: DeviceLayout.listSpacing(context) + 4),
+                main,
+              ],
             );
           }
           // RTL: first child appears on the right → sidebar first.
           return ListView(
-            padding: const EdgeInsets.all(16),
+            padding: DeviceLayout.pagePadding(context),
             children: [
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
