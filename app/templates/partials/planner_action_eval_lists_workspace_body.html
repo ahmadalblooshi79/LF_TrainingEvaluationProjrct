@@ -17,7 +17,12 @@
       <a href="{{ url_for('views.planner_action_eval_lists_workspace', day=day.id) }}"
          class="pf-flow-day-tab{% if day.id == selected_day_id %} is-active{% endif %}"
          role="tab"
-         aria-selected="{{ 'true' if day.id == selected_day_id else 'false' }}">{{ day.label }}</a>
+         aria-selected="{{ 'true' if day.id == selected_day_id else 'false' }}">
+        <span class="pf-flow-day-tab__text">
+          <span class="pf-flow-day-tab__label">{{ day.label }}</span>
+          {% if day.phase_label %}<span class="pf-flow-day-tab__phase">{{ day.phase_label }}</span>{% endif %}
+        </span>
+      </a>
       {% endfor %}
     </nav>
   </div>

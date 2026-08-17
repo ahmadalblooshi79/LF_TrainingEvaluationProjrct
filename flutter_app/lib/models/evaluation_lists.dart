@@ -55,7 +55,7 @@ class EvaluationListsData {
           .whereType<Map>()
           .map((e) => PhaseTab.fromJson(e.cast<String, dynamic>()))
           .toList(),
-      lists: ((json['lists'] as List?) ?? [])
+      lists: ((json['lists'] as List?) ?? (json['rows'] as List?) ?? [])
           .whereType<Map>()
           .map((e) => ListRow.fromJson(e.cast<String, dynamic>()))
           .toList(),

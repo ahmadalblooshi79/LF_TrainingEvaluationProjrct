@@ -73,8 +73,7 @@ class EmptyView extends StatelessWidget {
   }
 }
 
-/// Small banner shown at the top of a screen when data was served from the
-/// offline cache instead of a live network call.
+/// بانر يظهر فقط عند عرض كاش بسبب انقطاع السيرفر فعلياً.
 class CachedDataBanner extends StatelessWidget {
   const CachedDataBanner({super.key});
 
@@ -85,8 +84,11 @@ class CachedDataBanner extends StatelessWidget {
       color: AppColors.notDoneRed.withValues(alpha: 0.12),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       child: Text(
-        'بيانات مخزّنة محلياً — لا يوجد اتصال حالياً بالخادم',
-        style: AppTextStyles.small.copyWith(color: AppColors.notDoneRed, fontWeight: FontWeight.w600),
+        'Offline Mode — بيانات محلية',
+        style: AppTextStyles.small.copyWith(
+          color: AppColors.notDoneRed,
+          fontWeight: FontWeight.w600,
+        ),
         textAlign: TextAlign.center,
       ),
     );

@@ -28,7 +28,12 @@
       <a href="{{ url_for(unit_list_endpoint | default('views.judge_dilemmas'), unit_key=unit_key, day=tab.day_id) }}"
          class="pf-flow-day-tab{% if tab.day_id == active_day_id %} is-active{% endif %}"
          role="tab"
-         aria-selected="{{ 'true' if tab.day_id == active_day_id else 'false' }}">{{ tab.day_label }}</a>
+         aria-selected="{{ 'true' if tab.day_id == active_day_id else 'false' }}">
+        <span class="pf-flow-day-tab__text">
+          <span class="pf-flow-day-tab__label">{{ tab.day_label }}</span>
+          {% if tab.phase_label %}<span class="pf-flow-day-tab__phase">{{ tab.phase_label }}</span>{% endif %}
+        </span>
+      </a>
       {% endfor %}
     </nav>
   </div>

@@ -4046,7 +4046,7 @@ main:has(.timeline-word-root) .admin-shell__workspace {
 }
 .eval-lists-day-tabs .pf-flow-day-tab {
   text-decoration: none;
-  display: inline-block;
+  display: inline-flex;
 }
 .ibank-action-eval-days-bar {
   margin: 0.2rem 0 0.1rem;
@@ -10191,6 +10191,34 @@ main:has(#pf-flow-table-section):not(:has(.ibank-event-flow-panel)) > #pf-flow-t
   font-weight: 600;
   cursor: pointer;
   line-height: 1.25;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  text-decoration: none;
+}
+.pf-flow-day-tab__text {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.08rem;
+  min-width: 0;
+}
+.pf-flow-day-tab__label {
+  display: block;
+}
+.pf-flow-day-tab__phase {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.2;
+  opacity: 0.88;
+  max-width: 12rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pf-flow-day-tab.is-active .pf-flow-day-tab__phase {
+  opacity: 0.95;
 }
 .pf-flow-day-tab:hover,
 .pf-flow-day-tab:focus {
@@ -12015,8 +12043,21 @@ html {
   margin: 0 0 0.65rem;
   font-size: 0.98rem;
 }
-.control-pn-ai-bullets { gap: 0.45rem; }
-.control-pn-ai-bullet { font-weight: 600; line-height: 1.5; }
+.control-pn-judge-list {
+  list-style: decimal;
+  padding-inline-start: 1.35rem;
+  margin: 0;
+  gap: 0.45rem;
+}
+.control-pn-judge-list .control-pn-note {
+  display: list-item;
+  margin-bottom: 0.4rem;
+}
+.control-pn-judge-text {
+  white-space: pre-wrap;
+  line-height: 1.5;
+  font-weight: 600;
+}
 
 /* مساحة التمرين الحالي — تبويبات وحقول */
 .exercise-workspace-card {
@@ -14033,3 +14074,111 @@ body.wrm-page-body main {
 }
 .ibank-dilemma-lists-org-label input { margin-top: 0.15rem; flex: 0 0 auto; }
 .ibank-dilemma-lists-save-status { margin: 0.35rem 0 0; font-size: 0.85rem; }
+
+/* —— إيجابيات/سلبيات المحكم (ويب) —— */
+.judge-pn-unit-bar {
+  margin-bottom: 0.75rem;
+}
+.judge-pn-unit-label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+.judge-pn-unit-fixed {
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--border, #d6cfc7);
+  background: var(--tint-50, #faf8f6);
+  font-weight: 700;
+  font-size: 1rem;
+}
+.judge-pn-unit-select {
+  width: min(100%, 28rem);
+  max-width: 100%;
+  padding: 0.45rem 0.65rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--border, #d6cfc7);
+  font: inherit;
+  background: #fff;
+}
+.judge-pn-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+.judge-pn-filter {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.75rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--border, #d6cfc7);
+  background: var(--surface, #fff);
+  color: inherit;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.judge-pn-filter.is-active {
+  background: var(--button-brown, #6b4f3a);
+  border-color: var(--button-brown, #6b4f3a);
+  color: #fff;
+}
+.judge-pn-filter--pos.is-active { background: #1b7a3d; border-color: #1b7a3d; }
+.judge-pn-filter--neg.is-active { background: #a33b3b; border-color: #a33b3b; }
+.eval-notes-with-polarity {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+.eval-notes-with-polarity .eval-notes-textarea { flex: 1 1 auto; min-width: 0; }
+.eval-polarity-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  flex: 0 0 auto;
+}
+.eval-polarity-btn--pos { color: #1b7a3d; }
+.eval-polarity-btn--neg { color: #a33b3b; }
+.judge-pn-dialog {
+  border: none;
+  border-radius: 0.65rem;
+  padding: 0;
+  max-width: min(28rem, calc(100vw - 1.5rem));
+  width: 100%;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.22);
+}
+.judge-pn-dialog::backdrop { background: rgba(20, 16, 12, 0.45); }
+.judge-pn-dialog__form { padding: 0.9rem 1rem 1rem; }
+.judge-pn-dialog__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.45rem;
+}
+.judge-pn-dialog__title {
+  margin: 0;
+  font-size: 1.05rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.judge-pn-dialog__crit-line { margin: 0 0 0.45rem; font-size: 0.88rem; }
+.judge-pn-dialog__body {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 5rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.45rem;
+  border: 1px solid var(--border, #d6cfc7);
+  font: inherit;
+  resize: vertical;
+}
+.judge-pn-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
+}

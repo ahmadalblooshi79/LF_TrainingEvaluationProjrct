@@ -1,0 +1,14 @@
+---
+description: Always rebuild both tablet APK and PWA after Flutter app changes
+alwaysApply: true
+---
+
+# تطبيق المحكم — بناء مزدوج إلزامي
+
+عند أي تعديل على تطبيق التابلت (`flutter_app/` أو ما يؤثر على واجهة/سلوك المحكم على الجهاز):
+
+1. لا تُنه المهمة ببناء PWA فقط أو APK فقط.
+2. ابنِ **الاثنين** في نفس الجلسة:
+   - `BUILD_PWA.bat` → `dist/tablet_pwa`
+   - `BUILD_TABLET.bat` → `dist/judge-tablet-v*.apk`
+3. حدّث إصدار `BUILD_TABLET.bat` ليطابق `flutter_app/pubspec.yaml` قبل بناء الـ APK.

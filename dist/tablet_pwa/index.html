@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <base href="/tablet/">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="التحكيم الذكي — تطبيق تابلت المحكمين (PWA)">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#D49E3F">
+
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="التحكيم الذكي">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>التحكيم الذكي — تابلت المحكمين</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: #EFE7CE;
+    }
+    .lf-boot {
+      font-family: Cairo, Tahoma, sans-serif;
+      color: #1A212D;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      direction: rtl;
+    }
+  </style>
+</head>
+<body>
+  <div class="lf-boot" id="lf-boot">جاري تحميل تطبيق المحكمين…</div>
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      var el = document.getElementById('lf-boot');
+      if (el) el.remove();
+    });
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

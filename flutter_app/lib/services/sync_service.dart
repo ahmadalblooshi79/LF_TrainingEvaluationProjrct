@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
 import 'health_service.dart';
+import 'media_upload_service.dart';
+import 'notifications_badge_service.dart';
 import 'offline_store.dart';
 
 /// حالة مؤشر المزامنة الظاهر في الواجهة.
@@ -40,16 +42,12 @@ class SyncService {
     if (saved != null) lastSuccessAt.value = saved;
     _updateUiState();
     HealthService.instance.serverReachable.addListener(_onHealth);
+    // مزامنة يدوية فقط — لا إرسال تلقائي عند الاتصال أو بجدول زمني.
+    // فحص دوري خفيف لحالة الاتصال في الواجهة فقط.
     _retryTimer = Timer.periodic(const Duration(seconds: 20), (_) {
-      if (HealthService.instance.serverReachable.value) {
-        unawaited(flush());
-      } else {
-        unawaited(HealthService.instance.check());
-      }
+      unawaited(HealthService.instance.check());
+      unawaited(refreshPendingCount());
     });
-    if (HealthService.instance.serverReachable.value) {
-      unawaited(flush());
-    }
   }
 
   void dispose() {
@@ -59,13 +57,13 @@ class SyncService {
 
   void _onHealth() {
     _updateUiState();
-    if (HealthService.instance.serverReachable.value) {
-      unawaited(flush());
-    }
+    // لا flush تلقائي عند عودة الشبكة — Manual Sync Only
   }
 
   Future<void> refreshPendingCount() async {
-    pendingCount.value = await OfflineStore.instance.pendingOpsCount();
+    pendingCount.value = await OfflineStore.instance.pendingOpsCount(
+      userId: AuthService.instance.currentUserId,
+    );
     _updateUiState();
   }
 
@@ -134,28 +132,35 @@ class SyncService {
     );
     await OfflineStore.instance.enqueueOp(op);
     await refreshPendingCount();
-    unawaited(flush());
+    // لا إرسال تلقائي — المستخدم يضغط «مزامنة» يدوياً
     return false;
   }
 
-  Future<void> flush() async {
+  Future<void> flush({bool mediaOnly = false}) async {
     if (syncing.value) return;
     final reachable = await HealthService.instance.check();
     if (!reachable) {
       _updateUiState();
       return;
     }
-    final ops = await OfflineStore.instance.pendingOps();
-    if (ops.isEmpty) {
+    final ops = await OfflineStore.instance.pendingOps(
+      userId: AuthService.instance.currentUserId,
+    );
+    final filtered = mediaOnly
+        ? ops.where((o) => o.opType == 'media_upload').toList()
+        : ops;
+    if (filtered.isEmpty) {
       lastError.value = null;
       _updateUiState();
       return;
     }
 
     syncing.value = true;
+    MediaUploadService.instance.clearPauseFlags();
     _updateUiState();
+    var successCount = 0;
     try {
-      for (final op in ops) {
+      for (final op in filtered) {
         await OfflineStore.instance.markOpSyncing(op.id);
         try {
           if (op.opType == 'media_upload') {
@@ -166,6 +171,11 @@ class SyncService {
               body: op.body,
               idempotencyKey: op.id,
             );
+          } else if (op.method == 'DELETE') {
+            await ApiClient.instance.delete(
+              op.path,
+              idempotencyKey: op.id,
+            );
           } else {
             await ApiClient.instance.post(
               op.path,
@@ -174,9 +184,7 @@ class SyncService {
             );
           }
           await OfflineStore.instance.removeOp(op.id);
-          if (op.opType == 'media_upload') {
-            await OfflineStore.instance.markMediaConfirmed(op.id);
-          }
+          successCount++;
           if (op.opType == 'approve') {
             await _markSheetSyncedAfterApprove(op);
           }
@@ -191,13 +199,19 @@ class SyncService {
         } catch (e) {
           await OfflineStore.instance.markOpFailed(op.id, e.toString());
           lastError.value = e.toString();
-          // تابع بقية الطابور إن أمكن؛ أخطاء التفويض تُترك ظاهرة
           if (e is ApiException && (e.status == 401 || e.status == 403)) {
             break;
           }
         }
       }
       await refreshPendingCount();
+      await MediaUploadService.instance.refreshOverallFromDb();
+      if (successCount > 0) {
+        await NotificationsBadgeService.instance.reportSyncEvent(
+          kind: 'sync',
+          detail: 'تم مزامنة $successCount عملية بنجاح.',
+        );
+      }
     } finally {
       syncing.value = false;
       _updateUiState();
@@ -209,15 +223,19 @@ class SyncService {
     if (path == null || path.isEmpty) {
       throw ApiException('مسار الوسائط مفقود');
     }
-    final fields = op.body;
-    await ApiClient.instance.uploadCriterionMedia(
-      filePath: path,
-      rowIndex: (fields['row_index'] as num?)?.toInt() ?? 0,
-      mediaKind: (fields['media_kind'] ?? 'photo').toString(),
-      evaluationListItemId: (fields['evaluation_list_item_id'] as num?)?.toInt(),
-      bundleActionEvalId: (fields['bundle_action_eval_id'] as num?)?.toInt(),
-      idempotencyKey: op.id,
+    var rec = await OfflineStore.instance.mediaById(op.id);
+    rec ??= LocalMediaRecord(
+      id: op.id,
+      localPath: path,
+      rowIndex: (op.body['row_index'] as num?)?.toInt() ?? 0,
+      mediaKind: (op.body['media_kind'] ?? 'photo').toString(),
+      evaluationListItemId:
+          (op.body['evaluation_list_item_id'] as num?)?.toInt(),
+      bundleActionEvalId: (op.body['bundle_action_eval_id'] as num?)?.toInt(),
+      syncStatus: SyncStatuses.pending,
+      createdAt: op.createdAt,
     );
+    await MediaUploadService.instance.uploadOne(rec);
   }
 
   Future<void> _markSheetSyncedAfterApprove(PendingOp op) async {

@@ -249,6 +249,34 @@ def notify_evaluation_reopened_by_chief_judge(
         )
 
 
+def notify_tablet_sync_event(
+    db: Session,
+    *,
+    exercise_id: int,
+    user_id: int,
+    kind: str = "sync",
+    detail: str = "",
+) -> ExerciseNotification:
+    """تنبيه للمحكم بعد مزامنة أو تحديث بيانات من التابلت."""
+    k = (kind or "sync").strip().lower()
+    if k in ("update", "refresh", "package", "my_data"):
+        title = "تم تحديث بيانات التمرين"
+        body = (detail or "").strip() or "تم سحب أحدث البيانات من النظام إلى الجهاز."
+    else:
+        title = "اكتملت المزامنة"
+        body = (detail or "").strip() or "تم إرسال العمليات المعلّقة إلى السيرفر بنجاح."
+    return create_notification(
+        db,
+        exercise_id=int(exercise_id),
+        user_id=int(user_id),
+        type_=NotificationType.SYSTEM,
+        title=title,
+        message=body,
+        priority=NotificationPriority.NORMAL,
+        action_url="/notifications",
+    )
+
+
 def notify_visual_document_added(
     db: Session,
     *,

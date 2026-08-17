@@ -7818,10 +7818,11 @@ def _judge_action_eval_groups_for_all_flow_days(
     flow_qs = _judge_action_eval_lists_query_kwargs()
     groups_per_day: list[list[dict]] = []
     for day in day_options:
+        day_phase = str(day.get("phase_key") or "").strip() or phase_key
         groups, _meta = build_judge_action_eval_display_groups(
             db,
             exercise_id=int(ex.id),
-            phase_key=phase_key or None,
+            phase_key=day_phase or None,
             flow_day_id=str(day.get("id") or "") or None,
             restrict_unit_key=restrict_unit_key,
         )
@@ -8758,6 +8759,7 @@ def _render_planner_action_eval_lists(db, user: User):
     selected_day_id = (request.args.get("day") or "").strip()
     selected_day_label = ""
     day_options: list[dict[str, str]] = []
+    phase_from_query = bool((request.args.get("phase") or "").strip())
 
     if current_exercise is not None:
         ex_id = int(current_exercise.id)
@@ -8772,6 +8774,11 @@ def _render_planner_action_eval_lists(db, user: User):
         for day in day_options:
             if day.get("id") == selected_day_id:
                 selected_day_label = str(day.get("label") or "")
+                # مرحلة اليوم من مجرى بنك المعلومات ما لم تُمرَّر صراحة في الرابط
+                if not phase_from_query and (day.get("phase_key") or "").strip():
+                    selected_phase = normalize_exercise_phase(
+                        str(day.get("phase_key") or "").strip()
+                    )
                 break
         if selected_day_id and not selected_day_label:
             selected_day_label = selected_day_id
@@ -9617,6 +9624,7 @@ JUDGE_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("planner-flow-materials", "مجرى الأحداث والمعاضل", "fa-table-list"),
     ("dilemmas", "قوائم تقييم الإجراءات", "fa-file-excel"),
     ("evaluation-lists", "قوائم التقييم", "fa-file-excel"),
+    ("positives-negatives", "الإيجابيات والسلبيات", "fa-plus-minus"),
     ("visual-documentation", "التوثيق المرئي", "fa-photo-film"),
     ("incomplete-tasks", "مهام غير مكتملة", "fa-clipboard-list"),
     ("battle-overview", "الصورة العامة للمعركة", "fa-map"),
@@ -9631,6 +9639,7 @@ def _judge_hub_menu_items(user: User) -> tuple[tuple[str, str, str], ...]:
         "planner-flow-materials",
         "dilemmas",
         "evaluation-lists",
+        "positives-negatives",
         "incomplete-tasks",
     )
     if is_system_admin(user) or is_chief_judge(user):
@@ -9705,6 +9714,8 @@ def judge_hub_section(slug: str):
             section_icon="fa-clipboard-list",
             role="judge",
         )
+    if slug_norm == "positives-negatives":
+        return _render_judge_positives_negatives_page(user, section_title=title)
     return render_template(
         "judge_section_placeholder.html",
         **_ctx(
@@ -9713,6 +9724,273 @@ def judge_hub_section(slug: str):
             section_slug=slug_norm,
             **_hub_back_ctx_for_request_path(),
         ),
+    )
+
+
+def _judge_polarity_display_name(db, user: User, ex: Exercise | None) -> str:
+    mil = (getattr(user, "username", "") or "").strip()
+    if ex is not None and mil:
+        jr = (
+            db.query(ExerciseRosterRow)
+            .filter(
+                ExerciseRosterRow.exercise_id == ex.id,
+                ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+                ExerciseRosterRow.military_number == mil,
+            )
+            .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+            .first()
+        )
+        if jr is not None:
+            rank = (jr.rank_ar or "").strip()
+            name = (jr.full_name or "").strip()
+            if rank and name:
+                return f"{rank} / {name}"
+            if name:
+                return name
+    return (
+        (getattr(user, "full_name", "") or "").strip()
+        or (getattr(user, "username", "") or "").strip()
+        or f"محكم #{getattr(user, 'id', '')}"
+    )
+
+
+def _render_judge_positives_negatives_page(user: User, *, section_title: str):
+    from flask import g
+
+    from app.judge_polarity_notes import list_general_notes_for_scope
+    from app.planning_catalog_sync import sync_planning_catalogs_from_db
+    from app.unit_levels_catalog import UNIT_LEVELS, label_for_unit_level_key, unit_level_row
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    if ex is not None:
+        sync_planning_catalogs_from_db(db, force=False)
+
+    filter_key = (request.args.get("filter") or "positive").strip().lower()
+    if filter_key not in ("positive", "negative"):
+        filter_key = "positive"
+
+    assigned_uk = ""
+    if ex is not None:
+        assigned_uk = _judge_assigned_unit_key(db, user, ex) or ""
+
+    unit_locked = _is_individual_judge_user(user)
+    unit_levels: list[dict] = []
+
+    if unit_locked:
+        # المحكم الفردي: وحدة ثابتة حسب إسناده (اسم المستخدم / الرقم العسكري)
+        if assigned_uk:
+            row = unit_level_row(assigned_uk)
+            unit_levels = [
+                {
+                    "key": assigned_uk,
+                    "label": (row or {}).get("label")
+                    or label_for_unit_level_key(assigned_uk, db=db)
+                    or assigned_uk,
+                }
+            ]
+        selected_uk = assigned_uk
+    else:
+        # إدارة النظام / كبير المحكمين: قائمة منسدلة من التنظيم المدرج
+        unit_levels = [
+            {"key": (r.get("key") or "").strip(), "label": (r.get("label") or "").strip()}
+            for r in UNIT_LEVELS
+            if (r.get("key") or "").strip()
+        ]
+        if not unit_levels and ex is not None:
+            unit_levels = [
+                {"key": r["key"], "label": r["label"]}
+                for r in _information_bank_unit_levels(db)
+                if (r.get("key") or "").strip() and r.get("included_in_exercise")
+            ]
+        if not unit_levels and ex is not None:
+            unit_levels = [
+                {"key": r["key"], "label": r["label"]}
+                for r in _information_bank_unit_levels(db)
+                if (r.get("key") or "").strip()
+            ]
+        unit_keys = {u["key"] for u in unit_levels}
+        selected_uk = (request.args.get("unit") or "").strip()
+        if not selected_uk or selected_uk not in unit_keys:
+            if assigned_uk and assigned_uk in unit_keys:
+                selected_uk = assigned_uk
+            elif unit_levels:
+                selected_uk = unit_levels[0]["key"]
+            else:
+                selected_uk = ""
+
+    notes: list[dict] = []
+    notes_pos_count = 0
+    notes_neg_count = 0
+    if ex is not None and selected_uk:
+        notes = list_general_notes_for_scope(
+            db,
+            user,
+            exercise_id=int(ex.id),
+            unit_level_key=selected_uk,
+            polarity=filter_key,
+        )
+        notes_pos_count = len(
+            list_general_notes_for_scope(
+                db,
+                user,
+                exercise_id=int(ex.id),
+                unit_level_key=selected_uk,
+                polarity="positive",
+            )
+        )
+        notes_neg_count = len(
+            list_general_notes_for_scope(
+                db,
+                user,
+                exercise_id=int(ex.id),
+                unit_level_key=selected_uk,
+                polarity="negative",
+            )
+        )
+
+    unit_label = label_for_unit_level_key(selected_uk, db=db) if selected_uk else ""
+    if unit_levels and selected_uk:
+        for u in unit_levels:
+            if u["key"] == selected_uk and (u.get("label") or "").strip():
+                unit_label = u["label"]
+                break
+    add_label = "إضافة إيجابية" if filter_key == "positive" else "إضافة سلبية"
+    placeholder = "نص الإيجابية" if filter_key == "positive" else "نص السلبية"
+
+    return render_template(
+        "judge_positives_negatives.html",
+        **_ctx(
+            user,
+            section_title=section_title,
+            has_exercise=ex is not None,
+            notes=notes,
+            notes_pos_count=notes_pos_count,
+            notes_neg_count=notes_neg_count,
+            filter_key=filter_key,
+            unit_key=selected_uk,
+            unit_label=unit_label,
+            unit_levels=unit_levels,
+            unit_locked=unit_locked,
+            add_row_label=add_label,
+            row_placeholder=placeholder,
+            pn_saved=request.args.get("saved", type=int) == 1,
+            pn_error=(request.args.get("error") or "").strip(),
+            **_hub_back_ctx_for_request_path(),
+        ),
+    )
+
+
+@bp.route("/judge/positives-negatives/save", methods=["POST"])
+def judge_positives_negatives_save():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/judge/positives-negatives")
+    if not can_access_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    from app.judge_polarity_notes import replace_general_notes_for_scope, upsert_note
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    next_url = (request.form.get("next") or "/judge/positives-negatives").strip()
+    if not next_url.startswith("/"):
+        next_url = "/judge/positives-negatives"
+    if ex is None:
+        sep = "&" if "?" in next_url else "?"
+        return redirect(f"{next_url}{sep}error=no_exercise")
+
+    save_mode = (request.form.get("save_mode") or "").strip().lower()
+    items = request.form.getlist("pn_items")
+    if save_mode == "bulk" or items:
+        unit_key = (request.form.get("unit_level_key") or "").strip()
+        if _is_individual_judge_user(user):
+            assigned = _judge_assigned_unit_key(db, user, ex) or ""
+            if not assigned:
+                return redirect("/judge/positives-negatives?error=unit_required")
+            unit_key = assigned
+        polarity = (request.form.get("polarity") or "positive").strip().lower()
+        if polarity not in ("positive", "negative"):
+            polarity = "positive"
+        body, status = replace_general_notes_for_scope(
+            db,
+            user,
+            exercise_id=int(ex.id),
+            unit_level_key=unit_key,
+            polarity=polarity,
+            bodies=items,
+            judge_label=_judge_polarity_display_name(db, user, ex),
+        )
+        if status >= 400:
+            db.rollback()
+            err = (body.get("error") if isinstance(body, dict) else None) or "save_failed"
+            return redirect(
+                f"/judge/positives-negatives?unit={unit_key}&filter={polarity}&error={err}"
+            )
+        db.commit()
+        return redirect(
+            f"/judge/positives-negatives?unit={unit_key}&filter={polarity}&saved=1"
+        )
+
+    # حفظ مفرد من ورقة التقييم (حوار الإبهام)
+    form_unit = (request.form.get("unit_level_key") or "").strip()
+    data = {
+        "id": request.form.get("id"),
+        "polarity": request.form.get("polarity"),
+        "body": request.form.get("body"),
+        "source_kind": request.form.get("source_kind") or "general",
+        "evaluation_list_item_id": request.form.get("evaluation_list_item_id"),
+        "bundle_action_eval_id": request.form.get("bundle_action_eval_id"),
+        "row_index": request.form.get("row_index"),
+        "criterion_label": request.form.get("criterion_label"),
+        "client_uuid": (request.form.get("client_uuid") or "").strip(),
+    }
+    body, status = upsert_note(
+        db,
+        user,
+        exercise_id=int(ex.id),
+        unit_level_key=form_unit or _judge_assigned_unit_key(db, user, ex) or "",
+        judge_label=_judge_polarity_display_name(db, user, ex),
+        data=data,
+    )
+    if status >= 400:
+        db.rollback()
+        err = (body.get("error") if isinstance(body, dict) else None) or "save_failed"
+        sep = "&" if "?" in next_url else "?"
+        return redirect(f"{next_url}{sep}error={err}")
+    db.commit()
+    sep = "&" if "?" in next_url else "?"
+    return redirect(f"{next_url}{sep}saved=1")
+
+
+@bp.route("/judge/positives-negatives/delete", methods=["POST"])
+def judge_positives_negatives_delete():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/judge/positives-negatives")
+    if not can_access_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    from app.judge_polarity_notes import delete_note
+
+    db = g.db
+    note_id_raw = (request.form.get("id") or "").strip()
+    note_id = int(note_id_raw) if note_id_raw.isdigit() else None
+    unit_key = (request.form.get("unit_level_key") or "").strip()
+    filter_key = (request.form.get("polarity") or "positive").strip().lower()
+    if filter_key not in ("positive", "negative"):
+        filter_key = "positive"
+    body, status = delete_note(db, user, note_id, "")
+    if status >= 400:
+        db.rollback()
+        return redirect(
+            f"/judge/positives-negatives?unit={unit_key}&filter={filter_key}&error=not_found"
+        )
+    db.commit()
+    return redirect(
+        f"/judge/positives-negatives?unit={unit_key}&filter={filter_key}&deleted=1"
     )
 
 
@@ -11205,10 +11483,10 @@ def _build_control_positives_negatives(
     user: User,
     *,
     list_viewer: str = "views.control_evaluation_list_file_viewer",
-    force_ai_refresh: bool = False,
 ) -> dict:
-    """إيجابيات وسلبيات — تحليل ذكاء اصطناعي لكل مستوى وحدة + ملاحظات كتابية."""
-    from app.positives_negatives_ai import build_ai_unit_summaries, collect_unit_criteria
+    """إيجابيات وسلبيات — قراءة فقط من سجلات المحكمين (بدون ذكاء اصطناعي)."""
+    from app.judge_polarity_notes import list_general_notes_grouped_by_unit
+    from app.unit_levels_catalog import label_for_unit_level_key
 
     ex0 = _current_workspace_exercise(db, user)
     if ex0 is None:
@@ -11217,117 +11495,40 @@ def _build_control_positives_negatives(
     if ex is None:
         return {"has_exercise": False}
 
-    items = (
-        db.query(EvaluationListPdfItem)
-        .filter(EvaluationListPdfItem.exercise_id == ex.id)
-        .order_by(
-            _unit_level_order_expr(EvaluationListPdfItem.unit_level_key),
-            _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
-            EvaluationListPdfItem.sort_order,
-            EvaluationListPdfItem.id,
-        )
-        .all()
-    )
-    item_ids = [int(it.id) for it in items if getattr(it, "id", None) is not None]
-    canonical_by_item = (
-        _evaluation_canonical_map_for_items(db, int(ex.id), item_ids) if item_ids else {}
-    )
-
-    positive_notes: list[dict] = []
-    negative_notes: list[dict] = []
-    lists_with_notes: set[int] = set()
-    n_approved = 0
-
-    for it in items:
-        saved = canonical_by_item.get(int(it.id))
-        if saved is None or not eval_judge_approved(saved):
-            continue
-        if not (getattr(saved, "payload_json", "") or "").strip():
-            continue
-        n_approved += 1
-        uk = (it.unit_level_key or "").strip()
-        unit_label = label_for_unit_level_key(uk) or uk or "—"
-        list_title = (it.text or "قائمة تقييم").strip()
-        phase_label = _phase_label_ar(getattr(it, "exercise_phase", None))
-        open_href = url_for(
-            list_viewer,
-            unit_key=uk,
-            item_id=int(it.id),
-        )
-        list_has_note = False
-        for row in _parse_saved_eval_rows(saved.payload_json):
-            if not isinstance(row, dict):
-                continue
-            note = (row.get("notes") or "").strip()
-            if not note:
-                continue
-            list_has_note = True
-            pct = _eval_row_score_pct(row)
-            element = (row.get("element") or "").strip() or "—"
-            entry = {
-                "list_title": list_title,
-                "unit_label": unit_label,
-                "phase_label": phase_label,
-                "element": element[:200],
-                "note": note,
-                "pct": pct,
-                "grade": grade_label_from_percent(pct) if pct is not None else "—",
-                "open_href": open_href,
-                "approved_at": getattr(saved, "approved_at", None),
-            }
-            band = _pct_status_band(pct)
-            if band == "high":
-                positive_notes.append(entry)
-            elif band == "low":
-                negative_notes.append(entry)
-        if list_has_note:
-            lists_with_notes.add(int(it.id))
-
-    positive_notes.sort(
-        key=lambda x: (
-            -(float(x["pct"]) if x.get("pct") is not None else -1.0),
-            x["unit_label"],
-            x["list_title"],
-        )
-    )
-    negative_notes.sort(
-        key=lambda x: (
-            (float(x["pct"]) if x.get("pct") is not None else 101.0),
-            x["unit_label"],
-            x["list_title"],
-        )
-    )
-
-    by_unit = collect_unit_criteria(items, canonical_by_item, phase_label_fn=_phase_label_ar)
-    ai_ctx = build_ai_unit_summaries(
-        int(ex.id),
-        by_unit,
-        force_refresh=force_ai_refresh,
-    )
     unit_order = {row.get("key"): idx for idx, row in enumerate(UNIT_LEVELS)}
-    ai_summaries = list(ai_ctx.get("ai_unit_summaries") or [])
-    ai_summaries.sort(
-        key=lambda u: (
-            unit_order.get((u.get("unit_key") or "").strip(), len(unit_order)),
-            u.get("unit_label") or "",
-        )
+    grouped = list_general_notes_grouped_by_unit(
+        db, exercise_id=int(ex.id), unit_order=unit_order
     )
-    ai_ctx["ai_unit_summaries"] = ai_summaries
-    ai_ctx["n_ai_units"] = len(ai_summaries)
-    ai_ctx["n_ai_positives"] = sum(len(u.get("positives") or []) for u in ai_summaries)
-    ai_ctx["n_ai_negatives"] = sum(len(u.get("negatives") or []) for u in ai_summaries)
+    unit_summaries: list[dict] = []
+    n_positives = 0
+    n_negatives = 0
+    for g in grouped:
+        uk = (g.get("unit_key") or "").strip()
+        positives = list(g.get("positives") or [])
+        negatives = list(g.get("negatives") or [])
+        if not positives and not negatives:
+            continue
+        n_positives += len(positives)
+        n_negatives += len(negatives)
+        unit_summaries.append(
+            {
+                "unit_key": uk,
+                "unit_label": label_for_unit_level_key(uk, db=db) or uk or "—",
+                "positives": positives,
+                "negatives": negatives,
+                "n_positives": len(positives),
+                "n_negatives": len(negatives),
+            }
+        )
 
     return {
         "has_exercise": True,
         "exercise": ex,
-        "positive_notes": positive_notes,
-        "negative_notes": negative_notes,
-        "n_positive": len(positive_notes),
-        "n_negative": len(negative_notes),
-        "n_lists_with_notes": len(lists_with_notes),
-        "n_eval_lists": len(items),
-        "n_approved_eval_lists": n_approved,
-        **ai_ctx,
+        "unit_summaries": unit_summaries,
+        "n_units_with_notes": len(unit_summaries),
+        "n_positives": n_positives,
+        "n_negatives": n_negatives,
+        "readonly": True,
     }
 
 
@@ -12039,33 +12240,24 @@ def control_planner_flow_action_view(unit_key: str, action_eval_id: int):
 
 @bp.route("/control/top-positives-negatives/refresh-ai", methods=["POST"])
 def control_top_positives_negatives_refresh_ai():
+    """أُلغي التحليل بالذكاء الاصطناعي — إعادة توجيه لصفحة العرض فقط."""
     user = get_current_user_optional()
     if not user:
         return redirect("/login?next=/control/top-positives-negatives")
     if not can_access_control_hub(user):
         abort(403)
-    from flask import g
-
-    _build_control_positives_negatives(g.db, user, force_ai_refresh=True)
-    return redirect(url_for("views.control_hub_section", slug="top-positives-negatives", ai_refreshed=1))
+    return redirect(url_for("views.control_hub_section", slug="top-positives-negatives"))
 
 
 @bp.route("/analyst/positives-negatives/refresh-ai", methods=["POST"])
 def analyst_positives_negatives_refresh_ai():
+    """أُلغي التحليل بالذكاء الاصطناعي — إعادة توجيه لصفحة العرض فقط."""
     user = get_current_user_optional()
     if not user:
         return redirect("/login?next=/analyst/positives-negatives")
     if not can_access_analyst_hub(user):
         abort(403)
-    from flask import g
-
-    _build_control_positives_negatives(
-        g.db,
-        user,
-        list_viewer="views.analyst_evaluation_list_file_viewer",
-        force_ai_refresh=True,
-    )
-    return redirect(url_for("views.analyst_hub_section", slug="positives-negatives", ai_refreshed=1))
+    return redirect(url_for("views.analyst_hub_section", slug="positives-negatives"))
 
 
 @bp.route("/control")
@@ -14011,6 +14203,8 @@ def eval_criterion_media_upload():
         tag = "".join(str(x) for x in err.args)
         if "mime" in tag:
             return jsonify(ok=False, error="mime"), 415
+        if "storage" in tag:
+            return jsonify(ok=False, error="INSUFFICIENT_SERVER_STORAGE"), 507
         if "size" in tag:
             return jsonify(ok=False, error="size"), 413
         return jsonify(ok=False, error="reject"), 400
@@ -16148,6 +16342,12 @@ def admin_information_bank_event_flow_save():
     invalidate_information_bank_kind_cache("action_eval")
     invalidate_action_eval_dilemma_tree_cache()
     ensure_information_bank_kind(db, "action_eval")
+    # مزامنة مرحلة اليوم في معايير التقييم مع مجرى بنك المعلومات
+    from app.analyst_flow_day_phase_link import (
+        sync_all_exercises_day_phase_links_from_ibank,
+    )
+
+    sync_all_exercises_day_phase_links_from_ibank(db)
     db.commit()
     active_rows = next(
         (d["rows"] for d in doc["days"] if d["id"] == doc["active_day_id"]),
@@ -16234,6 +16434,11 @@ def admin_information_bank_event_flow_import_docx():
     invalidate_information_bank_kind_cache("action_eval")
     invalidate_action_eval_dilemma_tree_cache()
     ensure_information_bank_kind(db, "action_eval")
+    from app.analyst_flow_day_phase_link import (
+        sync_all_exercises_day_phase_links_from_ibank,
+    )
+
+    sync_all_exercises_day_phase_links_from_ibank(db)
     db.commit()
     ex = _admin_current_workspace_exercise(db, user)
     action_eval = _ibank_action_eval_day_tabs_payload(

@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}{{ section_title }} — المحكمين{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-plus-minus fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+  <div class="page-header__nav">
+    {% include 'partials/control_hub_back.html' %}
+  </div>
+</div>
+
+{% if pn_saved|default(false) %}
+<p class="form-ok-banner" id="judge-pn-ok-banner" role="status" dir="rtl"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> تم حفظ القائمة.</p>
+<script>
+(function () {
+  var el = document.getElementById("judge-pn-ok-banner");
+  if (!el) return;
+  setTimeout(function () { el.remove(); }, 2000);
+})();
+</script>
+{% endif %}
+{% if pn_error|default('') %}
+<p class="form-error-banner" role="alert" dir="rtl"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i>
+  {% if pn_error == 'unit_required' %}اختر مستوى الوحدة.{% elif pn_error == 'polarity' %}اختر إيجابيات أو سلبيات.{% elif pn_error == 'no_exercise' %}لا يوجد تمرين حالي.{% else %}تعذّر الحفظ.{% endif %}
+</p>
+{% endif %}
+
+{% if not has_exercise %}
+<section class="card">
+  <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل. افتح/أنشئ تمريناً أولاً.</p>
+</section>
+{% elif unit_locked|default(false) and not unit_key %}
+<section class="card">
+  <p class="muted" dir="rtl" style="margin:0;">لا توجد وحدة مخصّصة لحسابك في قائمة المحكمين لهذا التمرين.</p>
+</section>
+{% elif not unit_locked|default(false) and not unit_levels %}
+<section class="card">
+  <p class="muted" dir="rtl" style="margin:0;">لا توجد مستويات وحدة في تنظيم بنك المعلومات. أضفها من بنك المعلومات أولاً.</p>
+</section>
+{% else %}
+
+{% if not unit_locked|default(false) %}
+<p class="muted" dir="rtl" style="margin:0 0 0.75rem;">القائمة مشتركة لنفس مستوى الوحدة ضمن التمرين — تظهر متطابقة لإدارة النظام والمحكمين.</p>
+{% endif %}
+
+<section class="card judge-pn-unit-bar" dir="rtl">
+  <div class="form-group" style="margin:0;">
+    <span class="judge-pn-unit-label"><i class="fa-solid fa-sitemap fa-icon-label" aria-hidden="true"></i> مستوى الوحدة</span>
+    {% if unit_locked|default(false) %}
+    <p class="judge-pn-unit-fixed" id="judge-pn-unit">{{ unit_label or unit_key }}</p>
+    {% else %}
+    <form method="get" action="/judge/positives-negatives" id="judge-pn-unit-form" style="margin:0;">
+      <input type="hidden" name="filter" value="{{ filter_key }}">
+      <select id="judge-pn-unit" name="unit" class="judge-pn-unit-select" onchange="this.form.submit()" aria-label="مستوى الوحدة">
+        {% for u in unit_levels %}
+        <option value="{{ u.key }}" {% if u.key == unit_key %}selected{% endif %}>{{ u.label }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    {% endif %}
+  </div>
+</section>
+
+<div class="judge-pn-filters" role="tablist" aria-label="نوع السجلات" dir="rtl">
+  <a class="judge-pn-filter judge-pn-filter--pos{% if filter_key == 'positive' %} is-active{% endif %}" href="/judge/positives-negatives?{% if not unit_locked|default(false) %}unit={{ unit_key }}&amp;{% endif %}filter=positive">إيجابيات ({{ notes_pos_count }})</a>
+  <a class="judge-pn-filter judge-pn-filter--neg{% if filter_key == 'negative' %} is-active{% endif %}" href="/judge/positives-negatives?{% if not unit_locked|default(false) %}unit={{ unit_key }}&amp;{% endif %}filter=negative">سلبيات ({{ notes_neg_count }})</a>
+</div>
+
+<form method="post" action="{{ url_for('views.judge_positives_negatives_save') }}" id="judge-pn-main-form" dir="rtl">
+  <input type="hidden" name="save_mode" value="bulk">
+  <input type="hidden" name="unit_level_key" value="{{ unit_key }}">
+  <input type="hidden" name="polarity" value="{{ filter_key }}">
+  <input type="hidden" name="next" value="/judge/positives-negatives?{% if not unit_locked|default(false) %}unit={{ unit_key }}&amp;{% endif %}filter={{ filter_key }}">
+
+  <div class="card">
+    <ol class="objectives-editor-list" id="judge-pn-editor-list">
+      {% if notes %}
+        {% for n in notes %}
+        <li class="objectives-editor-row">
+          <span class="objectives-editor-row__num" aria-hidden="true">{{ loop.index }}</span>
+          <textarea class="objectives-editor-row__input objectives-editor-row__input--autogrow" name="pn_items" maxlength="4000" autocomplete="off" placeholder="{{ row_placeholder }}" rows="1">{{ n.body }}</textarea>
+          <button type="button" class="btn btn-ghost objectives-editor-row__del" title="حذف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
+        </li>
+        {% endfor %}
+      {% else %}
+        <li class="objectives-editor-row">
+          <span class="objectives-editor-row__num" aria-hidden="true">1</span>
+          <textarea class="objectives-editor-row__input objectives-editor-row__input--autogrow" name="pn_items" maxlength="4000" autocomplete="off" placeholder="{{ row_placeholder }}" rows="1"></textarea>
+          <button type="button" class="btn btn-ghost objectives-editor-row__del" title="حذف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
+        </li>
+      {% endif %}
+    </ol>
+    <p class="mt-tight">
+      <button type="button" class="btn btn-ghost" id="judge-pn-add-row"><i class="fa-solid fa-plus" aria-hidden="true"></i> {{ add_row_label }}</button>
+    </p>
+  </div>
+
+  <div class="btn-group" style="margin-top: 1rem;">
+    <button class="btn" type="submit"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ</button>
+  </div>
+</form>
+
+<script>
+(() => {
+  const listEl = document.getElementById("judge-pn-editor-list");
+  const addBtn = document.getElementById("judge-pn-add-row");
+  const form = document.getElementById("judge-pn-main-form");
+  const placeholder = {{ row_placeholder|tojson }};
+  if (!listEl || !addBtn || !form) return;
+
+  function rows() {
+    return Array.from(listEl.querySelectorAll(".objectives-editor-row"));
+  }
+
+  function renumber() {
+    rows().forEach((row, idx) => {
+      const n = row.querySelector(".objectives-editor-row__num");
+      if (n) n.textContent = String(idx + 1);
+    });
+  }
+
+  function autoGrow(el) {
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = (el.scrollHeight + 2) + "px";
+  }
+
+  function wireAutoGrow(el) {
+    if (!el) return;
+    autoGrow(el);
+    el.addEventListener("input", function () { autoGrow(el); });
+  }
+
+  function addRow(focus) {
+    const li = document.createElement("li");
+    li.className = "objectives-editor-row";
+    li.innerHTML =
+      '<span class="objectives-editor-row__num" aria-hidden="true">0</span>' +
+      '<textarea class="objectives-editor-row__input objectives-editor-row__input--autogrow" name="pn_items" maxlength="4000" autocomplete="off" rows="1"></textarea>' +
+      '<button type="button" class="btn btn-ghost objectives-editor-row__del" title="حذف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>';
+    const ta = li.querySelector("textarea");
+    if (ta) ta.placeholder = placeholder;
+    listEl.appendChild(li);
+    renumber();
+    wireAutoGrow(ta);
+    if (focus && ta) ta.focus();
+  }
+
+  addBtn.addEventListener("click", () => addRow(true));
+
+  listEl.addEventListener("click", (e) => {
+    const btn = e.target.closest(".objectives-editor-row__del");
+    if (!btn) return;
+    const row = btn.closest(".objectives-editor-row");
+    if (!row) return;
+    if (rows().length <= 1) {
+      const ta = row.querySelector("textarea");
+      if (ta) { ta.value = ""; autoGrow(ta); }
+      return;
+    }
+    row.remove();
+    renumber();
+  });
+
+  rows().forEach((row) => {
+    wireAutoGrow(row.querySelector(".objectives-editor-row__input--autogrow"));
+  });
+  renumber();
+})();
+</script>
+{% endif %}
+{% endblock %}

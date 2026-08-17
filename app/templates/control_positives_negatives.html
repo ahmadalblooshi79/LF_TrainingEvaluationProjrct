@@ -14,16 +14,13 @@
 </section>
 {% else %}
 <section class="card control-positives-negatives-wrap">
+  <p class="muted" dir="rtl" style="margin:0 0 0.75rem;">عرض للقراءة فقط — من سجلات المحكمين في صفحة الإيجابيات والسلبيات.</p>
   <div class="control-pn-summary" dir="rtl">
-    <span class="control-pn-summary__chip">قوائم معتمدة من المحكم: <strong>{{ n_approved_eval_lists }}</strong> / {{ n_eval_lists }}</span>
-    <span class="control-pn-summary__chip">مستويات وحدات مُحلّلة: <strong>{{ n_ai_units | default(0) }}</strong></span>
-    <span class="control-pn-summary__chip control-pn-summary__chip--pos">إيجابيات (ذكاء اصطناعي): <strong>{{ n_ai_positives | default(0) }}</strong></span>
-    <span class="control-pn-summary__chip control-pn-summary__chip--neg">سلبيات (ذكاء اصطناعي): <strong>{{ n_ai_negatives | default(0) }}</strong></span>
+    <span class="control-pn-summary__chip">مستويات وحدات: <strong>{{ n_units_with_notes | default(0) }}</strong></span>
+    <span class="control-pn-summary__chip control-pn-summary__chip--pos">إيجابيات: <strong>{{ n_positives | default(0) }}</strong></span>
+    <span class="control-pn-summary__chip control-pn-summary__chip--neg">سلبيات: <strong>{{ n_negatives | default(0) }}</strong></span>
   </div>
-
-  {% set ai_refresh_url = url_for('views.control_top_positives_negatives_refresh_ai') %}
-  {% set ai_refreshed = request.args.get('ai_refreshed') %}
-  {% include 'partials/positives_negatives_ai_units.html' %}
+  {% include 'partials/positives_negatives_judge_units.html' %}
 </section>
 {% endif %}
 {% endblock %}

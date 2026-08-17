@@ -44,6 +44,44 @@ void main() {
     expect(d.savedRows.first.acquired, '4');
   });
 
+  test('reopened sheet stays editable even if is_approved is true', () {
+    final json = <String, dynamic>{
+      'kind': 'evaluation_list',
+      'item_id': 1,
+      'title': 't',
+      'eval_rows': <Map<String, dynamic>>[],
+      'saved_payload': <String, dynamic>{},
+      'can_edit': true,
+      'can_approve': true,
+      'is_approved': true,
+      'locally_approved': true,
+      'workflow': {'label': 'معاد للتعديل', 'reopened': true},
+    };
+    final d = EvalSheetDetail.fromJson(json);
+    expect(d.canEdit, isTrue);
+    expect(d.canApprove, isTrue);
+    expect(d.isApproved, isFalse);
+    expect(d.workflow.reopened, isTrue);
+  });
+
+  test('server can_edit wins over is_approved without reopened flag', () {
+    final json = <String, dynamic>{
+      'kind': 'evaluation_list',
+      'item_id': 2,
+      'title': 't',
+      'eval_rows': <Map<String, dynamic>>[],
+      'saved_payload': <String, dynamic>{},
+      'can_edit': true,
+      'can_approve': true,
+      'is_approved': true,
+      'workflow': {'label': '', 'reopened': false},
+    };
+    final d = EvalSheetDetail.fromJson(json);
+    expect(d.canEdit, isTrue);
+    expect(d.canApprove, isTrue);
+    expect(d.isApproved, isFalse);
+  });
+
   test('fromJson with Map from dynamic list like JS', () {
     final raw = <dynamic>[
       <dynamic, dynamic>{

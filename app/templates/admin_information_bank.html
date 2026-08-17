@@ -1227,7 +1227,20 @@
               });
               tabsNav.appendChild(tabBtn);
             }
-            tabBtn.textContent = label;
+            tabBtn.innerHTML = '';
+            var textWrap = document.createElement('span');
+            textWrap.className = 'pf-flow-day-tab__text';
+            var labelEl = document.createElement('span');
+            labelEl.className = 'pf-flow-day-tab__label';
+            labelEl.textContent = label;
+            textWrap.appendChild(labelEl);
+            if (d.phase_label) {
+              var phaseEl = document.createElement('span');
+              phaseEl.className = 'pf-flow-day-tab__phase';
+              phaseEl.textContent = d.phase_label;
+              textWrap.appendChild(phaseEl);
+            }
+            tabBtn.appendChild(textWrap);
 
             var pane = treeCard.querySelector('.ibank-action-eval-day-pane[data-day-id="' + dayId + '"]');
             if (!pane) {

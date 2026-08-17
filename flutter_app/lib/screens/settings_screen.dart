@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
-import '../services/offline_store.dart';
 import '../services/sync_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_header.dart';
@@ -132,14 +131,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               valueListenable: SyncService.instance.pendingCount,
               builder: (context, count, _) => Row(
                 children: [
-                  Expanded(child: Text('عمليات بانتظار المزامنة: $count', style: AppTextStyles.body)),
-                  TextButton(
-                    onPressed: () => SyncService.instance.flush(),
-                    child: const Text('مزامنة الآن'),
+                  Expanded(
+                    child: Text(
+                      'عمليات بانتظار الرفع: $count',
+                      style: AppTextStyles.body,
+                    ),
                   ),
                   TextButton(
                     onPressed: () => context.push('/sync-status'),
-                    child: const Text('التفاصيل'),
+                    child: const Text('إدارة المزامنة'),
                   ),
                 ],
               ),
@@ -154,22 +154,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               OutlinedButton.icon(
                 onPressed: () async {
                   await context.read<AuthService>().logout();
-                  if (context.mounted) Navigator.of(context).popUntil((r) => r.isFirst);
+                  if (context.mounted) context.go('/login');
                 },
                 icon: const Icon(Icons.logout),
                 label: const Text('تسجيل الخروج'),
               ),
             ],
-            const SizedBox(height: 20),
-            TextButton(
-              onPressed: () async {
-                await OfflineStore.instance.clearAll();
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم مسح البيانات المخزّنة محلياً')));
-                }
-              },
-              child: Text('مسح البيانات المخزّنة محلياً', style: AppTextStyles.small.copyWith(color: AppColors.notDoneRed)),
-            ),
           ],
         ),
       ),

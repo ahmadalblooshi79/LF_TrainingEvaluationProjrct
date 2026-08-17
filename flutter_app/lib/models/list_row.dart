@@ -19,6 +19,8 @@ class ListRow {
   final String listTypeLabel;
   final String openHref;
   final String workflowLabel;
+  final String dispatchLabel;
+  final String rowTone;
   final dynamic dilemmaNo;
   final dynamic nodeId;
 
@@ -41,9 +43,18 @@ class ListRow {
     this.listTypeLabel = '',
     required this.openHref,
     required this.workflowLabel,
+    this.dispatchLabel = '',
+    this.rowTone = '',
     this.dilemmaNo,
     this.nodeId,
   });
+
+  /// تسمية عمود إرسال للاعتماد (معاد للتعديل / مرسل / …).
+  String get displayDispatch {
+    final d = dispatchLabel.trim();
+    if (d.isNotEmpty) return d;
+    return workflowLabel.trim();
+  }
 
   /// تسمية عربية لعمود نوع القائمة.
   String get displayListType {
@@ -67,6 +78,8 @@ class ListRow {
       if (v is num) return v.toInt();
       return int.tryParse(v.toString().trim());
     }
+    final dispatch = (json['dispatch_label'] ?? json['workflow_label'] ?? '')
+        .toString();
     return ListRow(
       id: json['id'],
       slotIndex: asInt(json['slot_index']),
@@ -85,7 +98,9 @@ class ListRow {
       listType: (json['list_type'] ?? '').toString(),
       listTypeLabel: (json['list_type_label'] ?? '').toString(),
       openHref: (json['open_href'] ?? '').toString(),
-      workflowLabel: (json['workflow_label'] ?? '').toString(),
+      workflowLabel: (json['workflow_label'] ?? dispatch).toString(),
+      dispatchLabel: dispatch,
+      rowTone: (json['row_tone'] ?? '').toString(),
       dilemmaNo: json['dilemma_no'],
       nodeId: json['node_id'],
     );
