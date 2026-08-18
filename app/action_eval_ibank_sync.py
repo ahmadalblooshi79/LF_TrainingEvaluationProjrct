@@ -867,14 +867,147 @@ def published_action_eval_node_ids_for_bundle(
     return set(_published_slots_by_node(db, bundle).keys())
 
 
+def _strip_action_eval_file_ext(name: str) -> str:
+    base = (name or "").strip()
+    lower = base.lower()
+    for ext in (".xlsx", ".xls"):
+        if lower.endswith(ext):
+            return base[: -len(ext)].strip()
+    return base
+
+
+_DILEMMA_TITLE_RE = re.compile(
+    r"^(?P<base>.*?)\s*—\s*معضلة\s*(?P<num>\d+)\s*:\s*(?P<text>.*)$",
+    re.DOTALL,
+)
+
+
+def _action_eval_title_base(name: str) -> str:
+    """اسم القائمة فقط — يزيل لاحقة المعضلة إن وُجدت."""
+    raw = _strip_action_eval_file_ext(name or "")
+    m = _DILEMMA_TITLE_RE.match(raw)
+    if m:
+        base = (m.group("base") or "").strip()
+        if base:
+            return base
+    return raw
+
+
+def format_action_eval_judge_list_title(
+    *,
+    stored_title: str | None = None,
+    source_title: str | None = None,
+    dilemma_no: int = 0,
+    dilemma_text: str = "",
+) -> str:
+    """تسمية عرض موحّدة لكل الأيام: اسم القائمة — معضلة N: نص المعضلة."""
+    stored = _strip_action_eval_file_ext(stored_title or "")
+    source = _strip_action_eval_file_ext(source_title or "")
+    dno = int(dilemma_no or 0)
+    dtxt = (dilemma_text or "").strip()
+
+    stored_m = _DILEMMA_TITLE_RE.match(stored) if stored else None
+    source_m = _DILEMMA_TITLE_RE.match(source) if source else None
+    if dno <= 0 and stored_m:
+        dno = int(stored_m.group("num") or 0)
+    if dno <= 0 and source_m:
+        dno = int(source_m.group("num") or 0)
+    if not dtxt and stored_m:
+        dtxt = (stored_m.group("text") or "").strip()
+    if not dtxt and source_m:
+        dtxt = (source_m.group("text") or "").strip()
+
+    base = (
+        _action_eval_title_base(source)
+        or _action_eval_title_base(stored)
+        or "قائمة تقييم إجراءات"
+    )
+    if dno > 0 and dtxt:
+        return f"{base} — معضلة {dno}: {dtxt}"[:500]
+    if dno > 0:
+        return f"{base} — معضلة {dno}"[:500]
+    if stored_m:
+        return stored[:500]
+    if source_m:
+        return source[:500]
+    return (base or "قائمة تقييم إجراءات")[:500]
+
+
 def _slot_title_with_dilemma(base_title: str, dilemma: dict | None) -> str:
-    title = (base_title or "قائمة تقييم إجراءات").strip()[:400]
-    if dilemma is None:
-        return title
-    dtxt = (dilemma.get("short_label") or dilemma.get("text") or "").strip()
-    if not dtxt:
-        return title
-    return f"{title} — معضلة {int(dilemma['index'])}: {dtxt}"[:500]
+    dno = int((dilemma or {}).get("index") or 0) if dilemma else 0
+    dtxt = ""
+    if dilemma is not None:
+        dtxt = (dilemma.get("short_label") or dilemma.get("text") or "").strip()
+    return format_action_eval_judge_list_title(
+        stored_title=base_title,
+        source_title=base_title,
+        dilemma_no=dno,
+        dilemma_text=dtxt,
+    )
+
+
+def refresh_published_action_eval_list_titles(
+    db: Session,
+    *,
+    exercise_id: int | None = None,
+) -> dict[str, int]:
+    """إعادة كتابة عناوين القوائم المنشورة بصيغة موحّدة لكل الأيام."""
+    q = db.query(ExercisePlannerFlowBundle)
+    if exercise_id is not None:
+        q = q.filter(ExercisePlannerFlowBundle.exercise_id == int(exercise_id))
+    bundles = q.all()
+    updated = skipped = 0
+    source_cache: dict[tuple[str, str, str], dict[int, dict]] = {}
+
+    for bundle in bundles:
+        uk = (bundle.unit_level_key or "").strip()
+        pk = (bundle.exercise_phase or "").strip()
+        if not uk or not pk:
+            continue
+        slots = (
+            db.query(ExercisePlannerFlowBundleActionEval)
+            .filter(ExercisePlannerFlowBundleActionEval.bundle_id == int(bundle.id))
+            .all()
+        )
+        for slot in slots:
+            nid = parse_action_eval_storage_relpath(slot.file_relpath)
+            if nid is None:
+                skipped += 1
+                continue
+            node = db.get(InformationBankTreeNode, int(nid))
+            day_id = _flow_day_id_for_node(db, node) if node is not None else ""
+            cache_key = (pk, uk, day_id or "")
+            by_id = source_cache.get(cache_key)
+            if by_id is None:
+                sources = collect_ibank_action_eval_files_for_phase_unit(
+                    db,
+                    phase_key=pk,
+                    unit_key=uk,
+                    flow_day_id=day_id or None,
+                )
+                by_id = {
+                    int(s["node_id"]): s
+                    for s in sources
+                    if s.get("node_id") is not None
+                }
+                source_cache[cache_key] = by_id
+            src = by_id.get(int(nid)) or {}
+            if not src and node is not None:
+                src = _file_node_to_source(db, node) or {}
+            dno = int(src.get("dilemma_no") or 0)
+            dtxt = str(src.get("dilemma_text") or "").strip()
+            new_title = format_action_eval_judge_list_title(
+                stored_title=slot.title,
+                source_title=str(src.get("title") or ""),
+                dilemma_no=dno,
+                dilemma_text=dtxt,
+            )
+            if (slot.title or "").strip() != new_title:
+                slot.title = new_title
+                updated += 1
+    if updated:
+        db.commit()
+    return {"updated": updated, "skipped": skipped, "bundles": len(bundles)}
 
 
 def publish_action_eval_lists_from_ibank(
@@ -914,7 +1047,15 @@ def publish_action_eval_lists_from_ibank(
     # حتى لا يُسحب بالخطأ عند «نشر القوائم» الجزئي. مسار السحب يمرّر المنشور المتبقي صراحةً.
     published_ids = set(by_node.keys())
     if selected_node_ids and published_ids and not (selected_node_ids & published_ids):
-        selected_node_ids = set(selected_node_ids) | published_ids
+        if want_day:
+            same_day_ids: set[int] = set()
+            for nid in published_ids:
+                node = db.get(InformationBankTreeNode, int(nid))
+                if node is not None and _flow_day_id_for_node(db, node) == want_day:
+                    same_day_ids.add(int(nid))
+            selected_node_ids = set(selected_node_ids) | same_day_ids
+        else:
+            selected_node_ids = set(selected_node_ids) | published_ids
 
     for nid, slot in list(by_node.items()):
         if int(nid) in selected_node_ids:
@@ -1671,6 +1812,7 @@ def collect_published_action_eval_unit_map(
     """مستوى وحدة → مرحلة تخزين للحزم ذات قوائم تقييم منشورة.
 
     يعتمد على صفوف النشر فقط — لا يشترط وجود الوحدة في مجرى الأحداث أو شجرة المعاضل.
+    عند تحديد يوم: تُختار مرحلة الحزمة التي تملك أكثر منشورات لذلك اليوم.
     """
     want_day = (flow_day_id or "").strip()
     q = db.query(ExercisePlannerFlowBundle).filter(
@@ -1682,7 +1824,7 @@ def collect_published_action_eval_unit_map(
             phase_keys = _phase_match_keys(pk) or {pk}
             q = q.filter(ExercisePlannerFlowBundle.exercise_phase.in_(list(phase_keys)))
 
-    out: dict[str, str] = {}
+    best: dict[str, tuple[int, str]] = {}
     for bundle in q.order_by(ExercisePlannerFlowBundle.id).all():
         uk = _resolve_unit_key(bundle.unit_level_key, db) or normalize_unit_level_key(
             bundle.unit_level_key
@@ -1692,23 +1834,27 @@ def collect_published_action_eval_unit_map(
         published = _published_slots_by_node(db, bundle)
         if not published:
             continue
+        day_hits = 0
         if want_day:
-            has_day = False
             for nid in published:
                 node = db.get(InformationBankTreeNode, int(nid))
                 if node is not None and _flow_day_id_for_node(db, node) == want_day:
-                    has_day = True
-                    break
-            if not has_day:
+                    day_hits += 1
+            if day_hits <= 0:
                 continue
+        else:
+            day_hits = len(published)
         pk = (
             _resolve_phase_key(bundle.exercise_phase, db)
             or normalize_exercise_phase(bundle.exercise_phase)
             or (bundle.exercise_phase or "").strip()
         )
-        if uk not in out and pk:
-            out[uk] = pk
-    return out
+        if not pk:
+            continue
+        prev = best.get(uk)
+        if prev is None or day_hits > prev[0]:
+            best[uk] = (day_hits, pk)
+    return {uk: pk for uk, (_n, pk) in best.items()}
 
 
 def build_judge_action_eval_display_groups(
@@ -1760,6 +1906,7 @@ def build_judge_action_eval_display_groups(
         {uk: [] for uk in published_units}, unit_order, branch_parents
     )
 
+    want_day = (flow_day_id or "").strip()
     out: list[dict] = []
     published_total = 0
     for uk in ordered_keys:
@@ -1790,23 +1937,43 @@ def build_judge_action_eval_display_groups(
         published_by_node = _published_slots_by_node(db, bundle) if bundle is not None else {}
         folders: list[dict] = []
         pub_count = 0
+        src_by_id = {
+            int(s["node_id"]): s
+            for s in (g.get("ibank_sources") or [])
+            if s.get("node_id") is not None
+        }
         for folder in g.get("list_folder_groups") or []:
             rows: list[dict] = []
+            folder_name = str(folder.get("folder_name") or "").strip()
             for row in folder.get("rows") or []:
                 if not row.get("published"):
                     continue
                 nid = int(row["node_id"])
+                if want_day:
+                    node = db.get(InformationBankTreeNode, nid)
+                    if node is None or _flow_day_id_for_node(db, node) != want_day:
+                        continue
                 slot = published_by_node.get(nid)
                 if slot is None:
                     continue
+                src = src_by_id.get(nid) or {}
+                dno = int(row.get("dilemma_no") or src.get("dilemma_no") or 0)
+                dtxt = (
+                    str(src.get("dilemma_text") or "").strip()
+                    or folder_name
+                )
                 rows.append(
                     {
                         **row,
                         "slot_index": int(slot.slot_index),
                         "slot_id": int(slot.id),
-                        "title": (
-                            slot.title or row.get("title") or "قائمة تقييم إجراءات"
-                        ).strip(),
+                        "dilemma_no": dno or row.get("dilemma_no"),
+                        "title": format_action_eval_judge_list_title(
+                            stored_title=slot.title,
+                            source_title=str(src.get("title") or row.get("title") or ""),
+                            dilemma_no=dno,
+                            dilemma_text=dtxt,
+                        ),
                     }
                 )
             if rows:
@@ -1882,8 +2049,14 @@ def build_judge_published_action_eval_lists(
         flow_day_id=flow_day_id,
     )
     out_folders: list[dict] = []
+    src_by_id = {
+        int(s["node_id"]): s
+        for s in ibank_sources
+        if s.get("node_id") is not None
+    }
     for folder in folder_groups:
         pub_rows: list[dict] = []
+        folder_name = str(folder.get("folder_name") or "").strip()
         for row in folder.get("rows") or []:
             if not row.get("published"):
                 continue
@@ -1891,14 +2064,21 @@ def build_judge_published_action_eval_lists(
             slot = published_by_node.get(nid)
             if slot is None:
                 continue
+            src = src_by_id.get(nid) or {}
+            dno = int(row.get("dilemma_no") or src.get("dilemma_no") or 0)
+            dtxt = str(src.get("dilemma_text") or "").strip() or folder_name
             pub_rows.append(
                 {
                     **row,
                     "slot_index": int(slot.slot_index),
                     "slot_id": int(slot.id),
-                    "title": (
-                        slot.title or row.get("title") or "قائمة تقييم إجراءات"
-                    ).strip(),
+                    "dilemma_no": dno or row.get("dilemma_no"),
+                    "title": format_action_eval_judge_list_title(
+                        stored_title=slot.title,
+                        source_title=str(src.get("title") or row.get("title") or ""),
+                        dilemma_no=dno,
+                        dilemma_text=dtxt,
+                    ),
                 }
             )
         if pub_rows:
@@ -2055,24 +2235,39 @@ def build_action_eval_dilemma_publish_groups(
         ):
             day_dilemmas.extend(tree.get(day_id) or [])
 
-    # فهارس النشر لكل مستوى وحدة على حدة حتى لا تبدو القائمة منشورة للجميع.
+    # فهارس النشر لكل مستوى وحدة — عند تحديد يوم: فقط عُقد ذلك اليوم.
     published_nodes_by_unit: dict[str, set[int]] = {}
     phase_keys = _phase_match_keys(pk) or {pk}
     bundles = (
         db.query(ExercisePlannerFlowBundle)
         .filter(
             ExercisePlannerFlowBundle.exercise_id == int(exercise_id),
-            ExercisePlannerFlowBundle.exercise_phase.in_(phase_keys),
+            ExercisePlannerFlowBundle.exercise_phase.in_(list(phase_keys)),
         )
         .all()
     )
+    if want_day:
+        # أدرج حزم مراحل أخرى تحمل منشورات لهذا اليوم (توافق بيانات قديمة).
+        extra = (
+            db.query(ExercisePlannerFlowBundle)
+            .filter(ExercisePlannerFlowBundle.exercise_id == int(exercise_id))
+            .all()
+        )
+        seen_b = {int(b.id) for b in bundles}
+        for b in extra:
+            if int(b.id) not in seen_b:
+                bundles.append(b)
+                seen_b.add(int(b.id))
     for bundle in bundles:
         buk = (bundle.unit_level_key or "").strip()
         if not buk:
             continue
-        published_nodes_by_unit.setdefault(buk, set()).update(
-            _published_slots_by_node(db, bundle).keys()
-        )
+        for nid in _published_slots_by_node(db, bundle).keys():
+            if want_day:
+                node = db.get(InformationBankTreeNode, int(nid))
+                if node is None or _flow_day_id_for_node(db, node) != want_day:
+                    continue
+            published_nodes_by_unit.setdefault(buk, set()).add(int(nid))
 
     groups: list[dict] = []
     judge_count = 0

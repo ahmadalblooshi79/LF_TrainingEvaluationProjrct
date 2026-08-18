@@ -350,18 +350,26 @@ def _collect_subtree_xlsx_nodes(
     return out
 
 
-def _file_node_to_source(db: Session, row: InformationBankTreeNode) -> dict | None:
+def _file_node_to_source(
+    db: Session,
+    row: InformationBankTreeNode,
+    *,
+    require_exists: bool = True,
+) -> dict | None:
     src_rel = (row.file_relpath or "").strip()
     if not src_rel:
         return None
     src_path = node_file_abspath(INFO_BANK_EVAL_LIST_KIND, src_rel)
-    if src_path is None or not src_path.is_file():
-        alt = (Path(INFO_BANK_DIR) / src_rel.replace("\\", "/")).resolve()
-        if alt.is_file():
-            src_path = alt
-        else:
-            return None
-    title = (row.name or src_path.name or "قائمة تقييم").strip()[:2000]
+    if require_exists:
+        if src_path is None or not src_path.is_file():
+            alt = (Path(INFO_BANK_DIR) / src_rel.replace("\\", "/")).resolve()
+            if alt.is_file():
+                src_path = alt
+            else:
+                return None
+    elif src_path is None:
+        src_path = Path(INFO_BANK_DIR) / src_rel.replace("\\", "/")
+    title = (row.name or getattr(src_path, "name", None) or "قائمة تقييم").strip()[:2000]
     return {
         "node_id": int(row.id),
         "title": title or "قائمة تقييم",
@@ -480,27 +488,10 @@ def _published_ibank_items_by_node_for_unit_group(
     eval_items: list,
 ) -> dict[int, object]:
     """قوائم منشورة لمجموعة عرض واحدة (مرحلة × مستوى وحدة) دون تسرب من وحدات أخرى."""
-    uk = _resolve_unit_key(unit_key, db) or unit_key
     out: dict[int, object] = {}
     for item in eval_items:
         nid = parse_ibank_eval_storage_relpath(getattr(item, "pdf_relpath", None))
         if nid is not None:
-            out[int(nid)] = item
-    for item in (
-        db.query(EvaluationListPdfItem)
-        .filter(
-            EvaluationListPdfItem.exercise_id == int(exercise_id),
-            EvaluationListPdfItem.exercise_phase.in_(phase_db_keys),
-        )
-        .all()
-    ):
-        nid = parse_ibank_eval_storage_relpath(getattr(item, "pdf_relpath", None))
-        if nid is None or int(nid) in out:
-            continue
-        node = db.get(InformationBankTreeNode, int(nid))
-        if node is None:
-            continue
-        if _file_belongs_to_phase_unit(db, node, phase_key=phase_key, unit_key=uk):
             out[int(nid)] = item
     return out
 
@@ -880,44 +871,47 @@ def summarize_judge_roster_for_eval_lists(
 def index_dilemma_eval_ibank_files(
     db: Session,
 ) -> dict[tuple[str, str], list[dict]]:
-    """فهرس (مرحلة، وحدة) → ملفات Excel — عبر نسخ مباشر من مجلدات المراحل."""
-    prepare_dilemma_eval_ibank_tree(db)
-    out: dict[tuple[str, str], list[dict]] = defaultdict(list)
-    unit_keys: set[str] = set()
+    """فهرس (مرحلة، وحدة) → ملفات Excel — تمريرة واحدة على الشجرة (بدون جمع مكرر)."""
+    try:
+        from flask import g, has_app_context
 
-    phase_roots = (
+        if has_app_context():
+            cached = getattr(g, "_dilemma_eval_ibank_index", None)
+            if isinstance(cached, dict):
+                return cached
+    except Exception:
+        pass
+
+    prepare_dilemma_eval_ibank_tree(db)
+    # تحميل كل عقد التبويب دفعة واحدة — يقلّل N+1 في سياق الملف/الوحدة.
+    all_nodes = (
         db.query(InformationBankTreeNode)
-        .filter(
-            InformationBankTreeNode.kind == INFO_BANK_EVAL_LIST_KIND,
-            InformationBankTreeNode.parent_id.is_(None),
-            InformationBankTreeNode.is_folder.is_(True),
-        )
+        .filter(InformationBankTreeNode.kind == INFO_BANK_EVAL_LIST_KIND)
+        .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
         .all()
     )
-    for pr in phase_roots:
-        for child in (
-            db.query(InformationBankTreeNode)
-            .filter(InformationBankTreeNode.parent_id == int(pr.id))
-            .all()
-        ):
-            uk = _effective_unit_key_for_node(db, child)
-            if uk:
-                unit_keys.add(uk)
-        for f in _collect_subtree_xlsx_nodes(db, int(pr.id)):
-            _, fuk = _ibank_context_for_file_node(db, f)
-            if fuk:
-                unit_keys.add(fuk)
+    try:
+        from flask import g, has_app_context
 
-    for pr in phase_roots:
-        pk = _effective_phase_key_for_node(db, pr)
-        if not pk:
+        if has_app_context():
+            g._dilemma_eval_nodes_by_id = {int(n.id): n for n in all_nodes}
+    except Exception:
+        pass
+    out: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for node in all_nodes:
+        if node.is_folder or not _is_xlsx_tree_file(node):
             continue
-        for uk in sorted(unit_keys):
-            files = collect_ibank_eval_files_for_phase_unit(
-                db, phase_key=pk, unit_key=uk
-            )
-            if files:
-                out[(pk, uk)] = files
+        if not (node.file_relpath or "").strip():
+            continue
+        pk, uk = _ibank_context_for_file_node(db, node)
+        pk = _resolve_phase_key(pk, db) if pk else ""
+        uk = _resolve_unit_key(uk, db) if uk else ""
+        if not pk or not uk:
+            continue
+        src = _file_node_to_source(db, node, require_exists=False)
+        if src is None:
+            continue
+        out[(pk, uk)].append(src)
 
     if not out:
         from app.models import InfoBankDilemmaEvalXlsx
@@ -944,7 +938,16 @@ def index_dilemma_eval_ibank_files(
                     "sort_order": int(leg.sort_order or 0),
                 }
             )
-    return dict(out)
+
+    result = dict(out)
+    try:
+        from flask import g, has_app_context
+
+        if has_app_context():
+            g._dilemma_eval_ibank_index = result
+    except Exception:
+        pass
+    return result
 
 
 def effective_eval_list_phase_keys(
@@ -1410,6 +1413,29 @@ def _unit_folder_ids_for_phase_unit(
     pk = _resolve_phase_key(phase_key, db)
     if not uk or not pk:
         return set()
+    try:
+        from flask import g, has_app_context
+
+        if has_app_context():
+            cache = getattr(g, "_unit_folder_ids_cache", None)
+            if cache is None:
+                cache = {}
+                g._unit_folder_ids_cache = cache
+            key = (pk, uk)
+            hit = cache.get(key)
+            if hit is not None:
+                return hit
+    except Exception:
+        cache = None
+        key = None
+
+    nodes_by_id = _dilemma_eval_nodes_by_id(db)
+    children_by_parent: dict[int | None, list[InformationBankTreeNode]] = defaultdict(list)
+    for node in nodes_by_id.values():
+        children_by_parent[node.parent_id].append(node)
+
+    from app.info_bank_tree import folder_resolved_unit_key
+
     out: set[int] = set()
     for phase_root in _phase_root_nodes_for_key(db, pk):
         queue = [int(phase_root.id)]
@@ -1419,20 +1445,15 @@ def _unit_folder_ids_for_phase_unit(
             if nid in seen:
                 continue
             seen.add(nid)
-            children = (
-                db.query(InformationBankTreeNode)
-                .filter(InformationBankTreeNode.parent_id == nid)
-                .all()
-            )
-            for child in children:
+            for child in children_by_parent.get(nid, []):
                 cid = int(child.id)
                 queue.append(cid)
                 if not child.is_folder:
                     continue
-                from app.info_bank_tree import folder_resolved_unit_key
-
                 if folder_resolved_unit_key(db, child) == uk:
                     out.add(cid)
+    if cache is not None and key is not None:
+        cache[key] = out
     return out
 
 
@@ -1519,6 +1540,32 @@ def build_eval_list_rows_for_group(
     return rows
 
 
+def _dilemma_eval_nodes_by_id(db: Session) -> dict[int, InformationBankTreeNode]:
+    try:
+        from flask import g, has_app_context
+
+        if has_app_context():
+            cached = getattr(g, "_dilemma_eval_nodes_by_id", None)
+            if isinstance(cached, dict):
+                return cached
+    except Exception:
+        pass
+    mapping = {
+        int(n.id): n
+        for n in db.query(InformationBankTreeNode)
+        .filter(InformationBankTreeNode.kind == INFO_BANK_EVAL_LIST_KIND)
+        .all()
+    }
+    try:
+        from flask import g, has_app_context
+
+        if has_app_context():
+            g._dilemma_eval_nodes_by_id = mapping
+    except Exception:
+        pass
+    return mapping
+
+
 def build_eval_list_folder_groups(
     db: Session,
     *,
@@ -1534,19 +1581,20 @@ def build_eval_list_folder_groups(
         eval_items=eval_items,
         published_by_node=published_by_node,
     )
+    if not rows:
+        return []
+    nodes_by_id = _dilemma_eval_nodes_by_id(db)
     unit_folder_ids = _unit_folder_ids_for_phase_unit(
         db, phase_key=phase_key, unit_key=unit_key
     )
-    uk = _resolve_unit_key(unit_key, db) or unit_key
     grouped: dict[str, dict] = {}
     for row in rows:
-        node = db.get(InformationBankTreeNode, int(row["node_id"]))
+        nid = int(row["node_id"])
+        node = nodes_by_id.get(nid)
         if node is not None:
-            if not _file_belongs_to_phase_unit(
-                db, node, phase_key=phase_key, unit_key=uk
-            ):
-                continue
-            fk, fn, fs = _folder_group_for_file_node(db, node, unit_folder_ids)
+            fk, fn, fs = _folder_group_for_file_node_cached(
+                node, unit_folder_ids, nodes_by_id
+            )
         else:
             fk, fn, fs = ("orphan", "منشور سابقاً", 99998)
         bucket = grouped.setdefault(
@@ -1562,6 +1610,44 @@ def build_eval_list_folder_groups(
     return sorted(
         grouped.values(),
         key=lambda g: (int(g.get("sort_order", 0)), str(g.get("folder_name") or "")),
+    )
+
+
+def _folder_group_for_file_node_cached(
+    file_node: InformationBankTreeNode,
+    unit_folder_ids: set[int],
+    nodes_by_id: dict[int, InformationBankTreeNode],
+) -> tuple[str, str, int]:
+    if file_node.parent_id is None:
+        return ("misc", "غير مصنّف", 99999)
+    cur = nodes_by_id.get(int(file_node.parent_id))
+    if cur is None:
+        return ("misc", "غير مصنّف", 99999)
+    if int(cur.id) in unit_folder_ids:
+        return ("direct", "قوائم مباشرة", 0)
+    subfolders: list[InformationBankTreeNode] = []
+    seen: set[int] = set()
+    while cur is not None and int(cur.id) not in unit_folder_ids:
+        cid = int(cur.id)
+        if cid in seen:
+            break
+        seen.add(cid)
+        if cur.is_folder:
+            subfolders.append(cur)
+        if cur.parent_id is None:
+            break
+        cur = nodes_by_id.get(int(cur.parent_id))
+    if subfolders:
+        top = subfolders[-1]
+        return (
+            str(int(top.id)),
+            (top.name or "").strip() or "مجلد",
+            int(top.sort_order or 0),
+        )
+    return (
+        str(int(cur.id)) if cur else "misc",
+        ((cur.name or "").strip() if cur else "") or "مجلد",
+        int(getattr(cur, "sort_order", 0) or 0),
     )
 
 
@@ -1583,13 +1669,13 @@ def build_eval_list_display_groups(
     """مجموعات العرض: مرحلة × مستوى وحدة المدرجين في بنك المعلومات لتلك المرحلة."""
     roster_units = roster_eval_display_unit_keys(db, int(exercise_id))
     judge_units = roster_judge_unit_keys(db, int(exercise_id))
-    raw_ibank_files = count_dilemma_eval_ibank_xlsx_nodes(db)
     ibank_index = index_dilemma_eval_ibank_files(db)
+    raw_ibank_files = sum(len(v) for v in ibank_index.values())
     if not roster_units and ibank_index:
         roster_units = {uk for (_pk, uk) in ibank_index.keys() if uk}
     if not roster_units:
         return [], {
-            "ibank_files": sum(len(v) for v in ibank_index.values()),
+            "ibank_files": raw_ibank_files,
             "raw_ibank_files": raw_ibank_files,
             "roster_units": 0,
             "judge_units": len(judge_units),
@@ -1614,21 +1700,33 @@ def build_eval_list_display_groups(
     for pk in phase_keys:
         pl = exercise_phase_label(pk) or pk
         phase_db_keys = _phase_match_keys(pk)
+        # منشورات المرحلة دفعة واحدة — تُوزَّع على الوحدات في الذاكرة
+        pub_items = (
+            db.query(EvaluationListPdfItem)
+            .filter(
+                EvaluationListPdfItem.exercise_id == int(exercise_id),
+                EvaluationListPdfItem.exercise_phase.in_(list(phase_db_keys)),
+            )
+            .order_by(EvaluationListPdfItem.sort_order, EvaluationListPdfItem.id)
+            .all()
+        )
+        pub_by_unit: dict[str, list] = defaultdict(list)
+        for item in pub_items:
+            iuk = _resolve_unit_key(getattr(item, "unit_level_key", None) or "", db) or (
+                getattr(item, "unit_level_key", None) or ""
+            ).strip()
+            if iuk:
+                pub_by_unit[iuk].append(item)
+
         for uk in sorted(roster_units, key=lambda k: unit_order.get(k, 9999)):
             ul = label_for_unit_level_key(uk, db=db) or uk
-            ibank_sources = collect_ibank_eval_files_for_phase_unit(
-                db, phase_key=pk, unit_key=uk
+            ibank_sources = ibank_eval_list_sources(
+                db,
+                phase_key=pk,
+                unit_key=uk,
+                ibank_index=ibank_index,
             )
-            eval_items = (
-                db.query(EvaluationListPdfItem)
-                .filter(
-                    EvaluationListPdfItem.exercise_id == int(exercise_id),
-                    EvaluationListPdfItem.unit_level_key == uk,
-                    EvaluationListPdfItem.exercise_phase.in_(phase_db_keys),
-                )
-                .order_by(EvaluationListPdfItem.sort_order, EvaluationListPdfItem.id)
-                .all()
-            )
+            eval_items = pub_by_unit.get(uk, [])
             if not unit_eval_group_visible_for_phase(
                 ibank_sources=ibank_sources,
                 eval_items=eval_items,
@@ -1670,7 +1768,7 @@ def build_eval_list_display_groups(
             )
 
     meta = {
-        "ibank_files": sum(len(v) for v in ibank_index.values()),
+        "ibank_files": raw_ibank_files,
         "raw_ibank_files": raw_ibank_files,
         "roster_units": len(roster_units),
         "judge_units": len(judge_units),

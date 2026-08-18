@@ -7818,11 +7818,12 @@ def _judge_action_eval_groups_for_all_flow_days(
     flow_qs = _judge_action_eval_lists_query_kwargs()
     groups_per_day: list[list[dict]] = []
     for day in day_options:
-        day_phase = str(day.get("phase_key") or "").strip() or phase_key
+        # نطاق اليوم من المجرى هو المرجع — لا نفرض مرحلة اليوم على حزم النشر
+        # (قد تكون القوائم منشورة تحت مرحلة تخزين مختلفة عن phase_key لليوم).
         groups, _meta = build_judge_action_eval_display_groups(
             db,
             exercise_id=int(ex.id),
-            phase_key=day_phase or None,
+            phase_key=None,
             flow_day_id=str(day.get("id") or "") or None,
             restrict_unit_key=restrict_unit_key,
         )
@@ -7954,11 +7955,14 @@ def _render_judge_action_eval_lists_workspace(
 
     unit = _require_unit_level_row(unit_key)
     active_groups: list[dict] = []
+    matched_day = False
     for day, groups in zip(day_options, groups_per_day):
         if str(day.get("id") or "") == selected_day_id:
             active_groups = groups
+            matched_day = True
             break
-    if not active_groups and groups_per_day:
+    # لا تُعرض قوائم يوم آخر عند فراغ اليوم المحدد — فقط عند غياب/بطلان معرف اليوم.
+    if not matched_day and not selected_day_id and groups_per_day:
         active_groups = groups_per_day[0]
 
     list_close_href = url_for(
@@ -8799,20 +8803,7 @@ def _render_planner_action_eval_lists(db, user: User):
         ibank_unit_count = int(meta.get("ibank_units") or 0)
         dilemma_count = int(meta.get("dilemmas") or 0)
         published_count = int(meta.get("published") or 0)
-        list_file_count = int(meta.get("files") or 0)
-        day_label = selected_day_label or "اليوم/1"
-        if dilemma_count:
-            page_note = (
-                f"المصدر: بنك المعلومات ← قوائم تقييم الإجراءات — "
-                f"معضلة ← محكم / مستوى الوحدة / متدرب ← قوائم التقييم "
-                f"لـ{day_label} ({dilemma_count} معضلة، {list_file_count} قائمة، "
-                f"{published_count} منشورة)."
-            )
-        else:
-            page_note = (
-                f"لا توجد معاضل مربوطة بقوائم لهذا اليوم. راجع "
-                f"مجرى الأحداث والمعاضل وبنك المعلومات ← قوائم تقييم الإجراءات."
-            )
+        page_note = ""
 
     return render_template(
         "planner_action_eval_lists.html",
@@ -14749,7 +14740,8 @@ def _render_admin_evaluation_lists(
     )
     from app.planning_catalog_sync import sync_planning_catalogs_from_db
 
-    sync_planning_catalogs_from_db(db, force=True)
+    # المزامنة تتم في before_request — لا تُفرض مجدداً في كل تصفح.
+    sync_planning_catalogs_from_db(db)
 
     current_exercise = _admin_current_workspace_exercise(db, user)
     error = (request.args.get("err") or "").strip()
@@ -17954,6 +17946,24 @@ def admin_user_manual_export_pdf():
         mimetype="application/pdf",
         as_attachment=True,
         download_name="دليل_المستخدم_نظام_إدارة_التمارين.pdf",
+    )
+
+
+@bp.route("/admin/server-management", methods=["GET"])
+def admin_server_management():
+    user = get_current_user_optional()
+    if not user or not is_system_admin(user):
+        abort(403)
+    from app.server_monitor.metrics import server_status_payload
+
+    status = server_status_payload()
+    return render_template(
+        "admin_server_management.html",
+        **_ctx(
+            user,
+            server_status=status,
+            page_title="إدارة الخادم",
+        ),
     )
 
 

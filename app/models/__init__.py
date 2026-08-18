@@ -73,6 +73,12 @@ from app.ai_report_library.models import (
     AIReportTable,
     AIReportUnit,
 )
+from app.models.server_monitor import (
+    ConnectedDevice,
+    ServerActivityLog,
+    ServerErrorLog,
+    SyncOperationLog,
+)
 
 __all__ = [
     "User",
@@ -147,4 +153,8 @@ __all__ = [
     "AIReportFindingUnit",
     "AIReportProcessingLog",
     "AIReportCorrection",
+    "ConnectedDevice",
+    "ServerActivityLog",
+    "ServerErrorLog",
+    "SyncOperationLog",
 ]

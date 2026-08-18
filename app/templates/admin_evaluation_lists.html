@@ -48,7 +48,7 @@
     {% if current_exercise and eval_groups %}
     <form method="post" action="{{ url_for('views.admin_evaluation_lists_publish_all_from_ibank') }}" class="eval-lists-publish-all-form">
       <input type="hidden" name="phase_key" value="{{ selected_phase }}">
-      <button type="submit" class="btn btn-ghost btn-sm" onclick="return confirm('تحديث القوائم من بنك المعلومات وإلغاء نشر الكل؟\n\nستظهر جميع القوائم «غير منشورة» — حدّد ما تريد ثم اضغط «نشر القوائم».');">
+      <button type="submit" class="btn btn-ghost btn-xs eval-lists-toolbar-btn" onclick="return confirm('تحديث القوائم من بنك المعلومات وإلغاء نشر الكل؟\n\nستظهر جميع القوائم «غير منشورة» — حدّد ما تريد ثم اضغط «نشر جميع القوائم».');">
         <i class="fa-solid fa-cloud-arrow-down" aria-hidden="true"></i>
         نسخ الكل
       </button>
@@ -65,15 +65,31 @@
 
   <input type="hidden" name="phase_key" value="{{ selected_phase }}">
 
-  <div class="eval-lists-publish-bar">
+  <div class="eval-lists-publish-bar eval-lists-publish-bar--admin">
     <h2 class="eval-lists-phase-heading">
       <i class="fa-solid fa-timeline" aria-hidden="true"></i>
       {% for pk, pl in phase_options %}{% if pk == selected_phase %}{{ pl }}{% endif %}{% endfor %}
     </h2>
-    <button type="submit" class="btn btn-primary btn-sm" id="eval-lists-publish-btn">
-      <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
-      نشر القوائم
-    </button>
+    <div class="eval-lists-publish-bar__actions" role="toolbar" aria-label="أدوات القوائم">
+      <button type="button" class="btn btn-ghost btn-xs eval-lists-toolbar-btn" id="eval-lists-toggle-folders" title="فتح أو غلق جميع المجلدات" aria-pressed="false" data-expanded="0">
+        <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
+        <span class="eval-lists-toggle-folders__label">فتح / غلق الكل</span>
+      </button>
+      <span class="eval-lists-toolbar-sep" aria-hidden="true"></span>
+      <button type="button" class="btn btn-ghost btn-xs eval-lists-toolbar-btn" id="eval-lists-select-all" title="تحديد جميع القوائم">
+        <i class="fa-solid fa-check-double" aria-hidden="true"></i>
+        تحديد الكل
+      </button>
+      <button type="button" class="btn btn-ghost btn-xs eval-lists-toolbar-btn" id="eval-lists-select-none" title="إلغاء تحديد جميع القوائم">
+        <i class="fa-regular fa-square" aria-hidden="true"></i>
+        إلغاء التحديد
+      </button>
+      <span class="eval-lists-toolbar-sep" aria-hidden="true"></span>
+      <button type="submit" class="btn btn-primary btn-xs eval-lists-toolbar-btn eval-lists-toolbar-btn--publish" id="eval-lists-publish-btn">
+        <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
+        نشر جميع القوائم
+      </button>
+    </div>
   </div>
 
   {% for group in eval_groups %}
@@ -93,11 +109,15 @@
         </span>
       </button>
       <div class="eval-lists-select-btns">
-        <button type="button" class="btn btn-ghost btn-sm js-eval-lists-select-unit" data-unit="{{ group.unit_key }}" data-action="all">
+        <button type="button" class="btn btn-ghost btn-xs js-eval-lists-select-unit" data-unit="{{ group.unit_key }}" data-action="all">
           تحديد الكل
         </button>
-        <button type="button" class="btn btn-ghost btn-sm js-eval-lists-select-unit" data-unit="{{ group.unit_key }}" data-action="none">
-          إلغاء تحديد الكل
+        <button type="button" class="btn btn-ghost btn-xs js-eval-lists-select-unit" data-unit="{{ group.unit_key }}" data-action="none">
+          إلغاء
+        </button>
+        <button type="button" class="btn btn-primary btn-xs js-eval-lists-publish-unit" data-unit="{{ group.unit_key }}" title="نشر جميع قوائم هذا المستوى">
+          <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
+          نشر جميع القوائم
         </button>
       </div>
     </div>
@@ -123,11 +143,11 @@
               <span class="muted eval-lists-folder-group__count">({{ folder.rows|length }})</span>
             </button>
             <div class="eval-lists-select-btns">
-              <button type="button" class="btn btn-ghost btn-sm js-eval-lists-select-folder" data-unit="{{ group.unit_key }}" data-folder="{{ folder.folder_key }}" data-action="all">
+              <button type="button" class="btn btn-ghost btn-xs js-eval-lists-select-folder" data-unit="{{ group.unit_key }}" data-folder="{{ folder.folder_key }}" data-action="all">
                 تحديد الكل
               </button>
-              <button type="button" class="btn btn-ghost btn-sm js-eval-lists-select-folder" data-unit="{{ group.unit_key }}" data-folder="{{ folder.folder_key }}" data-action="none">
-                إلغاء تحديد الكل
+              <button type="button" class="btn btn-ghost btn-xs js-eval-lists-select-folder" data-unit="{{ group.unit_key }}" data-folder="{{ folder.folder_key }}" data-action="none">
+                إلغاء
               </button>
             </div>
           </div>
@@ -151,7 +171,7 @@
                 </span>
                 <div class="eval-lists-row__actions" onclick="event.stopPropagation()">
                   {% if row.published %}
-                  <button type="submit" class="btn btn-ghost btn-sm eval-lists-row__withdraw js-eval-lists-row-action"
+                  <button type="submit" class="btn btn-ghost btn-xs eval-lists-row__withdraw js-eval-lists-row-action"
                     formaction="{{ url_for('views.admin_evaluation_lists_withdraw_one_from_ibank', unit_key=action_uk, node_id=row.node_id) }}"
                     formmethod="post"
                     title="سحب النشر">
@@ -159,13 +179,13 @@
                     <span class="eval-lists-row__btn-label">سحب</span>
                   </button>
                   {% if row.item_id %}
-                  <a class="btn btn-ghost btn-sm eval-lists-row__open js-eval-lists-row-action" href="{{ url_for('views.admin_evaluation_list_file_viewer', unit_key=action_uk, item_id=row.item_id) }}" title="فتح المعايير">
+                  <a class="btn btn-ghost btn-xs eval-lists-row__open js-eval-lists-row-action" href="{{ url_for('views.admin_evaluation_list_file_viewer', unit_key=action_uk, item_id=row.item_id) }}" title="فتح المعايير">
                     <i class="fa-solid fa-table-list" aria-hidden="true"></i>
                     <span class="eval-lists-row__btn-label">فتح</span>
                   </a>
                   {% endif %}
                   {% else %}
-                  <button type="submit" class="btn btn-primary btn-sm eval-lists-row__publish js-eval-lists-row-action"
+                  <button type="submit" class="btn btn-primary btn-xs eval-lists-row__publish js-eval-lists-row-action"
                     formaction="{{ url_for('views.admin_evaluation_lists_publish_one_from_ibank', unit_key=action_uk, node_id=row.node_id) }}"
                     formmethod="post"
                     title="نشر القائمة">
@@ -311,29 +331,89 @@
         syncPublishBtn();
       }
     });
-    syncPublishBtn();
-  }
+    form.addEventListener("click", (ev) => {
+      const t = ev.target;
+      if (!(t instanceof Element)) return;
 
-  document.querySelectorAll(".js-eval-lists-row-action").forEach((el) => {
-    el.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      const unitSec = el.closest(".eval-lists-unit-group");
-      const folderSec = el.closest(".eval-lists-folder-group");
-      const uk = unitSec && unitSec.getAttribute("data-unit");
-      const fk = folderSec && folderSec.getAttribute("data-folder");
-      const extraUnits = uk ? [uk] : [];
-      const extraFolders = uk && fk ? [`${uk}|${fk}`] : [];
-      saveExpandedState(extraUnits, extraFolders);
-    });
-  });
+      const rowAction = t.closest(".js-eval-lists-row-action");
+      if (rowAction) {
+        const unitSec = rowAction.closest(".eval-lists-unit-group");
+        const folderSec = rowAction.closest(".eval-lists-folder-group");
+        const uk = unitSec && unitSec.getAttribute("data-unit");
+        const fk = folderSec && folderSec.getAttribute("data-folder");
+        saveExpandedState(uk ? [uk] : [], uk && fk ? [`${uk}|${fk}`] : []);
+        return;
+      }
 
-  document.querySelectorAll(".eval-lists-row").forEach((row) => {
-    row.addEventListener("click", (ev) => {
-      if (ev.target.closest(".eval-lists-row__actions, .eval-lists-row__cb")) {
+      if (t.closest(".eval-lists-row__actions, .eval-lists-row__cb")) {
         ev.stopPropagation();
       }
+
+      const selectUnit = t.closest(".js-eval-lists-select-unit");
+      if (selectUnit) {
+        ev.stopPropagation();
+        const uk = selectUnit.getAttribute("data-unit") || "";
+        applySelectAction(
+          document.querySelectorAll(`.eval-lists-publish-cb[data-unit="${uk}"]`),
+          selectUnit.getAttribute("data-action") || "all"
+        );
+        return;
+      }
+
+      const publishUnit = t.closest(".js-eval-lists-publish-unit");
+      if (publishUnit) {
+        ev.stopPropagation();
+        const uk = publishUnit.getAttribute("data-unit") || "";
+        if (!uk) return;
+        const mine = [...document.querySelectorAll(`.eval-lists-publish-cb[data-unit="${uk}"]`)];
+        if (!mine.length) return;
+        mine.forEach((cb) => { cb.checked = true; });
+        form.querySelectorAll(".eval-lists-publish-cb").forEach((cb) => {
+          if ((cb.getAttribute("data-unit") || "") !== uk) cb.checked = false;
+        });
+        saveExpandedState([uk]);
+        syncPublishBtn();
+        form.requestSubmit ? form.requestSubmit() : form.submit();
+        return;
+      }
+
+      const selectFolder = t.closest(".js-eval-lists-select-folder");
+      if (selectFolder) {
+        ev.stopPropagation();
+        const uk = selectFolder.getAttribute("data-unit") || "";
+        const fk = selectFolder.getAttribute("data-folder") || "";
+        applySelectAction(
+          document.querySelectorAll(
+            `.eval-lists-publish-cb[data-unit="${uk}"][data-folder="${fk}"]`
+          ),
+          selectFolder.getAttribute("data-action") || "all"
+        );
+        return;
+      }
+
+      const unitCollapse = t.closest(".js-eval-lists-unit-collapse");
+      if (unitCollapse) {
+        ev.stopPropagation();
+        const section = unitCollapse.closest(".eval-lists-unit-group");
+        if (!section) return;
+        const collapsed = section.classList.toggle("eval-lists-unit-group--collapsed");
+        unitCollapse.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        saveExpandedState();
+        return;
+      }
+
+      const folderCollapse = t.closest(".js-eval-lists-folder-collapse");
+      if (folderCollapse) {
+        ev.stopPropagation();
+        const section = folderCollapse.closest(".eval-lists-folder-group");
+        if (!section) return;
+        const collapsed = section.classList.toggle("eval-lists-folder-group--collapsed");
+        folderCollapse.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        saveExpandedState();
+      }
     });
-  });
+    syncPublishBtn();
+  }
 
   const applySelectAction = (boxes, action) => {
     const checked = action !== "none";
@@ -341,50 +421,68 @@
     syncPublishBtn();
   };
 
-  document.querySelectorAll(".js-eval-lists-select-unit").forEach((btn) => {
-    btn.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      const uk = btn.getAttribute("data-unit") || "";
-      const action = btn.getAttribute("data-action") || "all";
-      const boxes = document.querySelectorAll(`.eval-lists-publish-cb[data-unit="${uk}"]`);
-      applySelectAction(boxes, action);
+  const setAllExpanded = (open) => {
+    document.querySelectorAll(".eval-lists-unit-group").forEach((sec) => {
+      const uk = sec.getAttribute("data-unit") || "";
+      if (uk) setUnitExpanded(uk, open);
     });
-  });
-
-  document.querySelectorAll(".js-eval-lists-select-folder").forEach((btn) => {
-    btn.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      const uk = btn.getAttribute("data-unit") || "";
-      const fk = btn.getAttribute("data-folder") || "";
-      const action = btn.getAttribute("data-action") || "all";
-      const boxes = document.querySelectorAll(
-        `.eval-lists-publish-cb[data-unit="${uk}"][data-folder="${fk}"]`
-      );
-      applySelectAction(boxes, action);
+    document.querySelectorAll(".eval-lists-folder-group").forEach((sec) => {
+      const uk = sec.getAttribute("data-unit") || "";
+      const fk = sec.getAttribute("data-folder") || "";
+      if (uk && fk) setFolderExpanded(uk, fk, open);
     });
-  });
-
-  document.querySelectorAll(".js-eval-lists-unit-collapse").forEach((btn) => {
-    btn.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      const section = btn.closest(".eval-lists-unit-group");
-      if (!section) return;
-      const collapsed = section.classList.toggle("eval-lists-unit-group--collapsed");
-      btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    if (open) {
       saveExpandedState();
-    });
-  });
+    } else {
+      try {
+        sessionStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ phase: currentPhase, units: [], folders: [] })
+        );
+      } catch (_err) {
+        /* ignore */
+      }
+    }
+  };
 
-  document.querySelectorAll(".js-eval-lists-folder-collapse").forEach((btn) => {
-    btn.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      const section = btn.closest(".eval-lists-folder-group");
-      if (!section) return;
-      const collapsed = section.classList.toggle("eval-lists-folder-group--collapsed");
-      btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
-      saveExpandedState();
+  const syncToggleFoldersBtn = (open) => {
+    const btn = document.getElementById("eval-lists-toggle-folders");
+    if (!btn) return;
+    const icon = btn.querySelector("i");
+    const label = btn.querySelector(".eval-lists-toggle-folders__label");
+    btn.dataset.expanded = open ? "1" : "0";
+    btn.setAttribute("aria-pressed", open ? "true" : "false");
+    btn.title = open ? "غلق جميع المجلدات" : "فتح جميع المجلدات";
+    if (icon) {
+      icon.classList.toggle("fa-folder-open", !open);
+      icon.classList.toggle("fa-folder", open);
+    }
+    if (label) label.textContent = open ? "غلق الكل" : "فتح الكل";
+  };
+
+  const toggleFoldersBtn = document.getElementById("eval-lists-toggle-folders");
+  if (toggleFoldersBtn) {
+    const initiallyOpen = expandedUnits().size > 0;
+    syncToggleFoldersBtn(initiallyOpen);
+    toggleFoldersBtn.addEventListener("click", () => {
+      const open = toggleFoldersBtn.dataset.expanded !== "1";
+      setAllExpanded(open);
+      syncToggleFoldersBtn(open);
     });
-  });
+  }
+
+  const selectAllBtn = document.getElementById("eval-lists-select-all");
+  const selectNoneBtn = document.getElementById("eval-lists-select-none");
+  if (selectAllBtn) {
+    selectAllBtn.addEventListener("click", () => {
+      applySelectAction(document.querySelectorAll(".eval-lists-publish-cb"), "all");
+    });
+  }
+  if (selectNoneBtn) {
+    selectNoneBtn.addEventListener("click", () => {
+      applySelectAction(document.querySelectorAll(".eval-lists-publish-cb"), "none");
+    });
+  }
 })();
 </script>
 

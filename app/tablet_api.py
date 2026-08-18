@@ -497,7 +497,8 @@ def tablet_action_eval_lists(user: User):
     groups, meta = build_judge_action_eval_display_groups(
         g.db,
         exercise_id=int(ex.id),
-        phase_key=phase or None,
+        # مع يوم محدد: نطاق اليوم هو المرجع بغض النظر عن مرحلة التخزين.
+        phase_key=None if day_id else (phase or None),
         flow_day_id=day_id or None,
         restrict_unit_key=uk or None,
     )

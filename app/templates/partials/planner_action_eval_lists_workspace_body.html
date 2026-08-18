@@ -49,9 +49,6 @@
     </form>
     {% endif %}
   </div>
-  {% if page_note %}
-  <p class="muted eval-lists-sync-note" role="status"><i class="fa-solid fa-database" aria-hidden="true"></i> {{ page_note }}</p>
-  {% endif %}
 </section>
 
 <div id="action-eval-lists-root" data-day="{{ selected_day_id }}">
@@ -88,7 +85,7 @@
         <span class="eval-lists-dilemma-group__title">
           <span class="eval-lists-dilemma-group__badge" aria-hidden="true">{{ dilemma.num or dilemma.dilemma_no }}</span>
           <i class="fa-solid fa-sitemap" aria-hidden="true"></i>
-          {{ dilemma.text }}
+          <span class="eval-lists-dilemma-group__text">{{ dilemma.text }}</span>
           <span class="muted eval-lists-unit-meta">({{ dilemma.judge_count }} محكم · {{ dilemma.file_count }} قائمة)</span>
         </span>
       </button>

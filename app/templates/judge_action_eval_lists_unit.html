@@ -69,7 +69,7 @@
           <td>{% if r.dt %}{{ r.dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
           <td>{{ r.exercise_type or "—" }}</td>
           <td>{{ r.trained_unit or "—" }}</td>
-          <td>{{ r.item_title }}</td>
+          <td class="judge-eval-lists-table__list-title">{{ r.item_title }}</td>
           <td>{{ r.grade_label or "—" }}</td>
           <td>{% if r.delivery_dt %}{{ r.delivery_dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
           <td>{% if r.status_done %}<span class="badge badge--done">ينجز</span>{% else %}<span class="badge badge--not-done">لم ينجز</span>{% endif %}</td>

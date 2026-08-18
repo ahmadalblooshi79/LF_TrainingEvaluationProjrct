@@ -39,6 +39,7 @@ from app.database import (
 # تسجيل النماذج لضمان اكتمال metadata
 import app.models  # noqa: F401
 import app.models.remote_control  # noqa: F401 — جلسات التحكم المباشر
+import app.models.server_monitor  # noqa: F401 — مراقبة الأجهزة والمزامنة
 import app.ai_local_engine.models  # noqa: F401
 import app.ai_report_library.models  # noqa: F401
 import app.ai_agentic.models  # noqa: F401
@@ -188,6 +189,10 @@ def create_app() -> Flask:
     from app import remote_control
 
     app.register_blueprint(remote_control.bp)
+
+    from app.server_monitor.api import server_api_bp
+
+    app.register_blueprint(server_api_bp)
 
     @app.template_global()
     def report_phase_max_input_name(unit_key, phase_key):

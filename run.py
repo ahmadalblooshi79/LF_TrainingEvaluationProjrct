@@ -260,6 +260,9 @@ def main() -> None:
         os.environ.setdefault("LF_INSTALLED", "1")
     PORT = _resolve_listen_port(_PREFERRED_PORT, HOST)
     try:
+        from app.server_runtime import set_listen_port
+
+        set_listen_port(PORT)
         from app import create_app
         from app.network_util import print_server_access_info
     except ModuleNotFoundError as exc:
