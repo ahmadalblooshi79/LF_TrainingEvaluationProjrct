@@ -12,7 +12,7 @@ import '../services/sync_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_header.dart';
 
-/// مركز المزامنة الشخصية للمحكم (Manual Sync Only).
+/// مركز المزامنة الشخصية للمحكم (تلقائي عند الاتصال + يدوي).
 class SyncStatusScreen extends StatefulWidget {
   const SyncStatusScreen({super.key});
 
@@ -384,7 +384,7 @@ class _SyncStatusScreenState extends State<SyncStatusScreen> {
                             Padding(
                               padding: const EdgeInsets.only(top: 8),
                               child: Text(
-                                'لا يتم رفع أي تقييم تلقائياً عند عودة WiFi.',
+                                'عند توفر الشبكة يُرفع العمل تلقائياً، ويمكنك أيضاً المزامنة يدوياً في أي وقت.',
                                 style: AppTextStyles.cairo(
                                   fontSize: 11,
                                   color: AppColors.muted,

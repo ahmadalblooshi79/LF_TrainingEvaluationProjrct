@@ -1125,6 +1125,9 @@ class InformationBankPhaseNote(Base):
 
     __tablename__ = "information_bank_phase_notes"
 
+    ibank_section: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default="mission-readiness"
+    )
     phase_key: Mapped[str] = mapped_column(String(64), primary_key=True)
     notes: Mapped[str] = mapped_column(Text(), default="")
     updated_at: Mapped[datetime] = mapped_column(
@@ -1137,6 +1140,9 @@ class InformationBankUnitNote(Base):
 
     __tablename__ = "information_bank_unit_notes"
 
+    ibank_section: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default="mission-readiness"
+    )
     unit_level_key: Mapped[str] = mapped_column(String(128), primary_key=True)
     notes: Mapped[str] = mapped_column(Text(), default="")
     updated_at: Mapped[datetime] = mapped_column(
@@ -1149,6 +1155,9 @@ class InformationBankTrainingPhase(Base):
 
     __tablename__ = "information_bank_training_phases"
 
+    ibank_section: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default="mission-readiness"
+    )
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     label: Mapped[str] = mapped_column(String(300), default="")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
@@ -1165,6 +1174,9 @@ class InformationBankUnitLevel(Base):
 
     __tablename__ = "information_bank_unit_levels"
 
+    ibank_section: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default="mission-readiness"
+    )
     key: Mapped[str] = mapped_column(String(128), primary_key=True)
     label: Mapped[str] = mapped_column(String(300), default="")
     brigade_group: Mapped[str] = mapped_column(String(16), default="1", index=True)
@@ -1188,6 +1200,9 @@ class InformationBankTreeNode(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ibank_section: Mapped[str] = mapped_column(
+        String(32), default="mission-readiness", index=True
+    )
     kind: Mapped[str] = mapped_column(String(32), index=True)
     parent_id: Mapped[int | None] = mapped_column(
         ForeignKey("information_bank_tree_nodes.id", ondelete="CASCADE"),
@@ -1226,6 +1241,9 @@ class InformationBankDilemmaListUnit(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ibank_section: Mapped[str] = mapped_column(
+        String(32), default="mission-readiness", index=True
+    )
     list_node_id: Mapped[int] = mapped_column(
         ForeignKey("information_bank_tree_nodes.id", ondelete="CASCADE"),
         nullable=False,
@@ -1241,6 +1259,9 @@ class InfoBankEventFlowPdf(Base):
     __table_args__ = (Index("ix_ib_flow_phase_unit", "training_phase_key", "unit_level_key"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ibank_section: Mapped[str] = mapped_column(
+        String(32), default="mission-readiness", index=True
+    )
     training_phase_key: Mapped[str] = mapped_column(String(64), index=True)
     unit_level_key: Mapped[str] = mapped_column(String(128), index=True)
     title: Mapped[str] = mapped_column(String(500), default="")
@@ -1256,6 +1277,9 @@ class InfoBankActionEvalXlsx(Base):
     __table_args__ = (Index("ix_ib_action_phase_unit", "training_phase_key", "unit_level_key"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ibank_section: Mapped[str] = mapped_column(
+        String(32), default="mission-readiness", index=True
+    )
     training_phase_key: Mapped[str] = mapped_column(String(64), index=True)
     unit_level_key: Mapped[str] = mapped_column(String(128), index=True)
     title: Mapped[str] = mapped_column(String(500), default="")
@@ -1271,6 +1295,9 @@ class InfoBankDilemmaEvalXlsx(Base):
     __table_args__ = (Index("ix_ib_dilemma_phase_unit", "training_phase_key", "unit_level_key"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ibank_section: Mapped[str] = mapped_column(
+        String(32), default="mission-readiness", index=True
+    )
     training_phase_key: Mapped[str] = mapped_column(String(64), index=True)
     unit_level_key: Mapped[str] = mapped_column(String(128), index=True)
     title: Mapped[str] = mapped_column(String(500), default="")
@@ -1285,6 +1312,9 @@ class InformationBankEventFlowTable(Base):
     __tablename__ = "information_bank_event_flow_table"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ibank_section: Mapped[str] = mapped_column(
+        String(32), default="mission-readiness", index=True
+    )
     flow_table_json: Mapped[str] = mapped_column(Text, default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

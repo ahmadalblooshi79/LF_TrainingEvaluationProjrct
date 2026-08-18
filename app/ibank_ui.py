@@ -2,6 +2,32 @@
 
 from __future__ import annotations
 
+# أقسام بنك المعلومات (قائمة منسدلة بجانب العنوان)
+IBANK_SECTION_MISSION = "mission-readiness"
+IBANK_SECTION_WARGAMES = "wargames"
+IBANK_SECTIONS: tuple[dict[str, str], ...] = (
+    {"key": IBANK_SECTION_MISSION, "label": "جاهزية المهمة"},
+    {"key": IBANK_SECTION_WARGAMES, "label": "لعبات الحرب"},
+)
+
+
+def normalize_ibank_section(raw: str | None) -> str:
+    k = (raw or "").strip()
+    if k == IBANK_SECTION_WARGAMES:
+        return IBANK_SECTION_WARGAMES
+    return IBANK_SECTION_MISSION
+
+
+def ibank_section_from_exercise_type(exercise_type: str | None) -> str:
+    """تمرين جاهزية المهمة → جاهزية المهمة، تمرين لعبات الحرب → لعبات الحرب."""
+    from app.exercise_options import EXERCISE_TYPE_WARGAMES
+
+    t = (exercise_type or "").strip()
+    if t == EXERCISE_TYPE_WARGAMES:
+        return IBANK_SECTION_WARGAMES
+    return IBANK_SECTION_MISSION
+
+
 # التبويب الوحيد لمستويات الوحدات (أُلغيت زايد/3 والظفرة/4 وراشد/5)
 IBANK_UNIT_BRIGADE_TAB: dict[str, str] = {
     "key": "1",

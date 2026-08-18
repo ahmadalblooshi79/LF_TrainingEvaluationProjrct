@@ -654,6 +654,189 @@ def ensure_tablet_offline_support() -> None:
     # الجدول الجديد يُنشأ عبر create_all؛ لا حاجة لـ CREATE يدوي هنا.
 
 
+def _sqlite_table_columns(insp, table: str) -> set[str]:
+    if table not in insp.get_table_names():
+        return set()
+    return {c["name"] for c in insp.get_columns(table)}
+
+
+def _sqlite_pk_columns(insp, table: str) -> list[str]:
+    if table not in insp.get_table_names():
+        return []
+    pk = insp.get_pk_constraint(table) or {}
+    return list(pk.get("constrained_columns") or [])
+
+
+def _rebuild_ibank_composite_pk(
+    conn,
+    *,
+    table: str,
+    create_sql: str,
+    copy_sql: str,
+) -> None:
+    tmp = f"{table}__sec_new"
+    conn.execute(text(f"DROP TABLE IF EXISTS {tmp}"))
+    conn.execute(text(create_sql.replace(table, tmp, 1)))
+    conn.execute(text(copy_sql.replace(f"INTO {table}", f"INTO {tmp}", 1)))
+    conn.execute(text(f"DROP TABLE {table}"))
+    conn.execute(text(f"ALTER TABLE {tmp} RENAME TO {table}"))
+
+
+def ensure_ibank_section_schema() -> None:
+    """عمود ibank_section لعزل جاهزية المهمة عن لعبات الحرب (SQLite)."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    try:
+        insp = inspect(engine)
+    except Exception:
+        return
+    mission = "mission-readiness"
+    add_col_tables = (
+        "information_bank_tree_nodes",
+        "information_bank_dilemma_list_units",
+        "information_bank_event_flow_table",
+        "info_bank_event_flow_pdfs",
+        "info_bank_action_eval_xlsx",
+        "info_bank_dilemma_eval_xlsx",
+    )
+    with engine.begin() as conn:
+        conn.execute(text("PRAGMA foreign_keys=OFF"))
+        for table in add_col_tables:
+            if table not in insp.get_table_names():
+                continue
+            cols = _sqlite_table_columns(insp, table)
+            if "ibank_section" in cols:
+                continue
+            conn.execute(
+                text(
+                    f"ALTER TABLE {table} ADD COLUMN ibank_section "
+                    f"VARCHAR(32) NOT NULL DEFAULT '{mission}'"
+                )
+            )
+        insp = inspect(engine)
+
+        pk_specs = [
+            (
+                "information_bank_training_phases",
+                """
+                CREATE TABLE information_bank_training_phases (
+                    ibank_section VARCHAR(32) NOT NULL DEFAULT 'mission-readiness',
+                    key VARCHAR(64) NOT NULL,
+                    label VARCHAR(300) DEFAULT '',
+                    sort_order INTEGER DEFAULT 0,
+                    included_in_exercise BOOLEAN DEFAULT 0 NOT NULL,
+                    is_system BOOLEAN DEFAULT 0 NOT NULL,
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    PRIMARY KEY (ibank_section, key)
+                )
+                """,
+                f"""
+                INSERT INTO information_bank_training_phases
+                    (ibank_section, key, label, sort_order, included_in_exercise,
+                     is_system, created_at, updated_at)
+                SELECT '{mission}', key, label, sort_order, included_in_exercise,
+                       is_system, created_at, updated_at
+                FROM information_bank_training_phases
+                """,
+            ),
+            (
+                "information_bank_unit_levels",
+                """
+                CREATE TABLE information_bank_unit_levels (
+                    ibank_section VARCHAR(32) NOT NULL DEFAULT 'mission-readiness',
+                    key VARCHAR(128) NOT NULL,
+                    label VARCHAR(300) DEFAULT '',
+                    brigade_group VARCHAR(16) DEFAULT '1' NOT NULL,
+                    sort_order INTEGER DEFAULT 0,
+                    included_in_exercise BOOLEAN DEFAULT 0 NOT NULL,
+                    is_system BOOLEAN DEFAULT 0 NOT NULL,
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    PRIMARY KEY (ibank_section, key)
+                )
+                """,
+                f"""
+                INSERT INTO information_bank_unit_levels
+                    (ibank_section, key, label, brigade_group, sort_order,
+                     included_in_exercise, is_system, created_at, updated_at)
+                SELECT '{mission}', key, label, COALESCE(brigade_group, '1'),
+                       sort_order, included_in_exercise, is_system,
+                       created_at, updated_at
+                FROM information_bank_unit_levels
+                """,
+            ),
+            (
+                "information_bank_phase_notes",
+                """
+                CREATE TABLE information_bank_phase_notes (
+                    ibank_section VARCHAR(32) NOT NULL DEFAULT 'mission-readiness',
+                    phase_key VARCHAR(64) NOT NULL,
+                    notes TEXT DEFAULT '',
+                    updated_at DATETIME,
+                    PRIMARY KEY (ibank_section, phase_key)
+                )
+                """,
+                f"""
+                INSERT INTO information_bank_phase_notes
+                    (ibank_section, phase_key, notes, updated_at)
+                SELECT '{mission}', phase_key, notes, updated_at
+                FROM information_bank_phase_notes
+                """,
+            ),
+            (
+                "information_bank_unit_notes",
+                """
+                CREATE TABLE information_bank_unit_notes (
+                    ibank_section VARCHAR(32) NOT NULL DEFAULT 'mission-readiness',
+                    unit_level_key VARCHAR(128) NOT NULL,
+                    notes TEXT DEFAULT '',
+                    updated_at DATETIME,
+                    PRIMARY KEY (ibank_section, unit_level_key)
+                )
+                """,
+                f"""
+                INSERT INTO information_bank_unit_notes
+                    (ibank_section, unit_level_key, notes, updated_at)
+                SELECT '{mission}', unit_level_key, notes, updated_at
+                FROM information_bank_unit_notes
+                """,
+            ),
+        ]
+        for table, create_sql, copy_sql in pk_specs:
+            if table not in insp.get_table_names():
+                continue
+            pk = _sqlite_pk_columns(insp, table)
+            if "ibank_section" in pk:
+                continue
+            _rebuild_ibank_composite_pk(
+                conn, table=table, create_sql=create_sql, copy_sql=copy_sql
+            )
+
+        if "information_bank_tree_suppressions" in insp.get_table_names():
+            pk = _sqlite_pk_columns(insp, "information_bank_tree_suppressions")
+            if "ibank_section" not in pk:
+                _rebuild_ibank_composite_pk(
+                    conn,
+                    table="information_bank_tree_suppressions",
+                    create_sql="""
+                    CREATE TABLE information_bank_tree_suppressions (
+                        ibank_section VARCHAR(32) NOT NULL DEFAULT 'mission-readiness',
+                        kind VARCHAR(32) NOT NULL,
+                        catalog_phase_key VARCHAR(64) NOT NULL DEFAULT '',
+                        catalog_unit_key VARCHAR(128) NOT NULL DEFAULT '',
+                        PRIMARY KEY (ibank_section, kind, catalog_phase_key, catalog_unit_key)
+                    )
+                    """,
+                    copy_sql=f"""
+                    INSERT INTO information_bank_tree_suppressions
+                        (ibank_section, kind, catalog_phase_key, catalog_unit_key)
+                    SELECT '{mission}', kind, catalog_phase_key, catalog_unit_key
+                    FROM information_bank_tree_suppressions
+                    """,
+                )
+
+
 def get_db():
     db = SessionLocal()
     try:

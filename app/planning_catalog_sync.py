@@ -11,6 +11,7 @@ from app.ibank_ui import (
     is_removed_brigade_unit_catalog_key,
     unit_level_row_is_removed_brigade,
 )
+from app.ibank_section_ctx import current_ibank_section
 from app.models import (
     InformationBankTrainingPhase,
     InformationBankUnitLevel,
@@ -47,7 +48,7 @@ def _compute_catalog_fingerprint(db: Session) -> tuple:
         .filter(InformationBankTrainingPhase.included_in_exercise.is_(True))
         .one()
     )
-    return (tuple(u_row), tuple(p_row))
+    return (current_ibank_section(), tuple(u_row), tuple(p_row))
 
 
 def purge_removed_brigade_unit_levels(db: Session) -> int:

@@ -109,6 +109,25 @@
 </div>
 
 <script>
+(function () {
+  var typeSel = document.getElementById("exercise_type");
+  var hasEx = {{ has_current_exercise | tojson }};
+  if (!typeSel || !hasEx) return;
+  typeSel.addEventListener("change", function () {
+    var val = (typeSel.value || "").trim();
+    if (!val) return;
+    fetch("/admin/exercises/type", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      body: JSON.stringify({ exercise_type: val }),
+    }).catch(function () {});
+  });
+})();
+</script>
+<script>
 (() => {
   const btn = document.getElementById("btn-open-exercise-json");
   const fileInput = document.getElementById("import-exercise-json-file");

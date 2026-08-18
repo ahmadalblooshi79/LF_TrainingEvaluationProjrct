@@ -3,9 +3,11 @@
 اسم التمرين، الوحدة المتدربة، ومكان التمرين — حقول نص حر (لا قوائم ثابتة).
 """
 
+EXERCISE_TYPE_MISSION_READINESS = "تمرين جاهزية المهمة"
+EXERCISE_TYPE_WARGAMES = "تمرين لعبات الحرب"
 EXERCISE_TYPES = [
-    "تمرين جاهزية المهمة",
-    "تمرين لعبات الحرب",
+    EXERCISE_TYPE_MISSION_READINESS,
+    EXERCISE_TYPE_WARGAMES,
 ]
 
 EXERCISE_LEVELS = [

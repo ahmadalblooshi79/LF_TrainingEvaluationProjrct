@@ -322,7 +322,10 @@ def sniff_allowed_ext(data: bytes, filename: str) -> str | None:
 
 
 def tree_storage_root(kind: str) -> Path:
-    root = (INFO_BANK_DIR / kind / "tree").resolve()
+    from app.ibank_section_ctx import ibank_file_relpath
+
+    rel = ibank_file_relpath(f"{kind}/tree")
+    root = (INFO_BANK_DIR / rel).resolve()
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -584,6 +587,7 @@ def _record_tree_suppression(
 ) -> None:
     """تسجيل حذف يدوي لمجلد مرحلة/وحدة حتى لا يُعاد إنشاؤه تلقائياً."""
     from app.database import ensure_information_bank_tree_suppressions_table
+    from app.ibank_section_ctx import current_ibank_section
 
     ensure_information_bank_tree_suppressions_table()
     pk = (catalog_phase_key or "").strip()
@@ -594,11 +598,11 @@ def _record_tree_suppression(
         text(
             """
             INSERT OR IGNORE INTO information_bank_tree_suppressions
-                (kind, catalog_phase_key, catalog_unit_key)
-            VALUES (:kind, :pk, :uk)
+                (ibank_section, kind, catalog_phase_key, catalog_unit_key)
+            VALUES (:sec, :kind, :pk, :uk)
             """
         ),
-        {"kind": kind, "pk": pk, "uk": uk},
+        {"sec": current_ibank_section(), "kind": kind, "pk": pk, "uk": uk},
     )
 
 
@@ -611,17 +615,20 @@ def _is_tree_suppressed(
 ) -> bool:
     pk = (catalog_phase_key or "").strip()
     uk = (catalog_unit_key or "").strip()
+    from app.ibank_section_ctx import current_ibank_section
+
     row = db.execute(
         text(
             """
             SELECT 1 FROM information_bank_tree_suppressions
-            WHERE kind = :kind
+            WHERE ibank_section = :sec
+              AND kind = :kind
               AND catalog_phase_key = :pk
               AND catalog_unit_key = :uk
             LIMIT 1
             """
         ),
-        {"kind": kind, "pk": pk, "uk": uk},
+        {"sec": current_ibank_section(), "kind": kind, "pk": pk, "uk": uk},
     ).first()
     return row is not None
 
@@ -1271,6 +1278,9 @@ def ensure_information_bank_kind(db: Session, kind: str, *, backfill: bool | Non
     """تهيئة/ترحيل/إصلاح شجرة نوع واحد فقط — دون لمس تبويبات أخرى."""
     if kind not in INFO_BANK_TREE_KINDS:
         return
+    from app.ibank_section_ctx import current_ibank_section
+
+    cache_key = (kind, current_ibank_section())
     # تجنّب إعادة الترحيل/الإصلاح في كل طلب — يُبطَل عند رفع/حذف/استيراد.
     ensured = getattr(ensure_information_bank_kind, "_ensured", None)
     if ensured is None:
@@ -1280,13 +1290,16 @@ def ensure_information_bank_kind(db: Session, kind: str, *, backfill: bool | Non
     if needs_bf is None:
         needs_bf = set()
         ensure_information_bank_kind._needs_backfill = needs_bf  # type: ignore[attr-defined]
-    do_backfill = bool(needs_bf & {kind}) if backfill is None else bool(backfill)
-    if kind in ensured and not do_backfill:
+    do_backfill = (
+        bool(needs_bf & {kind, cache_key}) if backfill is None else bool(backfill)
+    )
+    if cache_key in ensured and not do_backfill:
         return
     ensure_information_bank_tree(db, kind, backfill=do_backfill)
     migrate_legacy_flat_files(db, kind)
     needs_bf.discard(kind)
-    ensured.add(kind)
+    needs_bf.discard(cache_key)
+    ensured.add(cache_key)
 
 
 def invalidate_information_bank_kind_cache(kind: str | None = None) -> None:
@@ -1301,7 +1314,13 @@ def invalidate_information_bank_kind_cache(kind: str | None = None) -> None:
         ensure_information_bank_kind._needs_backfill = needs_bf  # type: ignore[attr-defined]
     if kind:
         ensured.discard(kind)
+        for key in list(ensured):
+            if isinstance(key, tuple) and key and key[0] == kind:
+                ensured.discard(key)
         needs_bf.add(kind)
+        from app.ibank_section_ctx import current_ibank_section
+
+        needs_bf.add((kind, current_ibank_section()))
     else:
         ensured.clear()
         needs_bf.update(INFO_BANK_TREE_KINDS)
@@ -1318,6 +1337,10 @@ def get_node(db: Session, node_id: int, kind: str | None = None) -> InformationB
     if row is None:
         return None
     if kind and row.kind != kind:
+        return None
+    from app.ibank_section_ctx import current_ibank_section, is_ibank_section_bypass
+
+    if not is_ibank_section_bypass() and (row.ibank_section or "") != current_ibank_section():
         return None
     return row
 
@@ -1642,7 +1665,11 @@ def _write_file_bytes(
     if not base_name.lower().endswith(ext):
         base_name = f"{Path(base_name).stem}{ext}"
     base_name = base_name[:500]
-    rel_storage = f"{kind}/tree/n{uuid.uuid4().hex}/{_sanitize_path_parts(base_name)}"
+    from app.ibank_section_ctx import ibank_file_relpath
+
+    rel_storage = ibank_file_relpath(
+        f"{kind}/tree/n{uuid.uuid4().hex}/{_sanitize_path_parts(base_name)}"
+    )
     dest = (INFO_BANK_DIR / rel_storage).resolve()
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(data)
@@ -1941,6 +1968,7 @@ def purge_information_bank_tree(db: Session, kind: str) -> dict[str, int]:
     if kind not in INFO_BANK_TREE_KINDS:
         raise ValueError("invalid kind")
     from app.database import ensure_information_bank_tree_suppressions_table
+    from app.ibank_section_ctx import current_ibank_section
 
     ensure_information_bank_tree_suppressions_table()
     tree_count = (
@@ -1967,9 +1995,12 @@ def purge_information_bank_tree(db: Session, kind: str) -> dict[str, int]:
             legacy_deleted += 1
     sup_result = db.execute(
         text(
-            "DELETE FROM information_bank_tree_suppressions WHERE kind = :kind"
+            """
+            DELETE FROM information_bank_tree_suppressions
+            WHERE ibank_section = :sec AND kind = :kind
+            """
         ),
-        {"kind": kind},
+        {"sec": current_ibank_section(), "kind": kind},
     )
     db.flush()
     return {

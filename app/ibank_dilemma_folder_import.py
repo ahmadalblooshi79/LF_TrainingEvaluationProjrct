@@ -10,6 +10,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app.config import INFO_BANK_DIR
+from app.ibank_section_ctx import ibank_file_relpath
 from app.info_bank_tree import (
     _next_sort,
     _sanitize_path_parts,
@@ -297,7 +298,9 @@ def _write_imported_file(
         return existing
     data = src.read_bytes()
     ext = src.suffix.lower()
-    rel_storage = f"action_eval/tree/n{uuid.uuid4().hex}/{_sanitize_path_parts(display_name)}"
+    rel_storage = ibank_file_relpath(
+        f"action_eval/tree/n{uuid.uuid4().hex}/{_sanitize_path_parts(display_name)}"
+    )
     dest = (INFO_BANK_DIR / rel_storage).resolve()
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(data)

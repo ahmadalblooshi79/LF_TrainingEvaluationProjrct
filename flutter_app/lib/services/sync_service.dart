@@ -42,12 +42,19 @@ class SyncService {
     if (saved != null) lastSuccessAt.value = saved;
     _updateUiState();
     HealthService.instance.serverReachable.addListener(_onHealth);
-    // مزامنة يدوية فقط — لا إرسال تلقائي عند الاتصال أو بجدول زمني.
-    // فحص دوري خفيف لحالة الاتصال في الواجهة فقط.
+    // تزامن تلقائي عند الاتصال + إبقاء الأزرار اليدوية.
     _retryTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       unawaited(HealthService.instance.check());
       unawaited(refreshPendingCount());
+      if (HealthService.instance.serverReachable.value &&
+          pendingCount.value > 0 &&
+          !syncing.value) {
+        unawaited(flush());
+      }
     });
+    if (HealthService.instance.serverReachable.value && pendingCount.value > 0) {
+      unawaited(flush());
+    }
   }
 
   void dispose() {
@@ -55,9 +62,16 @@ class SyncService {
     _retryTimer?.cancel();
   }
 
+  bool _wasReachable = false;
+
   void _onHealth() {
+    final online = HealthService.instance.serverReachable.value;
     _updateUiState();
-    // لا flush تلقائي عند عودة الشبكة — Manual Sync Only
+    // عند عودة الاتصال بالسيرفر: ارفع المعلّق تلقائياً
+    if (online && !_wasReachable && pendingCount.value > 0 && !syncing.value) {
+      unawaited(flush());
+    }
+    _wasReachable = online;
   }
 
   Future<void> refreshPendingCount() async {
@@ -132,7 +146,10 @@ class SyncService {
     );
     await OfflineStore.instance.enqueueOp(op);
     await refreshPendingCount();
-    // لا إرسال تلقائي — المستخدم يضغط «مزامنة» يدوياً
+    // إن كان السيرفر متاحاً: ارفع فوراً في الخلفية (مع بقاء المزامنة اليدوية)
+    if (HealthService.instance.serverReachable.value) {
+      unawaited(flush());
+    }
     return false;
   }
 

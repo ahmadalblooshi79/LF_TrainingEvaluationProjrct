@@ -14,6 +14,7 @@ from sqlalchemy import DateTime, text
 from sqlalchemy.orm import Session
 
 from app.config import INFO_BANK_DIR
+from app.ibank_section_ctx import ibank_section_bypass
 from app.info_bank_tree import INFO_BANK_TREE_KINDS, invalidate_information_bank_kind_cache
 from app.models.domain import (
     InfoBankActionEvalXlsx,
@@ -109,6 +110,10 @@ def _apply_row(model: type, data: dict[str, Any]) -> Any:
             except Exception:
                 pass
         kwargs[col.key] = val
+    if "ibank_section" in model.__mapper__.columns and not str(
+        kwargs.get("ibank_section") or ""
+    ).strip():
+        kwargs["ibank_section"] = "mission-readiness"
     return model(**kwargs)
 
 
@@ -142,7 +147,7 @@ def _export_suppressions(db: Session) -> list[dict[str, str]]:
         rows = (
             db.execute(
                 text(
-                    "SELECT kind, catalog_phase_key, catalog_unit_key "
+                    "SELECT ibank_section, kind, catalog_phase_key, catalog_unit_key "
                     "FROM information_bank_tree_suppressions"
                 )
             )
@@ -150,9 +155,31 @@ def _export_suppressions(db: Session) -> list[dict[str, str]]:
             .all()
         )
     except Exception:
-        return []
+        try:
+            rows = (
+                db.execute(
+                    text(
+                        "SELECT kind, catalog_phase_key, catalog_unit_key "
+                        "FROM information_bank_tree_suppressions"
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        except Exception:
+            return []
+        return [
+            {
+                "ibank_section": "mission-readiness",
+                "kind": str(r["kind"] or ""),
+                "catalog_phase_key": str(r["catalog_phase_key"] or ""),
+                "catalog_unit_key": str(r["catalog_unit_key"] or ""),
+            }
+            for r in rows
+        ]
     return [
         {
+            "ibank_section": str(r.get("ibank_section") or "mission-readiness"),
             "kind": str(r["kind"] or ""),
             "catalog_phase_key": str(r["catalog_phase_key"] or ""),
             "catalog_unit_key": str(r["catalog_unit_key"] or ""),
@@ -162,18 +189,19 @@ def _export_suppressions(db: Session) -> list[dict[str, str]]:
 
 
 def _collect_table_payload(db: Session) -> dict[str, Any]:
-    payload: dict[str, Any] = {}
-    kinds = set(INFO_BANK_TREE_KINDS)
-    for name, model, filt in _ORM_TABLE_SPECS:
-        q = db.query(model)
-        if filt == "ibank_kinds":
-            q = q.filter(InformationBankTreeNode.kind.in_(tuple(kinds)))
-        rows = [_row_to_dict(r) for r in q.all()]
-        if name == "information_bank_tree_nodes":
-            rows = _topo_sort_tree_nodes(rows)
-        payload[name] = rows
-    payload["information_bank_tree_suppressions"] = _export_suppressions(db)
-    return payload
+    with ibank_section_bypass():
+        payload: dict[str, Any] = {}
+        kinds = set(INFO_BANK_TREE_KINDS)
+        for name, model, filt in _ORM_TABLE_SPECS:
+            q = db.query(model)
+            if filt == "ibank_kinds":
+                q = q.filter(InformationBankTreeNode.kind.in_(tuple(kinds)))
+            rows = [_row_to_dict(r) for r in q.all()]
+            if name == "information_bank_tree_nodes":
+                rows = _topo_sort_tree_nodes(rows)
+            payload[name] = rows
+        payload["information_bank_tree_suppressions"] = _export_suppressions(db)
+        return payload
 
 
 def _iter_info_bank_files() -> list[tuple[Path, str]]:
@@ -370,23 +398,24 @@ def _delete_ibank_tree_nodes(db: Session) -> None:
 
 
 def _wipe_ibank_tables(db: Session) -> None:
-    db.query(InformationBankDilemmaListUnit).delete(synchronize_session=False)
-    _delete_ibank_tree_nodes(db)
-    db.query(InformationBankEventFlowTable).delete(synchronize_session=False)
-    db.query(InfoBankEventFlowPdf).delete(synchronize_session=False)
-    db.query(InfoBankActionEvalXlsx).delete(synchronize_session=False)
-    db.query(InfoBankDilemmaEvalXlsx).delete(synchronize_session=False)
-    db.query(InformationBankPhaseNote).delete(synchronize_session=False)
-    db.query(InformationBankUnitNote).delete(synchronize_session=False)
-    db.query(InformationBankTrainingPhase).delete(synchronize_session=False)
-    db.query(InformationBankUnitLevel).delete(synchronize_session=False)
-    db.query(UnitDesignationAlias).delete(synchronize_session=False)
-    db.query(UnitDesignation).delete(synchronize_session=False)
-    try:
-        db.execute(text("DELETE FROM information_bank_tree_suppressions"))
-    except Exception:
-        pass
-    db.flush()
+    with ibank_section_bypass():
+        db.query(InformationBankDilemmaListUnit).delete(synchronize_session=False)
+        _delete_ibank_tree_nodes(db)
+        db.query(InformationBankEventFlowTable).delete(synchronize_session=False)
+        db.query(InfoBankEventFlowPdf).delete(synchronize_session=False)
+        db.query(InfoBankActionEvalXlsx).delete(synchronize_session=False)
+        db.query(InfoBankDilemmaEvalXlsx).delete(synchronize_session=False)
+        db.query(InformationBankPhaseNote).delete(synchronize_session=False)
+        db.query(InformationBankUnitNote).delete(synchronize_session=False)
+        db.query(InformationBankTrainingPhase).delete(synchronize_session=False)
+        db.query(InformationBankUnitLevel).delete(synchronize_session=False)
+        db.query(UnitDesignationAlias).delete(synchronize_session=False)
+        db.query(UnitDesignation).delete(synchronize_session=False)
+        try:
+            db.execute(text("DELETE FROM information_bank_tree_suppressions"))
+        except Exception:
+            pass
+        db.flush()
 
 
 def _insert_suppressions(db: Session, rows: list[dict[str, Any]]) -> int:
@@ -398,10 +427,11 @@ def _insert_suppressions(db: Session, rows: list[dict[str, Any]]) -> int:
         db.execute(
             text(
                 "INSERT OR REPLACE INTO information_bank_tree_suppressions "
-                "(kind, catalog_phase_key, catalog_unit_key) "
-                "VALUES (:kind, :pk, :uk)"
+                "(ibank_section, kind, catalog_phase_key, catalog_unit_key) "
+                "VALUES (:sec, :kind, :pk, :uk)"
             ),
             {
+                "sec": str(r.get("ibank_section") or "mission-readiness")[:32],
                 "kind": kind[:32],
                 "pk": str(r.get("catalog_phase_key") or "")[:64],
                 "uk": str(r.get("catalog_unit_key") or "")[:128],
@@ -457,43 +487,44 @@ def restore_information_bank_from_zip(
         if is_sqlite:
             db.execute(text("PRAGMA foreign_keys=OFF"))
         try:
-            _wipe_ibank_tables(db)
-            _clear_ibank_files_dir()
+            with ibank_section_bypass():
+                _wipe_ibank_tables(db)
+                _clear_ibank_files_dir()
 
-            for name, model, _filt in _ORM_TABLE_SPECS:
-                rows = data.get(name) or []
-                if name == "information_bank_tree_nodes":
-                    rows = _topo_sort_tree_nodes(
-                        [
-                            r
-                            for r in rows
-                            if (r.get("kind") or "") in INFO_BANK_TREE_KINDS
-                        ]
-                    )
-                for row in rows:
+                for name, model, _filt in _ORM_TABLE_SPECS:
+                    rows = data.get(name) or []
                     if name == "information_bank_tree_nodes":
-                        if (row.get("kind") or "").strip() not in INFO_BANK_TREE_KINDS:
-                            continue
-                    db.add(_apply_row(model, row))
+                        rows = _topo_sort_tree_nodes(
+                            [
+                                r
+                                for r in rows
+                                if (r.get("kind") or "") in INFO_BANK_TREE_KINDS
+                            ]
+                        )
+                    for row in rows:
+                        if name == "information_bank_tree_nodes":
+                            if (row.get("kind") or "").strip() not in INFO_BANK_TREE_KINDS:
+                                continue
+                        db.add(_apply_row(model, row))
+                    db.flush()
+
+                _insert_suppressions(db, data.get("information_bank_tree_suppressions") or [])
                 db.flush()
 
-            _insert_suppressions(db, data.get("information_bank_tree_suppressions") or [])
-            db.flush()
+                if is_sqlite:
+                    for tbl in (
+                        "information_bank_tree_nodes",
+                        "information_bank_dilemma_list_units",
+                        "information_bank_event_flow_table",
+                        "info_bank_event_flow_pdfs",
+                        "info_bank_action_eval_xlsx",
+                        "info_bank_dilemma_eval_xlsx",
+                    ):
+                        _restore_sqlite_identity(db, tbl)
 
-            if is_sqlite:
-                for tbl in (
-                    "information_bank_tree_nodes",
-                    "information_bank_dilemma_list_units",
-                    "information_bank_event_flow_table",
-                    "info_bank_event_flow_pdfs",
-                    "info_bank_action_eval_xlsx",
-                    "info_bank_dilemma_eval_xlsx",
-                ):
-                    _restore_sqlite_identity(db, tbl)
-
-            file_count = _extract_files_from_zip(zf)
-            _extract_sources_from_zip(zf)
-            db.commit()
+                file_count = _extract_files_from_zip(zf)
+                _extract_sources_from_zip(zf)
+                db.commit()
         except Exception:
             db.rollback()
             raise

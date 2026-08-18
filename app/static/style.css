@@ -8949,8 +8949,41 @@ main:has(.ibank-tabpane[data-tab-pane="dilemma-lists"].is-active) .ibank-tab-bod
 }
 .ibank-page-header .ibank-page-header__title-row h1 {
   margin-bottom: 0;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
+}
+.ibank-page-header__title-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.7rem;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.ibank-section-select-wrap {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+}
+.ibank-section-select {
+  min-width: 12.5rem;
+  max-width: 100%;
+  padding: 0.28rem 0.6rem;
+  border: 1px solid var(--border-soft, #c9bfb5);
+  border-radius: 4px;
+  background: #fff;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  cursor: pointer;
+}
+.ibank-section-select:disabled {
+  cursor: default;
+  opacity: 0.92;
+  background: var(--surface-muted, #f5f1ec);
+}
+.ibank-card--wargames-empty {
+  min-height: 14rem;
 }
 .ibank-page-header .ibank-ok-toast {
   flex: 0 1 auto;

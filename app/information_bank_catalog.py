@@ -112,7 +112,7 @@ def apply_information_bank_unit_label_migrations(db) -> bool:
             catalog_key = unit_catalog_key_for_brigade(bg["key"], template_key)
             if not catalog_key:
                 continue
-            row = db.get(InformationBankUnitLevel, catalog_key)
+            row = db.query(InformationBankUnitLevel).filter_by(key=catalog_key).first()
             if row is None:
                 continue
             current = (row.label or "").strip()

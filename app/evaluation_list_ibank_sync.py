@@ -75,7 +75,7 @@ def _resolve_unit_key(raw: str | None, db: Session) -> str:
         return ""
     from app.models import InformationBankUnitLevel
 
-    row = db.get(InformationBankUnitLevel, v)
+    row = db.query(InformationBankUnitLevel).filter_by(key=v).first()
     if row is not None:
         return v
     by_label = (
@@ -122,7 +122,7 @@ def _resolve_phase_key(raw: str | None, db: Session) -> str:
     catalog = _LEGACY_TO_CATALOG.get(v)
     if catalog:
         return catalog
-    row = db.get(InformationBankTrainingPhase, v)
+    row = db.query(InformationBankTrainingPhase).filter_by(key=v).first()
     if row is not None:
         return v
     by_label = (

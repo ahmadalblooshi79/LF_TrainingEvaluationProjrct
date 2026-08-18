@@ -12517,6 +12517,38 @@ def admin_exercise_create():
     )
 
 
+@bp.route("/admin/exercises/type", methods=["POST"])
+def admin_exercise_type_update():
+    """تحديث نوع التمرين الحالي — يحدّد قسم بنك المعلومات (جاهزية المهمة / لعبات الحرب)."""
+    user = get_current_user_optional()
+    if not user:
+        return jsonify({"ok": False, "error": "يجب تسجيل الدخول"}), 401
+    if not can_manage_users(user):
+        return jsonify({"ok": False, "error": "غير مسموح"}), 403
+    from flask import g
+
+    data = request.get_json(silent=True) or {}
+    et = (data.get("exercise_type") or request.form.get("exercise_type") or "").strip()
+    if et not in ex_opts.EXERCISE_TYPES:
+        return jsonify({"ok": False, "error": "نوع تمرين غير صالح"}), 400
+    db = g.db
+    ex = _workspace_exercise_for_admin_form(db, user)
+    if ex is None:
+        return jsonify({"ok": False, "error": "لا يوجد تمرين حالي"}), 400
+    ex.exercise_type = et
+    db.commit()
+    write_exercise_json_file(db, ex.id)
+    from app.ibank_ui import ibank_section_from_exercise_type
+
+    return jsonify(
+        {
+            "ok": True,
+            "exercise_type": et,
+            "ibank_section": ibank_section_from_exercise_type(et),
+        }
+    )
+
+
 @bp.route("/admin/exercises/import-full-json", methods=["POST"])
 def admin_exercise_import_full_json():
     """مسح التمارين السابقة واستيراد تمرين كامل من ملف JSON في مجلد التصدير."""
@@ -15475,7 +15507,7 @@ def _ensure_information_bank_catalog_rows(db) -> None:
     if apply_information_bank_unit_label_migrations(db):
         changed = True
     for idx, row in enumerate(TRAINING_PHASES):
-        r = db.get(InformationBankTrainingPhase, row["key"])
+        r = db.query(InformationBankTrainingPhase).filter_by(key=row["key"]).first()
         if r is None:
             db.add(
                 InformationBankTrainingPhase(
@@ -15499,7 +15531,7 @@ def _ensure_information_bank_catalog_rows(db) -> None:
             catalog_key = unit_catalog_key_for_brigade(bg_key, row["key"])
             if not catalog_key:
                 continue
-            r = db.get(InformationBankUnitLevel, catalog_key)
+            r = db.query(InformationBankUnitLevel).filter_by(key=catalog_key).first()
             if r is None:
                 db.add(
                     InformationBankUnitLevel(
@@ -15628,22 +15660,35 @@ def _included_phase_keys_from_form() -> set[str]:
     return {(x or "").strip() for x in raw if (x or "").strip()}
 
 
+def _ibank_section_query() -> dict[str, str]:
+    """معامل القسم من الطلب — يُحذف من الرابط عند جاهزية المهمة (الافتراضي)."""
+    from app.ibank_ui import IBANK_SECTION_MISSION, normalize_ibank_section
+
+    section = normalize_ibank_section(
+        request.args.get("section") or request.form.get("section")
+    )
+    if section == IBANK_SECTION_MISSION:
+        return {}
+    return {"section": section}
+
+
 def _ibank_included_save_http_response(*, tab: str, ok_msg: str = "", err_msg: str = ""):
     """حفظ التحديدات دون إعادة تحميل كاملة عند طلب AJAX من واجهة بنك المعلومات."""
+    extra = _ibank_section_query()
     if is_ibank_included_save_request():
         if err_msg:
             return jsonify({"ok": False, "error": err_msg}), 400
         return jsonify({"ok": True, "message": ok_msg})
     if err_msg:
         return redirect(
-            url_for("views.admin_information_bank", tab=tab, err=err_msg)
+            url_for("views.admin_information_bank", tab=tab, err=err_msg, **extra)
         )
-    return redirect(url_for("views.admin_information_bank", tab=tab, ok=ok_msg))
+    return redirect(url_for("views.admin_information_bank", tab=tab, ok=ok_msg, **extra))
 
 
 def _admin_information_bank_tree_redirect(*, tab: str, ok: str = "", err: str = ""):
     """إعادة توجيه لتبويب شجرة بنك المعلومات مع الحفاظ على يوم قوائم الإجراءات."""
-    kwargs: dict[str, str] = {"tab": tab}
+    kwargs: dict[str, str] = {"tab": tab, **_ibank_section_query()}
     if ok:
         kwargs["ok"] = ok
     if err:
@@ -16035,10 +16080,18 @@ def admin_information_bank():
     ibank_judge_names_by_unit = exercise_judge_names_by_unit(
         db, int(current_exercise.id) if current_exercise else None
     )
-    from app.ibank_ui import ibank_brigade_groups_for_page, is_removed_brigade_tab
+    from app.ibank_ui import (
+        IBANK_SECTIONS,
+        ibank_brigade_groups_for_page,
+        ibank_section_from_exercise_type,
+        is_removed_brigade_tab,
+    )
 
     ui_brigade_groups = ibank_brigade_groups_for_page()
     brigade_tabs = {bg["tab"] for bg in ui_brigade_groups}
+    active_section = ibank_section_from_exercise_type(
+        getattr(current_exercise, "exercise_type", None) if current_exercise else None
+    )
     active_tab = (request.args.get("tab") or "phases").strip()
     if is_removed_brigade_tab(active_tab):
         active_tab = "units-bg-1"
@@ -16168,6 +16221,8 @@ def admin_information_bank():
                 error=err,
                 ok_msg=ok,
                 active_tab=active_tab,
+                active_section=active_section,
+                ibank_sections=IBANK_SECTIONS,
                 information_bank_can_manage=can_manage_information_bank(user),
                 ibank_tree_unit_levels=list(UNIT_LEVELS),
                 ibank_judge_names_by_unit=ibank_judge_names_by_unit,
@@ -16461,7 +16516,7 @@ def admin_information_bank_phase_notes():
     for p in TRAINING_PHASES:
         key = p["key"]
         raw = request.form.get(f"note_{key}") or ""
-        row = db.get(InformationBankPhaseNote, key)
+        row = db.query(InformationBankPhaseNote).filter_by(phase_key=key).first()
         if row is None:
             row = InformationBankPhaseNote(phase_key=key, notes=raw)
             db.add(row)
@@ -16482,7 +16537,7 @@ def admin_information_bank_unit_notes():
     for u in INFO_BANK_UNIT_LEVELS:
         key = u["key"]
         raw = request.form.get(f"unote_{key}") or ""
-        row = db.get(InformationBankUnitNote, key)
+        row = db.query(InformationBankUnitNote).filter_by(unit_level_key=key).first()
         if row is None:
             row = InformationBankUnitNote(unit_level_key=key, notes=raw)
             db.add(row)
@@ -16552,7 +16607,7 @@ def admin_information_bank_phase_delete():
 
     key = (request.form.get("phase_key") or "").strip()
     db = g.db
-    row = db.get(InformationBankTrainingPhase, key)
+    row = db.query(InformationBankTrainingPhase).filter_by(key=key).first()
     if row is None:
         return redirect(url_for("views.admin_information_bank", tab="phases", err="اختر مرحلة صالحة للحذف."))
     db.delete(row)
@@ -16653,7 +16708,7 @@ def admin_information_bank_unit_edit():
     if not key or not label:
         return _edit_response(ok=False, err_msg="أدخل اسماً صالحاً للوحدة.")
     db = g.db
-    row = db.get(InformationBankUnitLevel, key)
+    row = db.query(InformationBankUnitLevel).filter_by(key=key).first()
     if row is None:
         return _edit_response(ok=False, err_msg="مستوى الوحدة غير موجود.")
     row.label = label
@@ -16684,7 +16739,7 @@ def admin_information_bank_unit_delete():
     if is_removed_brigade_tab(tab) or tab not in {bg["tab"] for bg in ibank_brigade_groups_for_page()}:
         tab = "units-bg-1"
     db = g.db
-    row = db.get(InformationBankUnitLevel, key)
+    row = db.query(InformationBankUnitLevel).filter_by(key=key).first()
     if row is None:
         return redirect(url_for("views.admin_information_bank", tab=tab, err="اختر مستوى وحدة صالحاً للحذف."))
     db.delete(row)

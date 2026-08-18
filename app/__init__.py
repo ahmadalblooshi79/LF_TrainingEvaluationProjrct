@@ -25,6 +25,7 @@ from app.database import (
     ensure_information_bank_unit_included_column,
     ensure_information_bank_unit_brigade_group_column,
     ensure_information_bank_unit_label_migrations,
+    ensure_ibank_section_schema,
     ensure_analyst_final_eval_manual_tables,
     ensure_analyst_flow_day_phase_links_table,
     ensure_dilemma_criteria_phase_flow_day_column,
@@ -88,6 +89,10 @@ def create_app() -> Flask:
         ensure_information_bank_unit_included_column()
         ensure_information_bank_unit_brigade_group_column()
         ensure_information_bank_unit_label_migrations()
+        ensure_ibank_section_schema()
+        from app.ibank_section_ctx import register_ibank_section_session_events
+
+        register_ibank_section_session_events()
         ensure_analyst_final_eval_manual_tables()
         ensure_analyst_flow_day_phase_links_table()
         ensure_dilemma_criteria_phase_flow_day_column()
@@ -98,11 +103,14 @@ def create_app() -> Flask:
         ensure_ai_training_center_tables()
         ensure_tablet_offline_support()
         from app.seed import seed_all
+        from app.ibank_section_clone import ensure_wargames_ibank_clone
+
         db = SessionLocal()
         try:
             seed_all(db)
         finally:
             db.close()
+        ensure_wargames_ibank_clone()
 
     @app.before_request
     def _open_db():
@@ -112,6 +120,13 @@ def create_app() -> Flask:
         if path.startswith("/api/remote-control/stream"):
             return
         g.db = SessionLocal()
+        from app.ibank_section_ctx import bind_ibank_section_from_exercise
+        from app.models import Exercise
+
+        ex = g.db.query(Exercise).order_by(Exercise.id.desc()).first()
+        bind_ibank_section_from_exercise(
+            getattr(ex, "exercise_type", None) if ex is not None else None
+        )
         # طلبات خفيفة — لا مزامنة كتالوج (تسريع الدخول والنبضات والصفحات البسيطة)
         if path.startswith("/api/") or path in ("/login", "/logout"):
             return

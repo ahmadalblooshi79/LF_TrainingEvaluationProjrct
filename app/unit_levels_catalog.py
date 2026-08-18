@@ -69,7 +69,7 @@ def label_for_unit_level_key(key: str | None, db: Session | None = None) -> str:
     if db is not None:
         from app.models import InformationBankUnitLevel
 
-        row = db.get(InformationBankUnitLevel, k)
+        row = db.query(InformationBankUnitLevel).filter_by(key=k).first()
         if row is not None:
             lbl = (row.label or "").strip()
             if lbl:

@@ -643,6 +643,8 @@ def tablet_action_eval_detail(user: User, slot: int):
 @bp.put("/action-eval/<int:slot>/results")
 @_require_judge_json
 def tablet_action_eval_save(user: User, slot: int):
+    from werkzeug.exceptions import HTTPException
+
     from app.views import (
         _judge_planner_flow_action_bundle_row,
         _planner_bundle_eval_commit_payload_save,
@@ -658,17 +660,29 @@ def tablet_action_eval_save(user: User, slot: int):
     pair = _judge_planner_flow_action_bundle_row(g.db, user, ex, slot)
     if pair is None or ex is None:
         return _json_error("القائمة غير موجودة", 404)
-    _, action_row = pair
+    bundle, action_row = pair
     payload = data.get("payload") if isinstance(data.get("payload"), dict) else data
     if not isinstance(payload, dict):
         return _json_error("حمولة غير صالحة")
     raw = json.dumps(payload, ensure_ascii=False)
     try:
         _planner_bundle_eval_commit_payload_save(
-            g.db, user=user, action_row=action_row, current_exercise=ex, raw=raw
+            g.db,
+            user=user,
+            action_row=action_row,
+            bundle=bundle,
+            current_exercise=ex,
+            raw=raw,
+        )
+    except HTTPException as exc:
+        return _json_error(
+            (exc.description if isinstance(exc.description, str) else None)
+            or str(exc)
+            or "فشل الحفظ",
+            int(exc.code or 400),
         )
     except Exception as exc:
-        return _json_error(str(exc) or "فشل الحفظ", 400)
+        return _json_error(str(exc) or "فشل الحفظ", 500)
     body = {"ok": True, "saved": True, "client_op_id": client_op_id or None}
     _record_client_op(
         user,
@@ -1836,7 +1850,8 @@ def _polarity_notes_payload(user: User, ex: Exercise | None) -> dict:
 @_require_judge_json
 def tablet_me_updates(user: User):
     """تحديثات شخصية للمحكم الحالي فقط (Update My Data)."""
-    return tablet_bootstrap(user)
+    # استدعاء الدالة الأصلية مباشرة — لا عبر الـ wrapper (يتسبب بتمرير user مرتين → 500)
+    return tablet_bootstrap.__wrapped__(user)
 
 
 @bp.get("/polarity-notes")

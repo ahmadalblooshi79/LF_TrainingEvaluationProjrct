@@ -5,7 +5,17 @@
   <div class="ibank-subheader__row">
     <div class="page-header ibank-page-header">
       <div class="ibank-page-header__title-row" dir="rtl">
-        <h1><i class="fa-solid fa-database fa-icon-title" aria-hidden="true"></i> بنك المعلومات</h1>
+        <div class="ibank-page-header__title-group">
+          <h1><i class="fa-solid fa-database fa-icon-title" aria-hidden="true"></i> بنك المعلومات</h1>
+          <label class="ibank-section-select-wrap">
+            <span class="sr-only">قسم بنك المعلومات</span>
+            <select id="ibank-section-select" class="ibank-section-select" aria-label="قسم بنك المعلومات" disabled title="للاطلاع فقط — يُغيَّر من نوع التمرين في إنشاء تمرين جديد">
+              {% for sec in ibank_sections %}
+              <option value="{{ sec.key }}"{% if active_section == sec.key %} selected{% endif %}>{{ sec.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
         {% if ok_msg %}
         <p class="form-ok-banner ibank-ok-toast" id="ibank-ok-toast" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
         {% endif %}
@@ -309,7 +319,13 @@
           });
           window.location.href = jump.pathname + '?' + jump.searchParams.toString();
         } catch (navErr) {
-          window.location.search = 'tab=' + encodeURIComponent(id);
+          try {
+            var fb = new URL(window.location.href);
+            fb.searchParams.set('tab', id);
+            window.location.href = fb.pathname + '?' + fb.searchParams.toString();
+          } catch (fbErr) {
+            window.location.search = 'tab=' + encodeURIComponent(id);
+          }
         }
         return;
       }

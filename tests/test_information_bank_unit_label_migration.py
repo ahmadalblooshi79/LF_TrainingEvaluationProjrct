@@ -34,7 +34,7 @@ class TestInformationBankUnitLabelMigration(unittest.TestCase):
     def test_mech2_cmd_label_migrated_to_12(self):
         changed = apply_information_bank_unit_label_migrations(self.db)
         self.assertTrue(changed)
-        row = self.db.get(InformationBankUnitLevel, "ul_mech2_bn_cmd")
+        row = self.db.query(InformationBankUnitLevel).filter_by(key="ul_mech2_bn_cmd").first()
         self.assertIsNotNone(row)
         self.assertEqual(row.label, "قيادة كتيبة المشاة الآلية/12")
 
