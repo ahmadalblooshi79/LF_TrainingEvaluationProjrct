@@ -15661,15 +15661,7 @@ def _included_phase_keys_from_form() -> set[str]:
 
 
 def _ibank_section_query() -> dict[str, str]:
-    """معامل القسم من الطلب — يُحذف من الرابط عند جاهزية المهمة (الافتراضي)."""
-    from app.ibank_ui import IBANK_SECTION_MISSION, normalize_ibank_section
-
-    section = normalize_ibank_section(
-        request.args.get("section") or request.form.get("section")
-    )
-    if section == IBANK_SECTION_MISSION:
-        return {}
-    return {"section": section}
+    return {}
 
 
 def _ibank_included_save_http_response(*, tab: str, ok_msg: str = "", err_msg: str = ""):
@@ -16081,21 +16073,23 @@ def admin_information_bank():
         db, int(current_exercise.id) if current_exercise else None
     )
     from app.ibank_ui import (
-        IBANK_SECTIONS,
         ibank_brigade_groups_for_page,
-        ibank_section_from_exercise_type,
         is_removed_brigade_tab,
     )
 
     ui_brigade_groups = ibank_brigade_groups_for_page()
     brigade_tabs = {bg["tab"] for bg in ui_brigade_groups}
-    active_section = ibank_section_from_exercise_type(
-        getattr(current_exercise, "exercise_type", None) if current_exercise else None
-    )
     active_tab = (request.args.get("tab") or "phases").strip()
     if is_removed_brigade_tab(active_tab):
         active_tab = "units-bg-1"
-    allowed_tabs = {"phases", "dilemma-lists", "event-flow", "action-eval", "dilemma-eval"} | brigade_tabs
+    allowed_tabs = {
+        "phases",
+        "designations",
+        "dilemma-lists",
+        "event-flow",
+        "action-eval",
+        "dilemma-eval",
+    } | brigade_tabs
     if active_tab not in allowed_tabs:
         active_tab = "phases"
     # تحميل ثقيل حسب التبويب فقط — فتح «مراحل التمرين» لا يبني كل الأشجار.
@@ -16186,6 +16180,9 @@ def admin_information_bank():
             "flow_table_rows": [],
             "flow_table_active_day_note": "",
         }
+    from app.unit_designations import list_designations_for_ibank
+
+    ibank_designations = list_designations_for_ibank(db)
     err = (request.args.get("err") or "").strip()[:2000]
     # لا تُعرض ملاحظات الرفع القديمة المزدحمة بأسماء صيغ غير مدعومة
     if "صيغة غير مدعومة" in err:
@@ -16199,6 +16196,7 @@ def admin_information_bank():
             **_ctx(
                 user,
                 training_phases=training_phases,
+                ibank_designations=ibank_designations,
                 info_bank_brigade_groups=ui_brigade_groups,
                 info_bank_brigade_units=info_bank_brigade_units,
                 phase_notes=phase_notes,
@@ -16221,8 +16219,6 @@ def admin_information_bank():
                 error=err,
                 ok_msg=ok,
                 active_tab=active_tab,
-                active_section=active_section,
-                ibank_sections=IBANK_SECTIONS,
                 information_bank_can_manage=can_manage_information_bank(user),
                 ibank_tree_unit_levels=list(UNIT_LEVELS),
                 ibank_judge_names_by_unit=ibank_judge_names_by_unit,
@@ -16745,6 +16741,190 @@ def admin_information_bank_unit_delete():
     db.delete(row)
     db.commit()
     return redirect(url_for("views.admin_information_bank", tab=tab, ok="تم حذف مستوى الوحدة."))
+
+
+def _ibank_designations_redirect(*, ok: str = "", err: str = ""):
+    kwargs: dict[str, str] = {"tab": "designations"}
+    if ok:
+        kwargs["ok"] = ok
+    if err:
+        kwargs["err"] = err
+    return redirect(url_for("views.admin_information_bank", **kwargs))
+
+
+@bp.route("/admin/information-bank/designations/add", methods=["POST"])
+def admin_information_bank_designation_add():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.models.domain import UnitDesignation
+    from app.unit_designations import (
+        ensure_canonical_alias,
+        next_unit_id,
+        reload_unit_designation_cache,
+    )
+
+    label = (request.form.get("canonical_label") or "").strip()[:300]
+    unit_type = (request.form.get("unit_type") or "").strip()[:64]
+    if not label:
+        return _ibank_designations_redirect(err="أدخل الدلالة الرئيسية.")
+    db = g.db
+    uid = next_unit_id(db)
+    mx = db.query(func.max(UnitDesignation.sort_order)).scalar()
+    db.add(
+        UnitDesignation(
+            unit_id=uid,
+            canonical_label=label,
+            unit_type=unit_type,
+            is_active=True,
+            sort_order=(int(mx) if mx is not None else -1) + 1,
+        )
+    )
+    db.flush()
+    ensure_canonical_alias(db, unit_id=uid, label=label)
+    db.commit()
+    reload_unit_designation_cache(db)
+    return _ibank_designations_redirect(ok="تمت إضافة الدلالة.")
+
+
+@bp.route("/admin/information-bank/designations/edit", methods=["POST"])
+def admin_information_bank_designation_edit():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.models.domain import UnitDesignation
+    from app.planning_catalog_sync import invalidate_planning_catalog_cache
+    from app.unit_designations import (
+        apply_canonical_label_to_organization,
+        ensure_canonical_alias,
+        reload_unit_designation_cache,
+    )
+
+    uid = (request.form.get("unit_id") or "").strip()
+    label = (request.form.get("canonical_label") or "").strip()[:300]
+    ajax = (request.headers.get("X-Requested-With") or "").strip() == "XMLHttpRequest"
+
+    def _resp(*, ok: bool, err_msg: str = "", **extra):
+        if ajax:
+            if ok:
+                return jsonify(ok=True, **extra)
+            return jsonify(ok=False, error=err_msg), 400
+        if ok:
+            return _ibank_designations_redirect(ok="تم تعديل الدلالة.")
+        return _ibank_designations_redirect(err=err_msg)
+
+    if not uid or not label:
+        return _resp(ok=False, err_msg="أدخل دلالة صالحة.")
+    db = g.db
+    row = db.get(UnitDesignation, uid)
+    if row is None:
+        return _resp(ok=False, err_msg="الدلالة غير موجودة.")
+    old_label = (row.canonical_label or "").strip()
+    row.canonical_label = label
+    unit_type = request.form.get("unit_type")
+    if unit_type is not None:
+        row.unit_type = (unit_type or "").strip()[:64]
+    ensure_canonical_alias(db, unit_id=uid, label=label)
+    apply_canonical_label_to_organization(db, old_label=old_label, new_label=label)
+    db.commit()
+    reload_unit_designation_cache(db)
+    invalidate_planning_catalog_cache()
+    return _resp(ok=True, label=label, unit_id=uid)
+
+
+@bp.route("/admin/information-bank/designations/delete", methods=["POST"])
+def admin_information_bank_designation_delete():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.models.domain import UnitDesignation, UnitDesignationAlias
+    from app.unit_designations import reload_unit_designation_cache
+
+    uid = (request.form.get("unit_id") or "").strip()
+    db = g.db
+    row = db.get(UnitDesignation, uid)
+    if row is None:
+        return _ibank_designations_redirect(err="اختر دلالة صالحة للحذف.")
+    db.query(UnitDesignationAlias).filter(UnitDesignationAlias.unit_id == uid).delete(
+        synchronize_session=False
+    )
+    db.delete(row)
+    db.commit()
+    reload_unit_designation_cache(db)
+    return _ibank_designations_redirect(ok="تم حذف الدلالة.")
+
+
+@bp.route("/admin/information-bank/designations/alias-add", methods=["POST"])
+def admin_information_bank_designation_alias_add():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.models.domain import UnitDesignation, UnitDesignationAlias
+    from app.unit_designations import (
+        next_alias_id,
+        normalize_designation_text,
+        reload_unit_designation_cache,
+    )
+
+    uid = (request.form.get("unit_id") or "").strip()
+    alias = (request.form.get("alias_label") or "").strip()[:300]
+    if not uid or not alias:
+        return _ibank_designations_redirect(err="أدخل مسمىً بديلاً.")
+    db = g.db
+    if db.get(UnitDesignation, uid) is None:
+        return _ibank_designations_redirect(err="الدلالة غير موجودة.")
+    norm = normalize_designation_text(alias)
+    if not norm:
+        return _ibank_designations_redirect(err="أدخل مسمىً صالحاً.")
+    clash = (
+        db.query(UnitDesignationAlias)
+        .filter(UnitDesignationAlias.alias_label_norm == norm)
+        .first()
+    )
+    if clash is not None:
+        if clash.unit_id == uid:
+            return _ibank_designations_redirect(ok="المسمى موجود مسبقاً.")
+        return _ibank_designations_redirect(err="هذا المسمى مرتبط بدلالة أخرى.")
+    rec = UnitDesignationAlias(
+        alias_id=next_alias_id(db),
+        unit_id=uid,
+        alias_label=alias,
+        alias_label_norm=norm,
+        notes="",
+    )
+    db.add(rec)
+    db.commit()
+    reload_unit_designation_cache(db)
+    return _ibank_designations_redirect(ok="تمت إضافة المسمى البديل.")
+
+
+@bp.route("/admin/information-bank/designations/alias-delete", methods=["POST"])
+def admin_information_bank_designation_alias_delete():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.models.domain import UnitDesignationAlias
+    from app.unit_designations import reload_unit_designation_cache
+
+    aid = (request.form.get("alias_id") or "").strip()
+    db = g.db
+    row = db.get(UnitDesignationAlias, aid)
+    if row is None:
+        return _ibank_designations_redirect(err="اختر مسمىً صالحاً للحذف.")
+    db.delete(row)
+    db.commit()
+    reload_unit_designation_cache(db)
+    return _ibank_designations_redirect(ok="تم حذف المسمى البديل.")
 
 
 @bp.route("/admin/information-bank/tree/folder", methods=["POST"])

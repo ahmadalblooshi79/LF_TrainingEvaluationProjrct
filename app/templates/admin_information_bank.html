@@ -5,17 +5,7 @@
   <div class="ibank-subheader__row">
     <div class="page-header ibank-page-header">
       <div class="ibank-page-header__title-row" dir="rtl">
-        <div class="ibank-page-header__title-group">
-          <h1><i class="fa-solid fa-database fa-icon-title" aria-hidden="true"></i> بنك المعلومات</h1>
-          <label class="ibank-section-select-wrap">
-            <span class="sr-only">قسم بنك المعلومات</span>
-            <select id="ibank-section-select" class="ibank-section-select" aria-label="قسم بنك المعلومات" disabled title="للاطلاع فقط — يُغيَّر من نوع التمرين في إنشاء تمرين جديد">
-              {% for sec in ibank_sections %}
-              <option value="{{ sec.key }}"{% if active_section == sec.key %} selected{% endif %}>{{ sec.label }}</option>
-              {% endfor %}
-            </select>
-          </label>
-        </div>
+        <h1><i class="fa-solid fa-database fa-icon-title" aria-hidden="true"></i> بنك المعلومات</h1>
         {% if ok_msg %}
         <p class="form-ok-banner ibank-ok-toast" id="ibank-ok-toast" role="status"><i class="fa-solid fa-check" aria-hidden="true"></i> {{ ok_msg }}</p>
         {% endif %}
@@ -84,6 +74,7 @@
       {% for bg in info_bank_brigade_groups %}
       <button type="button" class="ibank-tab{% if active_tab == bg.tab %} is-active{% endif %}" data-tab-btn="{{ bg.tab }}" role="tab" aria-selected="{{ 'true' if active_tab == bg.tab else 'false' }}">{{ bg.label }}</button>
       {% endfor %}
+      <button type="button" class="ibank-tab{% if active_tab == 'designations' %} is-active{% endif %}" data-tab-btn="designations" role="tab" aria-selected="{{ 'true' if active_tab == 'designations' else 'false' }}">المسميات والدلالات</button>
       <button type="button" class="ibank-tab{% if active_tab == 'dilemma-lists' %} is-active{% endif %}" data-tab-btn="dilemma-lists" role="tab" aria-selected="{{ 'true' if active_tab == 'dilemma-lists' else 'false' }}">قوائم تقييم المعاضل</button>
       <button type="button" class="ibank-tab{% if active_tab == 'event-flow' %} is-active{% endif %}" data-tab-btn="event-flow" role="tab" aria-selected="{{ 'true' if active_tab == 'event-flow' else 'false' }}">مجرى الأحداث والمعاضل</button>
       <button type="button" class="ibank-tab{% if active_tab == 'action-eval' %} is-active{% endif %}" data-tab-btn="action-eval" role="tab" aria-selected="{{ 'true' if active_tab == 'action-eval' else 'false' }}">قوائم تقييم الإجراءات</button>
@@ -181,7 +172,80 @@
         <input type="hidden" name="unit_label" id="ibank-unit-edit-label" value="">
         <input type="hidden" name="brigade_tab" id="ibank-unit-edit-tab" value="">
       </form>
+      <form method="post" action="{{ url_for('views.admin_information_bank_designation_edit') }}" id="ibank-desig-edit-form" class="sr-only" aria-hidden="true"></form>
       {% endif %}
+
+      <div class="ibank-tabpane{% if active_tab == 'designations' %} is-active{% endif %}" data-tab-pane="designations" role="tabpanel">
+        <h2 class="h2-in-card"><i class="fa-solid fa-tags fa-icon-title" aria-hidden="true"></i> المسميات والدلالات</h2>
+        <p class="muted ibank-designations-note" dir="rtl" role="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> مصدر عام في بنك المعلومات بلا ارتباط بتمرين. الدلالة الرئيسية تطابق التنظيم، والمسميات البديلة تُستخدم لعمود المكلف. التعديلات تُحفظ في النسخة الاحتياطية ZIP.</p>
+        {% if information_bank_can_manage %}
+        <form method="post" action="{{ url_for('views.admin_information_bank_designation_add') }}" class="ibank-inline-add-form">
+          <label class="ibank-inline-add-form__label" for="ib-new-desig">الدلالة الرئيسية</label>
+          <input id="ib-new-desig" class="ibank-inline-add-form__input" name="canonical_label" type="text" required autocomplete="off" placeholder="مثال: قيادة كتيبة المشاة الآلية/32">
+          <label class="ibank-inline-add-form__label" for="ib-new-desig-type">النوع</label>
+          <input id="ib-new-desig-type" class="ibank-inline-add-form__input ibank-inline-add-form__input--narrow" name="unit_type" type="text" autocomplete="off" placeholder="كتيبة / سرية">
+          <button type="submit" class="btn ibank-inline-add-form__submit"><i class="fa-solid fa-plus" aria-hidden="true"></i> إضافة دلالة</button>
+        </form>
+        {% endif %}
+        <div class="table-wrap ibank-table-scroll">
+          <table dir="rtl" class="ibank-table ibank-table--compact-notes" aria-label="المسميات والدلالات">
+            <thead>
+              <tr>
+                <th scope="col" class="ibank-col-num">رقم</th>
+                <th scope="col">الدلالة الرئيسية</th>
+                <th scope="col">النوع</th>
+                <th scope="col">المسميات البديلة</th>
+                {% if information_bank_can_manage %}<th scope="col">إجراءات</th>{% endif %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for d in ibank_designations or [] %}
+              <tr>
+                <td class="ibank-col-num">{{ d.num }}</td>
+                <th scope="row">{{ d.canonical_label }}</th>
+                <td>{{ d.unit_type or "—" }}</td>
+                <td class="ibank-desig-aliases-cell">
+                  <ul class="ibank-desig-aliases">
+                    {% for a in d.aliases %}
+                    <li class="ibank-desig-alias">
+                      <span>{{ a.alias_label }}</span>
+                      {% if information_bank_can_manage %}
+                      <form method="post" action="{{ url_for('views.admin_information_bank_designation_alias_delete') }}" class="ibank-desig-alias-del" onsubmit="return confirm('حذف هذا المسمى البديل؟');">
+                        <input type="hidden" name="alias_id" value="{{ a.alias_id }}">
+                        <button type="submit" class="btn btn-ghost btn-sm-compact" title="حذف المسمى" aria-label="حذف {{ a.alias_label }}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+                      </form>
+                      {% endif %}
+                    </li>
+                    {% endfor %}
+                  </ul>
+                  {% if information_bank_can_manage %}
+                  <form method="post" action="{{ url_for('views.admin_information_bank_designation_alias_add') }}" class="ibank-desig-alias-add">
+                    <input type="hidden" name="unit_id" value="{{ d.unit_id }}">
+                    <label class="sr-only" for="ib-alias-{{ d.unit_id }}">مسمى بديل لـ {{ d.canonical_label }}</label>
+                    <input id="ib-alias-{{ d.unit_id }}" name="alias_label" type="text" required autocomplete="off" placeholder="مسمى بديل (عمود المكلف)">
+                    <button type="submit" class="btn btn-ghost btn-sm-compact" title="إضافة مسمى"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
+                  </form>
+                  {% endif %}
+                </td>
+                {% if information_bank_can_manage %}
+                <td class="ibank-unit-actions-cell">
+                  <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-desig-edit" data-unit-id="{{ d.unit_id }}" data-canonical-label="{{ d.canonical_label|e }}" title="تعديل الدلالة"><i class="fa-solid fa-pen" aria-hidden="true"></i> تعديل</button>
+                  <form method="post" action="{{ url_for('views.admin_information_bank_designation_delete') }}" class="ibank-unit-delete-inline" onsubmit="return confirm('حذف هذه الدلالة وكل مسمياتها البديلة من بنك المعلومات؟');">
+                    <input type="hidden" name="unit_id" value="{{ d.unit_id }}">
+                    <button type="submit" class="btn btn-ghost btn-sm-compact" title="حذف"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
+                  </form>
+                </td>
+                {% endif %}
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="{{ 5 if information_bank_can_manage else 4 }}" class="muted">لا توجد دلالات بعد — أضف دلالة أو استعد نسخة ZIP تتضمن الكشف.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       <div class="ibank-tabpane{% if active_tab == 'dilemma-lists' %} is-active{% endif %}" data-tab-pane="dilemma-lists" data-ibank-needs-server="{% if not ibank_pane_ready.get('dilemma-lists') %}1{% else %}0{% endif %}" role="tabpanel">
         {% if ibank_pane_ready.get('dilemma-lists') %}
@@ -1802,6 +1866,62 @@
           if (labelCell) labelCell.textContent = newLabel;
           btn.setAttribute('data-unit-label', newLabel);
           btn.setAttribute('aria-label', 'تعديل — ' + newLabel);
+        })
+        .catch(function () {
+          window.alert('تعذر الاتصال بالخادم.');
+        })
+        .finally(function () {
+          btn.disabled = false;
+        });
+    });
+
+    var desigForm = document.getElementById('ibank-desig-edit-form');
+    var desigUrl = desigForm ? desigForm.getAttribute('action') : '';
+    tabbedRoot.addEventListener('click', function (e) {
+      var btn = e.target.closest('.js-ibank-desig-edit');
+      if (!btn || !tabbedRoot.contains(btn)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var uid = btn.getAttribute('data-unit-id') || '';
+      var row = btn.closest('tr');
+      var labelCell = row && row.querySelector('th[scope="row"]');
+      var label = labelCell ? labelCell.textContent.trim() : (btn.getAttribute('data-canonical-label') || '');
+      if (!uid || !desigUrl) return;
+      var newLabel = window.prompt('تعديل الدلالة الرئيسية (يُحدَّث التنظيم إن طابق الاسم السابق):', label);
+      if (newLabel === null) return;
+      newLabel = newLabel.trim();
+      if (!newLabel) {
+        window.alert('أدخل دلالة صالحة.');
+        return;
+      }
+      btn.disabled = true;
+      fetch(desigUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Requested-With': 'XMLHttpRequest',
+          Accept: 'application/json',
+        },
+        body: new URLSearchParams({
+          unit_id: uid,
+          canonical_label: newLabel,
+        }).toString(),
+      })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            return { ok: r.ok && j && j.ok, json: j || {}, status: r.status };
+          }).catch(function () {
+            return { ok: false, json: {}, status: r.status };
+          });
+        })
+        .then(function (res) {
+          if (!res.ok) {
+            window.alert((res.json && res.json.error) || 'تعذّر حفظ التعديل.');
+            return;
+          }
+          if (labelCell) labelCell.textContent = newLabel;
+          btn.setAttribute('data-canonical-label', newLabel);
         })
         .catch(function () {
           window.alert('تعذر الاتصال بالخادم.');

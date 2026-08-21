@@ -133,6 +133,11 @@ def create_app() -> Flask:
         from app.planning_catalog_sync import sync_planning_catalogs_from_db
 
         sync_planning_catalogs_from_db(g.db)
+        if path.startswith("/admin/information-bank"):
+            from app.ibank_section_ctx import set_ibank_section
+            from app.ibank_ui import IBANK_SECTION_MISSION
+
+            set_ibank_section(IBANK_SECTION_MISSION)
 
     @app.before_request
     def _protected_admin_gate_sessions():

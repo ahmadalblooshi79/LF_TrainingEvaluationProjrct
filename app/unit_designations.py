@@ -339,3 +339,110 @@ def canonical_label_for_assignee(assignee_label: str) -> str:
     """الدلالة الرئيسية للوحدة من أي مسمى بديل في عمود المكلف."""
     uid = resolve_unit_id_for_assignee(assignee_label)
     return canonical_label_for_unit_id(uid) if uid else ""
+
+
+def list_designations_for_ibank(db: Session) -> list[dict]:
+    """قائمة الدلالات والمسميات لواجهة بنك المعلومات (مصدر عام بلا تمرين)."""
+    ensure_unit_designations_loaded(db)
+    rows = (
+        db.query(UnitDesignation)
+        .order_by(UnitDesignation.sort_order, UnitDesignation.unit_id)
+        .all()
+    )
+    aliases_by_unit: dict[str, list[dict[str, str]]] = {}
+    for a in db.query(UnitDesignationAlias).order_by(UnitDesignationAlias.alias_id).all():
+        uid = (a.unit_id or "").strip()
+        if not uid:
+            continue
+        aliases_by_unit.setdefault(uid, []).append(
+            {
+                "alias_id": a.alias_id,
+                "alias_label": (a.alias_label or "").strip(),
+                "notes": (a.notes or "").strip(),
+            }
+        )
+    out: list[dict] = []
+    for i, m in enumerate(rows, start=1):
+        uid = (m.unit_id or "").strip()
+        out.append(
+            {
+                "unit_id": uid,
+                "num": i,
+                "canonical_label": (m.canonical_label or "").strip(),
+                "unit_type": (m.unit_type or "").strip(),
+                "is_active": bool(m.is_active),
+                "aliases": aliases_by_unit.get(uid, []),
+            }
+        )
+    return out
+
+
+def _next_prefixed_id(db: Session, *, model, field: str, prefix: str) -> str:
+    nums: list[int] = []
+    rx = re.compile(rf"^{re.escape(prefix)}(\d+)$", re.I)
+    for (raw,) in db.query(getattr(model, field)).all():
+        m = rx.match((raw or "").strip())
+        if m:
+            nums.append(int(m.group(1)))
+    n = (max(nums) if nums else 0) + 1
+    return f"{prefix}{n:03d}"
+
+
+def next_unit_id(db: Session) -> str:
+    return _next_prefixed_id(db, model=UnitDesignation, field="unit_id", prefix="U")
+
+
+def next_alias_id(db: Session) -> str:
+    return _next_prefixed_id(db, model=UnitDesignationAlias, field="alias_id", prefix="A")
+
+
+def ensure_canonical_alias(db: Session, *, unit_id: str, label: str) -> None:
+    label = (label or "").strip()
+    if not label:
+        return
+    norm = normalize_designation_text(label)
+    if not norm:
+        return
+    exists = (
+        db.query(UnitDesignationAlias)
+        .filter(UnitDesignationAlias.alias_label_norm == norm)
+        .first()
+    )
+    if exists is not None:
+        exists.unit_id = unit_id
+        exists.alias_label = label
+        return
+    syn_id = f"S_{unit_id}"
+    rec = db.get(UnitDesignationAlias, syn_id)
+    if rec is None:
+        rec = UnitDesignationAlias(alias_id=syn_id)
+        db.add(rec)
+    rec.unit_id = unit_id
+    rec.alias_label = label
+    rec.alias_label_norm = norm
+    rec.notes = "دلالة رئيسية"
+
+
+def apply_canonical_label_to_organization(db: Session, *, old_label: str, new_label: str) -> int:
+    """يحدّث تسمية التنظيم إن طابقت الدلالة السابقة — بلا ربط بتمرين."""
+    from app.models.domain import InformationBankTreeNode, InformationBankUnitLevel
+
+    old_l = (old_label or "").strip()
+    new_l = (new_label or "").strip()
+    if not old_l or not new_l or old_l == new_l:
+        return 0
+    n = 0
+    for row in db.query(InformationBankUnitLevel).filter_by(label=old_l).all():
+        row.label = new_l
+        n += 1
+        for node in (
+            db.query(InformationBankTreeNode)
+            .filter(
+                InformationBankTreeNode.catalog_unit_key == row.key,
+                InformationBankTreeNode.is_folder.is_(True),
+            )
+            .all()
+        ):
+            if (node.name or "").strip() == old_l:
+                node.name = new_l
+    return n
