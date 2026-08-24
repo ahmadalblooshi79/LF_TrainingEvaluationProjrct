@@ -5653,6 +5653,21 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   border: 1px solid #d9cdb8;
   border-radius: 8px;
 }
+.eval-doc-title-banner__line {
+  margin: 0;
+  padding: 0;
+}
+.eval-doc-title-banner__line--file {
+  font-weight: 700;
+}
+.eval-doc-title-banner__line--exercise {
+  margin-top: 0.18rem;
+  font-weight: 600;
+  font-size: 0.92em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .eval-list-page .eval-doc-title-banner {
   margin: 0 0 0.25rem !important;
   padding: 0.4rem 0.7rem !important;
@@ -9004,7 +9019,10 @@ main:has(.ibank-tabpane[data-tab-pane="dilemma-lists"].is-active) .ibank-tab-bod
   min-width: 16rem;
 }
 .ibank-tabpane[data-tab-pane="designations"] th[scope="row"] {
-  white-space: normal;
+  white-space: nowrap;
+  width: auto;
+  min-width: 0;
+  vertical-align: middle;
 }
 .ibank-desig-aliases {
   list-style: none;
@@ -9018,12 +9036,48 @@ main:has(.ibank-tabpane[data-tab-pane="dilemma-lists"].is-active) .ibank-tab-bod
   display: inline-flex;
   align-items: center;
   gap: 0.15rem;
-  max-width: 100%;
+  max-width: none;
   padding: 0.12rem 0.28rem 0.12rem 0.12rem;
   border: 1px solid var(--border-soft, #c9bfb5);
   border-radius: 4px;
   background: var(--surface-muted, #f5f1ec);
   font-size: 0.86rem;
+}
+.ibank-desig-inline-input {
+  display: inline-block;
+  width: auto;
+  min-width: 6rem;
+  max-width: none;
+  box-sizing: border-box;
+  padding: 0.18rem 0.4rem;
+  border: 1px solid var(--border-soft, #c9bfb5);
+  border-radius: 4px;
+  background: #fff;
+  font: inherit;
+  field-sizing: content;
+}
+.ibank-desig-alias-input {
+  display: inline-block;
+  min-width: 3.5rem;
+  width: auto;
+  max-width: none;
+  box-sizing: border-box;
+  padding: 0.1rem 0.28rem;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  font: inherit;
+  field-sizing: content;
+}
+.ibank-desig-inline-input:focus,
+.ibank-desig-alias-input:focus {
+  outline: 2px solid rgba(127, 29, 29, 0.28);
+  outline-offset: 1px;
+  background: #fff;
+}
+.ibank-desig-inline-input.is-saving,
+.ibank-desig-alias-input.is-saving {
+  opacity: 0.75;
 }
 .ibank-desig-alias-del,
 .ibank-desig-alias-add {
@@ -9033,9 +9087,23 @@ main:has(.ibank-tabpane[data-tab-pane="dilemma-lists"].is-active) .ibank-tab-bod
   gap: 0.2rem;
 }
 .ibank-desig-alias-add input[type="text"] {
-  min-width: 10rem;
-  flex: 1 1 10rem;
+  display: inline-block;
+  min-width: 8rem;
+  width: auto;
+  max-width: none;
+  flex: 0 0 auto;
   padding: 0.18rem 0.4rem;
+  field-sizing: content;
+}
+.ibank-desig-fit-probe {
+  position: absolute;
+  visibility: hidden;
+  height: auto;
+  width: auto;
+  white-space: pre;
+  top: 0;
+  right: 0;
+  pointer-events: none;
 }
 .ibank-link-block__head {
   display: flex;
@@ -10543,7 +10611,7 @@ main:has(#pf-flow-table-section):not(:has(.ibank-event-flow-panel)) > #pf-flow-t
   margin-top: 0;
   flex: 1 1 auto;
   min-height: 8rem;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: auto;
   max-height: none;
   width: 100%;
@@ -10568,10 +10636,14 @@ main:has(#pf-flow-table-section):not(:has(.ibank-event-flow-panel)) > #pf-flow-t
 .planner-flow-action-table.ibank-table {
   table-layout: fixed;
   width: 100%;
+  min-width: 88rem;
 }
 .planner-flow-action-table .planner-flow-col-time,
 .planner-flow-action-table .planner-flow-col-assignee {
   width: 5cm;
+}
+.planner-flow-action-table .planner-flow-col-narrow {
+  width: 2.4cm;
 }
 .planner-flow-action-table .planner-flow-col-equal {
   width: auto;
@@ -10674,6 +10746,10 @@ main:has(#pf-flow-table-section):not(:has(.ibank-event-flow-panel)) > #pf-flow-t
   outline: none;
   cursor: text;
   min-height: 1.45em;
+  white-space: pre-wrap;
+}
+.planner-flow-action-table .pf-flow-cell--simple {
+  white-space: pre-wrap;
 }
 .planner-flow-action-table .pf-assignee-inner-table {
   width: 100%;
@@ -11784,11 +11860,38 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
 .ibank-tree-toolbar__unit-hint {
   font-size: 0.75rem;
 }
+.ibank-tree-row-end {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  column-gap: 2cm;
+  row-gap: 0.35rem;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-inline-start: auto;
+}
+.ibank-tree-judge-actions {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+}
+.ibank-tree-row-actions {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.2rem;
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 2;
+  background: #fff;
+}
 .ibank-tree-unit-cluster {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 0.38rem 0.55rem;
+  gap: 0.28rem;
   flex: 0 1 auto;
   min-width: 0;
   direction: rtl;
@@ -11800,8 +11903,15 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   align-items: center;
   gap: 0.28rem;
   min-width: 0;
-  flex-shrink: 0;
   direction: rtl;
+}
+.ibank-tree-unit-pair {
+  flex: 0 1 auto;
+}
+.ibank-tree-judge-pair {
+  flex: 0 0 auto;
+  max-width: none;
+  overflow: visible;
 }
 .ibank-tree-unit-cluster__label {
   font-size: 0.72rem;
@@ -11830,8 +11940,9 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
 }
 .ibank-tree-judge-readonly {
   width: 14rem;
-  min-width: 14rem;
-  max-width: 28rem;
+  min-width: 0;
+  max-width: 14rem;
+  flex: 0 0 14rem;
   font-size: 0.78rem;
   padding: 0.14rem 0.32rem;
   min-height: 0;
@@ -11841,7 +11952,6 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   color: var(--brown-soft, #4a3828);
   cursor: default;
   box-sizing: border-box;
-  flex-shrink: 0;
 }
 .ibank-tree-unit-pair .ibank-tree-unit-badge {
   min-width: 22rem;

@@ -23,9 +23,7 @@
       </div>
     </div>
 
-    {% if eval_doc_title|default('') %}
-    <div class="eval-doc-title-banner" dir="rtl" role="heading" aria-level="2">{{ eval_doc_title }}</div>
-    {% endif %}
+    {% include 'partials/eval_doc_title_banner.html' %}
 
     <div class="eval-top-messages eval-banner-row--compact" dir="ltr">
       {% if saved_is_approved %}

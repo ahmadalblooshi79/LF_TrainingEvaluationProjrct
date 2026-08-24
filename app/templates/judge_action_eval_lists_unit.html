@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 
-{% block title %}{{ page_title | default('قوائم تقييم الإجراءات') }} — {{ unit.label }}{% if day_label %} — {{ day_label }}{% endif %}{% endblock %}
+{% block title %}{{ page_title | default('قوائم تقييم المعاضل') }} — {{ unit.label }}{% if day_label %} — {{ day_label }}{% endif %}{% endblock %}
 
 {% block body_class %}judge-eval-lists-page-layout{% endblock %}
 
 {% block content %}
 
 <div class="page-header page-header--judge-eval-lists">
-  <h1><i class="fa-solid fa-clipboard-list fa-icon-title" aria-hidden="true"></i> {{ page_title | default('قوائم تقييم الإجراءات') }} — {{ unit.label }}{% if day_label %} — {{ day_label }}{% endif %}</h1>
+  <h1><i class="fa-solid fa-clipboard-list fa-icon-title" aria-hidden="true"></i> {{ page_title | default('قوائم تقييم المعاضل') }} — {{ unit.label }}{% if day_label %} — {{ day_label }}{% endif %}</h1>
   <div class="page-header__nav">
     {% include 'partials/subpage_close.html' %}
   </div>
@@ -47,7 +47,7 @@
   </p>
 
   <div class="table-wrap">
-    <table class="judge-eval-lists-table" dir="rtl" aria-label="قوائم تقييم الإجراءات">
+    <table class="judge-eval-lists-table" dir="rtl" aria-label="قوائم تقييم المعاضل">
       <thead>
         <tr>
           <th scope="col" class="eval-lists-table__seq">ت</th>
@@ -83,7 +83,7 @@
     </table>
   </div>
   {% else %}
-  <p class="muted" dir="rtl" style="margin:0;">لا توجد قوائم تقييم إجراءات منشورة من التخطيط لهذا المستوى في اليوم المحدد.</p>
+  <p class="muted" dir="rtl" style="margin:0;">لا توجد قوائم تقييم معاضل منشورة من التخطيط لهذا المستوى في اليوم المحدد.</p>
   {% endif %}
 </section>
 

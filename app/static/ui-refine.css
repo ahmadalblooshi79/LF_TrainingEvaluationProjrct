@@ -278,7 +278,51 @@ table textarea {
 }
 
 .ibank-tree-unit-cluster {
-  gap: 0.35rem 0.55rem;
+  flex-wrap: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.ibank-tree-row-end {
+  flex-wrap: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+  column-gap: 2cm;
+}
+.ibank-tree-judge-actions {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+}
+.ibank-tree-row-actions {
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 2;
+  background: #fff;
+}
+.ibank-tree-judge-pair {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.ibank-tree-scroll .ibank-tree-judge-readonly {
+  min-width: 0;
+  width: 14rem !important;
+  max-width: 14rem !important;
+  flex: 0 0 14rem !important;
+}
+.ibank-tree-page[data-ibank-tree-kind="action_eval"] .ibank-tree-row,
+.ibank-tree-page[data-ibank-tree-kind="dilemma_eval"] .ibank-tree-row {
+  flex-wrap: nowrap;
+}
+.ibank-tree-page[data-ibank-tree-kind="action_eval"] .ibank-tree-scroll,
+.ibank-tree-page[data-ibank-tree-kind="dilemma_eval"] .ibank-tree-scroll {
+  overflow-x: auto;
+}
+.ibank-tree-page[data-ibank-tree-kind="action_eval"] .ibank-tree-label,
+.ibank-tree-page[data-ibank-tree-kind="dilemma_eval"] .ibank-tree-label {
+  flex: 1 1 6rem;
+  min-width: 3.5rem;
 }
 
 .ibank-tree-unit-pair,

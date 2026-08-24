@@ -32,6 +32,69 @@ def ibank_flow_table_document(
     return normalize_document(payload)
 
 
+def match_ibank_day_for_planner(
+    ibank_days: list[dict],
+    planner_days: list[dict],
+    day_id: str,
+) -> dict | None:
+    """مطابقة يوم بنك المعلومات مع اليوم المفتوح في التخطيط (المعرّف ثم التسمية ثم الترتيب)."""
+    target_id = (day_id or "").strip()
+    if not target_id or not ibank_days:
+        return None
+    for d in ibank_days:
+        if str(d.get("id") or "") == target_id:
+            return d
+    target = next(
+        (d for d in planner_days if str(d.get("id") or "") == target_id),
+        None,
+    )
+    if target is None:
+        return None
+    tlabel = str(target.get("label") or "").strip()
+    if tlabel:
+        labeled = [
+            d for d in ibank_days if str(d.get("label") or "").strip() == tlabel
+        ]
+        if labeled:
+            return labeled[0]
+    idx = next(
+        (i for i, d in enumerate(planner_days) if str(d.get("id") or "") == target_id),
+        -1,
+    )
+    if 0 <= idx < len(ibank_days):
+        return ibank_days[idx]
+    return None
+
+
+def merge_ibank_day_into_planner_days(
+    planner_days: list[dict],
+    ibank_days: list[dict],
+    *,
+    day_id: str,
+) -> tuple[list[dict] | None, dict | None, str | None]:
+    """يستبدل يوم التخطيط المطابق فقط. يعيد (الأيام المدمجة، اليوم المسحوب، رمز الخطأ)."""
+    src = match_ibank_day_for_planner(ibank_days, planner_days, day_id)
+    if src is None:
+        return None, None, "day_missing"
+    want = (day_id or "").strip()
+    merged: list[dict] = []
+    pulled: dict | None = None
+    for d in planner_days:
+        if str(d.get("id") or "") != want:
+            merged.append(d)
+            continue
+        updated = dict(d)
+        updated["label"] = str(src.get("label") or d.get("label") or "")
+        updated["note"] = str(src.get("note") or "")
+        updated["phase_key"] = str(src.get("phase_key") or "")
+        updated["rows"] = list(src.get("rows") or [])
+        merged.append(updated)
+        pulled = updated
+    if pulled is None:
+        return None, None, "day_missing"
+    return merged, pulled, None
+
+
 def _flow_document_has_content(doc: dict | None) -> bool:
     if not doc or not isinstance(doc, dict):
         return False

@@ -29,9 +29,7 @@
       </div>
     </div>
 
-    {% if eval_doc_title|default('') %}
-    <div class="eval-doc-title-banner" dir="rtl" role="heading" aria-level="2">{{ eval_doc_title }}</div>
-    {% endif %}
+    {% include 'partials/eval_doc_title_banner.html' %}
 
     {% if eval_saved_notice|default(false) %}
     <p class="form-ok-banner eval-banner--small" role="status" dir="rtl"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> تم حفظ نتائج التقييم بنجاح.</p>
@@ -107,9 +105,7 @@
     </div>
   </div>
 
-  {% if eval_doc_title|default('') %}
-  <div class="eval-doc-title-banner" dir="rtl" role="heading" aria-level="2">{{ eval_doc_title }}</div>
-  {% endif %}
+  {% include 'partials/eval_doc_title_banner.html' %}
 
   <div class="eval-top-messages" dir="ltr">
     {% if saved_is_approved %}

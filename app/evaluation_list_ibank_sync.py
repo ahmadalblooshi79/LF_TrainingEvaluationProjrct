@@ -1326,6 +1326,29 @@ def withdraw_single_eval_list_from_ibank(
     )
 
 
+def withdraw_all_evaluation_lists_for_phase(
+    db: Session,
+    *,
+    exercise_id: int,
+    phase_key: str,
+) -> dict[str, int]:
+    """سحب نشر كل قوائم التقييم المنشورة لمرحلة التمرين المحددة."""
+    prepare_dilemma_eval_ibank_tree(db)
+    active_units = roster_eval_display_unit_keys(db, int(exercise_id))
+    totals = {"removed": 0, "units": 0}
+    for uk in sorted(active_units):
+        stats = publish_evaluation_lists_from_ibank(
+            db,
+            exercise_id=int(exercise_id),
+            phase_key=phase_key,
+            unit_key=uk,
+            selected_node_ids=set(),
+        )
+        totals["units"] += 1
+        totals["removed"] += int(stats.get("removed", 0))
+    return totals
+
+
 def publish_phase_evaluation_lists_from_ibank(
     db: Session,
     *,

@@ -147,6 +147,8 @@ class EvalSheetDetail {
   final int? slotId;
   final int? itemId;
   final String title;
+  final String evalDocTitle;
+  final String evalDocSubtitle;
   final String unitKey;
   final String unitLabel;
   final String phaseKey;
@@ -167,6 +169,8 @@ class EvalSheetDetail {
     required this.slotId,
     required this.itemId,
     required this.title,
+    this.evalDocTitle = '',
+    this.evalDocSubtitle = '',
     required this.unitKey,
     required this.unitLabel,
     required this.phaseKey,
@@ -248,6 +252,8 @@ class EvalSheetDetail {
       slotId: (json['slot_id'] as num?)?.toInt(),
       itemId: (json['item_id'] as num?)?.toInt(),
       title: (json['title'] ?? '').toString(),
+      evalDocTitle: (json['eval_doc_title'] ?? '').toString(),
+      evalDocSubtitle: (json['eval_doc_subtitle'] ?? '').toString(),
       unitKey: (json['unit_key'] ?? '').toString(),
       unitLabel: (json['unit_label'] ?? '').toString(),
       phaseKey: (json['phase_key'] ?? '').toString(),

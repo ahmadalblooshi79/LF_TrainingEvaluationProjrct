@@ -180,18 +180,61 @@ EVAL_IMPORT_COL_GRADE = 7  # H
 EVAL_IMPORT_COL_NOTES = 8  # I
 
 
+def eval_doc_title_first_line(raw: str | None) -> str:
+    """السطر الأول من عنوان B1 — يتجاهل سطر معلومات التمرين إن وُجد."""
+    text = (raw or "").replace("\r\n", "\n").replace("\r", "\n")
+    first = text.split("\n", 1)[0]
+    return normalize_ar_header(first)
+
+
+def format_eval_exercise_subtitle(
+    exercise_type: str | None = None,
+    trained_unit: str | None = None,
+    exercise_title: str | None = None,
+) -> str:
+    """
+    سطر معلومات التمرين: نوع التمرين + الوحدة المتدربة + اسم التمرين.
+    فقرة واحدة على سطر واحد؛ الحقول الفارغة تُحذف.
+    """
+    parts: list[str] = []
+    for val in (exercise_type, trained_unit, exercise_title):
+        s = normalize_ar_header(val or "")
+        if s:
+            parts.append(s)
+    return " ".join(parts)
+
+
+def format_eval_exercise_subtitle_from_exercise(exercise: Any | None) -> str:
+    if exercise is None:
+        return ""
+    return format_eval_exercise_subtitle(
+        getattr(exercise, "exercise_type", None),
+        getattr(exercise, "trained_unit", None),
+        getattr(exercise, "title", None),
+    )
+
+
+def compose_eval_doc_banner_text(file_title: str | None, subtitle: str | None) -> str:
+    """عنوان مربع القائمة للتصدير: سطر ملف Excel ثم سطر معلومات التمرين."""
+    line1 = eval_doc_title_first_line(file_title or "")
+    line2 = normalize_ar_header(subtitle or "")
+    if line1 and line2:
+        return f"{line1}\n{line2}"
+    return line1 or line2
+
+
 def extract_eval_doc_title_from_grid(grid: list[list[str]]) -> str:
-    """عنوان القائمة من الصف 1 العمود B (نطاق B1:J1 في القالب العسكري)."""
+    """عنوان القائمة من الصف 1 العمود B (نطاق B1:J1) — السطر الأول فقط."""
     if not grid:
         return ""
     row0 = grid[0] if grid else []
     if len(row0) > EVAL_IMPORT_COL_ELEMENTS:
-        t = normalize_ar_header(row0[EVAL_IMPORT_COL_ELEMENTS] or "")
+        t = eval_doc_title_first_line(row0[EVAL_IMPORT_COL_ELEMENTS] or "")
         if t:
             return t
     # احتياطي: أول خلية غير فارغة في الصف 1 ضمن B..J
     for ci in range(EVAL_IMPORT_COL_ELEMENTS, min(len(row0), 10)):
-        t = normalize_ar_header(row0[ci] or "")
+        t = eval_doc_title_first_line(row0[ci] or "")
         if t:
             return t
     return ""

@@ -45,19 +45,15 @@
     </form>
     {% endif %}
 
-    {% if current_exercise and eval_groups %}
-    <form method="post" action="{{ url_for('views.admin_evaluation_lists_publish_all_from_ibank') }}" class="eval-lists-publish-all-form">
-      <input type="hidden" name="phase_key" value="{{ selected_phase }}">
-      <button type="submit" class="btn btn-ghost btn-xs eval-lists-toolbar-btn" onclick="return confirm('تحديث القوائم من بنك المعلومات وإلغاء نشر الكل؟\n\nستظهر جميع القوائم «غير منشورة» — حدّد ما تريد ثم اضغط «نشر جميع القوائم».');">
-        <i class="fa-solid fa-cloud-arrow-down" aria-hidden="true"></i>
-        نسخ الكل
-      </button>
-    </form>
-    {% endif %}
-
   </div>
 
 </section>
+
+{% if current_exercise and eval_groups %}
+<form id="eval-lists-withdraw-all-form" method="post" action="{{ url_for('views.admin_evaluation_lists_withdraw_all_from_ibank') }}">
+  <input type="hidden" name="phase_key" value="{{ selected_phase }}">
+</form>
+{% endif %}
 
 {% if eval_groups %}
 
@@ -89,6 +85,12 @@
         <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
         نشر جميع القوائم
       </button>
+      {% if current_exercise %}
+      <button type="submit" form="eval-lists-withdraw-all-form" class="btn btn-ghost btn-xs eval-lists-toolbar-btn" onclick="return confirm('سحب نشر جميع القوائم المنشورة لهذه المرحلة؟');">
+        <i class="fa-solid fa-cloud-arrow-down" aria-hidden="true"></i>
+        سحب القوائم
+      </button>
+      {% endif %}
     </div>
   </div>
 

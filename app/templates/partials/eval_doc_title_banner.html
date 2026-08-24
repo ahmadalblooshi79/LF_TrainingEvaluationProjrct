@@ -1,0 +1,10 @@
+{% if (eval_doc_title|default('')) or (eval_doc_subtitle|default('')) %}
+<div class="eval-doc-title-banner" dir="rtl" role="group" aria-label="عنوان قائمة التقييم">
+  {% if eval_doc_title|default('') %}
+  <div class="eval-doc-title-banner__line eval-doc-title-banner__line--file">{{ eval_doc_title }}</div>
+  {% endif %}
+  {% if eval_doc_subtitle|default('') %}
+  <p class="eval-doc-title-banner__line eval-doc-title-banner__line--exercise">{{ eval_doc_subtitle }}</p>
+  {% endif %}
+</div>
+{% endif %}

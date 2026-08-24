@@ -265,9 +265,13 @@ def _evaluation_list_file_abspath(relpath: str) -> Path | None:
     return out if out.is_file() else None
 
 
-def _evaluation_sheet_view_context(fspath: Path) -> dict:
+def _evaluation_sheet_view_context(fspath: Path, exercise=None) -> dict:
     """قراءة ملف قائمة التقييم مع اكتشاف قوالب الصفوف (القصوى/المكتسبة) تلقائيًا."""
     from app.evaluation_element_display import enrich_eval_rows_element_styles
+    from app.evaluation_list_columns import (
+        eval_doc_title_first_line,
+        format_eval_exercise_subtitle_from_exercise,
+    )
 
     sheet = read_evaluation_list_sheet(fspath)
     es = bool(sheet.get("eval_structured"))
@@ -276,7 +280,8 @@ def _evaluation_sheet_view_context(fspath: Path) -> dict:
     return {
         "preview_error": sheet.get("error"),
         "sheet_title": sheet.get("sheet_title") or "",
-        "eval_doc_title": (sheet.get("eval_doc_title") or "").strip(),
+        "eval_doc_title": eval_doc_title_first_line(sheet.get("eval_doc_title") or ""),
+        "eval_doc_subtitle": format_eval_exercise_subtitle_from_exercise(exercise),
         "header_row": sheet.get("header_row") or [],
         "body_rows": sheet.get("body_rows") or [],
         "eval_structured": es,
@@ -6375,10 +6380,20 @@ def _normalize_planner_flow_table_rows(raw_rows) -> list[dict]:
                 {
                     "kind": "row",
                     "time": str(item.get("time") or "")[:500],
+                    "time_kora": str(item.get("time_kora") or "")[:500],
+                    "time_from": str(item.get("time_from") or "")[:500],
+                    "time_to": str(item.get("time_to") or "")[:500],
+                    "report_systems": str(
+                        item.get("report_systems")
+                        or item.get("report_real")
+                        or item.get("report_kora")
+                        or ""
+                    )[:500],
                     "description": str(item.get("description") or "")[:4000],
-                    "assignee": str(item.get("assignee") or "")[:500],
+                    "assignee": str(item.get("assignee") or "")[:4000],
                     "method": str(item.get("method") or "")[:500],
                     "reaction": str(item.get("reaction") or "")[:500],
+                    "notes": str(item.get("notes") or "")[:2000],
                 }
             )
     return out
@@ -6614,6 +6629,7 @@ def _parse_planner_flow_table_days(
                 "label": label[:200],
                 "note": note,
                 "phase_key": phase_key,
+                "phase_label": (_phase_label_ar(phase_key) or "").strip() if phase_key else "",
                 "rows": rows,
             }
         )
@@ -6885,6 +6901,9 @@ def _build_planner_flow_bundle_page_context(
         "flow_table_days": flow_table_days,
         "flow_table_active_day_id": flow_table_active_day_id,
         "flow_table_active_day_note": flow_table_active_day_note,
+        "flow_day_phase_options": [
+            {"key": k, "label": lbl} for k, lbl in EXERCISE_PHASE_OPTIONS
+        ],
     }
 
 
@@ -7487,7 +7506,10 @@ def planner_flow_bundle_pull_flow_from_ibank(bundle_id: int):
         return jsonify({"ok": False, "error": "forbidden"}), 403
     from flask import g
 
-    from app.planner_flow_table_sync import ibank_flow_table_document
+    from app.planner_flow_table_sync import (
+        ibank_flow_table_document,
+        merge_ibank_day_into_planner_days,
+    )
 
     db = g.db
     ex = _current_workspace_exercise(db, user)
@@ -7495,14 +7517,29 @@ def planner_flow_bundle_pull_flow_from_ibank(bundle_id: int):
     if ex is None or bundle is None or bundle.exercise_id != ex.id:
         return jsonify({"ok": False, "error": "not_found"}), 404
 
-    doc = ibank_flow_table_document(
+    ibank_doc = ibank_flow_table_document(
         db,
         get_or_create_ibank_row=_get_or_create_ibank_event_flow_table,
         normalize_document=_normalize_planner_flow_table_document,
     )
-    if doc is None:
+    if ibank_doc is None:
         return jsonify({"ok": False, "error": "empty_ibank"}), 400
 
+    planner_days, planner_active = _parse_planner_flow_table_days(
+        getattr(bundle, "flow_table_json", None)
+    )
+    day_id = (request.form.get("day_id") or "").strip() or planner_active
+    merged_days, pulled, err = merge_ibank_day_into_planner_days(
+        planner_days,
+        ibank_doc.get("days") or [],
+        day_id=day_id,
+    )
+    if err or merged_days is None or pulled is None:
+        return jsonify({"ok": False, "error": err or "day_missing"}), 400
+
+    doc = _normalize_planner_flow_table_document(
+        {"version": 2, "active_day_id": day_id, "days": merged_days}
+    )
     bundle.flow_table_json = json.dumps(doc, ensure_ascii=False)
     bundle.updated_at = datetime.utcnow()
     from app.action_eval_ibank_sync import withdraw_action_eval_for_units_removed_from_flow
@@ -7514,25 +7551,27 @@ def planner_flow_bundle_pull_flow_from_ibank(bundle_id: int):
     )
     db.commit()
 
-    active_rows = next(
-        (d["rows"] for d in doc["days"] if d["id"] == doc["active_day_id"]),
-        [],
+    pulled_id = str(pulled.get("id") or day_id)
+    pulled_out = next(
+        (d for d in doc["days"] if d["id"] == pulled_id),
+        pulled,
     )
-    active_note = next(
-        (
-            (d.get("note") or "")
-            for d in doc["days"]
-            if d["id"] == doc["active_day_id"]
-        ),
-        "",
-    )
+    pk = str(pulled_out.get("phase_key") or "").strip()
+    day_payload = {
+        "id": pulled_out["id"],
+        "label": pulled_out.get("label") or "",
+        "note": pulled_out.get("note") or "",
+        "phase_key": pk,
+        "phase_label": (_phase_label_ar(pk) or "").strip() if pk else "",
+        "rows": pulled_out.get("rows") or [],
+    }
     return jsonify(
         {
             "ok": True,
-            "active_day_id": doc["active_day_id"],
-            "days": doc["days"],
-            "note": active_note,
-            "row_count": len(active_rows),
+            "active_day_id": pulled_id,
+            "day": day_payload,
+            "note": day_payload["note"],
+            "row_count": len(day_payload["rows"]),
         }
     )
 
@@ -7869,7 +7908,7 @@ def _render_judge_action_eval_lists_workspace(
     page_title = (
         "اعتماد قوائم تقييم الإجراءات (مجرى الأحداث والمعاضل)"
         if chief_mode
-        else "قوائم تقييم الإجراءات"
+        else "قوائم تقييم المعاضل"
     )
 
     if ex is None:
@@ -8293,7 +8332,7 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
                 url_for("views.judge_dilemmas", unit_key=unit_key, **_judge_action_eval_lists_url_kwargs())
             )
         return redirect(url_for("views.judge_planner_flow_materials", **pf_qs))
-    ev = _evaluation_sheet_view_context(path)
+    ev = _evaluation_sheet_view_context(path, exercise=ex)
 
     saved_payload = {}
     saved_updated_at = None
@@ -8407,6 +8446,11 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
             has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
             eval_save_url=eval_save_url,
             eval_approve_url=eval_approve_url,
+            eval_export_url=url_for(
+                "views.judge_planner_flow_action_eval_export",
+                slot=int(slot),
+                **pf_qs,
+            ),
             eval_chief_approve_url=eval_chief_approve_url,
             eval_chief_reopen_url=eval_chief_reopen_url,
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int)
@@ -8706,7 +8750,7 @@ def judge_planner_flow_materials_action_chief_reopen(slot: int):
 # مساحة التخطيط — عناصر الشريط (المعرّف، العنوان، أيقونة Font Awesome)
 PLANNER_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("new-flow", "مجرى الأحداث والمعاضل", "fa-diagram-project"),
-    ("new-action-eval-lists", "إنشاء قوائم تقييم الإجراءات", "fa-file-excel"),
+    ("new-action-eval-lists", "إنشاء قوائم تقييم المعاضل", "fa-file-excel"),
     ("new-evaluation-list", "إنشاء قوائم التقييم", "fa-file-circle-plus"),
     ("incomplete-tasks", "موقف المهام غير المكتملة", "fa-hourglass-half"),
     ("battle-overview", "الصورة العامة للمعركة", "fa-map"),
@@ -9041,6 +9085,40 @@ def planner_action_eval_lists_sync_all():
     )
 
 
+@bp.route("/planner/action-eval-lists/withdraw-all", methods=["POST"])
+def planner_action_eval_lists_withdraw_all():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/planner/action-eval-lists")
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    from app.action_eval_ibank_sync import withdraw_all_action_eval_for_day
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    phase_key = (request.form.get("phase_key") or "").strip()
+    flow_day_id = (request.form.get("flow_day_id") or "").strip()
+    if ex is None:
+        return _action_eval_lists_redirect(err="لا يوجد تمرين حالي.")
+    if not flow_day_id:
+        return _action_eval_lists_redirect(err="لا يوجد يوم مفتوح لسحب القوائم.")
+    stats = withdraw_all_action_eval_for_day(
+        db,
+        exercise_id=int(ex.id),
+        phase_key=phase_key,
+        flow_day_id=flow_day_id,
+    )
+    db.commit()
+    removed = int(stats.get("removed") or 0)
+    if removed:
+        ok = f"تم سحب نشر {removed} قائمة لهذا اليوم."
+    else:
+        ok = "لا توجد قوائم منشورة لسحبها في هذا اليوم."
+    return _action_eval_lists_redirect(flow_day_id=flow_day_id, ok=ok)
+
+
 @bp.route("/planner")
 def planner_hub():
     user = get_current_user_optional()
@@ -9217,7 +9295,7 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
     fspath = _evaluation_list_file_abspath(row.pdf_relpath)
     if fspath is None:
         return redirect(list_url)
-    ev = _evaluation_sheet_view_context(fspath)
+    ev = _evaluation_sheet_view_context(fspath, exercise=current_exercise)
 
     saved_payload = {}
     saved_updated_at = None
@@ -9432,45 +9510,18 @@ def planner_evaluation_list_approve(unit_key: str, item_id: int):
     )
 
 
-def _send_evaluation_list_export_xlsx(
+def _send_eval_xlsx_file(
     *,
     db,
-    user,
+    source_path: Path,
+    item_title: str,
     unit_key: str,
-    item_id: int,
     current_exercise,
-    enforce_judge_scope: bool = False,
+    saved_payload: dict | None,
+    ev: dict,
 ):
-    """يبني ملف Excel من ملف القائمة المخزّن في النظام ويرسله للتنزيل."""
-    unit = _require_unit_level_row(unit_key)
-    row = db.get(EvaluationListPdfItem, item_id)
-    if (
-        not row
-        or row.unit_level_key != unit_key
-        or current_exercise is None
-        or row.exercise_id != current_exercise.id
-    ):
-        abort(404)
-    if enforce_judge_scope:
-        _enforce_judge_unit_scope(db, user, current_exercise, unit_key)
-    if not (row.pdf_relpath or "").strip():
-        abort(404)
-    fspath = _evaluation_list_file_abspath(row.pdf_relpath)
-    if fspath is None:
-        abort(404)
-
-    ev = _evaluation_sheet_view_context(fspath)
-    canon = _evaluation_canonical_saved_row(db, current_exercise.id, row.id)
-    saved_payload: dict = {}
-    if canon is not None and (canon.payload_json or "").strip():
-        try:
-            p = json.loads(canon.payload_json)
-            if isinstance(p, dict):
-                saved_payload = p
-        except Exception:
-            saved_payload = {}
-    saved_payload = _saved_payload_aligned_with_eval_rows(saved_payload, ev.get("eval_rows"))
-
+    """يبني ملف Excel من مسار القائمة ويرسله للتنزيل — عنوان من سطرين في B1."""
+    unit = _require_unit_level_row(unit_key) if unit_key else None
     unit_label = (unit.get("label") or "").strip() if isinstance(unit, dict) else ""
     shown_date = getattr(current_exercise, "planned_start", None) or getattr(
         current_exercise, "created_at", None
@@ -9507,18 +9558,18 @@ def _send_evaluation_list_export_xlsx(
 
     from app.evaluation_list_export import (
         build_evaluation_list_xlsx_bytes,
-        export_doc_title_from_list_page,
         export_download_filename,
+        export_eval_doc_banner_title,
     )
 
-    item_title = (row.text or "").strip()
-    doc_title = export_doc_title_from_list_page(
-        item_title,
-        fallback=(ev.get("eval_doc_title") or "").strip(),
+    doc_title = export_eval_doc_banner_title(
+        excel_title=(ev.get("eval_doc_title") or "").strip(),
+        exercise_subtitle=(ev.get("eval_doc_subtitle") or "").strip(),
+        item_title_fallback=item_title,
     )
     try:
         data = build_evaluation_list_xlsx_bytes(
-            fspath,
+            source_path,
             doc_title=doc_title,
             unit_label=unit_label or "",
             date_str=date_str,
@@ -9535,6 +9586,55 @@ def _send_evaluation_list_export_xlsx(
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
         download_name=export_download_filename(item_title or doc_title),
+    )
+
+
+def _send_evaluation_list_export_xlsx(
+    *,
+    db,
+    user,
+    unit_key: str,
+    item_id: int,
+    current_exercise,
+    enforce_judge_scope: bool = False,
+):
+    """يبني ملف Excel من ملف القائمة المخزّن في النظام ويرسله للتنزيل."""
+    _require_unit_level_row(unit_key)
+    row = db.get(EvaluationListPdfItem, item_id)
+    if (
+        not row
+        or row.unit_level_key != unit_key
+        or current_exercise is None
+        or row.exercise_id != current_exercise.id
+    ):
+        abort(404)
+    if enforce_judge_scope:
+        _enforce_judge_unit_scope(db, user, current_exercise, unit_key)
+    if not (row.pdf_relpath or "").strip():
+        abort(404)
+    fspath = _evaluation_list_file_abspath(row.pdf_relpath)
+    if fspath is None:
+        abort(404)
+
+    ev = _evaluation_sheet_view_context(fspath, exercise=current_exercise)
+    canon = _evaluation_canonical_saved_row(db, current_exercise.id, row.id)
+    saved_payload: dict = {}
+    if canon is not None and (canon.payload_json or "").strip():
+        try:
+            p = json.loads(canon.payload_json)
+            if isinstance(p, dict):
+                saved_payload = p
+        except Exception:
+            saved_payload = {}
+    saved_payload = _saved_payload_aligned_with_eval_rows(saved_payload, ev.get("eval_rows"))
+    return _send_eval_xlsx_file(
+        db=db,
+        source_path=fspath,
+        item_title=(row.text or "").strip(),
+        unit_key=unit_key,
+        current_exercise=current_exercise,
+        saved_payload=saved_payload,
+        ev=ev,
     )
 
 
@@ -9610,10 +9710,61 @@ def admin_evaluation_list_export(unit_key: str, item_id: int):
     )
 
 
+@bp.route(
+    "/judge/planner-flow-materials/action/<int:slot>/export.xlsx",
+    methods=["GET"],
+)
+def judge_planner_flow_action_eval_export(slot: int):
+    """تصدير قائمة تقييم المعاضل إلى Excel — مساحة المحكمين."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect(
+            f"/login?next=/judge/planner-flow-materials/action/{int(slot)}/export.xlsx"
+        )
+    if not can_access_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    pair = _judge_planner_flow_action_bundle_row(db, user, ex, slot)
+    if pair is None or ex is None:
+        abort(404)
+    bundle, action_row = pair
+    path = _planner_bundle_file_abspath(action_row.file_relpath)
+    if path is None:
+        abort(404)
+    ev = _evaluation_sheet_view_context(path, exercise=ex)
+    canon = _planner_bundle_eval_canonical_saved(db, ex.id, action_row.id)
+    saved_payload: dict = {}
+    if canon is not None and (canon.payload_json or "").strip():
+        try:
+            p = json.loads(canon.payload_json)
+            if isinstance(p, dict):
+                saved_payload = p
+        except Exception:
+            saved_payload = {}
+    saved_payload = _saved_payload_aligned_with_eval_rows(saved_payload, ev.get("eval_rows"))
+    item_title = _planner_blob_display_filename(
+        stored_title=action_row.title or "",
+        relpath=action_row.file_relpath or "",
+        fallback=f"قائمة تقييم إجراءات — {slot}",
+    ).strip()
+    return _send_eval_xlsx_file(
+        db=db,
+        source_path=path,
+        item_title=item_title,
+        unit_key=bundle.unit_level_key or "",
+        current_exercise=ex,
+        saved_payload=saved_payload,
+        ev=ev,
+    )
+
+
 # مساحة المحكمين — عناصر الشريط (المعرّف، العنوان، أيقونة Font Awesome)
 JUDGE_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("planner-flow-materials", "مجرى الأحداث والمعاضل", "fa-table-list"),
-    ("dilemmas", "قوائم تقييم الإجراءات", "fa-file-excel"),
+    ("dilemmas", "قوائم تقييم المعاضل", "fa-file-excel"),
     ("evaluation-lists", "قوائم التقييم", "fa-file-excel"),
     ("positives-negatives", "الإيجابيات والسلبيات", "fa-plus-minus"),
     ("visual-documentation", "التوثيق المرئي", "fa-photo-film"),
@@ -12020,7 +12171,7 @@ def control_evaluation_list_file_viewer(unit_key: str, item_id: int):
     if fspath is None:
         abort(404)
 
-    ev = _evaluation_sheet_view_context(fspath)
+    ev = _evaluation_sheet_view_context(fspath, exercise=ex)
     saved_payload = {}
     saved_updated_at = None
     saved_row_id = None
@@ -12137,7 +12288,7 @@ def control_planner_flow_action_view(unit_key: str, action_eval_id: int):
     path = _planner_bundle_file_abspath(action_row.file_relpath)
     if path is None:
         abort(404)
-    ev = _evaluation_sheet_view_context(path)
+    ev = _evaluation_sheet_view_context(path, exercise=ex)
     canon = _planner_bundle_eval_canonical_saved(db, ex.id, action_row.id)
     saved_payload: dict = {}
     saved_updated_at = None
@@ -13208,7 +13359,7 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
     fspath = _evaluation_list_file_abspath(row.pdf_relpath)
     if fspath is None:
         return redirect(list_url)
-    ev = _evaluation_sheet_view_context(fspath)
+    ev = _evaluation_sheet_view_context(fspath, exercise=current_exercise)
 
     saved_payload = {}
     saved_updated_at = None
@@ -13360,7 +13511,7 @@ def analyst_evaluation_list_file_viewer(unit_key: str, item_id: int):
     if fspath is None:
         abort(404)
 
-    ev = _evaluation_sheet_view_context(fspath)
+    ev = _evaluation_sheet_view_context(fspath, exercise=current_exercise)
 
     # نعرض أحدث نتيجة محفوظة إن وجدت (اختيار saved_id اختياري)
     saved_payload = {}
@@ -13883,7 +14034,7 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
     fspath = _evaluation_list_file_abspath(row.pdf_relpath)
     if fspath is None:
         return redirect(list_url)
-    ev = _evaluation_sheet_view_context(fspath)
+    ev = _evaluation_sheet_view_context(fspath, exercise=current_exercise)
 
     saved_payload = {}
     saved_updated_at = None
@@ -14490,7 +14641,7 @@ def chief_judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
     fspath = _evaluation_list_file_abspath(row.pdf_relpath)
     if fspath is None:
         return redirect(list_url)
-    ev = _evaluation_sheet_view_context(fspath)
+    ev = _evaluation_sheet_view_context(fspath, exercise=current_exercise)
     canon = _evaluation_canonical_saved_row(db, current_exercise.id, row.id)
 
     def _load_payload(sr: EvaluationListSavedResult | None) -> dict:
@@ -15032,6 +15183,37 @@ def admin_evaluation_lists_publish_all_from_ibank():
         phase_key=phase_key,
         ok=" ".join(ok_parts),
     )
+
+
+@bp.route("/admin/evaluation-lists/withdraw-all-from-ibank", methods=["POST"])
+def admin_evaluation_lists_withdraw_all_from_ibank():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/admin/evaluation-lists")
+    _require_planner_hub_catalog_access(user)
+    from flask import g
+
+    from app.evaluation_list_ibank_sync import withdraw_all_evaluation_lists_for_phase
+
+    db = g.db
+    ex = _admin_current_workspace_exercise(db, user)
+    phase_key = (request.form.get("phase_key") or request.args.get("phase") or "").strip()
+    if ex is None:
+        return _eval_lists_redirect(err="لا يوجد تمرين حالي.")
+    if not phase_key:
+        return _eval_lists_redirect(err="اختر مرحلة التمرين.")
+    stats = withdraw_all_evaluation_lists_for_phase(
+        db,
+        exercise_id=int(ex.id),
+        phase_key=phase_key,
+    )
+    db.commit()
+    removed = int(stats.get("removed") or 0)
+    if removed:
+        ok = f"تم سحب نشر {removed} قائمة لهذه المرحلة."
+    else:
+        ok = "لا توجد قوائم منشورة لسحبها في هذه المرحلة."
+    return _eval_lists_redirect(phase_key=phase_key, ok=ok)
 
 
 @bp.route("/admin/evaluation-lists", methods=["GET"])
@@ -16906,6 +17088,37 @@ def admin_information_bank_designation_alias_add():
     return _ibank_designations_redirect(ok="تمت إضافة المسمى البديل.")
 
 
+@bp.route("/admin/information-bank/designations/alias-edit", methods=["POST"])
+def admin_information_bank_designation_alias_edit():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.unit_designations import reload_unit_designation_cache, update_alias_label
+
+    ajax = (request.headers.get("X-Requested-With") or "").strip() == "XMLHttpRequest"
+    aid = (request.form.get("alias_id") or "").strip()
+    alias = (request.form.get("alias_label") or "").strip()[:300]
+    db = g.db
+    ok, err_msg, saved = update_alias_label(db, alias_id=aid, new_label=alias)
+
+    def _resp(*, success: bool, msg: str = "", **extra):
+        if ajax:
+            if success:
+                return jsonify(ok=True, **extra)
+            return jsonify(ok=False, error=msg), 400
+        if success:
+            return _ibank_designations_redirect(ok="تم تعديل المسمى البديل.")
+        return _ibank_designations_redirect(err=msg)
+
+    if not ok:
+        return _resp(success=False, msg=err_msg)
+    db.commit()
+    reload_unit_designation_cache(db)
+    return _resp(success=True, alias_id=aid, alias_label=saved)
+
+
 @bp.route("/admin/information-bank/designations/alias-delete", methods=["POST"])
 def admin_information_bank_designation_alias_delete():
     user = get_current_user_optional()
@@ -17406,7 +17619,7 @@ def admin_information_bank_action_eval_upload():
     err_q = " ".join(errors)[:2000] if errors else ""
     if not added:
         return redirect(url_for("views.admin_information_bank", tab="action-eval", err=err_q or "لم تُضف أي ملف."))
-    ok_msg = f"تمت إضافة {added} ملف(ات) لقوائم تقييم الإجراءات."
+    ok_msg = f"تمت إضافة {added} ملف(ات) لقوائم تقييم المعاضل."
     if err_q:
         return redirect(url_for("views.admin_information_bank", tab="action-eval", ok=ok_msg, err=f"تجاهل أو فشل بعض الملفات: {err_q}"))
     return redirect(url_for("views.admin_information_bank", tab="action-eval", ok=ok_msg))
@@ -17509,7 +17722,7 @@ def admin_information_bank_dilemma_eval_delete(item_id: int):
 
 @bp.route("/admin/information-bank/eval-list/purge-all", methods=["POST"])
 def admin_information_bank_eval_list_purge_all():
-    """مسح جميع محتويات تبويب قوائم تقييم الإجراءات أو قوائم التقييم (شجرة واحدة فقط)."""
+    """مسح جميع محتويات تبويب قوائم تقييم المعاضل أو قوائم التقييم (شجرة واحدة فقط)."""
     user = get_current_user_optional()
     if not user or not can_manage_information_bank(user):
         abort(403)
@@ -17537,9 +17750,9 @@ def admin_information_bank_eval_list_purge_all():
         db.query(InformationBankDilemmaListUnit).delete(synchronize_session=False)
     db.commit()
     tab_label = {
-        "action_eval": "قوائم تقييم الإجراءات",
+        "action_eval": "قوائم تقييم المعاضل",
         "dilemma_eval": "قوائم التقييم",
-        "dilemma_lists": "قوائم تقييم المعاضل",
+        "dilemma_lists": "بنك المعاضل",
     }.get(kind, kind)
     parts = [f"{stats.get('tree_nodes', 0)} عنصر شجرة"]
     if stats.get("legacy_rows"):

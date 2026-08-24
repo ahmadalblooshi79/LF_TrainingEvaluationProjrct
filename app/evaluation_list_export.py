@@ -10,6 +10,8 @@ from app.evaluation_list_columns import (
     EVAL_IMPORT_COL_ACQUIRED,
     EVAL_IMPORT_COL_MAX,
     EVAL_IMPORT_COL_NOTES,
+    compose_eval_doc_banner_text,
+    eval_doc_title_first_line,
     grade_label_from_percent,
     is_evaluation_import_footer_stop_row,
     normalize_ar_header,
@@ -43,6 +45,19 @@ def export_doc_title_from_list_page(item_title: str | None, *, fallback: str = "
         return normalize_ar_header(fallback or "")
     title = re.sub(r"\.(xlsx|xlsm|xls)$", "", raw, flags=re.I).strip()
     return title or raw
+
+
+def export_eval_doc_banner_title(
+    *,
+    excel_title: str | None,
+    exercise_subtitle: str | None,
+    item_title_fallback: str | None = "",
+) -> str:
+    """سطر عنوان ملف Excel + سطر معلومات التمرين داخل نفس خلية B1:J1."""
+    line1 = eval_doc_title_first_line(excel_title or "")
+    if not line1:
+        line1 = export_doc_title_from_list_page(item_title_fallback, fallback="")
+    return compose_eval_doc_banner_text(line1, exercise_subtitle or "")
 
 
 def _sheet_grid(ws, max_row: int, max_col: int) -> list[list[str]]:
@@ -109,6 +124,39 @@ def _writable_cell(ws, row: int, col: int):
 
 def _set_cell_value(ws, row: int, col: int, value: Any) -> None:
     _writable_cell(ws, row, col).value = value
+
+
+def _normalize_export_banner_title(raw: str) -> str:
+    """يحافظ على فاصل السطرين داخل خلية العنوان ولا يدمج السطرين في سطر واحد."""
+    text = (raw or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return ""
+    lines = [normalize_ar_header(ln) for ln in text.split("\n")]
+    lines = [ln for ln in lines if ln]
+    return "\n".join(lines)
+
+
+def _apply_title_wrap(ws, row: int, col: int, title: str) -> None:
+    """يلف النص داخل خلية B1 المدمجة ويعطي الصف ارتفاعاً يكفي سطرين."""
+    cell = _writable_cell(ws, row, col)
+    try:
+        from openpyxl.styles import Alignment  # type: ignore
+    except Exception:
+        return
+    prev = getattr(cell, "alignment", None)
+    cell.alignment = Alignment(
+        wrap_text=True,
+        horizontal=(getattr(prev, "horizontal", None) if prev is not None else None) or "center",
+        vertical=(getattr(prev, "vertical", None) if prev is not None else None) or "center",
+        textRotation=(getattr(prev, "textRotation", None) if prev is not None else None) or 0,
+        indent=(getattr(prev, "indent", None) if prev is not None else None) or 0,
+        readingOrder=(getattr(prev, "readingOrder", None) if prev is not None else None) or 0,
+    )
+    if "\n" not in (title or ""):
+        return
+    dim = ws.row_dimensions[row]
+    current = float(dim.height or 0)
+    dim.height = max(current, 32.0)
 
 
 def _fill_footer_judge_name(ws, judge_name: str, *, max_row: int, max_col: int) -> None:
@@ -192,9 +240,10 @@ def build_evaluation_list_xlsx_bytes(
                 del wb[name]
         ws = wb[keep] if keep else wb.active
 
-        title = normalize_ar_header(doc_title or "")
+        title = _normalize_export_banner_title(doc_title or "")
         if title:
-            _set_cell_value(ws, 1, 2, title)  # B1
+            _set_cell_value(ws, 1, 2, title)  # B1 — سطران في نفس الخلية المدمجة
+            _apply_title_wrap(ws, 1, 2, title)
 
         if unit_label and unit_label != "—":
             _set_cell_value(ws, 2, 3, unit_label)  # C2

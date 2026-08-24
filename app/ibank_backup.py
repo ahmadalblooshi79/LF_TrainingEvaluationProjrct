@@ -61,6 +61,37 @@ def _ibank_backups_dir() -> Path:
     return d
 
 
+def prune_old_ibank_backup_zips(
+    *,
+    keep_backup: int = 2,
+    keep_pre_restore: int = 1,
+) -> int:
+    """يحذف أرشيفات النسخ الزائدة؛ يُبقي أحدث نسخ التشغيل فقط."""
+    folder = _ibank_backups_dir()
+    removed = 0
+    groups = (
+        ("ibank-backup-", max(1, int(keep_backup))),
+        ("ibank-pre-restore-", max(0, int(keep_pre_restore))),
+    )
+    for prefix, keep in groups:
+        zips = sorted(
+            (
+                p
+                for p in folder.glob("*.zip")
+                if p.is_file() and p.name.startswith(prefix)
+            ),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        for old in zips[keep:]:
+            try:
+                old.unlink()
+                removed += 1
+            except OSError:
+                pass
+    return removed
+
+
 def _serialize_value(val: Any) -> Any:
     if isinstance(val, datetime):
         return val.isoformat()
@@ -273,6 +304,7 @@ def build_information_bank_backup_zip(db: Session, dest: Path | None = None) -> 
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)
         raise
+    prune_old_ibank_backup_zips()
     return dest
 
 

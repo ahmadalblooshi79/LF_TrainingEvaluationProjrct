@@ -1,13 +1,13 @@
-{# جدول مجرى الأحداث والمعاضل — v15 assignee stack lines #}
+{# جدول مجرى الأحداث والمعاضل — v17 wargame column titles; assignee remains 8th #}
 
-{% macro pf_simple_cell(value, editable) %}
+{% macro pf_simple_cell(value, editable, field) %}
 
-<td class="pf-flow-cell pf-flow-cell--simple"{% if editable %} contenteditable="true" spellcheck="true"{% endif %}>{{ value }}</td>
+<td class="pf-flow-cell pf-flow-cell--simple" data-pf-field="{{ field }}"{% if editable %} contenteditable="true" spellcheck="true"{% endif %}>{{ value }}</td>
 
 {% endmacro %}
 
 {% macro pf_assignee_cell(value, editable) %}
-<td class="pf-flow-cell pf-flow-cell--assignee">
+<td class="pf-flow-cell pf-flow-cell--assignee" data-pf-field="assignee">
   <div class="pf-assignee-stack" dir="rtl">
     {% set parts = value.split('\n') if value else [''] %}
     {% for line in parts %}
@@ -20,7 +20,7 @@
 {% endmacro %}
 
 <script type="application/json" id="pf-flow-days-json">{{ flow_table_days | tojson }}</script>
-<section class="card planner-flow-action-table-section" id="pf-flow-table-section" dir="rtl"   data-pf-script-ver="37"
+<section class="card planner-flow-action-table-section" id="pf-flow-table-section" dir="rtl"   data-pf-script-ver="41"
   data-active-day-id="{{ flow_table_active_day_id }}"
   {% if pf_flow_enable_day_phase is defined and pf_flow_enable_day_phase %}data-enable-day-phase="1"{% endif %}
   {% if readonly_mode %}data-readonly="1"{% endif %}
@@ -48,7 +48,7 @@
       <button type="button" class="pf-flow-clear-day-btn btn btn-sm-compact btn-ghost" id="pf-flow-clear-day-btn" title="تفريغ محتوى الجدول في التبويب الحالي"><i class="fa-solid fa-eraser" aria-hidden="true"></i> تفريغ الجدول</button>
       <button type="button" class="pf-flow-import-docx-btn btn btn-sm-compact btn-ghost" id="pf-flow-import-docx-btn" title="استيراد من Word (.docx)"><i class="fa-solid fa-file-import" aria-hidden="true"></i> استيراد Word</button>
       {% if pf_flow_pull_ibank_url is defined and pf_flow_pull_ibank_url %}
-      <button type="button" class="pf-flow-pull-ibank-btn btn btn-sm-compact btn-ghost" id="pf-flow-pull-ibank-btn" title="سحب الجدول من بنك المعلومات"><i class="fa-solid fa-database" aria-hidden="true"></i> بنك المعلومات</button>
+      <button type="button" class="pf-flow-pull-ibank-btn btn btn-sm-compact btn-ghost" id="pf-flow-pull-ibank-btn" title="سحب جدول اليوم المفتوح فقط من بنك المعلومات"><i class="fa-solid fa-database" aria-hidden="true"></i> بنك المعلومات</button>
       {% endif %}
       {% if pf_flow_distribute_judges_url is defined and pf_flow_distribute_judges_url %}
       <button type="button" class="pf-flow-distribute-judges-btn btn btn-sm-compact btn-ghost" id="pf-flow-distribute-judges-btn" title="توزيع الجدول على صفحات المحكمين (قراءة فقط)"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i> توزيع للمحكمين</button>
@@ -109,6 +109,10 @@
       <colgroup>
         <col class="planner-flow-action-col-num">
         <col class="planner-flow-col-time">
+        <col class="planner-flow-col-time">
+        <col class="planner-flow-col-narrow">
+        <col class="planner-flow-col-narrow">
+        <col class="planner-flow-col-equal">
         <col class="planner-flow-col-equal">
         <col class="planner-flow-col-assignee">
         <col class="planner-flow-col-equal">
@@ -121,15 +125,23 @@
 
           <th scope="col" class="planner-flow-action-col-num">ت</th>
 
-          <th scope="col" class="planner-flow-col-time">الوقت</th>
+          <th scope="col" class="planner-flow-col-time">التوقيت الحقيقي</th>
 
-          <th scope="col" class="planner-flow-col-equal">وصف الحدث/ المعضلة</th>
+          <th scope="col" class="planner-flow-col-time">توقيت نظام كورا</th>
+
+          <th scope="col" class="planner-flow-col-narrow">من</th>
+
+          <th scope="col" class="planner-flow-col-narrow">إلى</th>
+
+          <th scope="col" class="planner-flow-col-equal">أنظمة التبليغ</th>
+
+          <th scope="col" class="planner-flow-col-equal">وصف المعضلة/الحدث</th>
 
           <th scope="col" class="planner-flow-col-assignee">المكلف بالإجراء والمتابعة</th>
 
-          <th scope="col" class="planner-flow-col-equal">أسلوب فرض المعضلة</th>
-
           <th scope="col" class="planner-flow-col-equal">رد الفعل المتوقع</th>
+
+          <th scope="col" class="planner-flow-col-equal">الملاحظات</th>
 
         </tr>
 
@@ -143,7 +155,7 @@
 
         <tr class="pf-flow-row pf-flow-row--event" data-kind="event">
 
-          <td colspan="6" class="pf-flow-merged-cell"{% if not readonly_mode %} contenteditable="true" spellcheck="true"{% endif %}>{{ row.text }}</td>
+          <td colspan="10" class="pf-flow-merged-cell"{% if not readonly_mode %} contenteditable="true" spellcheck="true"{% endif %}>{{ row.text }}</td>
 
         </tr>
 
@@ -151,7 +163,7 @@
 
         <tr class="pf-flow-row pf-flow-row--dilemma" data-kind="dilemma">
 
-          <td colspan="6" class="pf-flow-merged-cell"{% if not readonly_mode %} contenteditable="true" spellcheck="true"{% endif %}>{{ row.text }}</td>
+          <td colspan="10" class="pf-flow-merged-cell"{% if not readonly_mode %} contenteditable="true" spellcheck="true"{% endif %}>{{ row.text }}</td>
 
         </tr>
 
@@ -161,15 +173,23 @@
 
           <td class="planner-flow-action-col-num pf-flow-seq" aria-label="ت"></td>
 
-          {{ pf_simple_cell(row.time, not readonly_mode) }}
+          {{ pf_simple_cell(row.time, not readonly_mode, 'time') }}
 
-          {{ pf_simple_cell(row.description, not readonly_mode) }}
+          {{ pf_simple_cell(row.time_kora, not readonly_mode, 'time_kora') }}
+
+          {{ pf_simple_cell(row.time_from, not readonly_mode, 'time_from') }}
+
+          {{ pf_simple_cell(row.time_to, not readonly_mode, 'time_to') }}
+
+          {{ pf_simple_cell(row.report_systems, not readonly_mode, 'report_systems') }}
+
+          {{ pf_simple_cell(row.description, not readonly_mode, 'description') }}
 
           {{ pf_assignee_cell(row.assignee, not readonly_mode) }}
 
-          {{ pf_simple_cell(row.method, not readonly_mode) }}
+          {{ pf_simple_cell(row.reaction, not readonly_mode, 'reaction') }}
 
-          {{ pf_simple_cell(row.reaction, not readonly_mode) }}
+          {{ pf_simple_cell(row.notes, not readonly_mode, 'notes') }}
 
         </tr>
 

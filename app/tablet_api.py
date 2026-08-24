@@ -595,7 +595,7 @@ def tablet_action_eval_detail(user: User, slot: int):
     path = _planner_bundle_file_abspath(action_row.file_relpath)
     if path is None:
         return _json_error("ملف القائمة غير موجود على السيرفر", 404)
-    ev = _evaluation_sheet_view_context(path)
+    ev = _evaluation_sheet_view_context(path, exercise=ex)
     canon = _planner_bundle_eval_canonical_saved(g.db, ex.id, action_row.id)
     saved_payload: dict = {}
     if canon is not None and (canon.payload_json or "").strip():
@@ -620,6 +620,8 @@ def tablet_action_eval_detail(user: User, slot: int):
             "slot": int(action_row.slot_index or slot),
             "slot_id": int(action_row.id),
             "title": title,
+            "eval_doc_title": (ev.get("eval_doc_title") or "").strip(),
+            "eval_doc_subtitle": (ev.get("eval_doc_subtitle") or "").strip(),
             "unit_key": bundle.unit_level_key,
             "unit_label": (bundle.unit_level_label or "").strip()
             or label_for_unit_level_key(bundle.unit_level_key, db=g.db),
@@ -906,7 +908,7 @@ def tablet_evaluation_list_detail(user: User, unit_key: str, item_id: int):
     path = _evaluation_list_file_abspath((item.pdf_relpath or "").strip())
     if path is None:
         return _json_error("ملف القائمة غير موجود على السيرفر", 404)
-    ev = _evaluation_sheet_view_context(path)
+    ev = _evaluation_sheet_view_context(path, exercise=ex)
     saved = _evaluation_canonical_saved_row(g.db, ex.id, item.id)
     saved_payload: dict = {}
     if saved is not None and (saved.payload_json or "").strip():
@@ -925,6 +927,8 @@ def tablet_evaluation_list_detail(user: User, unit_key: str, item_id: int):
             "kind": "evaluation_list",
             "item_id": int(item.id),
             "title": (item.text or "").strip(),
+            "eval_doc_title": (ev.get("eval_doc_title") or "").strip(),
+            "eval_doc_subtitle": (ev.get("eval_doc_subtitle") or "").strip(),
             "unit_key": effective_uk,
             "unit_label": label_for_unit_level_key(effective_uk, db=g.db),
             "phase_key": (item.exercise_phase or "").strip(),

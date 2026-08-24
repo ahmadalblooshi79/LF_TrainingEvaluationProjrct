@@ -75,9 +75,9 @@
       <button type="button" class="ibank-tab{% if active_tab == bg.tab %} is-active{% endif %}" data-tab-btn="{{ bg.tab }}" role="tab" aria-selected="{{ 'true' if active_tab == bg.tab else 'false' }}">{{ bg.label }}</button>
       {% endfor %}
       <button type="button" class="ibank-tab{% if active_tab == 'designations' %} is-active{% endif %}" data-tab-btn="designations" role="tab" aria-selected="{{ 'true' if active_tab == 'designations' else 'false' }}">المسميات والدلالات</button>
-      <button type="button" class="ibank-tab{% if active_tab == 'dilemma-lists' %} is-active{% endif %}" data-tab-btn="dilemma-lists" role="tab" aria-selected="{{ 'true' if active_tab == 'dilemma-lists' else 'false' }}">قوائم تقييم المعاضل</button>
+      <button type="button" class="ibank-tab{% if active_tab == 'dilemma-lists' %} is-active{% endif %}" data-tab-btn="dilemma-lists" role="tab" aria-selected="{{ 'true' if active_tab == 'dilemma-lists' else 'false' }}">بنك المعاضل</button>
       <button type="button" class="ibank-tab{% if active_tab == 'event-flow' %} is-active{% endif %}" data-tab-btn="event-flow" role="tab" aria-selected="{{ 'true' if active_tab == 'event-flow' else 'false' }}">مجرى الأحداث والمعاضل</button>
-      <button type="button" class="ibank-tab{% if active_tab == 'action-eval' %} is-active{% endif %}" data-tab-btn="action-eval" role="tab" aria-selected="{{ 'true' if active_tab == 'action-eval' else 'false' }}">قوائم تقييم الإجراءات</button>
+      <button type="button" class="ibank-tab{% if active_tab == 'action-eval' %} is-active{% endif %}" data-tab-btn="action-eval" role="tab" aria-selected="{{ 'true' if active_tab == 'action-eval' else 'false' }}">قوائم تقييم المعاضل</button>
       <button type="button" class="ibank-tab{% if active_tab == 'dilemma-eval' %} is-active{% endif %}" data-tab-btn="dilemma-eval" role="tab" aria-selected="{{ 'true' if active_tab == 'dilemma-eval' else 'false' }}">قوائم التقييم</button>
     </div>
     <div class="ibank-tab-body">
@@ -173,6 +173,7 @@
         <input type="hidden" name="brigade_tab" id="ibank-unit-edit-tab" value="">
       </form>
       <form method="post" action="{{ url_for('views.admin_information_bank_designation_edit') }}" id="ibank-desig-edit-form" class="sr-only" aria-hidden="true"></form>
+      <form method="post" action="{{ url_for('views.admin_information_bank_designation_alias_edit') }}" id="ibank-desig-alias-edit-form" class="sr-only" aria-hidden="true"></form>
       {% endif %}
 
       <div class="ibank-tabpane{% if active_tab == 'designations' %} is-active{% endif %}" data-tab-pane="designations" role="tabpanel">
@@ -202,18 +203,28 @@
               {% for d in ibank_designations or [] %}
               <tr>
                 <td class="ibank-col-num">{{ d.num }}</td>
-                <th scope="row">{{ d.canonical_label }}</th>
+                <th scope="row">
+                  {% if information_bank_can_manage %}
+                  <label class="sr-only" for="ib-desig-can-{{ d.unit_id }}">الدلالة الرئيسية</label>
+                  <input id="ib-desig-can-{{ d.unit_id }}" class="ibank-desig-inline-input js-ibank-desig-autosave js-ibank-desig-fit" type="text" value="{{ d.canonical_label }}" data-kind="canonical" data-unit-id="{{ d.unit_id }}" data-saved-value="{{ d.canonical_label }}" autocomplete="off" aria-label="الدلالة الرئيسية" size="4">
+                  {% else %}
+                  {{ d.canonical_label }}
+                  {% endif %}
+                </th>
                 <td>{{ d.unit_type or "—" }}</td>
                 <td class="ibank-desig-aliases-cell">
                   <ul class="ibank-desig-aliases">
                     {% for a in d.aliases %}
                     <li class="ibank-desig-alias">
-                      <span>{{ a.alias_label }}</span>
                       {% if information_bank_can_manage %}
+                      <label class="sr-only" for="ib-desig-alias-{{ a.alias_id }}">مسمى بديل</label>
+                      <input id="ib-desig-alias-{{ a.alias_id }}" class="ibank-desig-alias-input js-ibank-desig-autosave js-ibank-desig-fit" type="text" value="{{ a.alias_label }}" data-kind="alias" data-alias-id="{{ a.alias_id }}" data-saved-value="{{ a.alias_label }}" autocomplete="off" aria-label="مسمى بديل" size="4">
                       <form method="post" action="{{ url_for('views.admin_information_bank_designation_alias_delete') }}" class="ibank-desig-alias-del" onsubmit="return confirm('حذف هذا المسمى البديل؟');">
                         <input type="hidden" name="alias_id" value="{{ a.alias_id }}">
                         <button type="submit" class="btn btn-ghost btn-sm-compact" title="حذف المسمى" aria-label="حذف {{ a.alias_label }}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
                       </form>
+                      {% else %}
+                      <span>{{ a.alias_label }}</span>
                       {% endif %}
                     </li>
                     {% endfor %}
@@ -222,14 +233,13 @@
                   <form method="post" action="{{ url_for('views.admin_information_bank_designation_alias_add') }}" class="ibank-desig-alias-add">
                     <input type="hidden" name="unit_id" value="{{ d.unit_id }}">
                     <label class="sr-only" for="ib-alias-{{ d.unit_id }}">مسمى بديل لـ {{ d.canonical_label }}</label>
-                    <input id="ib-alias-{{ d.unit_id }}" name="alias_label" type="text" required autocomplete="off" placeholder="مسمى بديل (عمود المكلف)">
+                    <input id="ib-alias-{{ d.unit_id }}" class="js-ibank-desig-fit" name="alias_label" type="text" required autocomplete="off" placeholder="مسمى بديل (عمود المكلف)" size="18">
                     <button type="submit" class="btn btn-ghost btn-sm-compact" title="إضافة مسمى"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
                   </form>
                   {% endif %}
                 </td>
                 {% if information_bank_can_manage %}
                 <td class="ibank-unit-actions-cell">
-                  <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-desig-edit" data-unit-id="{{ d.unit_id }}" data-canonical-label="{{ d.canonical_label|e }}" title="تعديل الدلالة"><i class="fa-solid fa-pen" aria-hidden="true"></i> تعديل</button>
                   <form method="post" action="{{ url_for('views.admin_information_bank_designation_delete') }}" class="ibank-unit-delete-inline" onsubmit="return confirm('حذف هذه الدلالة وكل مسمياتها البديلة من بنك المعلومات؟');">
                     <input type="hidden" name="unit_id" value="{{ d.unit_id }}">
                     <button type="submit" class="btn btn-ghost btn-sm-compact" title="حذف"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
@@ -251,7 +261,7 @@
         {% if ibank_pane_ready.get('dilemma-lists') %}
         {% include 'admin_information_bank_dilemma_lists_panel.html' %}
         {% else %}
-        <p class="muted" dir="rtl">جاري تحميل قوائم تقييم المعاضل…</p>
+        <p class="muted" dir="rtl">جاري تحميل بنك المعاضل…</p>
         {% endif %}
       </div>
 
@@ -284,7 +294,7 @@
         {% include 'admin_information_bank_tree_panel.html' %}
         {% endwith %}
         {% else %}
-        <p class="muted" dir="rtl">جاري تحميل قوائم تقييم الإجراءات…</p>
+        <p class="muted" dir="rtl">جاري تحميل قوائم تقييم المعاضل…</p>
         {% endif %}
       </div>
 
@@ -623,7 +633,7 @@
             .then(function (res) {
               if (statusEl) {
                 statusEl.textContent = res.ok
-                  ? ('تم الحفظ' + (res.json.action_eval_updated ? (' — حُدّث ' + res.json.action_eval_updated + ' في قوائم الإجراءات') : ''))
+                  ? ('تم الحفظ' + (res.json.action_eval_updated ? (' — حُدّث ' + res.json.action_eval_updated + ' في قوائم تقييم المعاضل') : ''))
                   : ((res.json && res.json.error) || 'تعذّر الحفظ');
               }
             })
@@ -1329,7 +1339,7 @@
               pane.setAttribute('data-day-id', dayId);
               pane.setAttribute('data-day-root-id', rootId);
               pane.hidden = true;
-              pane.innerHTML = '<div class="ibank-tree-scroll"><ul class="ibank-tree-root js-ibank-tree" role="tree" aria-label="قوائم تقييم الإجراءات — ' + label + '"><li class="muted ibank-tree-empty">لا توجد عناصر بعد — أرفق مجلداً لمستويات الوحدات أو أضف مجلداً.</li></ul></div>';
+              pane.innerHTML = '<div class="ibank-tree-scroll"><ul class="ibank-tree-root js-ibank-tree" role="tree" aria-label="قوائم تقييم المعاضل — ' + label + '"><li class="muted ibank-tree-empty">لا توجد عناصر بعد — أرفق مجلداً لمستويات الوحدات أو أضف مجلداً.</li></ul></div>';
               treeCard.appendChild(pane);
             } else {
               pane.setAttribute('data-day-root-id', rootId);
@@ -1877,25 +1887,13 @@
 
     var desigForm = document.getElementById('ibank-desig-edit-form');
     var desigUrl = desigForm ? desigForm.getAttribute('action') : '';
-    tabbedRoot.addEventListener('click', function (e) {
-      var btn = e.target.closest('.js-ibank-desig-edit');
-      if (!btn || !tabbedRoot.contains(btn)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      var uid = btn.getAttribute('data-unit-id') || '';
-      var row = btn.closest('tr');
-      var labelCell = row && row.querySelector('th[scope="row"]');
-      var label = labelCell ? labelCell.textContent.trim() : (btn.getAttribute('data-canonical-label') || '');
-      if (!uid || !desigUrl) return;
-      var newLabel = window.prompt('تعديل الدلالة الرئيسية (يُحدَّث التنظيم إن طابق الاسم السابق):', label);
-      if (newLabel === null) return;
-      newLabel = newLabel.trim();
-      if (!newLabel) {
-        window.alert('أدخل دلالة صالحة.');
-        return;
-      }
-      btn.disabled = true;
-      fetch(desigUrl, {
+    var aliasEditForm = document.getElementById('ibank-desig-alias-edit-form');
+    var aliasEditUrl = aliasEditForm ? aliasEditForm.getAttribute('action') : '';
+    var desigSaveTimers = {};
+    var desigSaveSeq = 0;
+
+    function ibankDesigPost(url, body) {
+      return fetch(url, {
         method: 'POST',
         credentials: 'same-origin',
         headers: {
@@ -1903,32 +1901,132 @@
           'X-Requested-With': 'XMLHttpRequest',
           Accept: 'application/json',
         },
-        body: new URLSearchParams({
-          unit_id: uid,
-          canonical_label: newLabel,
-        }).toString(),
-      })
-        .then(function (r) {
-          return r.json().then(function (j) {
-            return { ok: r.ok && j && j.ok, json: j || {}, status: r.status };
-          }).catch(function () {
-            return { ok: false, json: {}, status: r.status };
-          });
-        })
+        body: new URLSearchParams(body).toString(),
+      }).then(function (r) {
+        return r.json().then(function (j) {
+          return { ok: r.ok && j && j.ok, json: j || {} };
+        }).catch(function () {
+          return { ok: false, json: {} };
+        });
+      });
+    }
+
+    function ibankDesigSaveField(el) {
+      if (!el || el.classList.contains('is-saving')) return;
+      var kind = el.getAttribute('data-kind') || '';
+      var saved = (el.getAttribute('data-saved-value') || '').trim();
+      var value = (el.value || '').trim();
+      if (value === saved) return;
+      if (!value) {
+        el.value = saved;
+        ibankDesigFitInput(el);
+        return;
+      }
+      var url = '';
+      var body = {};
+      if (kind === 'canonical') {
+        url = desigUrl;
+        body = { unit_id: el.getAttribute('data-unit-id') || '', canonical_label: value };
+      } else if (kind === 'alias') {
+        url = aliasEditUrl;
+        body = { alias_id: el.getAttribute('data-alias-id') || '', alias_label: value };
+      }
+      if (!url || !body.unit_id && kind === 'canonical') return;
+      if (kind === 'alias' && !body.alias_id) return;
+      var seq = ++desigSaveSeq;
+      el.dataset.saveSeq = String(seq);
+      el.classList.add('is-saving');
+      ibankDesigPost(url, body)
         .then(function (res) {
+          if (el.dataset.saveSeq !== String(seq)) return;
           if (!res.ok) {
             window.alert((res.json && res.json.error) || 'تعذّر حفظ التعديل.');
+            el.value = saved;
+            ibankDesigFitInput(el);
             return;
           }
-          if (labelCell) labelCell.textContent = newLabel;
-          btn.setAttribute('data-canonical-label', newLabel);
+          var stored = (res.json && (res.json.label || res.json.alias_label)) || value;
+          el.value = stored;
+          el.setAttribute('data-saved-value', stored);
+          ibankDesigFitInput(el);
         })
         .catch(function () {
+          if (el.dataset.saveSeq !== String(seq)) return;
           window.alert('تعذر الاتصال بالخادم.');
+          el.value = saved;
+          ibankDesigFitInput(el);
         })
         .finally(function () {
-          btn.disabled = false;
+          if (el.dataset.saveSeq !== String(seq)) return;
+          el.classList.remove('is-saving');
         });
+    }
+
+    var desigFitProbe = null;
+    function ibankDesigGetProbe() {
+      if (desigFitProbe && desigFitProbe.isConnected) return desigFitProbe;
+      desigFitProbe = document.createElement('span');
+      desigFitProbe.className = 'ibank-desig-fit-probe';
+      desigFitProbe.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(desigFitProbe);
+      return desigFitProbe;
+    }
+    function ibankDesigFitInput(el) {
+      if (!el) return;
+      var probe = ibankDesigGetProbe();
+      var cs = window.getComputedStyle(el);
+      probe.style.font = cs.font;
+      probe.style.letterSpacing = cs.letterSpacing;
+      probe.textContent = el.value || el.getAttribute('placeholder') || '\u00a0';
+      var pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
+        + (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
+      var minW = el.classList.contains('ibank-desig-alias-input') ? 56 : (el.getAttribute('name') === 'alias_label' ? 148 : 96);
+      var w = Math.ceil(probe.getBoundingClientRect().width + pad + 12);
+      el.style.width = Math.max(minW, w) + 'px';
+    }
+    function ibankDesigFitAll() {
+      tabbedRoot.querySelectorAll('.js-ibank-desig-fit').forEach(ibankDesigFitInput);
+    }
+    ibankDesigFitAll();
+
+    function ibankDesigSchedule(el) {
+      var key = el.id || el.getAttribute('data-alias-id') || el.getAttribute('data-unit-id') || '';
+      if (desigSaveTimers[key]) window.clearTimeout(desigSaveTimers[key]);
+      desigSaveTimers[key] = window.setTimeout(function () {
+        delete desigSaveTimers[key];
+        ibankDesigSaveField(el);
+      }, 650);
+    }
+
+    tabbedRoot.addEventListener('input', function (e) {
+      var fitEl = e.target.closest('.js-ibank-desig-fit');
+      if (fitEl && tabbedRoot.contains(fitEl)) ibankDesigFitInput(fitEl);
+      var el = e.target.closest('.js-ibank-desig-autosave');
+      if (!el || !tabbedRoot.contains(el)) return;
+      ibankDesigSchedule(el);
+    });
+    tabbedRoot.addEventListener('change', function (e) {
+      var el = e.target.closest('.js-ibank-desig-autosave');
+      if (!el || !tabbedRoot.contains(el)) return;
+      var key = el.id || el.getAttribute('data-alias-id') || el.getAttribute('data-unit-id') || '';
+      if (desigSaveTimers[key]) {
+        window.clearTimeout(desigSaveTimers[key]);
+        delete desigSaveTimers[key];
+      }
+      ibankDesigSaveField(el);
+    });
+    tabbedRoot.addEventListener('keydown', function (e) {
+      var el = e.target.closest('.js-ibank-desig-autosave');
+      if (!el || !tabbedRoot.contains(el)) return;
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      var key = el.id || el.getAttribute('data-alias-id') || el.getAttribute('data-unit-id') || '';
+      if (desigSaveTimers[key]) {
+        window.clearTimeout(desigSaveTimers[key]);
+        delete desigSaveTimers[key];
+      }
+      ibankDesigSaveField(el);
+      el.blur();
     });
 
     var initialTab = card.querySelector('.ibank-tab.is-active');

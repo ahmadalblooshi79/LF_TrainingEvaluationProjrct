@@ -1,9 +1,20 @@
 <script>
-/* planner-flow-table v37 */
+/* planner-flow-table v41 — literal Word import; assignee remains 8th */
 (function () {
   'use strict';
 
-  var ASSIGNEE_COL = 2;
+  var FLOW_DATA_FIELDS = [
+    'time',
+    'time_kora',
+    'time_from',
+    'time_to',
+    'report_systems',
+    'description',
+    'assignee',
+    'reaction',
+    'notes'
+  ];
+  var FLOW_COLSPAN = FLOW_DATA_FIELDS.length + 1;
   var DAY_ONE_ID = 'day-1';
   var DAY_ONE_LABEL = 'اليوم/1';
 
@@ -64,6 +75,7 @@
               label: String((d && d.label) || 'اليوم/' + (idx + 1)),
               note: String((d && d.note) || ''),
               phase_key: String((d && d.phase_key) || ''),
+              phase_label: String((d && d.phase_label) || ''),
               rows: Array.isArray(d && d.rows) ? d.rows : []
             };
           });
@@ -71,7 +83,7 @@
       } catch (e) {
         /* ignore */
       }
-      return [{ id: 'day-1', label: 'اليوم/1', note: '', phase_key: '', rows: [] }];
+      return [{ id: 'day-1', label: 'اليوم/1', note: '', phase_key: '', phase_label: '', rows: [] }];
     }
 
     function ensureDayOneTab() {
@@ -92,13 +104,14 @@
         }
       }
       if (idx < 0) {
-        daysState.unshift({ id: DAY_ONE_ID, label: DAY_ONE_LABEL, note: '', phase_key: '', rows: [] });
+        daysState.unshift({ id: DAY_ONE_ID, label: DAY_ONE_LABEL, note: '', phase_key: '', phase_label: '', rows: [] });
         return;
       }
       var dayOne = daysState.splice(idx, 1)[0];
       if (dayOne.id !== DAY_ONE_ID) dayOne.id = DAY_ONE_ID;
       if (!(dayOne.label || '').trim()) dayOne.label = DAY_ONE_LABEL;
       if (typeof dayOne.phase_key === 'undefined') dayOne.phase_key = '';
+      if (typeof dayOne.phase_label === 'undefined') dayOne.phase_label = '';
       daysState.unshift(dayOne);
     }
 
@@ -158,23 +171,30 @@
       return container.querySelectorAll('tr').length;
     }
 
+    function assigneeTd(tr) {
+      return tr ? tr.querySelector('.pf-flow-cell--assignee, [data-pf-field="assignee"]') : null;
+    }
+
+    function fieldCell(tr, field) {
+      return tr ? tr.querySelector('.pf-flow-cell[data-pf-field="' + field + '"]') : null;
+    }
+
     function upgradeAllAssigneeColumns() {
       tbody.querySelectorAll('.pf-flow-row--data').forEach(function (tr) {
-        var cells = tr.querySelectorAll('.pf-flow-cell');
-        var assigneeTd = cells[ASSIGNEE_COL];
-        if (!assigneeTd) return;
+        var td = assigneeTd(tr);
+        if (!td) return;
         if (
-          assigneeTd.querySelector('.pf-assignee-inner-table') &&
-          !assigneeTd.querySelector('.pf-assignee-stack')
+          td.querySelector('.pf-assignee-inner-table') &&
+          !td.querySelector('.pf-assignee-stack')
         ) {
-          var legacyRaw = readAssigneeCell(assigneeTd);
-          fillAssigneeCell(assigneeTd, legacyRaw ? legacyRaw.split('\n') : ['']);
-        } else if (!assigneeTd.querySelector('.pf-assignee-cell-text')) {
-          var raw = readAssigneeCell(assigneeTd);
+          var legacyRaw = readAssigneeCell(td);
+          fillAssigneeCell(td, legacyRaw ? legacyRaw.split('\n') : ['']);
+        } else if (!td.querySelector('.pf-assignee-cell-text')) {
+          var raw = readAssigneeCell(td);
           var parts = raw ? raw.split('\n') : [''];
-          fillAssigneeCell(assigneeTd, parts);
+          fillAssigneeCell(td, parts);
         } else {
-          stripAssigneeToolsRows(getAssigneeContainer(assigneeTd));
+          stripAssigneeToolsRows(getAssigneeContainer(td));
         }
       });
     }
@@ -216,6 +236,7 @@
     function fillAssigneeCell(outerTd, lineTexts) {
       outerTd.innerHTML = '';
       outerTd.className = 'pf-flow-cell pf-flow-cell--assignee';
+      outerTd.setAttribute('data-pf-field', 'assignee');
       var stack = document.createElement('div');
       stack.className = 'pf-assignee-stack';
       stack.setAttribute('dir', 'rtl');
@@ -226,27 +247,32 @@
       outerTd.appendChild(stack);
     }
 
-    function fillSimpleCell(td, text) {
+    function fillSimpleCell(td, text, field) {
       td.innerHTML = '';
       td.className = 'pf-flow-cell pf-flow-cell--simple';
+      if (field) td.setAttribute('data-pf-field', field);
       if (!readOnly) {
         td.contentEditable = 'true';
         td.spellcheck = true;
       }
-      td.textContent = (text || '').split('\n')[0] || '';
+      td.textContent = text || '';
     }
 
-    function fillDataCells(tr, colValues) {
-      var cells = tr.querySelectorAll('.pf-flow-cell');
-      for (var c = 0; c < 5; c += 1) {
-        var val = colValues[c] != null ? colValues[c] : '';
-        if (c === ASSIGNEE_COL) {
-          var parts = val ? String(val).split('\n') : [''];
-          fillAssigneeCell(cells[c], parts);
-        } else {
-          fillSimpleCell(cells[c], val);
+    function fillDataRow(tr, row) {
+      var src = row || {};
+      FLOW_DATA_FIELDS.forEach(function (field) {
+        var td = field === 'assignee' ? assigneeTd(tr) : fieldCell(tr, field);
+        var val = src[field] || '';
+        if (field === 'report_systems' && !val) {
+          val = src.report_real || src.report_kora || '';
         }
-      }
+        if (!td) return;
+        if (field === 'assignee') {
+          fillAssigneeCell(td, val ? String(val).split('\n') : ['']);
+        } else {
+          fillSimpleCell(td, val, field);
+        }
+      });
     }
 
     function assigneeStructureOk(td) {
@@ -421,13 +447,7 @@
           tbody.appendChild(mergedTr);
         } else {
           var dataTr = makeDataRow();
-          fillDataCells(dataTr, [
-            (r && r.time) || '',
-            (r && r.description) || '',
-            (r && r.assignee) || '',
-            (r && r.method) || '',
-            (r && r.reaction) || ''
-          ]);
+          fillDataRow(dataTr, r);
           tbody.appendChild(dataTr);
         }
       });
@@ -437,6 +457,27 @@
         purgeAssigneeLegacyUi();
       }
       renumberRows();
+    }
+
+    function phaseLabelForKey(key) {
+      var k = String(key || '');
+      if (!k) return '';
+      if (dayPhaseEl) {
+        var i;
+        for (i = 0; i < dayPhaseEl.options.length; i += 1) {
+          if (dayPhaseEl.options[i].value === k) {
+            return (dayPhaseEl.options[i].textContent || '').trim();
+          }
+        }
+      }
+      return '';
+    }
+
+    function phaseLabelForDay(d) {
+      if (!d) return '';
+      var fromSelect = phaseLabelForKey(d.phase_key);
+      if (fromSelect) return fromSelect;
+      return String(d.phase_label || '');
     }
 
     function renderDayTabs() {
@@ -452,7 +493,20 @@
         btn.tabIndex = d.id === activeDayId ? 0 : -1;
         if (d.id === activeDayId) btn.classList.add('is-active');
         if (d.id === DAY_ONE_ID) btn.classList.add('is-locked');
-        btn.textContent = d.label || d.id;
+        var textWrap = document.createElement('span');
+        textWrap.className = 'pf-flow-day-tab__text';
+        var labelEl = document.createElement('span');
+        labelEl.className = 'pf-flow-day-tab__label';
+        labelEl.textContent = d.label || d.id;
+        textWrap.appendChild(labelEl);
+        var phaseLbl = phaseLabelForDay(d);
+        if (phaseLbl) {
+          var phaseEl = document.createElement('span');
+          phaseEl.className = 'pf-flow-day-tab__phase';
+          phaseEl.textContent = phaseLbl;
+          textWrap.appendChild(phaseEl);
+        }
+        btn.appendChild(textWrap);
         tabsEl.appendChild(btn);
       });
       if (dayAddBtn && !readOnly) {
@@ -476,7 +530,7 @@
       persistCurrentDayRows();
       var n = nextDayNumber();
       var id = 'day-' + String(Date.now());
-      daysState.push({ id: id, label: 'اليوم/' + n, note: '', phase_key: '', rows: [] });
+      daysState.push({ id: id, label: 'اليوم/' + n, note: '', phase_key: '', phase_label: '', rows: [] });
       activeDayId = id;
       renderDayTabs();
       renderRows([]);
@@ -564,14 +618,17 @@
         if (kind === 'event' || kind === 'dilemma') {
           rows.push({ kind: kind, text: rowText(tr.querySelector('.pf-flow-merged-cell')) });
         } else {
-          var cells = tr.querySelectorAll('.pf-flow-cell');
           rows.push({
             kind: 'row',
-            time: readCell(cells[0]),
-            description: readCell(cells[1]),
-            assignee: readCell(cells[2]),
-            method: readCell(cells[3]),
-            reaction: readCell(cells[4])
+            time: readCell(fieldCell(tr, 'time')),
+            time_kora: readCell(fieldCell(tr, 'time_kora')),
+            time_from: readCell(fieldCell(tr, 'time_from')),
+            time_to: readCell(fieldCell(tr, 'time_to')),
+            report_systems: readCell(fieldCell(tr, 'report_systems')),
+            description: readCell(fieldCell(tr, 'description')),
+            assignee: readCell(assigneeTd(tr)),
+            reaction: readCell(fieldCell(tr, 'reaction')),
+            notes: readCell(fieldCell(tr, 'notes'))
           });
         }
       });
@@ -725,7 +782,7 @@
       tr.className = 'pf-flow-row pf-flow-row--' + (kind === 'event' ? 'event' : 'dilemma');
       tr.setAttribute('data-kind', kind);
       var td = document.createElement('td');
-      td.colSpan = 6;
+      td.colSpan = FLOW_COLSPAN;
       td.className = 'pf-flow-merged-cell';
       if (!readOnly) {
         td.contentEditable = 'true';
@@ -743,12 +800,12 @@
       seq.className = 'planner-flow-action-col-num pf-flow-seq';
       seq.setAttribute('aria-label', 'ت');
       tr.appendChild(seq);
-      for (var c = 0; c < 5; c += 1) {
+      FLOW_DATA_FIELDS.forEach(function (field) {
         var td = document.createElement('td');
-        if (c === ASSIGNEE_COL) fillAssigneeCell(td, ['']);
-        else fillSimpleCell(td, '');
+        if (field === 'assignee') fillAssigneeCell(td, ['']);
+        else fillSimpleCell(td, '', field);
         tr.appendChild(td);
-      }
+      });
       return tr;
     }
 
@@ -816,15 +873,12 @@
       saveNow();
     }
 
-    function focusDataRow(tr, colIndex) {
-      var cell = tr.querySelectorAll('.pf-flow-cell')[colIndex];
+    function focusAssigneeRow(tr) {
+      var cell = assigneeTd(tr);
       if (!cell) return;
-      if (colIndex === ASSIGNEE_COL) {
-        var first = cell.querySelector('.pf-assignee-cell-text');
-        if (first) first.focus();
-      } else {
-        cell.focus();
-      }
+      var first = cell.querySelector('.pf-assignee-cell-text');
+      if (first) first.focus();
+      else cell.focus();
     }
 
     function insertRow(kind) {
@@ -837,7 +891,7 @@
       renumberRows();
       hideMenu();
       selectRow(tr);
-      if (kind === 'row') focusDataRow(tr, ASSIGNEE_COL);
+      if (kind === 'row') focusAssigneeRow(tr);
       else {
         var merged = tr.querySelector('.pf-flow-merged-cell');
         if (merged) merged.focus();
@@ -858,28 +912,36 @@
             group.push(dataRows[j]);
             j += 1;
           }
-          var mergedCols = [[], [], [], [], []];
-          group.forEach(function (rowTr) {
-            var cells = rowTr.querySelectorAll('.pf-flow-cell');
-            for (var c = 0; c < 5; c += 1) mergedCols[c].push(readCell(cells[c]));
+          var merged = {};
+          FLOW_DATA_FIELDS.forEach(function (field) {
+            merged[field] = [];
           });
-          var colValues = [];
-          for (var c = 0; c < 5; c += 1) {
-            colValues.push(c === ASSIGNEE_COL ? mergedCols[c].join('\n') : mergedCols[c][0] || '');
-          }
-          fillDataCells(tr, colValues);
+          group.forEach(function (rowTr) {
+            FLOW_DATA_FIELDS.forEach(function (field) {
+              var td = field === 'assignee' ? assigneeTd(rowTr) : fieldCell(rowTr, field);
+              merged[field].push(readCell(td));
+            });
+          });
+          var rowObj = {};
+          FLOW_DATA_FIELDS.forEach(function (field) {
+            rowObj[field] =
+              field === 'assignee' ? merged[field].join('\n') : merged[field][0] || '';
+          });
+          fillDataRow(tr, rowObj);
           tr.removeAttribute('data-row-group');
           tr.removeAttribute('data-line-index');
           for (var k = 1; k < group.length; k += 1) group[k].remove();
           i = j;
           continue;
         }
-        var cells = tr.querySelectorAll('.pf-flow-cell');
-        var assigneeTd = cells[ASSIGNEE_COL];
-        if (!assigneeStructureOk(assigneeTd)) {
-          var colValues = [];
-          for (var c = 0; c < 5; c += 1) colValues.push(readCell(cells[c]));
-          fillDataCells(tr, colValues);
+        var tdAsn = assigneeTd(tr);
+        if (!assigneeStructureOk(tdAsn)) {
+          var rowObj2 = {};
+          FLOW_DATA_FIELDS.forEach(function (field) {
+            var td = field === 'assignee' ? tdAsn : fieldCell(tr, field);
+            rowObj2[field] = readCell(td);
+          });
+          fillDataRow(tr, rowObj2);
         }
         i += 1;
       }
@@ -898,7 +960,7 @@
       contextAssigneeTd = null;
       if (tr && tr.classList.contains('pf-flow-row--data')) {
         var hit = e.target.closest('.pf-flow-cell--assignee, .pf-assignee-cell-text');
-        if (hit) contextAssigneeTd = tr.querySelectorAll('.pf-flow-cell')[ASSIGNEE_COL];
+        if (hit) contextAssigneeTd = hit.closest('.pf-flow-cell--assignee') || assigneeTd(tr);
       }
       showMenu(e.clientX, e.clientY, tr);
       return false;
@@ -946,7 +1008,9 @@
         var idx = findDayIndex(activeDayId);
         if (idx >= 0) {
           daysState[idx].phase_key = String(dayPhaseEl.value || '');
+          daysState[idx].phase_label = phaseLabelForKey(daysState[idx].phase_key);
         }
+        renderDayTabs();
         scheduleSave();
       });
     }
@@ -959,6 +1023,7 @@
           label: String((d && d.label) || 'اليوم/' + (idx + 1)),
           note: String((d && d.note) || ''),
           phase_key: String((d && d.phase_key) || ''),
+          phase_label: String((d && d.phase_label) || ''),
           rows: Array.isArray(d && d.rows) ? d.rows : []
         };
       });
@@ -1034,14 +1099,40 @@
       return { version: 2, active_day_id: activeDayId, days: daysState };
     }
 
+    function applyImportedSingleDay(day) {
+      if (!day) return;
+      persistCurrentDayRows();
+      var idx = findDayIndex(activeDayId);
+      if (idx < 0) return;
+      daysState[idx] = {
+        id: daysState[idx].id,
+        label: String(day.label || daysState[idx].label || ''),
+        note: String(day.note || ''),
+        phase_key: String(day.phase_key || ''),
+        phase_label: String(day.phase_label || ''),
+        rows: Array.isArray(day.rows) ? day.rows : []
+      };
+      renderRows(daysState[idx].rows);
+      renderDayTabs();
+      applyDayNote();
+      applyDayPhase();
+      syncFlowDaysDataset();
+    }
+
     function pullFromIbank() {
       if (!pullIbankUrl || readOnly) return;
-      if (!window.confirm('سيتم استبدال جدول المجرى الحالي (جميع الأيام) بمحتوى بنك المعلومات. متابعة؟')) return;
+      persistCurrentDayRows();
+      var idx = findDayIndex(activeDayId);
+      var dayLabel = idx >= 0 ? (daysState[idx].label || daysState[idx].id) : activeDayId;
+      if (!window.confirm('سيتم استبدال جدول اليوم المفتوح («' + dayLabel + '») بمحتوى بنك المعلومات. الأيام الأخرى لا تُمس. متابعة؟')) return;
       setStatus('جاري السحب من بنك المعلومات…', false);
+      var fd = new FormData();
+      fd.append('day_id', activeDayId);
       fetch(pullIbankUrl, {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { Accept: 'application/json' }
+        headers: { Accept: 'application/json' },
+        body: fd
       })
         .then(function (r) {
           return r.json().then(function (j) {
@@ -1050,17 +1141,18 @@
         })
         .then(function (res) {
           if (res.ok && res.j && res.j.ok) {
-            applyImportedDays(res.j);
-            var msg = 'تم السحب من بنك المعلومات (' + (res.j.row_count || 0) + ' صف في اليوم النشط)';
+            applyImportedSingleDay(res.j.day);
+            var msg = 'تم سحب اليوم المفتوح من بنك المعلومات (' + (res.j.row_count || 0) + ' صف)';
             setStatus(msg, false);
             setTimeout(function () {
-              if (statusEl && statusEl.textContent.indexOf('تم السحب من بنك المعلومات') === 0) {
+              if (statusEl && statusEl.textContent.indexOf('تم سحب اليوم المفتوح') === 0) {
                 setStatus('', false);
               }
             }, 4000);
           } else {
             var errMap = {
               empty_ibank: 'بنك المعلومات لا يحتوي جدول مجرى بعد.',
+              day_missing: 'لا يوجد يوم مطابق في بنك المعلومات لليوم المفتوح.',
               not_found: 'الحزمة غير موجودة.',
               forbidden: 'لا صلاحية.',
               unauthorized: 'يجب تسجيل الدخول.'

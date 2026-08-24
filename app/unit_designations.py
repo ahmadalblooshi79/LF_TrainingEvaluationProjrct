@@ -396,6 +396,35 @@ def next_alias_id(db: Session) -> str:
     return _next_prefixed_id(db, model=UnitDesignationAlias, field="alias_id", prefix="A")
 
 
+def update_alias_label(db: Session, *, alias_id: str, new_label: str) -> tuple[bool, str, str]:
+    """تعديل مسمى بديل. يعيد (نجاح، رسالة خطأ، النص المحفوظ)."""
+    aid = (alias_id or "").strip()
+    label = (new_label or "").strip()[:300]
+    if not aid or not label:
+        return False, "أدخل مسمىً صالحاً.", ""
+    row = db.get(UnitDesignationAlias, aid)
+    if row is None:
+        return False, "المسمى غير موجود.", ""
+    norm = normalize_designation_text(label)
+    if not norm:
+        return False, "أدخل مسمىً صالحاً.", ""
+    clash = (
+        db.query(UnitDesignationAlias)
+        .filter(
+            UnitDesignationAlias.alias_label_norm == norm,
+            UnitDesignationAlias.alias_id != aid,
+        )
+        .first()
+    )
+    if clash is not None:
+        if clash.unit_id == row.unit_id:
+            return False, "المسمى موجود مسبقاً.", ""
+        return False, "هذا المسمى مرتبط بدلالة أخرى.", ""
+    row.alias_label = label
+    row.alias_label_norm = norm
+    return True, "", label
+
+
 def ensure_canonical_alias(db: Session, *, unit_id: str, label: str) -> None:
     label = (label or "").strip()
     if not label:

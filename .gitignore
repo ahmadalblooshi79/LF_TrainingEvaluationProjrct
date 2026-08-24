@@ -15,6 +15,13 @@ exercises.db-shm
 server-*.log
 _server_*.txt
 _transcript_snippets.txt
+_v_err.txt
+_v_out.txt
+# نسخ احتياطية محلية (تُنشأ أثناء التشغيل — لا تُرفع)
+backups/*.db
+backups/information_bank/*.zip
+# نسخة APK وسيطة غير مستخدمة في التوزيع
+dist/tablet_apk/
 # صور خلفية مؤقتة (غير مستخدمة)
 app/static/images/
 !app/static/images/crests/

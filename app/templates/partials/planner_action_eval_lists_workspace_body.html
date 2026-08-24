@@ -38,18 +38,15 @@
       </button>
     </form>
     {% endif %}
-    {% if current_exercise and eval_dilemma_groups %}
-    <form method="post" action="{{ url_for('views.planner_action_eval_lists_sync_all') }}" class="eval-lists-publish-all-form">
-      <input type="hidden" name="phase_key" value="{{ selected_phase }}">
-      <input type="hidden" name="flow_day_id" value="{{ selected_day_id }}">
-      <button type="submit" class="btn btn-ghost btn-xs" onclick="return confirm('تحديث القوائم من بنك المعلومات وإلغاء نشر الكل؟\n\nستظهر جميع القوائم «غير منشورة» — حدّد ما تريد ثم اضغط «نشر القوائم».');">
-        <i class="fa-solid fa-cloud-arrow-down" aria-hidden="true"></i>
-        نسخ الكل
-      </button>
-    </form>
-    {% endif %}
   </div>
 </section>
+
+{% if current_exercise and eval_dilemma_groups %}
+<form id="action-eval-lists-withdraw-all-form" method="post" action="{{ url_for('views.planner_action_eval_lists_withdraw_all') }}">
+  <input type="hidden" name="phase_key" value="{{ selected_phase }}">
+  <input type="hidden" name="flow_day_id" value="{{ selected_day_id }}">
+</form>
+{% endif %}
 
 <div id="action-eval-lists-root" data-day="{{ selected_day_id }}">
 {% if eval_dilemma_groups %}
@@ -74,6 +71,12 @@
         <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
         نشر القوائم
       </button>
+      {% if current_exercise %}
+      <button type="submit" form="action-eval-lists-withdraw-all-form" class="btn btn-ghost btn-xs" onclick="return confirm('سحب نشر جميع القوائم المنشورة لهذا اليوم؟');">
+        <i class="fa-solid fa-cloud-arrow-down" aria-hidden="true"></i>
+        سحب القوائم
+      </button>
+      {% endif %}
     </div>
   </div>
 

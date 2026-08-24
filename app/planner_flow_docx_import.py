@@ -12,21 +12,28 @@ _NS = {"w": _W_NS}
 _W = f"{{{_W_NS}}}"
 
 _YELLOW_FILLS = frozenset({"FFFF00", "FFF2CC", "FFF9C4"})
-_DILEMMA_FILLS = frozenset({"E5B8B7", "FFC7CE", "F8CBAD", "FFCCCC"})
+_DILEMMA_FILLS = frozenset({"E5B8B7", "FFC7CE", "F8CBAD", "FFCCCC", "D99594", "C0504D"})
 
 _HEADER_MARKERS = (
     "الوقت",
+    "التوقيت",
     "وصف",
     "المكلف",
     "أسلوب",
     "رد الفعل",
+    "الحقيقي",
+    "كورا",
+    "ملاحظات",
+    "أنظمة",
+    "التبليغ",
 )
 
-# صف حدث/معضلة فقط عند الترقيم: الحدث/1 ، المعضلة/2
+# صف حدث/معضلة فقط عند الترقيم: الحدث/1 ، المعضلة/2 أو معضلة/2
 _NUMBERED_EVENT_RE = re.compile(r"الحدث\s*/\s*\d+")
-_NUMBERED_DILEMMA_RE = re.compile(r"المعضلة\s*/\s*\d+")
+_NUMBERED_DILEMMA_RE = re.compile(r"(?:ال)?معضلة\s*/\s*\d+")
 
-_ASSIGNEE_COL_INDEX = 3
+# احتياطي لقالب الجاهزية ذي 6 أعمدة إن لم يُعثر على عنوان «المكلف»
+_LEGACY_ASSIGNEE_COL_INDEX = 3
 _BULLET_SPLIT_RE = re.compile(
     r"[\n\r]+|(?:\s*[\u2022\u2023\u25E6\u00B7\u2013\u2014●○◦▪▫]\s*)|(?:\s+-\s+)"
 )
@@ -42,14 +49,47 @@ def _cell_fill(tc: ET.Element) -> str:
     return (shd.get(f"{_W}fill") or "").strip().upper()
 
 
+def _local_tag(el: ET.Element) -> str:
+    tag = el.tag or ""
+    return tag.split("}")[-1] if "}" in tag else tag
+
+
 def _cell_text(tc: ET.Element) -> str:
-    parts = [t.text or "" for t in tc.findall(".//w:t", _NS)]
-    return re.sub(r"\s+", " ", "".join(parts)).strip()
+    return _literal_cell_text(tc).replace("\n", " ")
+
+
+def _paragraph_literal(p: ET.Element) -> str:
+    """نص الفقرة كما في الملف — بدون دمج المسافات أو حذف الشرطات."""
+    parts: list[str] = []
+    for el in p.iter():
+        tag = _local_tag(el)
+        if tag == "t":
+            parts.append(el.text or "")
+        elif tag == "tab":
+            parts.append("\t")
+        elif tag in ("br", "cr"):
+            parts.append("\n")
+    return "".join(parts).replace("\u00a0", " ").strip()
+
+
+def _literal_cell_text(tc: ET.Element) -> str:
+    """محتوى الخلية حرفياً: كل فقرة سطر، بما في ذلك «سعت» وأي نص توقيت."""
+    lines: list[str] = []
+    for p in tc.findall("w:p", _NS):
+        txt = _paragraph_literal(p)
+        if txt:
+            lines.append(txt)
+    if lines:
+        return "\n".join(lines)
+    for p in tc.findall(".//w:p", _NS):
+        txt = _paragraph_literal(p)
+        if txt:
+            lines.append(txt)
+    return "\n".join(lines)
 
 
 def _paragraph_text(p: ET.Element) -> str:
-    parts = [t.text or "" for t in p.findall(".//w:t", _NS)]
-    txt = re.sub(r"\s+", " ", "".join(parts)).strip()
+    txt = _paragraph_literal(p)
     return _BULLET_LEAD_RE.sub("", txt).strip()
 
 
@@ -86,14 +126,75 @@ def _cell_assignee_text(tc: ET.Element) -> str:
     return flat
 
 
+def _tc_grid_span(tc: ET.Element) -> int:
+    gs = tc.find("w:tcPr/w:gridSpan", _NS)
+    if gs is None:
+        return 1
+    try:
+        return max(1, int(gs.get(f"{_W}val") or "1"))
+    except ValueError:
+        return 1
+
+
+def _tc_vmerge_continue(tc: ET.Element) -> bool:
+    vm = tc.find("w:tcPr/w:vMerge", _NS)
+    if vm is None:
+        return False
+    val = (vm.get(f"{_W}val") or "").strip().lower()
+    return val in ("", "continue")
+
+
+def _tbl_grid_col_count(tbl: ET.Element) -> int:
+    grid = tbl.find("w:tblGrid", _NS)
+    if grid is None:
+        return 0
+    return len(grid.findall("w:gridCol", _NS))
+
+
+def _logical_rows_from_tbl(tbl: ET.Element) -> list[tuple[list[str], list[str]]]:
+    """يفك الدمج الأفقي/العمودي لتصبح كل صف بنفس عدد أعمدة الشبكة."""
+    ncols = _tbl_grid_col_count(tbl)
+    carry_text: list[str] = []
+    carry_fill: list[str] = []
+    rows: list[tuple[list[str], list[str]]] = []
+    for tr in tbl.findall("w:tr", _NS):
+        occupied = 0
+        pieces: list[tuple[int, str, str, bool]] = []
+        for tc in tr.findall("w:tc", _NS):
+            span = _tc_grid_span(tc)
+            pieces.append(
+                (span, _literal_cell_text(tc), _cell_fill(tc), _tc_vmerge_continue(tc))
+            )
+            occupied += span
+        width = max(ncols, occupied, 1)
+        texts = [""] * width
+        fills = [""] * width
+        col = 0
+        for span, txt, fl, is_cont in pieces:
+            for k in range(span):
+                i = col + k
+                if i >= width:
+                    texts.extend([""] * (i - width + 1))
+                    fills.extend([""] * (i - width + 1))
+                    width = i + 1
+                if is_cont and i < len(carry_text) and not (txt or "").strip():
+                    texts[i] = carry_text[i]
+                    fills[i] = fl or (carry_fill[i] if i < len(carry_fill) else "")
+                else:
+                    texts[i] = txt
+                    fills[i] = fl
+            col += span
+        if ncols < width:
+            ncols = width
+        carry_text = texts[:]
+        carry_fill = fills[:]
+        rows.append((texts, fills))
+    return rows
+
+
 def _row_cells(tr: ET.Element) -> list[str]:
-    out: list[str] = []
-    for i, tc in enumerate(tr.findall("w:tc", _NS)):
-        if i == _ASSIGNEE_COL_INDEX:
-            out.append(_cell_assignee_text(tc))
-        else:
-            out.append(_cell_text(tc))
-    return out
+    """كل الخلايا مع الحفاظ على أسطر القائمة — عمود المكلف يُحدَّد لاحقاً بالعنوان لا بالفهرس."""
+    return [_literal_cell_text(tc) for tc in tr.findall("w:tc", _NS)]
 
 
 def _row_fills(tr: ET.Element) -> list[str]:
@@ -109,8 +210,94 @@ def _is_table_header_row(texts: list[str]) -> bool:
     joined = _normalize_header_blob(" ".join(texts))
     if not joined:
         return False
+    if _has_numbered_event(joined) or _has_numbered_dilemma(joined):
+        return False
     hits = sum(1 for m in _HEADER_MARKERS if m.replace(" ", "") in joined)
-    return hits >= 3
+    return hits >= 2
+
+
+def _cell_header_key(s: str) -> str:
+    return _normalize_header_blob(s or "")
+
+
+def _col_map_from_header_row(texts: list[str]) -> dict[str, int]:
+    """يربط اسم الحقل بفهرس العمود من صف العناوين — المكلف بالاسم لا بالترتيب."""
+    mapping: dict[str, int] = {}
+    for i, raw in enumerate(texts):
+        key = _cell_header_key(raw)
+        if not key:
+            continue
+        if "المكلف" in key:
+            mapping["assignee"] = i
+        elif "وصف" in key:
+            mapping["description"] = i
+        elif "أسلوب" in key:
+            mapping["method"] = i
+        elif "ردالفعل" in key or "ردالفعلالمتوقع" in key:
+            mapping["reaction"] = i
+        elif "ملاحظات" in key:
+            mapping["notes"] = i
+        elif "توقيت" in key and "كورا" in key:
+            mapping["time_kora"] = i
+        elif "أنظمة" in key or "التبليغ" in key:
+            mapping["report_systems"] = i
+        elif key in ("إلى", "الى"):
+            mapping["time_to"] = i
+        elif key == "من":
+            mapping["time_from"] = i
+        elif "التوقيتالحقيقي" in key or ("توقيت" in key and "الحقيقي" in key):
+            mapping["time"] = i
+        elif "الوقت" in key:
+            mapping.setdefault("time", i)
+        elif "كورا" in key:
+            mapping.setdefault("time_kora", i)
+        elif "الحقيقي" in key:
+            mapping.setdefault("time", i)
+    return mapping
+
+
+def _cell_at(texts: list[str], index: int | None) -> str:
+    if index is None or index < 0 or index >= len(texts):
+        return ""
+    return texts[index] or ""
+
+
+def _map_data_row(texts: list[str], col_map: dict[str, int] | None = None) -> dict | None:
+    if not any((c or "").strip() for c in texts):
+        return None
+    cmap = dict(col_map or {})
+    if cmap:
+        assignee_i = cmap.get("assignee")
+        if assignee_i is None:
+            assignee_i = _LEGACY_ASSIGNEE_COL_INDEX
+        return {
+            "kind": "row",
+            "time": _cell_at(texts, cmap.get("time")),
+            "time_kora": _cell_at(texts, cmap.get("time_kora")),
+            "time_from": _cell_at(texts, cmap.get("time_from")),
+            "time_to": _cell_at(texts, cmap.get("time_to")),
+            "report_systems": _cell_at(texts, cmap.get("report_systems")),
+            "report_real": _cell_at(texts, cmap.get("report_real")),
+            "report_kora": _cell_at(texts, cmap.get("report_kora")),
+            "description": _cell_at(texts, cmap.get("description")),
+            "assignee": _cell_at(texts, assignee_i),
+            "method": _cell_at(texts, cmap.get("method")),
+            "reaction": _cell_at(texts, cmap.get("reaction")),
+            "notes": _cell_at(texts, cmap.get("notes")),
+        }
+    return {
+        "kind": "row",
+        "time": _cell_at(texts, 1 if len(texts) > 1 else None),
+        "time_kora": "",
+        "time_from": "",
+        "time_to": "",
+        "report_systems": "",
+        "description": _cell_at(texts, 2 if len(texts) > 2 else None),
+        "assignee": _cell_at(texts, _LEGACY_ASSIGNEE_COL_INDEX),
+        "method": _cell_at(texts, 4 if len(texts) > 4 else None),
+        "reaction": _cell_at(texts, 5 if len(texts) > 5 else None),
+        "notes": "",
+    }
 
 
 def _row_has_fill(fills: list[str], palette: frozenset[str]) -> bool:
@@ -147,29 +334,14 @@ def _is_numbered_dilemma_row(fills: list[str], texts: list[str]) -> bool:
 
 
 def _merged_row_text(texts: list[str]) -> str:
-    parts = [t for t in texts if (t or "").strip()]
+    parts: list[str] = []
+    seen: set[str] = set()
+    for t in texts:
+        s = (t or "").strip()
+        if s and s not in seen:
+            seen.add(s)
+            parts.append(s)
     return " ".join(parts).strip()
-
-
-def _pad_cells(texts: list[str], n: int = 6) -> list[str]:
-    cells = list(texts)
-    while len(cells) < n:
-        cells.append("")
-    return cells[:n]
-
-
-def _map_data_row(texts: list[str]) -> dict | None:
-    cells = _pad_cells(texts, 6)
-    if not any((c or "").strip() for c in cells):
-        return None
-    return {
-        "kind": "row",
-        "time": cells[1] or "",
-        "description": cells[2] or "",
-        "assignee": cells[3] or "",
-        "method": cells[4] or "",
-        "reaction": cells[5] or "",
-    }
 
 
 def _paragraphs_before_table(body: ET.Element) -> list[str]:
@@ -227,18 +399,31 @@ def parse_planner_flow_docx_bytes(data: bytes) -> dict:
     rows_out: list[dict] = []
     warnings: list[str] = []
     skipped_headers = 0
+    col_map: dict[str, int] = {}
 
-    for tr in tbl.findall("w:tr", _NS):
-        texts = _row_cells(tr)
-        fills = _row_fills(tr)
-
+    for texts, fills in _logical_rows_from_tbl(tbl):
         if _is_table_header_row(texts):
             skipped_headers += 1
+            row_map = _col_map_from_header_row(texts)
+            if "assignee" not in row_map and col_map:
+                for key in (
+                    "report_real",
+                    "report_kora",
+                    "report_systems",
+                    "time_from",
+                    "time_to",
+                    "time_kora",
+                    "time",
+                ):
+                    if key in row_map:
+                        col_map[key] = row_map[key]
+            else:
+                col_map.update(row_map)
             continue
 
         # الصفوف البيضاء تبقى صفوف بيانات حتى لو وردت فيها «حدث» أو «معضلة».
         if _is_white_row(fills):
-            item = _map_data_row(texts)
+            item = _map_data_row(texts, col_map)
             if item is not None:
                 rows_out.append(item)
             continue
@@ -255,7 +440,7 @@ def parse_planner_flow_docx_bytes(data: bytes) -> dict:
                 rows_out.append({"kind": "dilemma", "text": text})
             continue
 
-        item = _map_data_row(texts)
+        item = _map_data_row(texts, col_map)
         if item is not None:
             rows_out.append(item)
 
@@ -298,10 +483,20 @@ def _normalize_import_rows(raw_rows: list) -> list[dict]:
                 {
                     "kind": "row",
                     "time": str(item.get("time") or "")[:500],
+                    "time_kora": str(item.get("time_kora") or "")[:500],
+                    "time_from": str(item.get("time_from") or "")[:500],
+                    "time_to": str(item.get("time_to") or "")[:500],
+                    "report_systems": str(
+                        item.get("report_systems")
+                        or item.get("report_real")
+                        or item.get("report_kora")
+                        or ""
+                    )[:500],
                     "description": str(item.get("description") or "")[:4000],
                     "assignee": str(item.get("assignee") or "")[:4000],
                     "method": str(item.get("method") or "")[:500],
                     "reaction": str(item.get("reaction") or "")[:500],
+                    "notes": str(item.get("notes") or "")[:2000],
                 }
             )
     return out

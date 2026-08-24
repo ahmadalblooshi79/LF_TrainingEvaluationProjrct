@@ -610,10 +610,20 @@ def _normalize_flow_rows(raw_rows) -> list[dict]:
                 {
                     "kind": "row",
                     "time": str(item.get("time") or "")[:500],
+                    "time_kora": str(item.get("time_kora") or "")[:500],
+                    "time_from": str(item.get("time_from") or "")[:500],
+                    "time_to": str(item.get("time_to") or "")[:500],
+                    "report_systems": str(
+                        item.get("report_systems")
+                        or item.get("report_real")
+                        or item.get("report_kora")
+                        or ""
+                    )[:500],
                     "description": str(item.get("description") or "")[:4000],
-                    "assignee": str(item.get("assignee") or "")[:500],
+                    "assignee": str(item.get("assignee") or "")[:4000],
                     "method": str(item.get("method") or "")[:500],
                     "reaction": str(item.get("reaction") or "")[:500],
+                    "notes": str(item.get("notes") or "")[:2000],
                 }
             )
     return out
@@ -1280,6 +1290,45 @@ def withdraw_single_action_eval_from_ibank(
         unit_key=uk,
         selected_node_ids=selected,
     )
+
+
+def withdraw_all_action_eval_for_day(
+    db: Session,
+    *,
+    exercise_id: int,
+    phase_key: str,
+    flow_day_id: str,
+) -> dict[str, int]:
+    """سحب نشر كل قوائم تقييم المعاضل المنشورة ليوم المجرى المحدد."""
+    prepare_action_eval_ibank_tree(db)
+    pk = _resolve_phase_key(phase_key, db) or normalize_exercise_phase(phase_key)
+    want_day = (flow_day_id or "").strip()
+    units = set(roster_eval_display_unit_keys(db, int(exercise_id)))
+    bundles = (
+        db.query(ExercisePlannerFlowBundle)
+        .filter(
+            ExercisePlannerFlowBundle.exercise_id == int(exercise_id),
+            ExercisePlannerFlowBundle.exercise_phase == pk,
+        )
+        .all()
+    )
+    for bundle in bundles:
+        uk = (bundle.unit_level_key or "").strip()
+        if uk:
+            units.add(uk)
+    totals = {"removed": 0, "units": 0}
+    for uk in sorted(units):
+        stats = publish_action_eval_lists_from_ibank(
+            db,
+            exercise_id=int(exercise_id),
+            phase_key=pk,
+            unit_key=uk,
+            selected_node_ids=set(),
+            flow_day_id=want_day or None,
+        )
+        totals["units"] += 1
+        totals["removed"] += int(stats.get("removed", 0))
+    return totals
 
 
 def publish_phase_action_eval_lists_from_ibank(

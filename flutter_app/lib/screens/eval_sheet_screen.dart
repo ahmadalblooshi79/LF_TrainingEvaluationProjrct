@@ -303,6 +303,8 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
           slotId: detail.slotId,
           itemId: detail.itemId,
           title: detail.title,
+          evalDocTitle: detail.evalDocTitle,
+          evalDocSubtitle: detail.evalDocSubtitle,
           unitKey: detail.unitKey,
           unitLabel: detail.unitLabel,
           phaseKey: detail.phaseKey,
@@ -388,10 +390,29 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
           width: double.infinity,
           color: AppColors.titleBar,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Text(
-            sheetTitle,
-            textAlign: TextAlign.center,
-            style: AppTextStyles.cairo(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.olive),
+          child: Column(
+            children: [
+              Text(
+                detail.evalDocTitle.isNotEmpty ? detail.evalDocTitle : sheetTitle,
+                textAlign: TextAlign.center,
+                style: AppTextStyles.cairo(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.olive),
+              ),
+              if (detail.evalDocSubtitle.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    detail.evalDocSubtitle,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.cairo(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.olive,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
         Expanded(
