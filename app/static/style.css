@@ -11712,6 +11712,21 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
 .ibank-tree-card {
   padding: 0.4rem 0.5rem;
 }
+.ibank-tree-card__tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  min-width: 0;
+  justify-self: start;
+}
+.ibank-tree-tool-btn {
+  width: 1.7rem;
+  height: 1.7rem;
+  min-width: 1.7rem;
+  padding: 0 !important;
+  justify-content: center;
+}
 .ibank-tree-toolbar {
   display: flex;
   flex-direction: column;
@@ -11937,6 +11952,20 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   background: #fff;
   cursor: pointer;
   box-sizing: border-box;
+}
+.ibank-tree-unit-select--locked,
+.ibank-tree-unit-select:disabled {
+  cursor: default;
+  color: #000;
+  opacity: 1;
+  background: var(--surface-muted, #f5f1ec);
+  pointer-events: none;
+}
+.ibank-tree-unit-form .ibank-tree-unit-select:not(:disabled) {
+  background: #fff;
+  border-color: #8a6a4a;
+  cursor: pointer;
+  pointer-events: auto;
 }
 .ibank-tree-judge-readonly {
   width: 14rem;

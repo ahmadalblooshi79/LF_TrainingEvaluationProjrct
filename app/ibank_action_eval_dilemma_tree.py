@@ -17,10 +17,12 @@ from app.ibank_dilemma_folder_import import (
 from app.info_bank_tree import exercise_judge_names_by_unit
 from app.models.domain import InformationBankEventFlowTable, InformationBankTreeNode
 from app.planner_flow_judge_labels import (
+    flow_assignee_label_for_unit_key,
     parse_assignee_cell_lines,
     unit_key_for_assignee_label,
     unit_label_for_assignee_label,
 )
+from app.unit_levels_catalog import label_for_unit_level_key
 
 # كلمات في اسم/عنوان الملف → كلمات في صنف المحكم (المكلف)
 _FILE_TO_ASSIGNEE_HINTS: list[tuple[tuple[str, ...], tuple[str, ...]]] = [
@@ -200,9 +202,13 @@ def _assignees_by_dilemma_from_flow(raw_json: str) -> dict[str, dict[int, list[s
             if kind == "dilemma":
                 text = (row.get("text") or "").strip()
                 dno = parse_dilemma_no_from_text(text)
+                if dno is None:
+                    dno = (max(bucket.keys()) if bucket else 0) + 1
                 current_no = dno
-                if dno is not None:
-                    bucket.setdefault(dno, [])
+                bucket.setdefault(dno, [])
+                for lbl in parse_assignee_cell_lines(row.get("assignee")):
+                    if lbl not in bucket[dno]:
+                        bucket[dno].append(lbl)
                 continue
             if kind == "event":
                 current_no = None
@@ -279,19 +285,17 @@ def _match_files_to_assignees(
             for x in (meta.get("assigned_unit_keys") or [])
             if (x or "").strip()
         }
-        if assigned_units:
-            matched_any = False
-            for a in ranked:
-                auk = (uk_map.get(a) or "").strip()
-                if not auk or auk not in assigned_units:
-                    continue
-                result[a].append(meta)
-                matched_any = True
-            if matched_any:
-                continue
         file_uk = (meta.get("unit_key") or "").strip()
         if file_uk and file_uk in unit_to_assignee:
             result[unit_to_assignee[file_uk]].append(meta)
+            continue
+        if assigned_units:
+            if len(assigned_units) == 1:
+                only = next(iter(assigned_units))
+                if only in unit_to_assignee:
+                    result[unit_to_assignee[only]].append(meta)
+                    continue
+            unmatched.append(meta)
             continue
         best_a = None
         best_s = 0
@@ -308,13 +312,29 @@ def _match_files_to_assignees(
         else:
             unmatched.append(meta)
     if unmatched:
-        targets = [a for a in ranked if a.startswith("محكم")] or ranked
-        if not targets:
-            result.setdefault("__unassigned__", []).extend(unmatched)
-        else:
-            for meta in unmatched:
-                tgt = min(targets, key=lambda a: (len(result.get(a) or []), a))
-                result[tgt].append(meta)
+        hold: list[dict] = []
+        dump: list[dict] = []
+        for meta in unmatched:
+            assigned = {
+                (x or "").strip()
+                for x in (meta.get("assigned_unit_keys") or [])
+                if (x or "").strip()
+            }
+            chosen = (meta.get("unit_key") or "").strip()
+            if assigned and (len(assigned) > 1 or chosen):
+                hold.append(meta)
+            else:
+                dump.append(meta)
+        if hold:
+            result.setdefault("__unassigned__", []).extend(hold)
+        if dump:
+            targets = [a for a in ranked if a.startswith("محكم")] or ranked
+            if not targets:
+                result.setdefault("__unassigned__", []).extend(dump)
+            else:
+                for meta in dump:
+                    tgt = min(targets, key=lambda a: (len(result.get(a) or []), a))
+                    result[tgt].append(meta)
     return result
 
 
@@ -451,16 +471,41 @@ def _build_action_eval_dilemma_judge_tree_uncached(
             extra = matched.get("__unassigned__") or []
             if extra or (files_meta and not assignees):
                 extras = extra if assignees else files_meta
-                file_nodes = []
+                by_uk: dict[str, list[dict]] = {}
+                no_uk: list[dict] = []
                 for meta in extras:
-                    file_nodes.append(
+                    fuk = (meta.get("unit_key") or "").strip()
+                    if fuk:
+                        by_uk.setdefault(fuk, []).append(meta)
+                    else:
+                        no_uk.append(meta)
+
+                def _extra_file_nodes(metas: list[dict], person: str) -> list[dict]:
+                    nodes = []
+                    for meta in metas:
+                        nodes.append(
+                            {
+                                **meta,
+                                "judge_person_name": person or "—",
+                                "open_href": f"/admin/information-bank/action-eval/view/{meta['node_id']}",
+                            }
+                        )
+                    return nodes
+
+                for fuk in sorted(by_uk.keys()):
+                    person = (judge_names.get(fuk) or "").strip()
+                    ul = label_for_unit_level_key(fuk, db=db) or fuk
+                    asn = flow_assignee_label_for_unit_key(fuk, db=db) or ul
+                    judge_nodes.append(
                         {
-                            **meta,
-                            "judge_person_name": "—",
-                            "open_href": f"/admin/information-bank/action-eval/view/{meta['node_id']}",
+                            "assignee_label": asn,
+                            "unit_key": fuk,
+                            "unit_label": ul,
+                            "judge_person_name": person,
+                            "files": _extra_file_nodes(by_uk[fuk], person),
                         }
                     )
-                if file_nodes:
+                if no_uk:
                     judge_nodes.append(
                         {
                             "assignee_label": (
@@ -471,7 +516,7 @@ def _build_action_eval_dilemma_judge_tree_uncached(
                             "unit_key": "",
                             "unit_label": "",
                             "judge_person_name": "",
-                            "files": file_nodes,
+                            "files": _extra_file_nodes(no_uk, ""),
                         }
                     )
             day_nodes.append(

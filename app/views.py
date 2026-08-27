@@ -17355,7 +17355,20 @@ def admin_information_bank_tree_unit_level(node_id: int):
         == "application/json"
     )
     try:
-        set_folder_unit_level(db, kind=kind, node_id=node_id, unit_key=unit_key)
+        if kind == "action_eval":
+            if is_folder:
+                raise ValueError("لا يُعيَّن مستوى الوحدة على مجلد قوائم تقييم المعاضل.")
+            from app.ibank_dilemma_lists import set_action_eval_file_unit_choice
+            from app.ibank_action_eval_dilemma_tree import (
+                invalidate_action_eval_dilemma_tree_cache,
+            )
+            from app.info_bank_tree import invalidate_information_bank_kind_cache
+
+            set_action_eval_file_unit_choice(db, node_id=node_id, unit_key=unit_key)
+            invalidate_action_eval_dilemma_tree_cache()
+            invalidate_information_bank_kind_cache("action_eval")
+        else:
+            set_folder_unit_level(db, kind=kind, node_id=node_id, unit_key=unit_key)
         db.commit()
     except ValueError as exc:
         db.rollback()

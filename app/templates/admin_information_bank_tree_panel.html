@@ -96,13 +96,21 @@
           <input type="hidden" name="kind" value="{{ kind }}">
           <button type="submit" class="btn btn-danger btn-sm-compact"><i class="fa-solid fa-trash-can" aria-hidden="true"></i> مسح كل المحتويات</button>
         </form>
+        <span class="ibank-tree-card__tools" role="group" aria-label="طي وتوسيع الشجرة">
+          <button type="button" class="btn btn-ghost btn-icon-nav ibank-tree-tool-btn js-ibank-tree-expand-all" title="فتح الكل" aria-label="فتح الكل">
+            <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
+          </button>
+          <button type="button" class="btn btn-ghost btn-icon-nav ibank-tree-tool-btn js-ibank-tree-collapse-all" title="طي الكل" aria-label="طي الكل">
+            <i class="fa-solid fa-folder" aria-hidden="true"></i>
+          </button>
+        </span>
         {% endif %}
 
       </div>
 
       <p class="ibank-tree-dir-pick-status js-ibank-dir-pick-status" role="status" hidden></p>
 
-      <p class="ibank-tree-selection-label js-ibank-tree-target-label" role="status">{% if use_action_eval_day_tabs %}المستهدف: اليوم الحالي — «إرفاق مجلد» لإدراج مستويات الوحدات، أو حدّد مجلداً ثم أرفق{% elif kind == 'action_eval' %}المستهدف: الجذر — حدّد اليوم ثم «إرفاق مجلد» أو «إضافة مجلد» (اختياري)، واختر مستوى الوحدة من القائمة على المجلد{% elif is_unit_eval_tree %}المستهدف: الجذر — حدّد مرحلة التمرين ثم «إرفاق مجلد» أو «إضافة مجلد» (اختياري)، واختر مستوى الوحدة من القائمة على المجلد{% else %}المستهدف: الجذر — انقر «تحديد» على مجلد في الشجرة{% endif %}</p>
+      <p class="ibank-tree-selection-label js-ibank-tree-target-label" role="status">{% if use_action_eval_day_tabs %}المستهدف: اليوم الحالي — «إرفاق مجلد» لإدراج القوائم، أو حدّد مجلداً ثم أرفق{% elif kind == 'action_eval' %}المستهدف: الجذر — حدّد اليوم ثم «إرفاق مجلد» أو «إضافة مجلد» (اختياري){% elif is_unit_eval_tree %}المستهدف: الجذر — حدّد مرحلة التمرين ثم «إرفاق مجلد» أو «إضافة مجلد» (اختياري)، واختر مستوى الوحدة من القائمة على المجلد{% else %}المستهدف: الجذر — انقر «تحديد» على مجلد في الشجرة{% endif %}</p>
 
     </div>
 
@@ -112,7 +120,28 @@
       <div class="ibank-tree-unit-cluster" dir="rtl">
         <div class="ibank-tree-unit-pair" dir="rtl">
           <span class="ibank-tree-unit-cluster__label">مستوى الوحدة</span>
-          {% if information_bank_can_manage and n.show_unit_select %}
+          {% if kind == 'action_eval' and n.unit_choice_enabled and information_bank_can_manage and not n.is_folder %}
+          <form method="post" action="{{ url_for('views.admin_information_bank_tree_unit_level', node_id=n.id) }}" class="ibank-tree-unit-form">
+            <input type="hidden" name="kind" value="{{ kind }}">
+            {% if use_action_eval_day_tabs %}
+            <input type="hidden" name="action_eval_day" value="{{ active_action_eval_day|default('') }}" class="js-ibank-action-eval-day">
+            {% endif %}
+            <select id="ibank-unit-{{ n.id }}" name="unit_key" class="ibank-tree-unit-select js-ibank-tree-unit-select" aria-label="مستوى الوحدة — {{ n.name }}" data-judge-input="ibank-judge-{{ n.id }}" data-selected-unit="{{ (n.effective_unit_key or '')|e }}">
+              <option value="">— اختر مستوى الوحدة —</option>
+              {% for opt in n.unit_choice_options|default([]) %}
+              <option value="{{ opt.key }}"{% if n.effective_unit_key == opt.key %} selected{% endif %}>{{ opt.label }}</option>
+              {% endfor %}
+            </select>
+          </form>
+          {% elif kind == 'action_eval' %}
+          <select id="ibank-unit-{{ n.id }}" class="ibank-tree-unit-select ibank-tree-unit-select--locked" disabled aria-label="مستوى الوحدة — {{ n.name }}" data-judge-input="ibank-judge-{{ n.id }}" data-selected-unit="{{ (n.effective_unit_key or '')|e }}">
+            {% if n.unit_level_label %}
+            <option value="{{ n.effective_unit_key }}" selected>{{ n.unit_level_label }}</option>
+            {% else %}
+            <option value="" selected></option>
+            {% endif %}
+          </select>
+          {% elif information_bank_can_manage and n.show_unit_select %}
           <form method="post" action="{{ url_for('views.admin_information_bank_tree_unit_level', node_id=n.id) }}" class="ibank-tree-unit-form">
             <input type="hidden" name="kind" value="{{ kind }}">
             {% if use_action_eval_day_tabs %}
@@ -174,7 +203,7 @@
           {% if is_unit_eval_tree %}
           {% if n.is_folder and not n.is_phase_root %}
           {{ ibank_action_eval_unit_cluster(n) }}
-          {% elif not n.is_folder and (n.show_unit_select or n.effective_unit_key) %}
+          {% elif not n.is_folder and (n.show_unit_select or n.effective_unit_key or n.unit_choice_enabled) %}
           {{ ibank_action_eval_unit_cluster(n) }}
           {% endif %}
           {% endif %}
@@ -186,7 +215,7 @@
             <label class="ibank-tree-unit-cluster__label" for="ibank-judge-{{ n.id }}">اسم المحكم</label>
             <input type="text" id="ibank-judge-{{ n.id }}" class="ibank-tree-judge-readonly" value="{{ n.judge_name or '—' }}" readonly tabindex="-1" aria-label="اسم المحكم — {{ n.name }}" title="من قائمة المحكمين للتمرين الحالي">
           </span>
-          {% elif not n.is_folder and (n.show_unit_select or n.effective_unit_key) %}
+          {% elif not n.is_folder and (n.show_unit_select or n.effective_unit_key or n.unit_choice_enabled) %}
           <span class="ibank-tree-judge-pair" dir="rtl">
             <label class="ibank-tree-unit-cluster__label" for="ibank-judge-{{ n.id }}">اسم المحكم</label>
             <input type="text" id="ibank-judge-{{ n.id }}" class="ibank-tree-judge-readonly" value="{{ n.judge_name or '—' }}" readonly tabindex="-1" aria-label="اسم المحكم — {{ n.name }}" title="من قائمة المحكمين للتمرين الحالي">

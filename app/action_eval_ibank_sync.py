@@ -44,6 +44,7 @@ from app.models import (
     InformationBankTreeNode,
 )
 from app.unit_levels_catalog import label_for_unit_level_key, normalize_unit_level_key
+from app.planner_flow_judge_labels import flow_assignee_label_for_unit_key
 
 INFO_BANK_ACTION_EVAL_KIND = "action_eval"
 PRIMARY_FLOW_UNIT_KEY = "ul_brigade_grp_cmd"
@@ -2334,64 +2335,87 @@ def build_action_eval_dilemma_publish_groups(
             files = list(j.get("files") or [])
             if not uk and not files:
                 continue
-            # إن غاب unit_key عن المحكم، استنتجه من ملفات التقييم المرتبطة
+            file_groups: list[tuple[str, list[dict]]] = []
             if not uk and files:
-                from collections import Counter
+                from collections import defaultdict
 
-                cand: list[str] = []
+                buckets: dict[str, list[dict]] = defaultdict(list)
+                leftover: list[dict] = []
                 for fmeta in files:
                     fuk = _resolve_unit_key(fmeta.get("unit_key") or "", db) or (
                         fmeta.get("unit_key") or ""
                     ).strip()
                     if fuk:
-                        cand.append(fuk)
-                if cand:
-                    uk = Counter(cand).most_common(1)[0][0]
-            rows: list[dict] = []
-            for fmeta in files:
-                nid = int(fmeta.get("node_id") or 0)
-                if nid <= 0:
+                        buckets[fuk].append(fmeta)
+                    else:
+                        leftover.append(fmeta)
+                for fuk in sorted(buckets.keys()):
+                    file_groups.append((fuk, buckets[fuk]))
+                if leftover:
+                    file_groups.append(("", leftover))
+            else:
+                file_groups.append((uk, files))
+            for branch_uk, branch_files in file_groups:
+                rows: list[dict] = []
+                for fmeta in branch_files:
+                    nid = int(fmeta.get("node_id") or 0)
+                    if nid <= 0:
+                        continue
+                    title = (
+                        (fmeta.get("procedure_title") or "").strip()
+                        or (fmeta.get("name") or "").strip()
+                        or "قائمة تقييم إجراءات"
+                    )
+                    file_uk = _resolve_unit_key(fmeta.get("unit_key") or "", db) or (
+                        fmeta.get("unit_key") or ""
+                    ).strip() or branch_uk
+                    is_pub = nid in published_nodes_by_unit.get(file_uk, set())
+                    if not is_pub and branch_uk and file_uk != branch_uk:
+                        is_pub = nid in published_nodes_by_unit.get(branch_uk, set())
+                    if is_pub:
+                        published_count += 1
+                    rows.append(
+                        {
+                            "node_id": nid,
+                            "title": title[:2000],
+                            "published": is_pub,
+                            "dilemma_no": dno,
+                            "selected": False,
+                            "slot_id": None,
+                            "unit_key": file_uk,
+                        }
+                    )
+                    file_count += 1
+                if not rows and not branch_uk:
                     continue
-                title = (
-                    (fmeta.get("procedure_title") or "").strip()
-                    or (fmeta.get("name") or "").strip()
-                    or "قائمة تقييم إجراءات"
-                )
-                is_pub = nid in published_nodes_by_unit.get(uk, set())
-                if is_pub:
-                    published_count += 1
-                rows.append(
+                if branch_uk:
+                    unit_keys_seen.add(branch_uk)
+                judges_out.append(
                     {
-                        "node_id": nid,
-                        "title": title[:2000],
-                        "published": is_pub,
-                        "dilemma_no": dno,
-                        "selected": False,
-                        "slot_id": None,
+                        "assignee_label": (j.get("assignee_label") or "").strip()
+                        or (
+                            flow_assignee_label_for_unit_key(branch_uk, db=db)
+                            if branch_uk
+                            else ""
+                        ),
+                        "unit_key": branch_uk,
+                        "unit_label": (j.get("unit_label") or "").strip()
+                        or label_for_unit_level_key(branch_uk, db=db)
+                        or branch_uk,
+                        "judge_name": (
+                            (j.get("judge_person_name") or "").strip()
+                            if uk
+                            else ""
+                        )
+                        or judge_by_unit.get(branch_uk, "—"),
+                        "trainee_name": trainee_by_unit.get(branch_uk, "—")
+                        if branch_uk
+                        else "—",
+                        "rows": rows,
+                        "file_count": len(rows),
                     }
                 )
-                file_count += 1
-            if not rows and not uk:
-                continue
-            if uk:
-                unit_keys_seen.add(uk)
-            judges_out.append(
-                {
-                    "assignee_label": (j.get("assignee_label") or "").strip(),
-                    "unit_key": uk,
-                    "unit_label": (j.get("unit_label") or "").strip()
-                    or label_for_unit_level_key(uk, db=db)
-                    or uk,
-                    "judge_name": (
-                        (j.get("judge_person_name") or "").strip()
-                        or judge_by_unit.get(uk, "—")
-                    ),
-                    "trainee_name": trainee_by_unit.get(uk, "—") if uk else "—",
-                    "rows": rows,
-                    "file_count": len(rows),
-                }
-            )
-            judge_count += 1
+                judge_count += 1
         if not judges_out:
             continue
         groups.append(

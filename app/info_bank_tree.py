@@ -716,6 +716,8 @@ def _ensure_folder_unit_key_for_upload(
     """تثبيت catalog_unit_key على المجلد عند الرفع إن وُجد استنتاج من الاسم."""
     if (folder.catalog_unit_key or "").strip() or _is_phase_root_folder(folder):
         return
+    if (folder.kind or "") == "action_eval":
+        return
     if _is_nested_unit_folder(db, folder):
         return
     uk = folder_resolved_unit_key(db, folder)
@@ -755,6 +757,8 @@ def _unit_key_for_node(db: Session, node: InformationBankTreeNode) -> str:
 def _sync_folder_unit_key_from_name(db: Session, node: InformationBankTreeNode) -> bool:
     """تصحيح catalog_unit_key من اسم المجلد (مثل السرية/2 → ul_mech2_bn_c2)."""
     if not node.is_folder or _is_phase_root_folder(node):
+        return False
+    if (node.kind or "") == "action_eval":
         return False
     # لا تُعيَّن وحدة على مجلد باسم مرحلة تمرين
     if _match_phase_key_by_folder_name(db, node.name or ""):
@@ -798,7 +802,12 @@ def _apply_catalog_keys_from_parent(
     uk = _unit_key_for_upload_target(db, parent) if parent.is_folder else (
         (parent.catalog_unit_key or "").strip()
     )
-    if uk and not row.is_folder and not (row.catalog_unit_key or "").strip():
+    if (
+        uk
+        and not row.is_folder
+        and (row.kind or "") != "action_eval"
+        and not (row.catalog_unit_key or "").strip()
+    ):
         row.catalog_unit_key = uk[:128]
     if pk and not row.is_folder and not (row.catalog_phase_key or "").strip():
         row.catalog_phase_key = pk[:64]
@@ -1059,7 +1068,10 @@ def _backfill_unit_eval_folder_catalog(db: Session, kind: str) -> bool:
         if parent is not None and not _is_phase_root_folder(node):
             before_pk = (node.catalog_phase_key or "").strip()
             before_uk = (node.catalog_unit_key or "").strip()
-            if not _sync_folder_unit_key_from_name(db, node):
+            if (node.kind or "") == "action_eval" and node.is_folder:
+                if before_uk:
+                    node.catalog_unit_key = ""
+            elif not _sync_folder_unit_key_from_name(db, node):
                 _apply_catalog_keys_from_parent(db, node, parent)
             if (node.catalog_phase_key or "").strip() != before_pk or (
                 node.catalog_unit_key or ""
@@ -1429,6 +1441,9 @@ def add_custom_folder(
         else (_phase_key_for_node(db, parent) if parent else "")
     )
     pending_uk = (unit_key or "").strip()
+    if (kind or "") == "action_eval":
+        pending_uk = ""
+        inherit_uk = ""
     effective_uk = pending_uk or inherit_uk
     row = get_or_create_folder(
         db,
@@ -1823,6 +1838,16 @@ def build_tree_payload(
     judge_map = dict(judge_name_by_unit or {})
     phase_key_cache: dict[int, str] = {}
     unit_key_cache: dict[int, str] = {}
+    bank_by_base: dict[str, set[str]] | None = None
+    bank_units_cache: dict[int, list[str]] = {}
+    if kind == "action_eval":
+        from app.ibank_dilemma_lists import (
+            assignments_by_basename,
+            is_action_eval_xlsx_name,
+            normalize_list_basename,
+        )
+
+        bank_by_base = assignments_by_basename(db)
 
     def phase_key_mem(n: InformationBankTreeNode) -> str:
         nid = int(n.id)
@@ -1887,6 +1912,21 @@ def build_tree_payload(
         unit_key_cache[nid] = puk
         return puk
 
+    def bank_units_mem(n: InformationBankTreeNode) -> list[str]:
+        if bank_by_base is None:
+            return []
+        nid = int(n.id)
+        if nid in bank_units_cache:
+            return bank_units_cache[nid]
+        keys: set[str] = set()
+        if not n.is_folder and is_action_eval_xlsx_name(n.name or ""):
+            base = normalize_list_basename(n.name or "")
+            if base:
+                keys |= set(bank_by_base.get(base) or set())
+        ordered = sorted(keys)
+        bank_units_cache[nid] = ordered
+        return ordered
+
     def node_dict(n: InformationBankTreeNode) -> dict:
         children = [node_dict(c) for c in by_parent.get(int(n.id), [])]
         eff_uk = unit_key_mem(n)
@@ -1897,20 +1937,56 @@ def build_tree_payload(
         show_unit = False
         if is_unit_eval_tree_kind(kind) and not is_phase_root:
             show_unit = bool(phase_key_mem(n))
-        d: dict = {
-            "id": int(n.id),
-            "name": n.name,
-            "is_folder": bool(n.is_folder),
-            "is_system": bool(n.is_system),
-            "is_phase_root": is_phase_root,
-            "flow_day_id": flow_day_id,
-            "children": children,
-            "catalog_unit_key": (n.catalog_unit_key or "").strip(),
-            "effective_unit_key": eff_uk,
-            "unit_level_label": labels.get(eff_uk, "") if eff_uk else "",
-            "judge_name": judge_map.get(eff_uk, "") if eff_uk else "",
-            "show_unit_select": show_unit,
-        }
+        bank_keys = bank_units_mem(n) if kind == "action_eval" else []
+        if kind == "action_eval":
+            stored_uk = (n.catalog_unit_key or "").strip()
+            unit_choice_enabled = False
+            if n.is_folder or not bank_keys:
+                display_uk = ""
+            elif len(bank_keys) == 1:
+                display_uk = bank_keys[0]
+            else:
+                unit_choice_enabled = not n.is_folder
+                display_uk = stored_uk if stored_uk in bank_keys else ""
+            unit_label = (labels.get(display_uk) or display_uk).strip() if display_uk else ""
+            d: dict = {
+                "id": int(n.id),
+                "name": n.name,
+                "is_folder": bool(n.is_folder),
+                "is_system": bool(n.is_system),
+                "is_phase_root": is_phase_root,
+                "flow_day_id": flow_day_id,
+                "children": children,
+                "catalog_unit_key": stored_uk,
+                "effective_unit_key": display_uk,
+                "unit_level_label": unit_label,
+                "judge_name": (judge_map.get(display_uk) or "").strip() if display_uk else "",
+                "show_unit_select": show_unit,
+                "dilemma_bank_unit_keys": bank_keys,
+                "unit_choice_enabled": unit_choice_enabled,
+                "unit_choice_options": [
+                    {"key": k, "label": (labels.get(k) or k).strip() or k}
+                    for k in bank_keys
+                ],
+            }
+        else:
+            d = {
+                "id": int(n.id),
+                "name": n.name,
+                "is_folder": bool(n.is_folder),
+                "is_system": bool(n.is_system),
+                "is_phase_root": is_phase_root,
+                "flow_day_id": flow_day_id,
+                "children": children,
+                "catalog_unit_key": (n.catalog_unit_key or "").strip(),
+                "effective_unit_key": eff_uk,
+                "unit_level_label": labels.get(eff_uk, "") if eff_uk else "",
+                "judge_name": judge_map.get(eff_uk, "") if eff_uk else "",
+                "show_unit_select": show_unit,
+                "dilemma_bank_unit_keys": [],
+                "unit_choice_enabled": False,
+                "unit_choice_options": [],
+            }
         if not n.is_folder and n.file_relpath:
             d["file_url"] = True
         return d

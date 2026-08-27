@@ -31,7 +31,10 @@ _Y_M_RE = re.compile(
     re.IGNORECASE,
 )
 _MUADALA_RE = re.compile(r"معضل[ةه]\s*[/\\-]?\s*(\d+)", re.IGNORECASE)
-_DILEMMA_TEXT_NO_RE = re.compile(r"المعضل[ةه]\s*/\s*(\d+)", re.IGNORECASE)
+_DILEMMA_TEXT_NO_RE = re.compile(
+    r"(?:ال)?معضل[ةه]\s*[/\\-]?\s*(\d+)",
+    re.IGNORECASE,
+)
 
 
 def dilemma_folder_unit_key(day_id: str, dilemma_no: int) -> str:

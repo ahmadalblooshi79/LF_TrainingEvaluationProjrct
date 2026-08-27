@@ -29,8 +29,32 @@ class DilemmaFolderParseTests(unittest.TestCase):
         self.assertEqual(parse_day_no_from_dirname("1. اليوم 1"), 1)
         self.assertEqual(parse_day_no_from_dirname("2. اليوم2"), 2)
 
-    def test_parse_text_no(self):
-        self.assertEqual(parse_dilemma_no_from_text("المعضلة/7: عطل"), 7)
+    def test_assignees_collected_when_dilemma_title_uses_hyphen(self):
+        import json
+
+        from app.ibank_action_eval_dilemma_tree import _assignees_by_dilemma_from_flow
+
+        raw = json.dumps(
+            {
+                "days": [
+                    {
+                        "id": "day-1",
+                        "rows": [
+                            {
+                                "kind": "dilemma",
+                                "text": "المعضلة-3: إنذار وهجوم طائرة مسيرة",
+                            },
+                            {
+                                "kind": "row",
+                                "assignee": "محكم الطبية\nمحكم الصيانة",
+                            },
+                        ],
+                    }
+                ]
+            }
+        )
+        out = _assignees_by_dilemma_from_flow(raw)
+        self.assertEqual(out["day-1"][3], ["محكم الطبية", "محكم الصيانة"])
 
     def test_scan_desktop_day1_if_present(self):
         root = Path(r"C:/Users/W10User/Desktop")

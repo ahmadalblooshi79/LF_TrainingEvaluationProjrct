@@ -227,6 +227,12 @@ def assignments_by_basename(db: Session) -> dict[str, set[str]]:
     return out
 
 
+def is_action_eval_xlsx_name(name: str) -> bool:
+    """هل الاسم ملف قائمة Excel (xlsx/xlsm)."""
+    low = (name or "").lower()
+    return low.endswith(".xlsx") or low.endswith(".xlsm")
+
+
 def assigned_units_for_action_eval_name(
     db: Session,
     name: str,
@@ -234,6 +240,8 @@ def assigned_units_for_action_eval_name(
     by_base: dict[str, set[str]] | None = None,
 ) -> set[str]:
     """الوحدات المفروضة على قائمة إجراءات حسب مطابقة اسم الملف مع قوائم المعاضل."""
+    if not is_action_eval_xlsx_name(name or ""):
+        return set()
     base = normalize_list_basename(name or "")
     if not base:
         return set()
@@ -241,50 +249,86 @@ def assigned_units_for_action_eval_name(
     return set(mapping.get(base) or set())
 
 
-def apply_dilemma_list_units_to_action_eval(db: Session) -> int:
-    """تعبئة مستوى الوحدة تلقائياً في قوائم تقييم الإجراءات حسب اختيارات هذه الصفحة.
+def set_action_eval_file_unit_choice(
+    db: Session, *, node_id: int, unit_key: str
+) -> str:
+    """حفظ اختيار يدوي لمستوى الوحدة عندما تُخصَّص أكثر من وحدة في بنك المعاضل."""
+    node = db.get(InformationBankTreeNode, int(node_id))
+    if (
+        node is None
+        or (node.kind or "") != "action_eval"
+        or bool(node.is_folder)
+        or not is_action_eval_xlsx_name(node.name or "")
+    ):
+        raise ValueError("الملف غير صالح لاختيار مستوى الوحدة.")
+    assigned = assigned_units_for_action_eval_name(db, node.name or "")
+    if len(assigned) < 2:
+        raise ValueError(
+            "اختيار الوحدة اليدوي متاح فقط عند تخصيص أكثر من وحدة في بنك المعاضل."
+        )
+    uk = (unit_key or "").strip()
+    if uk not in assigned:
+        raise ValueError("مستوى الوحدة ليس من الوحدات المخصصة لهذه القائمة.")
+    valid = (
+        db.query(InformationBankUnitLevel.key)
+        .filter(InformationBankUnitLevel.key == uk)
+        .first()
+    )
+    if not valid:
+        raise ValueError("مستوى وحدة غير صالح")
+    from app.info_bank_tree import _phase_key_for_node
 
-    - قائمة بوحدة واحدة: تُعبَّأ فوراً إن كان الحقل فارغاً.
-    - قائمة بعدة وحدات: تُعبَّأ إن تطابق مستوى الوحدة الموروث/الحالي مع إحدى الوحدات المفروضة،
-      أو تُترك فارغة للنقاش لاحقاً إن لم يتضح السياق.
+    phase_key = _phase_key_for_node(db, node)
+    node.catalog_unit_key = uk[:128]
+    if phase_key:
+        node.catalog_phase_key = phase_key[:64]
+    db.flush()
+    return uk
+
+
+def apply_dilemma_list_units_to_action_eval(db: Session) -> int:
+    """تعبئة مستوى الوحدة على ملفات Excel فقط من اختيارات بنك المعاضل.
+
+    المجلدات وملفات غير Excel تُترك فارغة. وحدة واحدة تُحفَظ تلقائياً.
+    عدة وحدات: يُبقى الاختيار اليدوي إن بقي ضمن الوحدات المخصصة، وإلا يُفرَّغ.
     """
     by_base = assignments_by_basename(db)
-    if not by_base:
-        return 0
-    from app.info_bank_tree import _unit_key_for_node
+    from app.info_bank_tree import _is_phase_root_folder
 
     rows = (
         db.query(InformationBankTreeNode)
-        .filter(
-            InformationBankTreeNode.kind == "action_eval",
-            InformationBankTreeNode.is_folder.is_(False),
-        )
+        .filter(InformationBankTreeNode.kind == "action_eval")
         .all()
     )
+
     updated = 0
-    for row in rows:
-        base = normalize_list_basename(row.name or "")
-        if not base or base not in by_base:
-            continue
-        assigned = by_base[base]
-        if not assigned:
-            continue
+
+    def assign_key(row: InformationBankTreeNode, keys: set[str]) -> None:
+        nonlocal updated
         current = (row.catalog_unit_key or "").strip()
-        if current and current in assigned:
+        if len(keys) == 1:
+            wanted = next(iter(keys))
+        elif len(keys) > 1:
+            wanted = current if current in keys else ""
+        else:
+            wanted = ""
+        if current == wanted:
+            return
+        row.catalog_unit_key = wanted
+        updated += 1
+
+    for row in rows:
+        if row.is_folder:
+            if _is_phase_root_folder(row) or row.parent_id is None:
+                continue
+            assign_key(row, set())
             continue
-        if len(assigned) == 1:
-            only = next(iter(assigned))
-            if current != only:
-                row.catalog_unit_key = only
-                updated += 1
+        if not is_action_eval_xlsx_name(row.name or ""):
+            assign_key(row, set())
             continue
-        # وحدات متعددة: إن وُجد سياق وحدة موروث ضمن المفروضات نستخدمه
-        if current:
-            continue
-        inherited = (_unit_key_for_node(db, row) or "").strip()
-        if inherited and inherited in assigned:
-            row.catalog_unit_key = inherited
-            updated += 1
+        base = normalize_list_basename(row.name or "")
+        keys = set(by_base.get(base) or set()) if base else set()
+        assign_key(row, keys)
     if updated:
         db.flush()
     return updated

@@ -736,6 +736,13 @@
         });
       }
 
+      function expandAllFolders() {
+        var scope = getActivePane() || page;
+        scope.querySelectorAll('.ibank-tree-has-children').forEach(function (li) {
+          setFolderExpanded(li, true);
+        });
+      }
+
       function saveTreeUiState() {
         var scope = getActivePane() || page;
         var expanded = [];
@@ -813,10 +820,10 @@
 
       function defaultRootLabel() {
         if (dayTabsMode) {
-          return 'اليوم الحالي — «إرفاق مجلد» لإدراج مستويات الوحدات، أو حدّد مجلداً ثم أرفق';
+          return 'اليوم الحالي — «إرفاق مجلد» لإدراج القوائم، أو حدّد مجلداً ثم أرفق';
         }
         if (kind === 'action_eval') {
-          return 'الجذر — حدّد اليوم ثم «إرفاق مجلد» أو «إضافة مجلد» (اختياري)، واختر مستوى الوحدة من القائمة على المجلد';
+          return 'اليوم الحالي — «إرفاق مجلد» لإدراج القوائم، أو حدّد مجلداً ثم أرفق';
         }
         if (isUnitEvalTree) {
           return 'الجذر — حدّد مرحلة التمرين ثم «إرفاق مجلد» أو «إضافة مجلد» (اختياري)، واختر مستوى الوحدة من القائمة على المجلد';
@@ -854,6 +861,7 @@
       }
 
       function folderHasUnitLevel(li) {
+        if (kind === 'action_eval') return true;
         if (!isUnitEvalTree || !li) return true;
         return Boolean((li.getAttribute('data-effective-unit-key') || '').trim());
       }
@@ -985,7 +993,7 @@
           if (!targetId) {
             labelEl.textContent = 'المستهدف: ' + defaultRootLabel();
           } else {
-            var hint = (isUnitEvalTree && tgtLi && isFolder && !folderHasUnitLevel(tgtLi) && !isPhaseRootTarget(targetId))
+            var hint = (isUnitEvalTree && kind !== 'action_eval' && tgtLi && isFolder && !folderHasUnitLevel(tgtLi) && !isPhaseRootTarget(targetId))
               ? ' — اختر مستوى الوحدة من القائمة على المجلد المرفق'
               : (!isFolder ? ' — للتحريك' : '');
             labelEl.textContent = 'المستهدف: ' + (name || '') + hint;
@@ -1406,10 +1414,12 @@
           sel.setAttribute('data-options-filled', '1');
         }
         page.querySelectorAll('.js-ibank-unit-select-lazy').forEach(function (sel) {
+          if (sel.disabled) return;
           sel.addEventListener('focus', function () { fillLazyUnitSelect(sel); });
           sel.addEventListener('mousedown', function () { fillLazyUnitSelect(sel); });
         });
         page.querySelectorAll('.js-ibank-tree-unit-select').forEach(function (sel) {
+          if (sel.disabled) return;
           sel.addEventListener('change', function () {
             var inpId = sel.getAttribute('data-judge-input') || '';
             var inp = inpId ? document.getElementById(inpId) : null;
@@ -1548,6 +1558,21 @@
           saveTreeUiState();
         });
       });
+
+      var expandAllBtn = page.querySelector('.js-ibank-tree-expand-all');
+      if (expandAllBtn) {
+        expandAllBtn.addEventListener('click', function () {
+          expandAllFolders();
+          saveTreeUiState();
+        });
+      }
+      var collapseAllBtn = page.querySelector('.js-ibank-tree-collapse-all');
+      if (collapseAllBtn) {
+        collapseAllBtn.addEventListener('click', function () {
+          collapseAllFolders();
+          saveTreeUiState();
+        });
+      }
 
       page.querySelectorAll('.js-ibank-tree-delete-form').forEach(function (form) {
         form.addEventListener('submit', function (e) {
