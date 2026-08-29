@@ -6,6 +6,7 @@ import '../models/list_row.dart';
 import '../services/api_client.dart';
 import '../services/tablet_repository.dart';
 import '../theme/app_theme.dart';
+import '../theme/grade_style.dart';
 import '../widgets/app_header.dart';
 import '../widgets/async_state_views.dart';
 import '../widgets/figma_ui.dart';
@@ -130,20 +131,38 @@ class _Row extends StatelessWidget {
   final int index;
   final ListRow row;
 
+  Color? get _rowBg {
+    switch (row.rowTone) {
+      case 'returned':
+        return const Color(0xFFFFCDD2);
+      case 'sent':
+        return const Color(0xFFC8E6C9);
+      case 'pending':
+        return const Color(0xFFFFE0B2);
+      default:
+        return row.statusLabel.contains('معاد') ? const Color(0xFFFFCDD2) : null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final slot = row.slotIndex ?? row.slotId;
+    final slot = row.slotId ?? row.slotIndex;
     void open() {
       if (slot == null) return;
-      context.push('/action-eval/$slot', extra: row.title);
+      context.push('/action-eval/$slot', extra: row.title).then((_) {
+        if (context.mounted) {
+          context.findAncestorStateOfType<_ActionEvalListsScreenState>()?._load();
+        }
+      });
     }
 
     return InkWell(
       onTap: slot == null ? null : open,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppColors.divider)),
+        decoration: BoxDecoration(
+          color: _rowBg,
+          border: const Border(bottom: BorderSide(color: AppColors.divider)),
         ),
         child: Row(
           children: [
@@ -154,11 +173,7 @@ class _Row extends StatelessWidget {
             ),
             Expanded(
               flex: 2,
-              child: Text(
-                row.gradeLabel.isNotEmpty ? row.gradeLabel : '—',
-                textAlign: TextAlign.center,
-                style: AppTextStyles.small,
-              ),
+              child: Center(child: GradeLabelChip(label: row.gradeLabel)),
             ),
             Expanded(
               flex: 2,
@@ -170,7 +185,14 @@ class _Row extends StatelessWidget {
             ),
             Expanded(
               flex: 2,
-              child: Center(child: FigmaStatusPill(done: row.statusDone, label: row.statusLabel)),
+              child: Center(
+                child: FigmaStatusPill(
+                  done: row.statusDone && !row.statusLabel.contains('معاد'),
+                  label: row.statusLabel.isNotEmpty
+                      ? row.statusLabel
+                      : (row.statusDone ? 'معتمد' : 'لم ينجز'),
+                ),
+              ),
             ),
             Expanded(
               flex: 2,

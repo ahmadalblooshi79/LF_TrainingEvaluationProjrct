@@ -55,6 +55,81 @@ def _json_error(message: str, status: int = 400, **extra):
     return jsonify(body), status
 
 
+def _resolve_planner_action_eval_pair(user: User, ex: Exercise | None, slot: int):
+    """يفتح صف تقييم إجراءات المجرى بالـ slot_id (مفضّل) أو slot_index ضمن وحدة المحكم فقط."""
+    from app.models.domain import (
+        ExercisePlannerFlowBundle,
+        ExercisePlannerFlowBundleActionEval,
+    )
+    from app.permissions import can_oversee_judge_planner_flow_materials
+    from app.views import (
+        _judge_assigned_unit_key,
+        _judge_planner_flow_action_bundle_row,
+    )
+
+    if ex is None:
+        return None
+
+    assigned = (_judge_assigned_unit_key(g.db, user, ex) or "").strip()
+    oversee = can_oversee_judge_planner_flow_materials(user)
+
+    def _pair_if_allowed(action_row: ExercisePlannerFlowBundleActionEval | None):
+        if action_row is None or not (action_row.file_relpath or "").strip():
+            return None
+        bundle = g.db.get(ExercisePlannerFlowBundle, int(action_row.bundle_id))
+        if bundle is None or int(bundle.exercise_id) != int(ex.id):
+            return None
+        buk = (bundle.unit_level_key or "").strip()
+        # لا تُفتح قائمة وحدة أخرى لمحكم مخصّص بوحدة مختلفة
+        if assigned and buk and assigned != buk and not oversee:
+            return None
+        return bundle, action_row
+
+    # 1) معرّف الصف الفريد (slot_id) — لا يتعارض بين الوحدات
+    by_id = _pair_if_allowed(g.db.get(ExercisePlannerFlowBundleActionEval, int(slot)))
+    if by_id is not None:
+        return by_id
+
+    # 2) مسار الويب: ?action_eval_id=
+    action_eval_id = request.args.get("action_eval_id", type=int)
+    if action_eval_id and int(action_eval_id) != int(slot):
+        by_qid = _pair_if_allowed(
+            g.db.get(ExercisePlannerFlowBundleActionEval, int(action_eval_id))
+        )
+        if by_qid is not None:
+            return by_qid
+
+    # 3) حزمة المحكم + slot_index
+    try:
+        pair = _judge_planner_flow_action_bundle_row(g.db, user, ex, slot)
+    except Exception:
+        # abort(403) وغيرها — لا تمنع مسار slot_index المقيّد بالوحدة
+        pair = None
+    if pair is not None:
+        return pair
+
+    # 4) slot_index داخل وحدة المحكم فقط — ممنوع أخذ أول صف من وحدة أخرى
+    if not assigned and not oversee:
+        return None
+
+    q = (
+        g.db.query(ExercisePlannerFlowBundleActionEval)
+        .join(
+            ExercisePlannerFlowBundle,
+            ExercisePlannerFlowBundle.id
+            == ExercisePlannerFlowBundleActionEval.bundle_id,
+        )
+        .filter(
+            ExercisePlannerFlowBundle.exercise_id == int(ex.id),
+            ExercisePlannerFlowBundleActionEval.slot_index == int(slot),
+        )
+    )
+    if assigned and not oversee:
+        q = q.filter(ExercisePlannerFlowBundle.unit_level_key == assigned)
+    action_row = q.order_by(ExercisePlannerFlowBundleActionEval.id).first()
+    return _pair_if_allowed(action_row)
+
+
 def _client_op_id_from_request(data: dict | None = None) -> str:
     hdr = (
         request.headers.get("Idempotency-Key")
@@ -134,6 +209,60 @@ def _record_client_op(
         g.db.rollback()
 
 
+_last_device_touch_at: dict[str, float] = {}
+
+
+def _touch_connected_device(user: User | None, *, is_login: bool = False) -> None:
+    """يسجّل/يحدّث الجهاز في connected_devices لصفحة إدارة الخادم."""
+    import time
+
+    if user is None:
+        return
+    # لا تقرأ body هنا — قد يفسد طلبات POST قبل وصولها للـ view
+    device_id = (request.headers.get("X-LF-Device-Id") or "").strip()
+    if not device_id:
+        return
+    now = time.time()
+    if not is_login and (now - _last_device_touch_at.get(device_id, 0.0)) < 25.0:
+        return
+    try:
+        from app.server_monitor.device_sessions import (
+            log_activity,
+            register_or_update_device,
+        )
+
+        from urllib.parse import unquote
+
+        device_name = unquote(
+            (request.headers.get("X-LF-Device-Name") or "").strip()
+        )
+        register_or_update_device(
+            g.db,
+            device_id=device_id,
+            device_name=device_name or "تابلت محكم",
+            device_ip=(request.remote_addr or "").strip(),
+            user=user,
+            user_agent=(request.headers.get("User-Agent") or "")[:512],
+            is_login=is_login,
+        )
+        if is_login:
+            log_activity(
+                g.db,
+                category="login",
+                message=f"دخول تابلت: {device_name or device_id}",
+                user_id=int(user.id),
+                device_id=device_id,
+                details={"ip": (request.remote_addr or "").strip()},
+            )
+        g.db.commit()
+        _last_device_touch_at[device_id] = now
+    except Exception:
+        try:
+            g.db.rollback()
+        except Exception:
+            pass
+
+
 def _require_judge_json(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
@@ -142,6 +271,7 @@ def _require_judge_json(fn):
             return _json_error("غير مسجّل الدخول", 401)
         if not can_access_judge_hub(user):
             return _json_error("لا صلاحية لمساحة المحكمين", 403)
+        _touch_connected_device(user)
         return fn(user, *args, **kwargs)
 
     return wrapper
@@ -278,7 +408,7 @@ def _safe_row(r: dict) -> dict:
         "delivery_dt": _as_text(r.get("delivery_dt") or ""),
         "status_done": bool(r.get("status_done")),
         "status_label": _as_text(
-            r.get("status_label") or ("منجز" if r.get("status_done") else "غير منجز")
+            r.get("status_label") or ("معتمد" if r.get("status_done") else "لم ينجز")
         ),
         "unit_key": _as_text(r.get("unit_key") or r.get("unit") or ""),
         "unit_label": _as_text(r.get("unit_label") or ""),
@@ -331,6 +461,7 @@ def tablet_login():
     session.clear()
     session["user_id"] = int(user.id)
     session.permanent = True
+    _touch_connected_device(user, is_login=True)
     ex = _exercise_for(user)
     return jsonify({"ok": True, **_serialize_user_bundle(user, ex)})
 
@@ -494,21 +625,47 @@ def tablet_action_eval_lists(user: User):
     )
     if not day_id and day_tabs:
         day_id = str(day_tabs[0].get("id") or "")
+    # محكم فردي بلا وحدة مخصّصة: لا تعرض كل الوحدات (يسبب فتح قوائم خاطئة)
+    from app.views import _is_individual_judge_user
+
+    restrict_uk = uk or None
+    if _is_individual_judge_user(user) and not (uk or "").strip():
+        return jsonify(
+            {
+                "ok": True,
+                "day_id": day_id,
+                "day_tabs": day_tabs,
+                "phase_key": phase,
+                "unit_key": "",
+                "lists": [],
+                "meta": {"error": "لا توجد وحدة مخصّصة لهذا المحكم"},
+            }
+        )
     groups, meta = build_judge_action_eval_display_groups(
         g.db,
         exercise_id=int(ex.id),
         # مع يوم محدد: نطاق اليوم هو المرجع بغض النظر عن مرحلة التخزين.
         phase_key=None if day_id else (phase or None),
         flow_day_id=day_id or None,
-        restrict_unit_key=uk or None,
+        restrict_unit_key=restrict_uk,
     )
     groups = _enrich_judge_action_eval_groups(g.db, ex, groups, flow_qs={})
     lists: list[dict] = []
     for g0 in groups:
         for folder in g0.get("list_folder_groups") or []:
             for row in folder.get("rows") or []:
+                slot_id = int(row.get("slot_id") or 0)
+                slot_ix = int(row.get("slot_index") or 0)
+                open_id = slot_id or slot_ix
                 lists.append(
-                    _safe_row({**row, "unit_key": g0.get("unit_key") or uk})
+                    _safe_row(
+                        {
+                            **row,
+                            "unit_key": g0.get("unit_key") or uk,
+                            "open_href": f"/api/tablet/action-eval/{open_id}"
+                            + (f"?action_eval_id={slot_id}" if slot_id else ""),
+                        }
+                    )
                 )
 
     return jsonify(
@@ -527,16 +684,8 @@ def tablet_action_eval_lists(user: User):
 @bp.get("/action-eval/<int:slot>")
 @_require_judge_json
 def tablet_action_eval_detail(user: User, slot: int):
-    from werkzeug.exceptions import Forbidden, HTTPException
-
-    from app.models.domain import (
-        ExercisePlannerFlowBundle,
-        ExercisePlannerFlowBundleActionEval,
-    )
     from app.views import (
         _evaluation_sheet_view_context,
-        _judge_assigned_unit_key,
-        _judge_planner_flow_action_bundle_row,
         _planner_blob_display_filename,
         _planner_bundle_eval_canonical_saved,
         _planner_bundle_file_abspath,
@@ -548,48 +697,9 @@ def tablet_action_eval_detail(user: User, slot: int):
     if ex is None:
         return _json_error("لا يوجد تمرين نشط", 404)
 
-    pair = None
-    try:
-        pair = _judge_planner_flow_action_bundle_row(g.db, user, ex, slot)
-    except Forbidden:
-        pair = None
-    except HTTPException as exc:
-        if int(getattr(exc, "code", 0) or 0) == 403:
-            pair = None
-        else:
-            raise
-
-    # حساب بلا وحدة مخصصة / فشل التحقق: افتح بالـ slot_index أو slot_id مباشرة
+    pair = _resolve_planner_action_eval_pair(user, ex, slot)
     if pair is None:
-        action_row = (
-            g.db.query(ExercisePlannerFlowBundleActionEval)
-            .join(
-                ExercisePlannerFlowBundle,
-                ExercisePlannerFlowBundle.id
-                == ExercisePlannerFlowBundleActionEval.bundle_id,
-            )
-            .filter(
-                ExercisePlannerFlowBundle.exercise_id == int(ex.id),
-                ExercisePlannerFlowBundleActionEval.slot_index == int(slot),
-            )
-            .order_by(ExercisePlannerFlowBundleActionEval.id)
-            .first()
-        )
-        if action_row is None:
-            action_row = g.db.get(ExercisePlannerFlowBundleActionEval, int(slot))
-            if action_row is not None:
-                bundle0 = g.db.get(ExercisePlannerFlowBundle, int(action_row.bundle_id))
-                if bundle0 is None or int(bundle0.exercise_id) != int(ex.id):
-                    action_row = None
-        if action_row is None or not (action_row.file_relpath or "").strip():
-            return _json_error("القائمة غير موجودة", 404)
-        bundle = g.db.get(ExercisePlannerFlowBundle, int(action_row.bundle_id))
-        if bundle is None:
-            return _json_error("القائمة غير موجودة", 404)
-        assigned = (_judge_assigned_unit_key(g.db, user, ex) or "").strip()
-        if assigned and (bundle.unit_level_key or "").strip() not in ("", assigned):
-            return _json_error("هذه القائمة خارج نطاق وحدتك", 403)
-        pair = (bundle, action_row)
+        return _json_error("القائمة غير موجودة", 404)
 
     bundle, action_row = pair
     path = _planner_bundle_file_abspath(action_row.file_relpath)
@@ -647,10 +757,7 @@ def tablet_action_eval_detail(user: User, slot: int):
 def tablet_action_eval_save(user: User, slot: int):
     from werkzeug.exceptions import HTTPException
 
-    from app.views import (
-        _judge_planner_flow_action_bundle_row,
-        _planner_bundle_eval_commit_payload_save,
-    )
+    from app.views import _planner_bundle_eval_commit_payload_save
 
     data = request.get_json(silent=True) or {}
     client_op_id = _client_op_id_from_request(data)
@@ -659,7 +766,7 @@ def tablet_action_eval_save(user: User, slot: int):
         return replay
 
     ex = _exercise_for(user)
-    pair = _judge_planner_flow_action_bundle_row(g.db, user, ex, slot)
+    pair = _resolve_planner_action_eval_pair(user, ex, slot)
     if pair is None or ex is None:
         return _json_error("القائمة غير موجودة", 404)
     bundle, action_row = pair
@@ -701,10 +808,7 @@ def tablet_action_eval_save(user: User, slot: int):
 @_require_judge_json
 def tablet_action_eval_approve(user: User, slot: int):
     from app.evaluation_workflow import apply_judge_approve, eval_judge_can_edit
-    from app.views import (
-        _judge_planner_flow_action_bundle_row,
-        _planner_bundle_eval_canonical_saved,
-    )
+    from app.views import _planner_bundle_eval_canonical_saved
 
     data = request.get_json(silent=True) or {}
     client_op_id = _client_op_id_from_request(data)
@@ -713,7 +817,7 @@ def tablet_action_eval_approve(user: User, slot: int):
         return replay
 
     ex = _exercise_for(user)
-    pair = _judge_planner_flow_action_bundle_row(g.db, user, ex, slot)
+    pair = _resolve_planner_action_eval_pair(user, ex, slot)
     if pair is None or ex is None:
         return _json_error("القائمة غير موجودة", 404)
     _, action_row = pair
@@ -809,24 +913,7 @@ def tablet_evaluation_lists(user: User):
     items = q.order_by(EvaluationListPdfItem.sort_order, EvaluationListPdfItem.id).all()
     if phase:
         items = filter_evaluation_items_by_phase(items, phase)
-    # إن كانت المرحلة الافتراضية فارغة ولم يُطلب phase صراحةً — انتقل لأول مرحلة فيها عناصر
-    if not items and not (request.args.get("phase") or "").strip():
-        for pk in exercise_phase_keys():
-            if pk == phase:
-                continue
-            q2 = g.db.query(EvaluationListPdfItem).filter(
-                EvaluationListPdfItem.exercise_id == int(ex.id)
-            )
-            if uk:
-                q2 = q2.filter(EvaluationListPdfItem.unit_level_key == uk)
-            cand = filter_evaluation_items_by_phase(
-                q2.order_by(EvaluationListPdfItem.sort_order, EvaluationListPdfItem.id).all(),
-                pk,
-            )
-            if cand:
-                phase = pk
-                items = cand
-                break
+    # التبويب الأول دائماً هو الافتراضي — لا ننتقل تلقائياً لمرحلة أخرى
     item_ids = [int(it.id) for it in items]
     canonical_by_item = _evaluation_canonical_map_for_items(g.db, ex.id, item_ids)
     lists = []
@@ -850,8 +937,17 @@ def tablet_evaluation_lists(user: User):
                 }
             )
         )
+    phase_keys = list(exercise_phase_keys())
+    if not phase_keys:
+        from app.evaluation_list_ibank_sync import (
+            effective_eval_list_phase_keys,
+            roster_eval_display_unit_keys,
+        )
+
+        roster_units = roster_eval_display_unit_keys(g.db, int(ex.id))
+        phase_keys = effective_eval_list_phase_keys(g.db, roster_units=roster_units)
     phase_tabs = [
-        {"key": k, "label": exercise_phase_label(k)} for k in exercise_phase_keys()
+        {"key": k, "label": exercise_phase_label(k) or k} for k in phase_keys
     ]
     return jsonify(
         {

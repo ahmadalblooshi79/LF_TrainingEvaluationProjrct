@@ -28,8 +28,8 @@ class ExercisePhase(str, enum.Enum):
     """مرحلة التمرين لمع ضبط المعاضل وقوائم التقييم."""
 
     PREPARATION = "preparation"  # مرحلة التحضير
-    OPENING = "opening"  # مرحلة الإنفتاح
-    MAIN = "main"  # مرحلة المعركة التعرضية
+    OPENING = "opening"  # مرحلة الانفتاح
+    MAIN = "main"  # مرحلة العملية التعرضية
     REORG = "reorg"  # مرحلة مسارات التقييم
 
 

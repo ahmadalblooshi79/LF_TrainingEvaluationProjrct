@@ -6,10 +6,40 @@
 
 TRAINING_PHASES: list[dict[str, str]] = [
     {"key": "preparation", "label": "مرحلة التحضير"},
-    {"key": "opening", "label": "مرحلة الإنفتاح"},
-    {"key": "battle_exposure", "label": "مرحلة المعركة التعرضية"},
     {"key": "reorganization", "label": "مرحلة مسارات التقييم"},
+    {"key": "opening", "label": "مرحلة الانفتاح"},
+    {"key": "battle_exposure", "label": "مرحلة العملية التعرضية"},
 ]
+
+# ترتيب ثابت للمراحل (يُستخدم عند ترتيب مفاتيح ظهرت خارج الكتالوج).
+TRAINING_PHASE_ORDER: tuple[str, ...] = tuple(p["key"] for p in TRAINING_PHASES)
+
+
+def ordered_training_phase_keys(keys: list[str] | set[str] | tuple[str, ...]) -> list[str]:
+    """يرتب مفاتيح المراحل حسب التسلسل الرسمي؛ المفاتيح غير المعروفة تُلحق في النهاية."""
+    order = {k: i for i, k in enumerate(TRAINING_PHASE_ORDER)}
+    # مرادفات قديمة → موضع المفتاح الحالي
+    aliases = {
+        "main": "battle_exposure",
+        "reorg": "reorganization",
+        "evaluation_tracks": "reorganization",
+    }
+    seen: set[str] = set()
+    out: list[str] = []
+    unknown: list[str] = []
+    for raw in keys:
+        k = (raw or "").strip()
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        canon = aliases.get(k, k)
+        if canon in order:
+            out.append(k)
+        else:
+            unknown.append(k)
+    out.sort(key=lambda x: order.get(aliases.get(x, x), 999))
+    out.extend(sorted(unknown))
+    return out
 
 # مجموعات الألوية في بنك المعلومات (تبويب مستويات الوحدات — التنظيم)
 INFO_BANK_BRIGADE_GROUPS: list[dict[str, str]] = [

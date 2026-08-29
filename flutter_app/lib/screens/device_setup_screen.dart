@@ -45,9 +45,12 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
     });
     final reachable = await HealthService.instance.check(force: true);
     if (!reachable) {
+      final detail = ApiClient.instance.lastPingDetail;
       setState(() {
         _busy = false;
-        _error = 'السيرفر غير متاح';
+        _error = detail.isNotEmpty
+            ? 'السيرفر غير متاح\n$detail'
+            : 'السيرفر غير متاح';
         _info = null;
       });
       return;
@@ -65,7 +68,7 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
       });
       return;
     }
-    setState(() => _info = 'جارٍ تنزيل حزمة التمرين...');
+    setState(() => _info = 'جارٍ تنزيل حزمة التمرين (قد يستغرق دقيقة)...');
     final ok = await PackageSyncService.instance.downloadAndStorePackage();
     if (!mounted) return;
     if (!ok) {

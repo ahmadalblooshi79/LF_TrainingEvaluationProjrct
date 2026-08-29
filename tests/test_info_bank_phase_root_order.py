@@ -22,11 +22,12 @@ class PhaseRootOrderProtectionTests(unittest.TestCase):
         Base.metadata.create_all(engine)
         self.db = sessionmaker(bind=engine)()
         self.phases = []
+        # ترتيب متعمّد مخالف للأبجدي وللترتيب الرسمي — يجب أن يبقى كما خُزّن
         for i, (key, name) in enumerate(
             (
-                ("opening", "مرحلة الإنفتاح"),
+                ("opening", "مرحلة الانفتاح"),
                 ("preparation", "مرحلة التحضير"),
-                ("battle_exposure", "مرحلة المعركة التعرضية"),
+                ("battle_exposure", "مرحلة العملية التعرضية"),
                 ("reorganization", "مرحلة مسارات التقييم"),
             )
         ):
@@ -61,9 +62,9 @@ class PhaseRootOrderProtectionTests(unittest.TestCase):
         self.assertEqual(
             self._root_names(),
             [
-                "مرحلة الإنفتاح",
+                "مرحلة الانفتاح",
                 "مرحلة التحضير",
-                "مرحلة المعركة التعرضية",
+                "مرحلة العملية التعرضية",
                 "مرحلة مسارات التقييم",
             ],
         )

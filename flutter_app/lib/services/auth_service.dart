@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -8,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
 import 'api_client.dart';
 import 'connectivity_service.dart';
+import 'device_presence_service.dart';
 import 'offline_store.dart';
 
 const String kLastSessionCacheKey = 'session_bundle';
@@ -252,13 +254,7 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
     try {
       final offlineReady = await canOfflineLoginAs(username);
-      final hasNet = ConnectivityService.instance.hasNetwork.value;
       final configured = ApiClient.instance.isConfigured;
-
-      // Offline-First: بدون شبكة أو بدون عنوان سيرفر → دخول محلي فوراً
-      if (offlineReady && (!hasNet || !configured)) {
-        return await _loginOffline(username, password);
-      }
 
       if (!configured) {
         if (offlineReady) {
@@ -270,20 +266,19 @@ class AuthService extends ChangeNotifier {
         return false;
       }
 
-      // إن وُجدت بيانات محلية ولا شبكة ظاهرة: لا ننتظر مهلة Ping
-      if (offlineReady && !hasNet) {
-        return await _loginOffline(username, password);
-      }
-
-      final reachable = hasNet
-          ? await ApiClient.instance.ping(timeout: const Duration(seconds: 2))
-          : false;
+      // جرّب السيرفر دائماً عند وجود عنوان — مؤشر الشبكة قد يكون خاطئاً
+      final reachable = await ApiClient.instance.ping(
+        timeout: const Duration(seconds: 8),
+      );
 
       if (!reachable) {
         if (offlineReady) {
           return await _loginOffline(username, password);
         }
-        _lastError = _firstLoginNeedsServerMessage();
+        final base = ApiClient.instance.baseUrl;
+        _lastError =
+            'تعذّر الاتصال بالخادم ($base).\n'
+            'تأكد أن السيرفر يعمل على نفس الشبكة وأن المنفذ صحيح (افتراضي 8005).';
         return false;
       }
 
@@ -310,6 +305,7 @@ class AuthService extends ChangeNotifier {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool(kWasLoggedInPrefKey, true);
         _lastLoginWasOffline = false;
+        unawaited(DevicePresenceService.instance.register(isLogin: true));
         return true;
       } on ApiOfflineException {
         if (offlineReady) {

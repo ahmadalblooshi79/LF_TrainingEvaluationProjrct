@@ -50,10 +50,12 @@ def flow_day_phase_rule_summary(flow_days: list[dict[str, str]] | None) -> list[
         for p in (TRAINING_PHASES or [])
         if str(p.get("key") or "").strip()
     }
-    labels.setdefault("opening", "مرحلة الإنفتاح")
-    labels.setdefault("battle_exposure", "مرحلة المعركة التعرضية")
-    labels.setdefault("reorganization", "مرحلة مسارات التقييم")
     labels.setdefault("preparation", "مرحلة التحضير")
+    labels.setdefault("reorganization", "مرحلة مسارات التقييم")
+    labels.setdefault("opening", "مرحلة الانفتاح")
+    labels.setdefault("battle_exposure", "مرحلة العملية التعرضية")
+    labels.setdefault("main", "مرحلة العملية التعرضية")
+    labels.setdefault("reorg", "مرحلة مسارات التقييم")
 
     rows: list[dict[str, str]] = []
     for day in flow_days or []:
@@ -420,8 +422,8 @@ def default_phase_key_for_flow_day_index(day_index: int) -> str:
 def ensure_ibank_flow_day_phase_keys(db: Session) -> list[dict[str, str]]:
     """يرتب/يملأ phase_key لأيام مجرى بنك المعلومات بالقاعدة الافتراضية ويحفظها.
 
-    - اليوم/1 واليوم/2 → مرحلة الإنفتاح
-    - اليوم/3 وما بعده → مرحلة المعركة التعرضية
+    - اليوم/1 واليوم/2 → مرحلة الانفتاح
+    - اليوم/3 وما بعده → مرحلة العملية التعرضية
     """
     import json
 
@@ -509,9 +511,10 @@ def phase_keys_ordered_by_flow_days(
     flow_days: list[dict[str, str]] | None,
     day_to_phase: dict[str, str] | None = None,
 ) -> list[str]:
-    """ترتيب مراحل التمرين حسب أول ظهور لها في أيام المجرى المرتبطة."""
+    """ترتيب مراحل التمرين الظاهرة في المجرى حسب التسلسل الرسمي للكتالوج."""
+    from app.information_bank_catalog import ordered_training_phase_keys
+
     mapping = day_to_phase or ibank_flow_day_phase_map(flow_days)
-    ordered: list[str] = []
     seen: set[str] = set()
     for day in flow_days or []:
         did = str(day.get("id") or "").strip()
@@ -519,10 +522,9 @@ def phase_keys_ordered_by_flow_days(
             (mapping.get(did) if did else "")
             or str(day.get("phase_key") or "")
         )
-        if pk and pk not in seen:
-            ordered.append(pk)
+        if pk:
             seen.add(pk)
-    return ordered
+    return ordered_training_phase_keys(seen)
 
 
 def ensure_default_analyst_day_phase_links(
@@ -534,8 +536,8 @@ def ensure_default_analyst_day_phase_links(
 
     مصدر الحقيقة: ``phase_key`` المحفوظ على يوم المجرى في بنك المعلومات.
     القاعدة الافتراضية (عند غياب المرحلة من البنك والروابط):
-    - اليوم/1 واليوم/2 → مرحلة الإنفتاح
-    - اليوم/3 وما بعده → مرحلة المعركة التعرضية
+    - اليوم/1 واليوم/2 → مرحلة الانفتاح
+    - اليوم/3 وما بعده → مرحلة العملية التعرضية
     """
     from app.info_bank_tree import ibank_event_flow_days
 

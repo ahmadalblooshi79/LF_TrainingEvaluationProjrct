@@ -38,8 +38,8 @@ DILEMMA_LISTS_KIND = "dilemma_lists"
 def is_unit_eval_tree_kind(kind: str) -> bool:
     return kind in INFO_BANK_UNIT_EVAL_TREE_KINDS
 
-# المراحل الرئيسية الثلاث المطلوبة في الشجرة
-PRIMARY_PHASE_KEYS = ("preparation", "opening", "battle_exposure")
+# المراحل الرئيسية في الشجرة (بنفس التسلسل الرسمي بدون مسارات التقييم كجذر إلزامي قديم)
+PRIMARY_PHASE_KEYS = ("preparation", "reorganization", "opening", "battle_exposure")
 
 # تبويب قوائم تقييم الإجراءات — جذور الشجرة = أيام مجرى الأحداث والمعاضل
 FLOW_DAY_CATALOG_PREFIX = "flow_day:"
@@ -484,6 +484,15 @@ def _phase_rows(db: Session) -> list[InformationBankTrainingPhase]:
     return out
 
 
+def _included_phase_rows(db: Session) -> list[InformationBankTrainingPhase]:
+    """مراحل التمرين المحددة في تبويب «مراحل التمرين» — لمجلدات قوائم التقييم."""
+    return [
+        ph
+        for ph in _phase_rows(db)
+        if bool(getattr(ph, "included_in_exercise", False))
+    ]
+
+
 def _unit_rows(db: Session) -> list[InformationBankUnitLevel]:
     rows = (
         db.query(InformationBankUnitLevel)
@@ -536,10 +545,14 @@ def _normalize_tree_label(text: str) -> str:
 # تسميات شائعة في المجلدات المرفقة (قد تختلف عن كتالوج المراحل)
 _PHASE_FOLDER_NAME_HINTS: tuple[tuple[str, str], ...] = (
     ("preparation", "التحضير"),
+    ("reorganization", "مسارات التقييم"),
+    ("reorganization", "إعادة التنظيم"),
     ("opening", "الانفتاح"),
-    ("battle_exposure", "التعرضية"),
+    ("opening", "الإنفتاح"),
+    ("battle_exposure", "العملية التعرضية"),
     ("battle_exposure", "العمليات التعرضية"),
     ("battle_exposure", "المعركة التعرضية"),
+    ("battle_exposure", "التعرضية"),
 )
 
 
@@ -604,6 +617,69 @@ def _record_tree_suppression(
         ),
         {"sec": current_ibank_section(), "kind": kind, "pk": pk, "uk": uk},
     )
+
+
+def _clear_tree_suppression(
+    db: Session,
+    *,
+    kind: str,
+    catalog_phase_key: str = "",
+    catalog_unit_key: str = "",
+) -> None:
+    """إزالة تثبيت الحذف اليدوي لمجلد مرحلة/وحدة."""
+    from app.database import ensure_information_bank_tree_suppressions_table
+    from app.ibank_section_ctx import current_ibank_section
+
+    pk = (catalog_phase_key or "").strip()
+    uk = (catalog_unit_key or "").strip()
+    if not pk and not uk:
+        return
+    ensure_information_bank_tree_suppressions_table()
+    db.execute(
+        text(
+            """
+            DELETE FROM information_bank_tree_suppressions
+            WHERE ibank_section = :sec AND kind = :kind
+              AND catalog_phase_key = :pk AND catalog_unit_key = :uk
+            """
+        ),
+        {"sec": current_ibank_section(), "kind": kind, "pk": pk, "uk": uk},
+    )
+
+
+def _prune_excluded_eval_phase_roots(
+    db: Session, kind: str, included_phase_keys: set[str]
+) -> bool:
+    """إزالة مجلدات مراحل فارغة لم تعد مدرجة في التمرين."""
+    if not is_unit_eval_tree_kind(kind):
+        return False
+    changed = False
+    roots = (
+        db.query(InformationBankTreeNode)
+        .filter(
+            InformationBankTreeNode.kind == kind,
+            InformationBankTreeNode.parent_id.is_(None),
+            InformationBankTreeNode.is_folder.is_(True),
+        )
+        .all()
+    )
+    for node in roots:
+        if not _is_phase_root_folder(node):
+            continue
+        pk = (node.catalog_phase_key or "").strip()
+        if not pk or pk in included_phase_keys:
+            continue
+        has_children = (
+            db.query(InformationBankTreeNode.id)
+            .filter(InformationBankTreeNode.parent_id == node.id)
+            .limit(1)
+            .first()
+        )
+        if has_children:
+            continue
+        db.delete(node)
+        changed = True
+    return changed
 
 
 def _is_tree_suppressed(
@@ -816,22 +892,36 @@ def _apply_catalog_keys_from_parent(
 def _propagate_catalog_to_subtree(
     db: Session, root_id: int, *, phase_key: str, unit_key: str
 ) -> None:
-    """تطبيق مستوى الوحدة على الملفات المباشرة تحت المجلد فقط — دون المجلدات الفرعية."""
+    """تطبيق مستوى الوحدة على كل ملفات القوائم تحت المجلد (بما فيها داخل المجلدات الفرعية).
+
+    المجلدات الفرعية لا يُفرَض عليها نفس مستوى الوحدة إن وُجد تعيين مستقل لها،
+    لكن ملفات Excel تحت المجلد المعيَّن تُحدَّث دائماً.
+    """
     pk = (phase_key or "").strip()
     uk = (unit_key or "").strip()
-    for ch in (
-        db.query(InformationBankTreeNode)
-        .filter(InformationBankTreeNode.parent_id == int(root_id))
-        .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
-        .all()
-    ):
-        if ch.is_folder:
-            ch.catalog_phase_key = ""
-            continue
-        if uk:
-            ch.catalog_unit_key = uk[:128]
-        if pk:
-            ch.catalog_phase_key = pk[:64]
+
+    def _walk(parent_id: int) -> None:
+        children = (
+            db.query(InformationBankTreeNode)
+            .filter(InformationBankTreeNode.parent_id == int(parent_id))
+            .order_by(
+                InformationBankTreeNode.sort_order,
+                InformationBankTreeNode.id,
+            )
+            .all()
+        )
+        for ch in children:
+            if ch.is_folder:
+                # المجلد الفرعي يبقى بدون مرحلة مخزّنة (المرحلة من السلسلة)
+                ch.catalog_phase_key = ""
+                _walk(int(ch.id))
+                continue
+            if uk:
+                ch.catalog_unit_key = uk[:128]
+            if pk:
+                ch.catalog_phase_key = pk[:64]
+
+    _walk(int(root_id))
 
 
 def _unit_eval_show_unit_select(db: Session, node: InformationBankTreeNode) -> bool:
@@ -843,7 +933,7 @@ def _unit_eval_show_unit_select(db: Session, node: InformationBankTreeNode) -> b
 def set_folder_unit_level(
     db: Session, *, kind: str, node_id: int, unit_key: str
 ) -> None:
-    """تعيين مستوى الوحدة لعنصر داخل مرحلة (مجلد يُطبَّق على محتوياته، ملف يُحفظ له وحده)."""
+    """تعيين مستوى الوحدة لعنصر داخل مرحلة (مجلد يُطبَّق على كل قوائمه، ملف يُحفظ له وحده)."""
     if not is_unit_eval_tree_kind(kind):
         raise ValueError("unsupported kind")
     row = get_node(db, node_id, kind)
@@ -1216,16 +1306,22 @@ def ensure_information_bank_tree(db: Session, kind: str, *, backfill: bool = Fal
         db.commit()
         return
     changed = False
-    phases = _phase_rows(db)
+    if is_unit_eval_tree_kind(kind):
+        phases = _included_phase_rows(db)
+    else:
+        phases = _phase_rows(db)
     units = _unit_rows(db)
     primary_keys = set(PRIMARY_PHASE_KEYS)
+    included_phase_keys = {(ph.key or "").strip() for ph in phases if (ph.key or "").strip()}
     for ph in phases:
         if ph.is_system and ph.key not in primary_keys and ph.key in {
             p["key"] for p in TRAINING_PHASES if p["key"] not in PRIMARY_PHASE_KEYS
         }:
             # مراحل نظام إضافية (مثل مسارات التقييم) — تُنشأ عند وجودها في الكتالوج
             pass
-        if _is_tree_suppressed(db, kind=kind, catalog_phase_key=ph.key):
+        if is_unit_eval_tree_kind(kind):
+            _clear_tree_suppression(db, kind=kind, catalog_phase_key=ph.key)
+        elif _is_tree_suppressed(db, kind=kind, catalog_phase_key=ph.key):
             continue
         phase_node = _find_phase_folder(db, kind, ph.key)
         if phase_node is None:
@@ -1242,7 +1338,10 @@ def ensure_information_bank_tree(db: Session, kind: str, *, backfill: bool = Fal
             db.add(phase_node)
             db.flush()
             changed = True
-        elif phase_node.name != (ph.label or "")[:500]:
+        elif (
+            phase_node.name != (ph.label or "")[:500]
+            or int(phase_node.sort_order or 0) != int(ph.sort_order or 0)
+        ):
             phase_node.name = (ph.label or ph.key)[:500]
             phase_node.sort_order = ph.sort_order
             changed = True
@@ -1275,6 +1374,10 @@ def ensure_information_bank_tree(db: Session, kind: str, *, backfill: bool = Fal
                 unit_node.name = (un.label or un.key)[:500]
                 unit_node.sort_order = un.sort_order
                 changed = True
+    if is_unit_eval_tree_kind(kind) and _prune_excluded_eval_phase_roots(
+        db, kind, included_phase_keys
+    ):
+        changed = True
     if changed:
         db.commit()
     if is_unit_eval_tree_kind(kind):
@@ -1494,6 +1597,8 @@ def _node_is_descendant_or_self(db: Session, ancestor_id: int, node_id: int) -> 
 
 
 def delete_node(db: Session, node: InformationBankTreeNode) -> None:
+    if _is_phase_root_folder(node) and is_unit_eval_tree_kind(node.kind):
+        raise ValueError("لا يمكن حذف مجلد مرحلة التمرين.")
     descendants = _collect_descendants_post_order(db, int(node.id))
     for ch in descendants:
         if ch.is_folder:

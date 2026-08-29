@@ -8,6 +8,7 @@ import '../services/health_service.dart';
 import '../services/media_upload_service.dart';
 import '../services/offline_store.dart';
 import '../services/package_sync_service.dart';
+import '../services/sync_preferences.dart';
 import '../services/sync_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_header.dart';
@@ -121,22 +122,14 @@ class _SyncStatusScreenState extends State<SyncStatusScreen> {
       _busy = true;
       _actionMsg = null;
     });
-    await HealthService.instance.check(force: true);
-    await SyncService.instance.flush();
-    final upErr = SyncService.instance.lastError.value;
-    final downOk = await PackageSyncService.instance.updateMyData();
+    final result = await SyncService.instance.runFullSync();
     if (!mounted) return;
-    final ok = (upErr == null || upErr.isEmpty) && downOk;
     setState(() {
       _busy = false;
-      _actionOk = ok;
-      _actionMsg = ok
+      _actionOk = result.ok;
+      _actionMsg = result.ok
           ? 'اكتملت المزامنة الكاملة (رفع ثم تنزيل)'
-          : [
-              if (upErr != null && upErr.isNotEmpty) 'رفع: $upErr',
-              if (!downOk)
-                'تنزيل: ${PackageSyncService.instance.lastError ?? 'فشل'}',
-            ].join('\n');
+          : (result.message ?? 'فشلت المزامنة');
     });
     await _reload();
   }
@@ -383,13 +376,22 @@ class _SyncStatusScreenState extends State<SyncStatusScreen> {
                           if (!kIsWeb)
                             Padding(
                               padding: const EdgeInsets.only(top: 8),
-                              child: Text(
-                                'عند توفر الشبكة يُرفع العمل تلقائياً، ويمكنك أيضاً المزامنة يدوياً في أي وقت.',
-                                style: AppTextStyles.cairo(
-                                  fontSize: 11,
-                                  color: AppColors.muted,
-                                ),
-                                textAlign: TextAlign.center,
+                              child: ValueListenableBuilder<TabletSyncMode>(
+                                valueListenable: SyncPreferences.instance.mode,
+                                builder: (_, mode, __) {
+                                  final auto =
+                                      mode == TabletSyncMode.automatic;
+                                  return Text(
+                                    auto
+                                        ? 'الوضع: مزامنة تلقائية — عند Wi‑Fi/Ethernet والوصول للسيرفر تُرفع الأعمال وتُحدَّث البيانات تلقائياً.'
+                                        : 'الوضع: مزامنة يدوية — استخدم الأزرار أدناه لمزامنة رفعك أو تنزيل بياناتك.',
+                                    style: AppTextStyles.cairo(
+                                      fontSize: 11,
+                                      color: AppColors.muted,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  );
+                                },
                               ),
                             ),
                         ],

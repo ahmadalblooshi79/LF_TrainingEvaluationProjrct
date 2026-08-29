@@ -1,0 +1,25 @@
+{
+"upload_session_id": "e736bf8bbc094998af280c24ec02ad34",
+"client_uuid": "media-1787945874941702-27",
+"user_id": 30,
+"exercise_id": 1,
+"unit_level_key": "ul_brigade_grp_cmd",
+"evaluation_list_item_id": 2,
+"bundle_action_eval_id": null,
+"row_index": 1,
+"media_kind": "video",
+"mime_type": "video/mp4",
+"file_size": 9286408,
+"checksum": "23a5817ff32dd544944467733171dbfc95dc23e0a4a9d95e3d9f48aa3d418a33",
+"original_filename": "1421.mp4",
+"chunk_size": 10485760,
+"total_chunks": 1,
+"received_chunks": [
+0
+],
+"status": "completed",
+"created_at": "2026-08-29T03:27:17.074326Z",
+"updated_at": "2026-08-29T03:27:20.890882Z",
+"server_media_id": 1,
+"final_checksum": "23a5817ff32dd544944467733171dbfc95dc23e0a4a9d95e3d9f48aa3d418a33"
+}

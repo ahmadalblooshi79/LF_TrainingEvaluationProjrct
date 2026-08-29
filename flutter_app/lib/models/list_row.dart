@@ -80,18 +80,33 @@ class ListRow {
     }
     final dispatch = (json['dispatch_label'] ?? json['workflow_label'] ?? '')
         .toString();
+    final rawLabel = (json['status_label'] ?? '').toString().trim();
+    final tone = (json['row_tone'] ?? '').toString();
+    final isReturned = tone == 'returned' ||
+        rawLabel.contains('معاد') ||
+        (json['workflow_label'] ?? '').toString().contains('معاد');
+    final done = !isReturned &&
+        (json['status_done'] == true ||
+            rawLabel == 'معتمد' ||
+            rawLabel == 'منجز' ||
+            rawLabel == 'ينجز');
+    final statusLabel = rawLabel.isNotEmpty
+        ? rawLabel
+        : (isReturned
+            ? 'معاد للتقييم'
+            : (done ? 'معتمد' : 'لم ينجز'));
     return ListRow(
       id: json['id'],
       slotIndex: asInt(json['slot_index']),
       slotId: asInt(json['slot_id']),
       itemId: asInt(json['item_id']),
-      title: (json['title'] ?? '').toString(),
+      title: (json['title'] ?? json['item_title'] ?? '').toString(),
       date: (json['date'] ?? '').toString(),
       seq: json['seq'],
       gradeLabel: (json['grade_label'] ?? '').toString(),
       deliveryDt: (json['delivery_dt'] ?? '').toString(),
-      statusDone: json['status_done'] == true,
-      statusLabel: (json['status_label'] ?? '').toString(),
+      statusDone: done,
+      statusLabel: statusLabel,
       unitKey: (json['unit_key'] ?? '').toString(),
       unitLabel: (json['unit_label'] ?? '').toString(),
       phaseKey: (json['phase_key'] ?? '').toString(),

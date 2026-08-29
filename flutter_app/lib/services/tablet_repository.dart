@@ -33,7 +33,9 @@ String newClientOpId([String prefix = 'op']) {
 
 /// Offline-first: UI → Local DB → Sync Engine → Server API.
 class TabletRepository {
-  TabletRepository._internal();
+  TabletRepository._internal() {
+    SyncService.onApproveSyncedHandler = notifyApproveSynced;
+  }
   static final TabletRepository instance = TabletRepository._internal();
 
   String _scoped(String cacheKey) {
@@ -46,6 +48,12 @@ class TabletRepository {
     final scoped = _scoped(cacheKey);
     final a = await OfflineStore.instance.cacheGet(scoped);
     if (a != null) return a;
+    // لا تقرأ كاشاً غير معزول لتفاصيل القوائم — يخلط بيانات محكّمين مختلفين
+    if (cacheKey.startsWith('action_eval_detail:') ||
+        cacheKey.startsWith('evaluation_list_detail:') ||
+        cacheKey.startsWith('action_eval_lists')) {
+      return null;
+    }
     if (scoped != cacheKey) {
       return OfflineStore.instance.cacheGet(cacheKey);
     }
@@ -62,6 +70,52 @@ class TabletRepository {
       data,
       syncStatus: syncStatus,
     );
+  }
+
+  String _evalListsCacheKey({String? unitKey, String? phase}) =>
+      'evaluation_lists:${unitKey ?? ''}:${phase ?? ''}';
+
+  /// يبحث في مفاتيح الكاش المحتملة (prefetch قد يخزّن تحت مفتاح بدون unit/phase).
+  Future<Map<String, dynamic>?> _readEvalListsCache({
+    String? unitKey,
+    String? phase,
+  }) async {
+    final candidates = <String>[
+      _evalListsCacheKey(unitKey: unitKey, phase: phase),
+      if (unitKey != null && unitKey.isNotEmpty)
+        _evalListsCacheKey(unitKey: unitKey, phase: ''),
+      _evalListsCacheKey(unitKey: '', phase: phase),
+      _evalListsCacheKey(unitKey: '', phase: ''),
+    ];
+    for (final k in candidates) {
+      final local = await _cacheGetScoped(k);
+      if (local == null) continue;
+      final wantPhase = (phase ?? '').trim();
+      if (wantPhase.isNotEmpty) {
+        final cachedPhase = (local['phase_key'] ?? '').toString().trim();
+        if (cachedPhase.isNotEmpty && cachedPhase != wantPhase) continue;
+      }
+      return local;
+    }
+    return null;
+  }
+
+  Future<void> _mirrorEvalListsCache(
+    Map<String, dynamic> data, {
+    String? unitKey,
+    String? phase,
+  }) async {
+    final uk = (unitKey ?? data['unit_key'] ?? '').toString();
+    final pk = (phase ?? data['phase_key'] ?? '').toString();
+    final keys = <String>{
+      _evalListsCacheKey(unitKey: uk, phase: pk),
+      if (uk.isNotEmpty) _evalListsCacheKey(unitKey: uk, phase: ''),
+      _evalListsCacheKey(unitKey: '', phase: pk),
+      _evalListsCacheKey(unitKey: '', phase: ''),
+    };
+    for (final k in keys) {
+      await _cacheSetScoped(k, data);
+    }
   }
 
   /// Local-First: اعرض المحلي فوراً. السحب الحي فقط عبر Update My Data.
@@ -147,7 +201,27 @@ class TabletRepository {
         'evaluation_lists::',
       );
       final uk = (ev['unit_key'] ?? '').toString();
+      final defaultPhase = (ev['phase_key'] ?? '').toString();
+      await _mirrorEvalListsCache(ev, unitKey: uk, phase: defaultPhase);
       await _prefetchAllEvalDetails(ev, uk);
+      final phaseTabs = ((ev['phase_tabs'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((e) => (e['key'] ?? '').toString())
+          .where((id) => id.isNotEmpty);
+      for (final pk in phaseTabs) {
+        if (pk == defaultPhase) continue;
+        try {
+          final q = <String, dynamic>{'phase': pk};
+          if (uk.isNotEmpty) q['unit_key'] = uk;
+          final phaseEv = await _downloadAndStore(
+            '/api/tablet/evaluation-lists',
+            _evalListsCacheKey(unitKey: uk, phase: pk),
+            query: q,
+          );
+          await _mirrorEvalListsCache(phaseEv, unitKey: uk, phase: pk);
+          await _prefetchAllEvalDetails(phaseEv, uk);
+        } catch (_) {}
+      }
     } catch (_) {}
     try {
       await _downloadAndStore('/api/tablet/objectives', 'objectives');
@@ -174,21 +248,44 @@ class TabletRepository {
     if (hasLocalEdits && existing != null) {
       // لا تمسح تعديلات معلّقة عند Update My Data
       final merged = Map<String, dynamic>.from(data);
-      merged['locally_modified'] = existing['locally_modified'] == true;
-      merged['locally_approved'] = existing['locally_approved'] == true;
-      if (existing['saved_payload'] is Map) {
-        merged['saved_payload'] = existing['saved_payload'];
-      }
-      if (existing['saved_rows'] != null) {
-        merged['saved_rows'] = existing['saved_rows'];
+      final serverWf = data['workflow'];
+      final serverReopened =
+          serverWf is Map && serverWf['reopened'] == true;
+      if (serverReopened) {
+        // كبير المحكمين أعاد القائمة — ألغِ الاعتماد المحلي المتقادم
+        merged['locally_approved'] = false;
+        merged['locally_modified'] = existing['locally_modified'] == true;
+        if (existing['locally_modified'] == true) {
+          if (existing['saved_payload'] is Map) {
+            merged['saved_payload'] = existing['saved_payload'];
+          }
+          if (existing['saved_rows'] != null) {
+            merged['saved_rows'] = existing['saved_rows'];
+          }
+        }
+      } else {
+        merged['locally_modified'] = existing['locally_modified'] == true;
+        merged['locally_approved'] = existing['locally_approved'] == true;
+        if (existing['saved_payload'] is Map) {
+          merged['saved_payload'] = existing['saved_payload'];
+        }
+        if (existing['saved_rows'] != null) {
+          merged['saved_rows'] = existing['saved_rows'];
+        }
       }
       await OfflineStore.instance.cacheSet(
         scopedKey,
         merged,
-        syncStatus: SyncStatuses.pending,
+        syncStatus: serverReopened && existing['locally_modified'] != true
+            ? SyncStatuses.synced
+            : SyncStatuses.pending,
       );
     } else {
-      await _cacheSetScoped(cacheKey, data);
+      var toStore = data;
+      if (_isListAggregateCacheKey(cacheKey)) {
+        toStore = await _overlayApprovedStatuses(Map<String, dynamic>.from(data));
+      }
+      await _cacheSetScoped(cacheKey, toStore);
     }
     if (cacheKey.startsWith('flow:')) {
       final active = (data['active_day_id'] ?? '').toString();
@@ -199,18 +296,24 @@ class TabletRepository {
     return data;
   }
 
+  /// مفتاح فتح قائمة الإجراءات: slot_id الفريد أولاً ثم slot_index.
+  int? actionEvalOpenId(ListRow row) => row.slotId ?? row.slotIndex;
+
   Future<void> _prefetchAllActionDetails(Map<String, dynamic> listsPayload) async {
     final lists = ((listsPayload['lists'] as List?) ?? const [])
         .whereType<Map>()
         .map((e) => ListRow.fromJson(e.cast<String, dynamic>()))
         .toList();
     for (final row in lists) {
-      final slot = row.slotIndex ?? row.slotId;
+      final slot = actionEvalOpenId(row);
       if (slot == null) continue;
+      final q = <String, dynamic>{};
+      if (row.slotId != null) q['action_eval_id'] = row.slotId;
       try {
         await _downloadAndStore(
           '/api/tablet/action-eval/$slot',
           'action_eval_detail:$slot',
+          query: q.isEmpty ? null : q,
         );
       } catch (_) {}
     }
@@ -240,8 +343,22 @@ class TabletRepository {
   }
 
   Future<Fetched<HomeData>> fetchHome() async {
+    final reachable = await HealthService.instance.check();
+    if (reachable) {
+      try {
+        final data = await _downloadAndStore('/api/tablet/home', 'home');
+        final overlaid =
+            await _overlayApprovedStatuses(Map<String, dynamic>.from(data));
+        await _cacheSetScoped('home', overlaid);
+        return Fetched(HomeData.fromJson(overlaid), false);
+      } catch (_) {
+        // fall through to local
+      }
+    }
     final r = await _readLocalFirst('/api/tablet/home', 'home');
-    return Fetched(HomeData.fromJson(r.data), r.fromCache);
+    final overlaid =
+        await _overlayApprovedStatuses(Map<String, dynamic>.from(r.data));
+    return Fetched(HomeData.fromJson(overlaid), r.fromCache);
   }
 
   Future<Fetched<FlowData>> fetchFlow({String? day}) async {
@@ -262,17 +379,76 @@ class TabletRepository {
 
   Future<Fetched<ActionEvalListsData>> fetchActionEvalLists({String? day}) async {
     final key = 'action_eval_lists:${day ?? ''}';
+    final reachable = await HealthService.instance.check();
+    if (reachable) {
+      try {
+        final data = await _downloadAndStore(
+          '/api/tablet/action-eval',
+          key,
+          query: day != null && day.isNotEmpty ? {'day': day} : null,
+        );
+        final overlaid =
+            await _overlayApprovedStatuses(Map<String, dynamic>.from(data));
+        await _cacheSetScoped(key, overlaid);
+        return Fetched(ActionEvalListsData.fromJson(overlaid), false);
+      } catch (_) {}
+    }
     final r = await _readLocalFirst(
       '/api/tablet/action-eval',
       key,
       query: day != null && day.isNotEmpty ? {'day': day} : null,
     );
-    return Fetched(ActionEvalListsData.fromJson(r.data), r.fromCache);
+    final overlaid =
+        await _overlayApprovedStatuses(Map<String, dynamic>.from(r.data));
+    return Fetched(ActionEvalListsData.fromJson(overlaid), r.fromCache);
   }
 
-  Future<Fetched<EvalSheetDetail>> fetchActionEvalDetail(int slot) async {
+  Future<Fetched<EvalSheetDetail>> fetchActionEvalDetail(int slot, {int? actionEvalId}) async {
     final key = 'action_eval_detail:$slot';
-    final r = await _readLocalFirst('/api/tablet/action-eval/$slot', key);
+    final q = <String, dynamic>{};
+    final aid = actionEvalId ?? slot;
+    q['action_eval_id'] = aid;
+
+    final reachable = await HealthService.instance.check();
+    if (reachable) {
+      try {
+        final data = await _downloadAndStore(
+          '/api/tablet/action-eval/$slot',
+          key,
+          query: q,
+        );
+        return Fetched(EvalSheetDetail.fromJson(data), false);
+      } catch (_) {
+        // استخدم المحلي إن وُجد عند فشل الشبكة اللحظي
+      }
+    }
+    final r = await _readLocalFirst(
+      '/api/tablet/action-eval/$slot',
+      key,
+      query: q,
+    );
+    return Fetched(EvalSheetDetail.fromJson(r.data), r.fromCache);
+  }
+
+  Future<Fetched<EvalSheetDetail>> fetchEvaluationListDetail(
+    String unitKey,
+    int itemId,
+  ) async {
+    final key = 'evaluation_list_detail:$unitKey:$itemId';
+    final reachable = await HealthService.instance.check();
+    if (reachable) {
+      try {
+        final data = await _downloadAndStore(
+          '/api/tablet/evaluation-lists/$unitKey/$itemId',
+          key,
+        );
+        return Fetched(EvalSheetDetail.fromJson(data), false);
+      } catch (_) {}
+    }
+    final r = await _readLocalFirst(
+      '/api/tablet/evaluation-lists/$unitKey/$itemId',
+      key,
+    );
     return Fetched(EvalSheetDetail.fromJson(r.data), r.fromCache);
   }
 
@@ -294,9 +470,14 @@ class TabletRepository {
     return false;
   }
 
-  Future<bool> approveActionEval(int slot) async {
+  Future<bool> approveActionEval(int slot, {String? gradeLabel}) async {
     final key = 'action_eval_detail:$slot';
     await _markLocallyApproved(key);
+    await _propagateListRowStatus(
+      matchActionSlot: slot,
+      approved: true,
+      gradeLabel: gradeLabel,
+    );
     await SyncService.instance.enqueueLocalFirst(
       id: newClientOpId('approve-ae-$slot'),
       method: 'POST',
@@ -314,28 +495,47 @@ class TabletRepository {
     String? unitKey,
     String? phase,
   }) async {
-    final key = 'evaluation_lists:${unitKey ?? ''}:${phase ?? ''}';
+    final sessionUk = AuthService.instance.session?.unitKey ?? '';
+    final effectiveUk = (unitKey != null && unitKey.isNotEmpty)
+        ? unitKey
+        : sessionUk;
     final query = <String, dynamic>{};
-    if (unitKey != null && unitKey.isNotEmpty) query['unit_key'] = unitKey;
+    if (effectiveUk.isNotEmpty) query['unit_key'] = effectiveUk;
     if (phase != null && phase.isNotEmpty) query['phase'] = phase;
-    final r = await _readLocalFirst(
-      '/api/tablet/evaluation-lists',
-      key,
-      query: query.isEmpty ? null : query,
-    );
-    return Fetched(EvaluationListsData.fromJson(r.data), r.fromCache);
-  }
 
-  Future<Fetched<EvalSheetDetail>> fetchEvaluationListDetail(
-    String unitKey,
-    int itemId,
-  ) async {
-    final key = 'evaluation_list_detail:$unitKey:$itemId';
-    final r = await _readLocalFirst(
-      '/api/tablet/evaluation-lists/$unitKey/$itemId',
-      key,
+    final reachable = await HealthService.instance.check();
+    if (reachable) {
+      try {
+        final data = await ApiClient.instance.get(
+          '/api/tablet/evaluation-lists',
+          query: query.isEmpty ? null : query,
+        );
+        final map = Map<String, dynamic>.from(data);
+        await _mirrorEvalListsCache(
+          map,
+          unitKey: effectiveUk,
+          phase: phase,
+        );
+        final overlaid = await _overlayApprovedStatuses(map);
+        return Fetched(EvaluationListsData.fromJson(overlaid), false);
+      } catch (_) {
+        // fall through to local
+      }
+    }
+
+    final local = await _readEvalListsCache(
+      unitKey: effectiveUk.isNotEmpty ? effectiveUk : null,
+      phase: phase,
     );
-    return Fetched(EvalSheetDetail.fromJson(r.data), r.fromCache);
+    if (local != null) {
+      final overlaid =
+          await _overlayApprovedStatuses(Map<String, dynamic>.from(local));
+      return Fetched(EvaluationListsData.fromJson(overlaid), true);
+    }
+
+    throw ApiOfflineException(
+      'لا توجد بيانات محلية لهذه الشاشة — نفّذ «تحديث بياناتي» أو تهيئة الجهاز',
+    );
   }
 
   Future<bool> saveEvaluationListResults(
@@ -360,9 +560,19 @@ class TabletRepository {
     return false;
   }
 
-  Future<bool> approveEvaluationList(String unitKey, int itemId) async {
+  Future<bool> approveEvaluationList(
+    String unitKey,
+    int itemId, {
+    String? gradeLabel,
+  }) async {
     final key = 'evaluation_list_detail:$unitKey:$itemId';
     await _markLocallyApproved(key);
+    await _propagateListRowStatus(
+      matchItemId: itemId,
+      matchUnitKey: unitKey,
+      approved: true,
+      gradeLabel: gradeLabel,
+    );
     await SyncService.instance.enqueueLocalFirst(
       id: newClientOpId('approve-el-$itemId'),
       method: 'POST',
@@ -388,6 +598,8 @@ class TabletRepository {
       'rows': rows.map((r) => r.toJson()).toList(),
     };
     cached['locally_modified'] = true;
+    cached['can_approve'] = true;
+    cached['can_edit'] = true;
     await _cacheSetScoped(
       cacheKey,
       cached,
@@ -524,13 +736,58 @@ class TabletRepository {
   }
 
   Future<Fetched<List<ListRow>>> fetchIncomplete() async {
+    final reachable = await HealthService.instance.check();
+    if (reachable) {
+      try {
+        final data = await _downloadAndStore('/api/tablet/incomplete', 'incomplete');
+        final overlaid =
+            await _overlayApprovedStatuses(Map<String, dynamic>.from(data));
+        await _cacheSetScoped('incomplete', overlaid);
+        final tasks = ((overlaid['tasks'] as List?) ??
+                overlaid['incomplete_tasks'] as List? ??
+                [])
+            .whereType<Map>()
+            .map((e) => ListRow.fromJson(e.cast<String, dynamic>()))
+            .toList();
+        return Fetched(tasks, false);
+      } catch (_) {}
+    }
     final r = await _readLocalFirst('/api/tablet/incomplete', 'incomplete');
+    final overlaid =
+        await _overlayApprovedStatuses(Map<String, dynamic>.from(r.data));
     final tasks =
-        ((r.data['tasks'] as List?) ?? r.data['incomplete_tasks'] as List? ?? [])
+        ((overlaid['tasks'] as List?) ?? overlaid['incomplete_tasks'] as List? ?? [])
             .whereType<Map>()
             .map((e) => ListRow.fromJson(e.cast<String, dynamic>()))
             .toList();
     return Fetched(tasks, r.fromCache);
+  }
+
+  /// بعد نجاح مزامنة الاعتماد — تأكيد تحديث صفوف القوائم والرئيسية.
+  Future<void> notifyApproveSynced(PendingOp op) async {
+    final path = op.path;
+    if (path.contains('/action-eval/')) {
+      final slot = op.evalItemId;
+      if (slot != null) {
+        await _propagateListRowStatus(
+          matchActionSlot: slot,
+          approved: true,
+        );
+      }
+      return;
+    }
+    if (path.contains('/evaluation-lists/')) {
+      final itemId = op.evalItemId;
+      if (itemId == null) return;
+      final parts = path.split('/');
+      final ukIdx = parts.indexOf('evaluation-lists');
+      final uk = ukIdx >= 0 && ukIdx + 1 < parts.length ? parts[ukIdx + 1] : '';
+      await _propagateListRowStatus(
+        matchItemId: itemId,
+        matchUnitKey: uk == '_' ? null : uk,
+        approved: true,
+      );
+    }
   }
 
   Future<Fetched<Map<String, dynamic>>> fetchBootstrap() async {
@@ -748,5 +1005,319 @@ class TabletRepository {
         opType: 'polarity_note_delete',
       );
     }
+  }
+
+  bool _isListAggregateCacheKey(String cacheKey) {
+    return cacheKey == 'home' ||
+        cacheKey == 'incomplete' ||
+        cacheKey.startsWith('action_eval_lists') ||
+        cacheKey.startsWith('evaluation_lists');
+  }
+
+  String _stripUserScope(String fullKey) {
+    final uid = AuthService.instance.currentUserId;
+    if (uid == null) return fullKey;
+    final prefix = 'u$uid:';
+    if (fullKey.startsWith(prefix)) return fullKey.substring(prefix.length);
+    return fullKey;
+  }
+
+  /// يدمج حالة «معتمد» من أوراق التقييم المخزّنة محلياً في صفوف القوائم.
+  Future<Map<String, dynamic>> _overlayApprovedStatuses(
+    Map<String, dynamic> payload,
+  ) async {
+    final copy = Map<String, dynamic>.from(payload);
+    final field = copy.containsKey('lists')
+        ? 'lists'
+        : copy.containsKey('incomplete_tasks')
+            ? 'incomplete_tasks'
+            : copy.containsKey('tasks')
+                ? 'tasks'
+                : null;
+    if (field == null) return copy;
+    final raw = copy[field];
+    if (raw is! List) return copy;
+
+    final approvedSlots = <int, String>{};
+    final approvedItems = <String, String>{};
+
+    for (final pattern in ['action_eval_detail:', 'evaluation_list_detail:']) {
+      for (final fullKey in await OfflineStore.instance.cacheKeysLike(pattern)) {
+        final localKey = _stripUserScope(fullKey);
+        if (!localKey.startsWith(pattern)) continue;
+        final sheet = await _cacheGetScoped(localKey);
+        if (sheet == null) continue;
+        final wf = sheet['workflow'];
+        final reopened = wf is Map && wf['reopened'] == true;
+        if (reopened) continue;
+        final approved = sheet['is_approved'] == true ||
+            sheet['locally_approved'] == true;
+        if (!approved) continue;
+        final grade = (sheet['grade_label'] ??
+                (sheet['summary'] is Map
+                    ? (sheet['summary'] as Map)['grade_label']
+                    : '') ??
+                '')
+            .toString();
+        if (pattern.startsWith('action_eval_detail')) {
+          final slot = int.tryParse(localKey.split(':').last);
+          if (slot != null) approvedSlots[slot] = grade;
+        } else {
+          final rest = localKey.substring('evaluation_list_detail:'.length);
+          approvedItems[rest] = grade;
+        }
+      }
+    }
+
+    final isIncompleteList =
+        field == 'incomplete_tasks' || field == 'tasks';
+
+    bool rowIsReturned(Map row) {
+      final label = (row['status_label'] ?? '').toString();
+      final tone = (row['row_tone'] ?? '').toString();
+      final wf = (row['workflow_label'] ?? row['dispatch_label'] ?? '').toString();
+      return tone == 'returned' ||
+          label.contains('معاد') ||
+          wf.contains('معاد');
+    }
+
+    bool rowIsTrulyDone(Map row) {
+      if (rowIsReturned(row)) return false;
+      final label = (row['status_label'] ?? '').toString().trim();
+      return row['status_done'] == true ||
+          label == 'معتمد' ||
+          label == 'منجز' ||
+          label == 'ينجز';
+    }
+
+    final lists = List<dynamic>.from(raw);
+    var changed = false;
+    final kept = <dynamic>[];
+    for (final rawRow in lists) {
+      if (rawRow is! Map) {
+        kept.add(rawRow);
+        continue;
+      }
+      final row = Map<String, dynamic>.from(rawRow);
+      final returned = rowIsReturned(row);
+      final alreadyDone = rowIsTrulyDone(row);
+
+      String? grade;
+      var matched = false;
+      if (!returned) {
+        final slot = row['slot_index'] ?? row['slot_id'] ?? row['id'];
+        final slotInt = int.tryParse('$slot');
+        if (slotInt != null && approvedSlots.containsKey(slotInt)) {
+          grade = approvedSlots[slotInt];
+          matched = true;
+        } else {
+          final itemId = row['item_id'] ?? row['id'];
+          final uk = (row['unit_key'] ?? '').toString();
+          if (itemId != null) {
+            final keys = <String>[
+              if (uk.isNotEmpty) '$uk:$itemId',
+              '_:$itemId',
+              '$itemId',
+            ];
+            for (final k in keys) {
+              if (approvedItems.containsKey(k)) {
+                grade = approvedItems[k];
+                matched = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      if (isIncompleteList && alreadyDone && !returned) {
+        changed = true;
+        continue;
+      }
+      if (isIncompleteList && matched && !returned) {
+        changed = true;
+        continue;
+      }
+      if (!matched || alreadyDone || returned) {
+        if (returned) {
+          row['status_done'] = false;
+          if (!(row['status_label'] ?? '').toString().contains('معاد')) {
+            row['status_label'] = 'معاد للتقييم';
+          }
+          row['row_tone'] = 'returned';
+          changed = true;
+        }
+        kept.add(row);
+        continue;
+      }
+      row['status_done'] = true;
+      row['status_label'] = 'معتمد';
+      row['row_tone'] = 'sent';
+      if (grade != null && grade.isNotEmpty) {
+        row['grade_label'] = grade;
+      }
+      if ((row['delivery_dt'] ?? '').toString().isEmpty) {
+        row['delivery_dt'] = DateTime.now().toIso8601String();
+      }
+      if (isIncompleteList) {
+        changed = true;
+        continue;
+      }
+      kept.add(row);
+      changed = true;
+    }
+    if (changed) copy[field] = kept;
+
+    // مواءمة مؤشر الإنجاز مع المهام غير المكتملة الفعلية
+    if (copy.containsKey('stats') && copy.containsKey('incomplete_tasks')) {
+      final stats = Map<String, dynamic>.from(copy['stats'] as Map? ?? {});
+      final total = (stats['total_count'] as num?)?.toInt() ?? 0;
+      final incompleteLen =
+          ((copy['incomplete_tasks'] as List?) ?? const []).length;
+      if (total > 0) {
+        final completed = (total - incompleteLen).clamp(0, total);
+        stats['completed_count'] = completed;
+        stats['incomplete_count'] = incompleteLen;
+        stats['completion_pct'] =
+            ((completed * 100.0 / total).round()).clamp(0, 100);
+        stats['completed_lists'] = completed;
+        stats['incomplete_lists'] = incompleteLen;
+        copy['stats'] = stats;
+      }
+    }
+    return copy;
+  }
+
+  Future<void> _propagateListRowStatus({
+    int? matchActionSlot,
+    int? matchItemId,
+    String? matchUnitKey,
+    required bool approved,
+    String? gradeLabel,
+  }) async {
+    final statusLabel = approved ? 'معتمد' : 'لم ينجز';
+    final delivery = approved ? DateTime.now().toIso8601String() : '';
+
+    bool patchRows(List<dynamic> lists) {
+      var changed = false;
+      for (var i = 0; i < lists.length; i++) {
+        final raw = lists[i];
+        if (raw is! Map) continue;
+        final m = Map<String, dynamic>.from(raw);
+        if (!_listRowMatches(
+          m,
+          matchActionSlot: matchActionSlot,
+          matchItemId: matchItemId,
+          matchUnitKey: matchUnitKey,
+        )) {
+          continue;
+        }
+        m['status_done'] = approved;
+        m['status_label'] = statusLabel;
+        if (gradeLabel != null && gradeLabel.isNotEmpty) {
+          m['grade_label'] = gradeLabel;
+        }
+        if (approved) {
+          m['delivery_dt'] = delivery;
+          m['row_tone'] = 'sent';
+        }
+        lists[i] = m;
+        changed = true;
+      }
+      return changed;
+    }
+
+    Future<void> patchPayload(String cacheKey) async {
+      final data = await _cacheGetScoped(cacheKey);
+      if (data == null) return;
+      final copy = Map<String, dynamic>.from(data);
+      final keyName = copy.containsKey('lists') ? 'lists' : 'rows';
+      final rawLists = copy[keyName];
+      if (rawLists is! List) return;
+      final lists = List<dynamic>.from(rawLists);
+      if (!patchRows(lists)) return;
+      copy[keyName] = lists;
+      await _cacheSetScoped(cacheKey, copy);
+    }
+
+    final uid = AuthService.instance.currentUserId;
+    final patterns = <String>[
+      if (uid != null) 'u$uid:evaluation_lists' else 'evaluation_lists',
+      if (uid != null) 'u$uid:action_eval_lists' else 'action_eval_lists',
+    ];
+    for (final pattern in patterns) {
+      for (final fullKey in await OfflineStore.instance.cacheKeysLike(pattern)) {
+        final localKey = (uid != null && fullKey.startsWith('u$uid:'))
+            ? fullKey.substring('u$uid:'.length)
+            : fullKey;
+        await patchPayload(localKey);
+      }
+    }
+
+    for (final cacheKey in ['home', 'incomplete']) {
+      final data = await _cacheGetScoped(cacheKey);
+      if (data == null) continue;
+      final copy = Map<String, dynamic>.from(data);
+      final field = cacheKey == 'home' ? 'incomplete_tasks' : 'tasks';
+      final raw = copy[field];
+      if (raw is! List) continue;
+      final lists = List<dynamic>.from(raw);
+      if (approved) {
+        final before = lists.length;
+        lists.removeWhere((rawRow) {
+          if (rawRow is! Map) return false;
+          return _listRowMatches(
+            Map<String, dynamic>.from(rawRow),
+            matchActionSlot: matchActionSlot,
+            matchItemId: matchItemId,
+            matchUnitKey: matchUnitKey,
+          );
+        });
+        if (lists.length == before) continue;
+        copy[field] = lists;
+        if (cacheKey == 'home') {
+          final stats = Map<String, dynamic>.from((copy['stats'] as Map?) ?? {});
+          final total = (stats['total_count'] as num?)?.toInt() ?? 0;
+          final incompleteLen = lists.length;
+          final completed =
+              total > 0 ? (total - incompleteLen).clamp(0, total) : 0;
+          stats['completed_count'] = completed;
+          stats['incomplete_count'] = incompleteLen;
+          if (total > 0) {
+            stats['completion_pct'] =
+                ((completed * 100.0 / total).round()).clamp(0, 100);
+          }
+          stats['completed_lists'] = completed;
+          stats['incomplete_lists'] = incompleteLen;
+          copy['stats'] = stats;
+        }
+      } else {
+        if (!patchRows(lists)) continue;
+        copy[field] = lists;
+      }
+      await _cacheSetScoped(cacheKey, copy);
+    }
+  }
+
+  bool _listRowMatches(
+    Map<String, dynamic> row, {
+    int? matchActionSlot,
+    int? matchItemId,
+    String? matchUnitKey,
+  }) {
+    if (matchActionSlot != null) {
+      final slot = row['slot_id'] ?? row['slot_index'] ?? row['id'];
+      return int.tryParse('$slot') == matchActionSlot;
+    }
+    if (matchItemId != null) {
+      final id = row['item_id'] ?? row['id'];
+      if (int.tryParse('$id') != matchItemId) return false;
+      if (matchUnitKey != null && matchUnitKey.isNotEmpty) {
+        final uk = (row['unit_key'] ?? '').toString();
+        return uk.isEmpty || uk == matchUnitKey;
+      }
+      return true;
+    }
+    return false;
   }
 }

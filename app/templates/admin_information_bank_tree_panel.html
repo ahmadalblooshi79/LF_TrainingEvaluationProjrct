@@ -85,7 +85,7 @@
 
           <input type="file" name="files" multiple class="ibank-tree-file-input js-ibank-tree-dir" tabindex="-1" aria-hidden="true" webkitdirectory directory>
 
-          <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-pick-dir" title="يُدرج المجلد فوراً بعد الاختيار. لعدة مجلدات: كرر الزر أو اسحبها إلى الشريط."><i class="fa-solid fa-folder-open" aria-hidden="true"></i> إرفاق مجلد</button>
+          <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-pick-dir" title="اختر مجلداً مصدراً — يمكن إضافة عدة مجلدات قبل الإدراج، أو سحبها إلى الشريط دفعة واحدة."><i class="fa-solid fa-folder-open" aria-hidden="true"></i> إرفاق مجلد</button>
 
         </form>
 
@@ -151,11 +151,7 @@
               <option value="">— اختر مستوى الوحدة —</option>
               {% set _sel = n.catalog_unit_key or n.effective_unit_key or '' %}
               {% if _sel %}
-              {% for u in ibank_tree_unit_levels|default([]) %}
-              {% if u['key'] == _sel %}
-              <option value="{{ u['key'] }}" selected>{{ u['label'] }}</option>
-              {% endif %}
-              {% endfor %}
+              <option value="{{ _sel }}" selected>{{ n.unit_level_label or _sel }}</option>
               {% endif %}
             </select>
           </form>
@@ -230,7 +226,7 @@
           {% endif %}
 
           <span class="ibank-tree-row-actions">
-          {% if information_bank_can_manage %}
+          {% if information_bank_can_manage and not n.is_phase_root %}
 
           <form method="post" action="{{ url_for('views.admin_information_bank_tree_delete', node_id=n.id) }}" class="ibank-tree-delete-form js-ibank-tree-delete-form" data-confirm-msg="حذف هذا العنصر{% if n.is_folder %} وجميع محتوياته{% endif %}؟">
 

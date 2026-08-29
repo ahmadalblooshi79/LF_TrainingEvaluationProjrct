@@ -256,27 +256,67 @@
     });
   }
 
-  /** اختيار مجلد → إدراج فوري. للعدد المتعدد: كرر الزر أو اسحب عدة مجلدات. */
+  /** اختيار مجلد → إمكانية إضافة مجلدات أخرى ثم إدراج دفعة واحدة. */
   function bindMultiFolderPick(opts) {
     var pick = opts.pickBtn;
     var inp = opts.input;
     var statusEl = opts.statusEl || null;
     if (!pick || !inp) return { clear: function () {} };
 
+    var accumulated = [];
+
+    function resetAccumulated() {
+      accumulated = [];
+    }
+
+    function statusForAccumulated() {
+      var nFolders = countFolderRoots(accumulated);
+      var nFiles = accumulated.length;
+      if (!nFiles) return '';
+      return 'محدَّد: ' + nFolders + ' مجلد (' + nFiles + ' ملف) — اختر «إضافة مجلد» أو «إدراج الآن».';
+    }
+
+    function promptAddAnotherOrCommit() {
+      if (!accumulated.length) return;
+      var nFolders = countFolderRoots(accumulated);
+      var nFiles = accumulated.length;
+      var addMore = window.confirm(
+        'تم اختيار ' + nFolders + ' مجلد (' + nFiles + ' ملف).\n\n'
+          + 'موافق = إضافة مجلد مصدر آخر\n'
+          + 'إلغاء = بدء الإدراج الآن'
+      );
+      if (addMore) {
+        setStatus(statusEl, statusForAccumulated());
+        openPicker(inp);
+        return;
+      }
+      var pending = accumulated.slice();
+      resetAccumulated();
+      runValidatedCommit(opts, pending);
+    }
+
     pick.addEventListener('click', function () {
-      setStatus(statusEl, 'اختر مجلداً للإدراج الفوري. لإرفاق عدة مجلدات دفعة واحدة اسحبها إلى الشريط.');
+      resetAccumulated();
+      setStatus(
+        statusEl,
+        'اختر مجلداً مصدراً. يمكنك إضافة عدة مجلدات قبل الإدراج، أو اسحبها إلى الشريط دفعة واحدة.'
+      );
       openPicker(inp);
     });
 
     inp.addEventListener('change', function () {
       if (!inp.files || !inp.files.length) return;
-      var pending = [];
-      appendFileList(pending, inp.files);
+      appendFileList(accumulated, inp.files);
       try { inp.value = ''; } catch (e2) {}
-      runValidatedCommit(opts, pending);
+      promptAddAnotherOrCommit();
     });
 
-    return { clear: function () { setStatus(statusEl, ''); } };
+    return {
+      clear: function () {
+        resetAccumulated();
+        setStatus(statusEl, '');
+      },
+    };
   }
 
   function bindFolderDropZone(zoneEl, opts) {

@@ -4,10 +4,13 @@ import 'package:flutter/foundation.dart';
 
 import 'api_client.dart';
 import 'auth_service.dart';
+import 'connectivity_service.dart';
 import 'health_service.dart';
 import 'media_upload_service.dart';
 import 'notifications_badge_service.dart';
 import 'offline_store.dart';
+import 'package_sync_service.dart';
+import 'sync_preferences.dart';
 
 /// حالة مؤشر المزامنة الظاهر في الواجهة.
 enum SyncUiState {
@@ -24,6 +27,9 @@ class SyncService {
   SyncService._internal();
   static final SyncService instance = SyncService._internal();
 
+  /// يُعيَّن من [TabletRepository] بعد الاعتماد المتزامن.
+  static Future<void> Function(PendingOp op)? onApproveSyncedHandler;
+
   final ValueNotifier<int> pendingCount = ValueNotifier<int>(0);
   final ValueNotifier<bool> syncing = ValueNotifier<bool>(false);
   final ValueNotifier<SyncUiState> uiState = ValueNotifier<SyncUiState>(SyncUiState.offline);
@@ -32,46 +38,139 @@ class SyncService {
 
   Timer? _retryTimer;
   bool _started = false;
+  bool _wasReachable = false;
+  bool _wasLocalNetwork = false;
+  bool _autoFullSyncRunning = false;
+  DateTime? _lastAutoFullSyncAt;
+  static const _autoFullSyncCooldown = Duration(minutes: 3);
 
   Future<void> start() async {
     if (_started) return;
     _started = true;
+    await SyncPreferences.instance.init();
     await HealthService.instance.start();
     await refreshPendingCount();
     final saved = await AuthService.loadLastSyncAt();
     if (saved != null) lastSuccessAt.value = saved;
+    _wasLocalNetwork = ConnectivityService.instance.isLocalNetwork.value;
     _updateUiState();
-    HealthService.instance.serverReachable.addListener(_onHealth);
-    // تزامن تلقائي عند الاتصال + إبقاء الأزرار اليدوية.
+    HealthService.instance.serverReachable.addListener(_onConnectivityChanged);
+    ConnectivityService.instance.isLocalNetwork
+        .addListener(_onConnectivityChanged);
     _retryTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       unawaited(HealthService.instance.check());
       unawaited(refreshPendingCount());
-      if (HealthService.instance.serverReachable.value &&
+      if (_shouldAutoUpload() &&
+          HealthService.instance.serverReachable.value &&
           pendingCount.value > 0 &&
           !syncing.value) {
         unawaited(flush());
       }
     });
-    if (HealthService.instance.serverReachable.value && pendingCount.value > 0) {
+    if (_shouldAutoUpload() &&
+        HealthService.instance.serverReachable.value &&
+        pendingCount.value > 0) {
       unawaited(flush());
     }
+    unawaited(_maybeAutoFullSync(force: false));
   }
 
   void dispose() {
-    HealthService.instance.serverReachable.removeListener(_onHealth);
+    HealthService.instance.serverReachable.removeListener(_onConnectivityChanged);
+    ConnectivityService.instance.isLocalNetwork
+        .removeListener(_onConnectivityChanged);
     _retryTimer?.cancel();
   }
 
-  bool _wasReachable = false;
+  bool _shouldAutoUpload() => SyncPreferences.instance.isAutomatic;
 
-  void _onHealth() {
+  void _onConnectivityChanged() {
     final online = HealthService.instance.serverReachable.value;
+    final local = ConnectivityService.instance.isLocalNetwork.value;
     _updateUiState();
-    // عند عودة الاتصال بالسيرفر: ارفع المعلّق تلقائياً
-    if (online && !_wasReachable && pendingCount.value > 0 && !syncing.value) {
-      unawaited(flush());
+
+    if (_shouldAutoUpload()) {
+      if (online && !_wasReachable && pendingCount.value > 0 && !syncing.value) {
+        unawaited(flush());
+      }
+      if (local && online && AuthService.instance.isLoggedIn) {
+        final justJoined =
+            (!_wasLocalNetwork && local) || (!_wasReachable && online);
+        if (justJoined) {
+          unawaited(_maybeAutoFullSync(force: false));
+        }
+      }
     }
+
     _wasReachable = online;
+    _wasLocalNetwork = local;
+  }
+
+  Future<void> _maybeAutoFullSync({required bool force}) async {
+    if (!_shouldAutoUpload()) return;
+    if (!AuthService.instance.isLoggedIn) return;
+    if (!ConnectivityService.instance.isLocalNetwork.value) return;
+    if (!HealthService.instance.serverReachable.value) return;
+    if (!ApiClient.instance.isConfigured) return;
+    if (_autoFullSyncRunning || syncing.value) return;
+    if (!force && _lastAutoFullSyncAt != null) {
+      final elapsed = DateTime.now().difference(_lastAutoFullSyncAt!);
+      if (elapsed < _autoFullSyncCooldown) return;
+    }
+
+    _autoFullSyncRunning = true;
+    try {
+      final result = await runFullSync(silent: true);
+      if (result.ok) {
+        _lastAutoFullSyncAt = DateTime.now();
+      }
+    } finally {
+      _autoFullSyncRunning = false;
+    }
+  }
+
+  /// مزامنة كاملة: رفع المعلّق ثم تنزيل «تحديث بياناتي».
+  Future<({bool ok, String? message})> runFullSync({bool silent = false}) async {
+    await HealthService.instance.check(force: true);
+    if (!HealthService.instance.serverReachable.value) {
+      return (ok: false, message: 'السيرفر غير متاح — تحقق من الشبكة وعنوان الخادم');
+    }
+
+    await flush();
+    final upErr = lastError.value;
+
+    syncing.value = true;
+    _updateUiState();
+    var downOk = false;
+    try {
+      downOk = await PackageSyncService.instance.updateMyData();
+    } finally {
+      syncing.value = false;
+      _updateUiState();
+    }
+
+    final ok = (upErr == null || upErr.isEmpty) && downOk;
+    if (ok) {
+      lastSuccessAt.value = DateTime.now();
+      await AuthService.saveLastSyncAt(lastSuccessAt.value!);
+      lastError.value = null;
+      if (!silent) {
+        await NotificationsBadgeService.instance.reportSyncEvent(
+          kind: 'sync',
+          detail: 'اكتملت المزامنة الكاملة (رفع وتنزيل).',
+        );
+      }
+    }
+
+    if (ok) {
+      return (ok: true, message: null);
+    }
+    final parts = <String>[];
+    if (upErr != null && upErr.isNotEmpty) parts.add('رفع: $upErr');
+    if (!downOk) {
+      parts.add('تنزيل: ${PackageSyncService.instance.lastError ?? 'فشل'}');
+    }
+    return (ok: false, message: parts.join('\n'));
   }
 
   Future<void> refreshPendingCount() async {
@@ -146,8 +245,7 @@ class SyncService {
     );
     await OfflineStore.instance.enqueueOp(op);
     await refreshPendingCount();
-    // إن كان السيرفر متاحاً: ارفع فوراً في الخلفية (مع بقاء المزامنة اليدوية)
-    if (HealthService.instance.serverReachable.value) {
+    if (_shouldAutoUpload() && HealthService.instance.serverReachable.value) {
       unawaited(flush());
     }
     return false;
@@ -276,5 +374,6 @@ class SyncService {
       cached,
       syncStatus: SyncStatuses.synced,
     );
+    await SyncService.onApproveSyncedHandler?.call(op);
   }
 }

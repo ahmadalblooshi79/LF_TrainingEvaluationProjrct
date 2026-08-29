@@ -8,8 +8,8 @@ const String kDeviceAdminUserPref = 'device_admin_username';
 const String kDeviceAdminHashPref = 'device_admin_password_hash';
 const String kDeviceReadyMeta = 'device_ready';
 const String kDeviceLastPackageAt = 'last_package_at';
-const String kDefaultDeviceAdminUser = 'device_admin';
-const String kDefaultDeviceAdminPass = 'Admin@Device1';
+const String kDefaultDeviceAdminUser = 'manager';
+const String kDefaultDeviceAdminPass = 'admin123';
 
 /// مدير الجهاز المحلي — صلاحيات تقنية فقط (ليس محكماً).
 class DeviceAdminService extends ChangeNotifier {
@@ -33,7 +33,10 @@ class DeviceAdminService extends ChangeNotifier {
 
   Future<void> ensureDefaultAdmin() async {
     final prefs = await SharedPreferences.getInstance();
-    if ((prefs.getString(kDeviceAdminHashPref) ?? '').isNotEmpty) return;
+    final storedUser = (prefs.getString(kDeviceAdminUserPref) ?? '').trim();
+    final storedHash = prefs.getString(kDeviceAdminHashPref) ?? '';
+    final legacyUser = storedUser.toLowerCase() == 'device_admin';
+    if (storedHash.isNotEmpty && storedUser.isNotEmpty && !legacyUser) return;
     final hash = await credentialDigest(
       kDefaultDeviceAdminUser,
       kDefaultDeviceAdminPass,

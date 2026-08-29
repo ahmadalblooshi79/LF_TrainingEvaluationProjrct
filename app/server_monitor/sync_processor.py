@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from typing import Any
+from urllib.parse import unquote
 
 from flask import Request
 from sqlalchemy.orm import Session
@@ -26,7 +27,13 @@ def process_sync_batch(
     operations: list[dict[str, Any]],
 ) -> dict:
     device_id = (request.headers.get("X-LF-Device-Id") or (request.get_json(silent=True) or {}).get("device_id") or "").strip()
-    device_name = (request.headers.get("X-LF-Device-Name") or (request.get_json(silent=True) or {}).get("device_name") or "").strip()
+    device_name = unquote(
+        (
+            request.headers.get("X-LF-Device-Name")
+            or (request.get_json(silent=True) or {}).get("device_name")
+            or ""
+        ).strip()
+    )
     device_ip = (request.remote_addr or "").strip()
 
     if device_id:

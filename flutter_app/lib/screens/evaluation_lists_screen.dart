@@ -6,6 +6,7 @@ import '../models/list_row.dart';
 import '../services/api_client.dart';
 import '../services/tablet_repository.dart';
 import '../theme/app_theme.dart';
+import '../theme/grade_style.dart';
 import '../widgets/app_header.dart';
 import '../widgets/async_state_views.dart';
 import '../widgets/figma_ui.dart';
@@ -19,6 +20,7 @@ class EvaluationListsScreen extends StatefulWidget {
 
 class _EvaluationListsScreenState extends State<EvaluationListsScreen> {
   EvaluationListsData? _data;
+  List<PhaseTab> _phaseTabs = [];
   bool _loading = true;
   bool _fromCache = false;
   String? _error;
@@ -28,25 +30,41 @@ class _EvaluationListsScreenState extends State<EvaluationListsScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    _load(preferFirstPhase: true);
   }
 
-  Future<void> _load({String? unitKey, String? phase}) async {
+  Future<void> _load({String? unitKey, String? phase, bool preferFirstPhase = false}) async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final r = await TabletRepository.instance.fetchEvaluationLists(
+      var r = await TabletRepository.instance.fetchEvaluationLists(
         unitKey: unitKey ?? _unitKey,
-        phase: phase ?? _phase,
+        phase: preferFirstPhase ? null : (phase ?? _phase),
       );
       if (!mounted) return;
+
+      // دائماً افتح التبويب الأول عند الدخول الأولي للصفحة
+      if (preferFirstPhase && r.data.phaseTabs.isNotEmpty) {
+        final firstKey = r.data.phaseTabs.first.key;
+        if (r.data.phaseKey != firstKey) {
+          r = await TabletRepository.instance.fetchEvaluationLists(
+            unitKey: unitKey ?? r.data.unitKey,
+            phase: firstKey,
+          );
+          if (!mounted) return;
+        }
+      }
+
       setState(() {
         _data = r.data;
         _fromCache = r.fromCache;
         _unitKey = r.data.unitKey;
         _phase = r.data.phaseKey;
+        if (r.data.phaseTabs.isNotEmpty) {
+          _phaseTabs = r.data.phaseTabs;
+        }
       });
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -106,15 +124,15 @@ class _EvaluationListsScreenState extends State<EvaluationListsScreen> {
             ),
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: Wrap(
             spacing: 10,
             runSpacing: 6,
-            children: const [
+            children: [
               _LegendDot(color: Color(0xFFFFE0B2), label: 'بانتظار الإعتماد'),
               _LegendDot(color: Color(0xFFC8E6C9), label: 'مرسل'),
-              _LegendDot(color: Color(0xFFFFCDD2), label: 'معاد للتعديل'),
+              _LegendDot(color: Color(0xFFFFCDD2), label: 'معاد للتقييم'),
             ],
           ),
         ),
@@ -139,9 +157,9 @@ class _EvaluationListsScreenState extends State<EvaluationListsScreen> {
               ),
             ),
           ),
-        if (data.phaseTabs.isNotEmpty)
+        if (_phaseTabs.isNotEmpty)
           FigmaDayChips(
-            labels: data.phaseTabs.map((p) => (id: p.key, label: p.label)).toList(),
+            labels: _phaseTabs.map((p) => (id: p.key, label: p.label)).toList(),
             activeId: _phase ?? data.phaseKey,
             onSelect: (k) {
               setState(() => _phase = k);
@@ -239,7 +257,11 @@ class _Row extends StatelessWidget {
     final uk = row.unitKey.isNotEmpty ? row.unitKey : unitKey;
     void open() {
       if (itemId == null) return;
-      context.push('/evaluation-lists/$uk/$itemId', extra: row.title);
+      context.push('/evaluation-lists/$uk/$itemId', extra: row.title).then((_) {
+        if (context.mounted) {
+          (context.findAncestorStateOfType<_EvaluationListsScreenState>())?._load();
+        }
+      });
     }
 
     final dispatch = row.displayDispatch;
@@ -269,11 +291,7 @@ class _Row extends StatelessWidget {
             ),
             Expanded(
               flex: 2,
-              child: Text(
-                row.gradeLabel.isNotEmpty ? row.gradeLabel : '—',
-                textAlign: TextAlign.center,
-                style: AppTextStyles.small,
-              ),
+              child: Center(child: GradeLabelChip(label: row.gradeLabel)),
             ),
             Expanded(
               flex: 2,
@@ -287,10 +305,10 @@ class _Row extends StatelessWidget {
               flex: 2,
               child: Center(
                 child: FigmaStatusPill(
-                  done: row.statusDone,
+                  done: row.statusDone && !row.statusLabel.contains('معاد'),
                   label: row.statusLabel.isNotEmpty
                       ? row.statusLabel
-                      : (row.statusDone ? 'ينجز' : 'لم ينجز'),
+                      : (row.statusDone ? 'معتمد' : 'لم ينجز'),
                 ),
               ),
             ),

@@ -114,6 +114,12 @@ def sync_planning_unit_levels_from_db(db: Session) -> list[dict[str, str]]:
 
 def sync_planning_exercise_phases_from_db(db: Session) -> list[tuple[str, str]]:
     """تحديث ``EXERCISE_PHASE_OPTIONS`` من مراحل بنك المعلومات المدرجة في التمرين."""
+    from app.information_bank_catalog import (
+        TRAINING_PHASES,
+        ordered_training_phase_keys,
+        training_phase_label,
+    )
+
     rows = (
         db.query(InformationBankTrainingPhase)
         .filter(InformationBankTrainingPhase.included_in_exercise.is_(True))
@@ -124,7 +130,24 @@ def sync_planning_exercise_phases_from_db(db: Session) -> list[tuple[str, str]]:
         )
         .all()
     )
-    included = [(r.key, r.label) for r in rows if (r.key or "").strip()]
+    by_key = {
+        (r.key or "").strip(): ((r.label or "").strip() or (r.key or "").strip())
+        for r in rows
+        if (r.key or "").strip()
+    }
+    # ثبت التسلسل الرسمي حتى لو تغيّر sort_order مؤقتاً في قاعدة البيانات
+    ordered_keys = ordered_training_phase_keys(list(by_key.keys()))
+    catalog_labels = {p["key"]: p["label"] for p in TRAINING_PHASES}
+    included = [
+        (
+            k,
+            by_key.get(k)
+            or catalog_labels.get(k)
+            or training_phase_label(k)
+            or k,
+        )
+        for k in ordered_keys
+    ]
     phase_cat.EXERCISE_PHASE_OPTIONS.clear()
     phase_cat.EXERCISE_PHASE_OPTIONS.extend(included)
     phase_cat.DEFAULT_EXERCISE_PHASE = included[0][0] if included else ""

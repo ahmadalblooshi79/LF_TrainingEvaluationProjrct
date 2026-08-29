@@ -81,9 +81,9 @@
         إلغاء التحديد
       </button>
       <span class="eval-lists-toolbar-sep" aria-hidden="true"></span>
-      <button type="submit" class="btn btn-primary btn-xs eval-lists-toolbar-btn eval-lists-toolbar-btn--publish" id="eval-lists-publish-btn">
+      <button type="submit" class="btn btn-primary btn-xs eval-lists-toolbar-btn eval-lists-toolbar-btn--publish" id="eval-lists-publish-btn" title="نشر القوائم التي حدّدتها فقط">
         <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
-        نشر جميع القوائم
+        نشر المحددة
       </button>
       {% if current_exercise %}
       <button type="submit" form="eval-lists-withdraw-all-form" class="btn btn-ghost btn-xs eval-lists-toolbar-btn" onclick="return confirm('سحب نشر جميع القوائم المنشورة لهذه المرحلة؟');">
@@ -117,9 +117,9 @@
         <button type="button" class="btn btn-ghost btn-xs js-eval-lists-select-unit" data-unit="{{ group.unit_key }}" data-action="none">
           إلغاء
         </button>
-        <button type="button" class="btn btn-primary btn-xs js-eval-lists-publish-unit" data-unit="{{ group.unit_key }}" title="نشر جميع قوائم هذا المستوى">
+        <button type="button" class="btn btn-primary btn-xs js-eval-lists-publish-unit" data-unit="{{ group.unit_key }}" title="نشر القوائم المحددة فقط لهذا المستوى">
           <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
-          نشر جميع القوائم
+          نشر المحددة
         </button>
       </div>
     </div>
@@ -324,10 +324,17 @@
       publishBtn.disabled = true;
       return;
     }
-    publishBtn.disabled = false;
+    publishBtn.disabled = ![...boxes].some((cb) => cb.checked);
   };
 
   if (form) {
+    form.addEventListener("submit", (ev) => {
+      const active = [...form.querySelectorAll(".eval-lists-publish-cb")].filter((cb) => !cb.disabled);
+      if (!active.some((cb) => cb.checked)) {
+        ev.preventDefault();
+        window.alert("حدّد قائمة واحدة على الأقل للنشر.");
+      }
+    });
     form.addEventListener("change", (ev) => {
       if (ev.target && ev.target.classList.contains("eval-lists-publish-cb")) {
         syncPublishBtn();
@@ -364,16 +371,21 @@
 
       const publishUnit = t.closest(".js-eval-lists-publish-unit");
       if (publishUnit) {
+        ev.preventDefault();
         ev.stopPropagation();
         const uk = publishUnit.getAttribute("data-unit") || "";
         if (!uk) return;
         const mine = [...document.querySelectorAll(`.eval-lists-publish-cb[data-unit="${uk}"]`)];
-        if (!mine.length) return;
-        mine.forEach((cb) => { cb.checked = true; });
-        form.querySelectorAll(".eval-lists-publish-cb").forEach((cb) => {
-          if ((cb.getAttribute("data-unit") || "") !== uk) cb.checked = false;
-        });
+        const selected = mine.filter((cb) => cb.checked);
+        if (!selected.length) {
+          window.alert("حدّد قائمة واحدة على الأقل لهذا المستوى قبل النشر.");
+          return;
+        }
         saveExpandedState([uk]);
+        form.querySelectorAll(".eval-lists-publish-cb").forEach((cb) => {
+          const keep = (cb.getAttribute("data-unit") || "") === uk && cb.checked;
+          cb.disabled = !keep;
+        });
         syncPublishBtn();
         form.requestSubmit ? form.requestSubmit() : form.submit();
         return;

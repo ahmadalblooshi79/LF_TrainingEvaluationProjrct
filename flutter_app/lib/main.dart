@@ -7,9 +7,11 @@ import 'services/api_client.dart';
 import 'services/auth_service.dart';
 import 'services/connectivity_service.dart';
 import 'services/device_admin_service.dart';
+import 'services/device_presence_service.dart';
 import 'services/health_service.dart';
 import 'services/notifications_badge_service.dart';
 import 'services/offline_store.dart';
+import 'services/sync_preferences.dart';
 import 'services/sync_service.dart';
 
 Future<void> main() async {
@@ -19,13 +21,16 @@ Future<void> main() async {
   await OfflineStore.instance.init();
   await ApiClient.instance.init();
   await ConnectivityService.instance.init();
+  await SyncPreferences.instance.init();
   await DeviceAdminService.instance.init();
+  await DevicePresenceService.instance.init();
   await AuthService.instance.prepareLocalAuth();
 
   // فحص الصحة والمزامنة في الخلفية فقط (لا يمنع الواجهة ولا يسجّل دخولاً تلقائياً).
   unawaited(HealthService.instance.start());
   unawaited(SyncService.instance.start());
   unawaited(NotificationsBadgeService.instance.start());
+  unawaited(DevicePresenceService.instance.start());
 
   runApp(const LfTrainingEvaluationApp());
 }

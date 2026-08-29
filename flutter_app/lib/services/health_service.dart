@@ -31,32 +31,24 @@ class HealthService {
   }
 
   void _onNetChanged() {
-    if (!ConnectivityService.instance.hasNetwork.value) {
-      serverReachable.value = false;
-      ApiClient.instance.online.value = false;
-      return;
-    }
+    // حتى لو انقطع مؤشر الشبكة، نعيد الفحص — قد يكون التقرير خاطئاً والـ LAN يعمل
     unawaited(check(force: true));
   }
 
-  /// مهلة قصيرة: إن لم يرد السيرفر ننتقل فوراً لوضع Offline.
+  /// مهلة كافية لشبكة LAN؛ لا نمنع الفحص بسبب hasNetwork فقط.
   Future<bool> check({bool force = false}) async {
     if (_checking && !force) return serverReachable.value;
     _checking = true;
     try {
-      if (!ConnectivityService.instance.hasNetwork.value) {
-        serverReachable.value = false;
-        ApiClient.instance.online.value = false;
-        lastCheckedAt.value = DateTime.now();
-        return false;
-      }
       if (!ApiClient.instance.isConfigured) {
         serverReachable.value = false;
         ApiClient.instance.online.value = false;
         lastCheckedAt.value = DateTime.now();
         return false;
       }
-      final ok = await ApiClient.instance.ping(timeout: const Duration(seconds: 3));
+      final ok = await ApiClient.instance.ping(
+        timeout: const Duration(seconds: 8),
+      );
       serverReachable.value = ok;
       ApiClient.instance.online.value = ok;
       lastCheckedAt.value = DateTime.now();

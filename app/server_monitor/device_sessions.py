@@ -54,7 +54,7 @@ def register_or_update_device(
     return row
 
 
-def mark_device_offline_stale(db: Session, *, minutes: int = 3) -> int:
+def mark_device_offline_stale(db: Session, *, minutes: int = 5) -> int:
     cutoff = datetime.utcnow() - timedelta(minutes=minutes)
     rows = (
         db.query(ConnectedDevice)

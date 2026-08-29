@@ -104,7 +104,27 @@ class InfoBankTreeUnitLevelTests(unittest.TestCase):
         sub = self.db.get(InformationBankTreeNode, int(empty_co.id))
         self.assertEqual((sub.catalog_unit_key or "").strip(), "")
 
-    def test_file_under_empty_subfolder_does_not_inherit_battalion_key(self):
+    def test_set_folder_assigns_unit_to_direct_excel_files(self):
+        xlsx = InformationBankTreeNode(
+            kind=KIND,
+            name="قائمة مباشرة.xlsx",
+            is_folder=False,
+            parent_id=int(self.battalion.id),
+        )
+        self.db.add(xlsx)
+        self.db.commit()
+        set_folder_unit_level(
+            self.db,
+            kind=KIND,
+            node_id=int(self.battalion.id),
+            unit_key="ul_battalion_cmd",
+        )
+        self.db.commit()
+        leaf = self.db.get(InformationBankTreeNode, int(xlsx.id))
+        self.assertEqual((leaf.catalog_unit_key or "").strip(), "ul_battalion_cmd")
+        self.assertEqual((leaf.catalog_phase_key or "").strip(), "preparation")
+
+    def test_set_folder_assigns_unit_to_excel_files_in_nested_subfolders(self):
         empty_co = InformationBankTreeNode(
             kind=KIND,
             name="السرية/2",
@@ -129,7 +149,10 @@ class InfoBankTreeUnitLevelTests(unittest.TestCase):
         )
         self.db.commit()
         leaf = self.db.get(InformationBankTreeNode, int(xlsx.id))
-        self.assertEqual(_unit_key_for_node(self.db, leaf), "")
+        self.assertEqual((leaf.catalog_unit_key or "").strip(), "ul_battalion_cmd")
+        self.assertEqual(_unit_key_for_node(self.db, leaf), "ul_battalion_cmd")
+        sub = self.db.get(InformationBankTreeNode, int(empty_co.id))
+        self.assertEqual((sub.catalog_unit_key or "").strip(), "")
 
 
 if __name__ == "__main__":

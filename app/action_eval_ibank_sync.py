@@ -1455,7 +1455,11 @@ def effective_action_eval_phase_keys(
     if catalog:
         return catalog
     index = index_action_eval_ibank_files(db)
-    ibank_phases = sorted({pk for (pk, uk) in index.keys() if uk in roster_units})
+    from app.information_bank_catalog import ordered_training_phase_keys
+
+    ibank_phases = ordered_training_phase_keys(
+        {pk for (pk, uk) in index.keys() if uk in roster_units}
+    )
     if ibank_phases:
         return ibank_phases
     # بدون كتالوج تخطيط: مرحلة تخزين ثابتة صالحة للحزم (لا تُفرَّغ عبر normalize)
@@ -1468,11 +1472,12 @@ def _default_action_eval_storage_phase(db: Session) -> str:
     from app.exercise_phase_catalog import _STATIC_PHASE_LABELS
 
     for cand in (
-        "battle_exposure",
-        "opening",
         "preparation",
-        "main",
         "reorganization",
+        "opening",
+        "battle_exposure",
+        "main",
+        "reorg",
     ):
         resolved = _resolve_phase_key(cand, db)
         if resolved:
@@ -2158,7 +2163,9 @@ def build_action_eval_display_groups(
             .distinct()
             .all()
         )
-        phase_keys = sorted(
+        from app.information_bank_catalog import ordered_training_phase_keys
+
+        phase_keys = ordered_training_phase_keys(
             {
                 normalize_exercise_phase(p[0])
                 for p in bundle_phases

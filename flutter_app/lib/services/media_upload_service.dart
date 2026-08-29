@@ -292,7 +292,7 @@ class MediaUploadService extends ChangeNotifier {
 
       try {
         final resp = await ApiClient.instance.uploadMediaChunk(
-          uploadSessionId: sessionId!,
+          uploadSessionId: sessionId,
           clientUuid: rec.id,
           chunkNumber: nextChunk,
           totalChunks: totalChunks,

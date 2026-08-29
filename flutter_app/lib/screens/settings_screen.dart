@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -5,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/sync_preferences.dart';
 import '../services/sync_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_header.dart';
@@ -60,12 +63,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _testResult = null;
     });
     await _applyServerUrl();
-    final ok = await ApiClient.instance.ping();
+    final target = ApiClient.instance.baseUrl;
+    if (!mounted) return;
+    setState(() => _serverCtrl.text = target);
+    final ok = await ApiClient.instance.ping(
+      timeout: const Duration(seconds: 10),
+    );
+    final detail = ApiClient.instance.lastPingDetail;
     if (!mounted) return;
     setState(() {
       _testing = false;
       _testOk = ok;
-      _testResult = ok ? 'تم الاتصال بالخادم بنجاح' : 'تعذّر الاتصال بالخادم — تحقّق من العنوان والشبكة';
+      _testResult = ok
+          ? 'تم الاتصال بالخادم بنجاح ($target)'
+          : 'تعذّر الاتصال بـ $target\n${detail.isNotEmpty ? detail : 'تحقّق من العنوان والشبكة والمنفذ'}';
     });
   }
 
@@ -122,6 +133,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 textAlign: TextAlign.center,
               ),
             ],
+            const SizedBox(height: 28),
+            Text('طريقة المزامنة', style: AppTextStyles.subtitle),
+            const SizedBox(height: 8),
+            ValueListenableBuilder<TabletSyncMode>(
+              valueListenable: SyncPreferences.instance.mode,
+              builder: (context, mode, _) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    RadioListTile<TabletSyncMode>(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        'تلقائية (Wi‑Fi / Ethernet)',
+                        style: AppTextStyles.body,
+                      ),
+                      subtitle: Text(
+                        'عند الاتصال بشبكة محلية والوصول للسيرفر: رفع الأعمال وتنزيل التحديثات تلقائياً.',
+                        style: AppTextStyles.small,
+                      ),
+                      value: TabletSyncMode.automatic,
+                      groupValue: mode,
+                      onChanged: (v) async {
+                        if (v == null) return;
+                        await SyncPreferences.instance.setMode(v);
+                        if (v == TabletSyncMode.automatic) {
+                          unawaited(SyncService.instance.runFullSync(silent: true));
+                        }
+                      },
+                    ),
+                    RadioListTile<TabletSyncMode>(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        'يدوية',
+                        style: AppTextStyles.body,
+                      ),
+                      subtitle: Text(
+                        'لا مزامنة تلقائية — استخدم «إدارة المزامنة» عند الحاجة.',
+                        style: AppTextStyles.small,
+                      ),
+                      value: TabletSyncMode.manual,
+                      groupValue: mode,
+                      onChanged: (v) async {
+                        if (v == null) return;
+                        await SyncPreferences.instance.setMode(v);
+                      },
+                    ),
+                  ],
+                );
+              },
+            ),
             const SizedBox(height: 28),
             Text('حالة الاتصال والمزامنة', style: AppTextStyles.subtitle),
             const SizedBox(height: 12),

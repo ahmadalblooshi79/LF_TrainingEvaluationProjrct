@@ -6,6 +6,7 @@ import '../services/api_client.dart';
 import '../services/tablet_repository.dart';
 import '../theme/app_theme.dart';
 import '../theme/device_layout.dart';
+import '../theme/grade_style.dart';
 import '../widgets/app_header.dart';
 import '../widgets/async_state_views.dart';
 import '../widgets/sticky_eval_scaffold.dart';
@@ -46,6 +47,7 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
   String? _error;
   bool _saving = false;
   bool _approving = false;
+  bool _savedThisSession = false;
   String? _hint;
 
   @override
@@ -77,6 +79,7 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
         _detail = result.data;
         _rows = rows;
         _fromCache = result.fromCache;
+        _savedThisSession = result.data.canApprove;
       });
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -156,7 +159,10 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
 
   bool get _canApproveNow {
     final detail = _detail;
-    if (detail == null || !detail.canApprove) return false;
+    if (detail == null || detail.isApproved) return false;
+    // بعد الحفظ المحلي يُفعَّل الاعتماد حتى لو السيرفر لم يُعلّم can_approve بعد
+    if (!detail.canEdit && !detail.canApprove && !_savedThisSession) return false;
+    if (!_savedThisSession) return false;
     if (_emptyAcquiredIndexes.isNotEmpty) return false;
     final grade = _gradeFromPct(_totalPct);
     if (!_nonApprovableGrades.contains(grade)) return true;
@@ -253,6 +259,32 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
       if (!mounted) return;
       setState(() {
         _saving = false;
+        _savedThisSession = true;
+        final d = _detail;
+        if (d != null && !d.isApproved) {
+          _detail = EvalSheetDetail(
+            kind: d.kind,
+            slot: d.slot,
+            slotId: d.slotId,
+            itemId: d.itemId,
+            title: d.title,
+            evalDocTitle: d.evalDocTitle,
+            evalDocSubtitle: d.evalDocSubtitle,
+            unitKey: d.unitKey,
+            unitLabel: d.unitLabel,
+            phaseKey: d.phaseKey,
+            evalRows: d.evalRows,
+            evalStructured: d.evalStructured,
+            acquiredOptions: d.acquiredOptions,
+            savedRows: List<EvalRowInput>.from(_rows),
+            canEdit: true,
+            canApprove: true,
+            isApproved: false,
+            locallyApproved: d.locallyApproved,
+            approvalSyncStatus: d.approvalSyncStatus,
+            workflow: d.workflow,
+          );
+        }
         _hint = 'حُفظت النتائج محلياً — ستُزامن مع الخادم';
       });
     } on ApiException catch (e) {
@@ -287,16 +319,21 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
                 _rows,
               ));
       }
+      final grade = _gradeFromPct(_totalPct);
       await (widget.mode == EvalSheetMode.actionEval
-          ? TabletRepository.instance.approveActionEval(widget.slot!)
+          ? TabletRepository.instance.approveActionEval(
+              widget.slot!,
+              gradeLabel: grade == 'غير محسوب' ? null : grade,
+            )
           : TabletRepository.instance.approveEvaluationList(
               widget.unitKey!,
               widget.itemId!,
+              gradeLabel: grade == 'غير محسوب' ? null : grade,
             ));
       if (!mounted) return;
       setState(() {
         _approving = false;
-        _hint = 'معتمد محلياً – بانتظار المزامنة';
+        _hint = null;
         _detail = EvalSheetDetail(
           kind: detail.kind,
           slot: detail.slot,
@@ -479,6 +516,7 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
               totalGrade: grade,
               canEdit: detail.canEdit,
               canApprove: _canApproveNow,
+              savedThisSession: _savedThisSession,
               alreadyApproved: detail.isApproved,
               saving: _saving,
               approving: _approving,
@@ -697,10 +735,12 @@ class _CriterionRowState extends State<_CriterionRow> {
         ? '—'
         : widget.grade;
 
+    final gradeStyle = GradeStyle.forLabel(gradeLabel);
+
     if (widget.phoneLayout) {
-      return _buildPhoneCard(displayAcquired, gradeLabel);
+      return _buildPhoneCard(displayAcquired, gradeLabel, gradeStyle);
     }
-    return _buildTabletRow(displayAcquired, gradeLabel);
+    return _buildTabletRow(displayAcquired, gradeLabel, gradeStyle);
   }
 
   Widget _metricChip(String label, Widget child) {
@@ -722,7 +762,11 @@ class _CriterionRowState extends State<_CriterionRow> {
     );
   }
 
-  Widget _buildPhoneCard(String displayAcquired, String gradeLabel) {
+  Widget _buildPhoneCard(
+    String displayAcquired,
+    String gradeLabel,
+    ({Color fg, Color bg}) gradeStyle,
+  ) {
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
@@ -867,7 +911,7 @@ class _CriterionRowState extends State<_CriterionRow> {
                   padding:
                       const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
                   decoration: BoxDecoration(
-                    color: AppColors.resultBlueBg,
+                    color: gradeStyle.bg,
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Text(
@@ -876,7 +920,7 @@ class _CriterionRowState extends State<_CriterionRow> {
                     overflow: TextOverflow.ellipsis,
                     style: AppTextStyles.cairo(
                       fontSize: 11,
-                      color: AppColors.resultBlue,
+                      color: gradeStyle.fg,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -931,7 +975,11 @@ class _CriterionRowState extends State<_CriterionRow> {
     );
   }
 
-  Widget _buildTabletRow(String displayAcquired, String gradeLabel) {
+  Widget _buildTabletRow(
+    String displayAcquired,
+    String gradeLabel,
+    ({Color fg, Color bg}) gradeStyle,
+  ) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
@@ -1072,7 +1120,7 @@ class _CriterionRowState extends State<_CriterionRow> {
                                 horizontal: 10,
                               ),
                               decoration: BoxDecoration(
-                                color: AppColors.resultBlueBg,
+                                color: gradeStyle.bg,
                                 borderRadius: BorderRadius.circular(14),
                               ),
                               child: Text(
@@ -1082,7 +1130,7 @@ class _CriterionRowState extends State<_CriterionRow> {
                                 overflow: TextOverflow.ellipsis,
                                 style: AppTextStyles.cairo(
                                   fontSize: 12,
-                                  color: AppColors.resultBlue,
+                                  color: gradeStyle.fg,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -1235,6 +1283,7 @@ class _FooterBar extends StatelessWidget {
     required this.totalGrade,
     required this.canEdit,
     required this.canApprove,
+    required this.savedThisSession,
     required this.alreadyApproved,
     required this.saving,
     required this.approving,
@@ -1249,6 +1298,7 @@ class _FooterBar extends StatelessWidget {
   final String totalGrade;
   final bool canEdit;
   final bool canApprove;
+  final bool savedThisSession;
   final bool alreadyApproved;
   final bool saving;
   final bool approving;
@@ -1258,6 +1308,11 @@ class _FooterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final gradeStyle = GradeStyle.forLabel(
+      totalGrade == 'غير محسوب' ? '' : totalGrade,
+    );
+    final approveEnabled = savedThisSession && canApprove && !approving;
+
     return StickyFooterBar(
       left: Wrap(
         spacing: 8,
@@ -1270,6 +1325,8 @@ class _FooterBar extends StatelessWidget {
             label: 'النتيجة النهائية',
             value: totalGrade == 'غير محسوب' ? '—' : totalGrade,
             emphasize: true,
+            fg: gradeStyle.fg,
+            bg: gradeStyle.bg,
           ),
         ],
       ),
@@ -1277,7 +1334,7 @@ class _FooterBar extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (hint != null)
+          if (hint != null && canEdit)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Text(
@@ -1287,55 +1344,79 @@ class _FooterBar extends StatelessWidget {
                   color: AppColors.doneGreen,
                   fontWeight: FontWeight.w600,
                 ),
-              ),
-            ),
-          if (canEdit)
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.buttonBrown,
-                foregroundColor: AppColors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              ),
-              onPressed: saving ? null : onSave,
-              icon: saving
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.save_outlined, size: 18),
-              label: const Text('حفظ نتائج التقييم النهائي'),
-            ),
-          if (alreadyApproved && !canEdit)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                hint?.contains('بانتظار') == true
-                    ? 'معتمد محلياً – بانتظار المزامنة'
-                    : 'معتمد',
-                style: AppTextStyles.small,
                 textAlign: TextAlign.center,
               ),
             ),
-          if (canApprove) ...[
-            const SizedBox(height: 8),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.buttonBrownDark,
-                foregroundColor: AppColors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              ),
-              onPressed: approving ? null : onApprove,
-              icon: approving
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.check_circle_outline, size: 18),
-              label: const Text('اعتماد نتائج التقييم النهائي'),
+          if (canEdit)
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final sideBySide = constraints.maxWidth >= 420;
+                final saveBtn = ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.buttonBrown,
+                    foregroundColor: AppColors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                  ),
+                  onPressed: saving ? null : onSave,
+                  icon: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.save_outlined, size: 18),
+                  label: const Text('حفظ نتائج التقييم النهائي'),
+                );
+                final approveBtn = ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.buttonBrownDark,
+                    foregroundColor: AppColors.white,
+                    disabledBackgroundColor: AppColors.buttonBrownDark.withValues(alpha: 0.45),
+                    disabledForegroundColor: AppColors.white.withValues(alpha: 0.7),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                  ),
+                  onPressed: approveEnabled ? onApprove : null,
+                  icon: approving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.check_circle_outline, size: 18),
+                  label: const Text('اعتماد نتائج التقييم النهائي'),
+                );
+                if (sideBySide) {
+                  return Row(
+                    children: [
+                      Expanded(child: saveBtn),
+                      const SizedBox(width: 8),
+                      Expanded(child: approveBtn),
+                    ],
+                  );
+                }
+                // حتى في العرض الضيق نعرضهما جنباً إلى جنب قدر الإمكان
+                return Row(
+                  children: [
+                    Expanded(child: saveBtn),
+                    const SizedBox(width: 8),
+                    Expanded(child: approveBtn),
+                  ],
+                );
+              },
             ),
-          ],
+          if (alreadyApproved && !canEdit)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                'معتمد',
+                style: AppTextStyles.cairo(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.doneGreen,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
         ],
       ),
     );
@@ -1343,10 +1424,18 @@ class _FooterBar extends StatelessWidget {
 }
 
 class _StatBox extends StatelessWidget {
-  const _StatBox({required this.label, required this.value, this.emphasize = false});
+  const _StatBox({
+    required this.label,
+    required this.value,
+    this.emphasize = false,
+    this.fg,
+    this.bg,
+  });
   final String label;
   final String value;
   final bool emphasize;
+  final Color? fg;
+  final Color? bg;
 
   @override
   Widget build(BuildContext context) {
@@ -1354,7 +1443,7 @@ class _StatBox extends StatelessWidget {
       width: 140,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: AppColors.cardWhite,
+        color: bg ?? AppColors.cardWhite,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.divider),
       ),
@@ -1368,7 +1457,7 @@ class _StatBox extends StatelessWidget {
             style: AppTextStyles.cairo(
               fontSize: emphasize ? 18 : 16,
               fontWeight: FontWeight.w800,
-              color: emphasize ? AppColors.olive : AppColors.darkText,
+              color: fg ?? (emphasize ? AppColors.olive : AppColors.darkText),
             ),
           ),
         ],

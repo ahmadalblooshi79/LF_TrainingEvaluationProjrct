@@ -27,11 +27,12 @@ _PHASE_ALIASES: dict[str, str] = {
 # تسميات ثابتة عند غياب مزامنة الكتالوج أو لمرادفات legacy.
 _STATIC_PHASE_LABELS: dict[str, str] = {
     "preparation": "مرحلة التحضير",
-    "opening": "مرحلة الإنفتاح",
-    "battle_exposure": "مرحلة المعركة التعرضية",
     "reorganization": "مرحلة مسارات التقييم",
-    "main": "مرحلة المعركة التعرضية",
+    "opening": "مرحلة الانفتاح",
+    "battle_exposure": "مرحلة العملية التعرضية",
+    "main": "مرحلة العملية التعرضية",
     "reorg": "مرحلة مسارات التقييم",
+    "evaluation_tracks": "مرحلة مسارات التقييم",
 }
 
 

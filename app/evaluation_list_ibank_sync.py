@@ -573,7 +573,9 @@ def collect_ibank_eval_files_for_phase_unit(
 
 
 def _node_ancestor_chain(
-    db: Session, node: InformationBankTreeNode
+    db: Session,
+    node: InformationBankTreeNode,
+    nodes_by_id: dict[int, InformationBankTreeNode] | None = None,
 ) -> list[InformationBankTreeNode]:
     """سلسلة العقد من الملف/المجلد إلى الجذر (الأقرب أولاً)."""
     chain: list[InformationBankTreeNode] = []
@@ -583,12 +585,19 @@ def _node_ancestor_chain(
         chain.append(cur)
         if cur.parent_id is None:
             break
-        cur = db.get(InformationBankTreeNode, int(cur.parent_id))
+        if nodes_by_id is not None:
+            cur = nodes_by_id.get(int(cur.parent_id))
+        else:
+            cur = db.get(InformationBankTreeNode, int(cur.parent_id))
         hops += 1
     return chain
 
 
-def _deepest_unit_key_for_file_node(db: Session, node: InformationBankTreeNode) -> str:
+def _deepest_unit_key_for_file_node(
+    db: Session,
+    node: InformationBankTreeNode,
+    nodes_by_id: dict[int, InformationBankTreeNode] | None = None,
+) -> str:
     """مستوى وحدة الملف — صريح أو من المجلد الأب المباشر فقط (دون تجاوز مجلد فرعي فارغ)."""
     own = (node.catalog_unit_key or "").strip()
     if own:
@@ -597,7 +606,10 @@ def _deepest_unit_key_for_file_node(db: Session, node: InformationBankTreeNode) 
             return resolved
     if node.parent_id is None:
         return ""
-    parent = db.get(InformationBankTreeNode, int(node.parent_id))
+    if nodes_by_id is not None:
+        parent = nodes_by_id.get(int(node.parent_id))
+    else:
+        parent = db.get(InformationBankTreeNode, int(node.parent_id))
     if parent is None:
         return ""
     if parent.is_folder:
@@ -606,7 +618,12 @@ def _deepest_unit_key_for_file_node(db: Session, node: InformationBankTreeNode) 
             resolved = _resolve_unit_key(puk, db)
             if resolved:
                 return resolved
-        if not _is_nested_unit_folder(db, parent):
+        nested = (
+            _is_nested_unit_folder_maps(db, parent, nodes_by_id)
+            if nodes_by_id is not None
+            else _is_nested_unit_folder(db, parent)
+        )
+        if not nested:
             guessed = _match_unit_key_by_folder_name(db, parent.name)
             if guessed:
                 resolved = _resolve_unit_key(guessed, db)
@@ -615,9 +632,13 @@ def _deepest_unit_key_for_file_node(db: Session, node: InformationBankTreeNode) 
     return ""
 
 
-def _deepest_phase_key_for_file_node(db: Session, node: InformationBankTreeNode) -> str:
+def _deepest_phase_key_for_file_node(
+    db: Session,
+    node: InformationBankTreeNode,
+    nodes_by_id: dict[int, InformationBankTreeNode] | None = None,
+) -> str:
     """أقرب مرحلة تمرين لملف Excel في الشجرة."""
-    for cur in _node_ancestor_chain(db, node):
+    for cur in _node_ancestor_chain(db, node, nodes_by_id=nodes_by_id):
         pk = (cur.catalog_phase_key or "").strip()
         if pk:
             from app.info_bank_tree import parse_flow_day_catalog_key
@@ -637,11 +658,13 @@ def _deepest_phase_key_for_file_node(db: Session, node: InformationBankTreeNode)
 
 
 def _ibank_context_for_file_node(
-    db: Session, node: InformationBankTreeNode
+    db: Session,
+    node: InformationBankTreeNode,
+    nodes_by_id: dict[int, InformationBankTreeNode] | None = None,
 ) -> tuple[str, str]:
     """استنتاج (مرحلة، وحدة) لملف Excel — من أقرب مجلد سياق في الشجرة."""
-    pk = _deepest_phase_key_for_file_node(db, node)
-    uk = _deepest_unit_key_for_file_node(db, node)
+    pk = _deepest_phase_key_for_file_node(db, node, nodes_by_id=nodes_by_id)
+    uk = _deepest_unit_key_for_file_node(db, node, nodes_by_id=nodes_by_id)
     return pk, uk
 
 
@@ -883,27 +906,14 @@ def index_dilemma_eval_ibank_files(
         pass
 
     prepare_dilemma_eval_ibank_tree(db)
-    # تحميل كل عقد التبويب دفعة واحدة — يقلّل N+1 في سياق الملف/الوحدة.
-    all_nodes = (
-        db.query(InformationBankTreeNode)
-        .filter(InformationBankTreeNode.kind == INFO_BANK_EVAL_LIST_KIND)
-        .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
-        .all()
-    )
-    try:
-        from flask import g, has_app_context
-
-        if has_app_context():
-            g._dilemma_eval_nodes_by_id = {int(n.id): n for n in all_nodes}
-    except Exception:
-        pass
+    nodes_by_id, children_by_parent = _dilemma_eval_tree_maps(db)
     out: dict[tuple[str, str], list[dict]] = defaultdict(list)
-    for node in all_nodes:
+    for node in nodes_by_id.values():
         if node.is_folder or not _is_xlsx_tree_file(node):
             continue
         if not (node.file_relpath or "").strip():
             continue
-        pk, uk = _ibank_context_for_file_node(db, node)
+        pk, uk = _ibank_context_for_file_node(db, node, nodes_by_id=nodes_by_id)
         pk = _resolve_phase_key(pk, db) if pk else ""
         uk = _resolve_unit_key(uk, db) if uk else ""
         if not pk or not uk:
@@ -958,7 +968,11 @@ def effective_eval_list_phase_keys(
     if catalog:
         return catalog
     index = index_dilemma_eval_ibank_files(db)
-    ibank_phases = sorted({pk for (pk, uk) in index.keys() if uk in roster_units})
+    from app.information_bank_catalog import ordered_training_phase_keys
+
+    ibank_phases = ordered_training_phase_keys(
+        {pk for (pk, uk) in index.keys() if uk in roster_units}
+    )
     if ibank_phases:
         return ibank_phases
     from app.info_bank_tree import PRIMARY_PHASE_KEYS
@@ -1431,36 +1445,153 @@ def _unit_folder_ids_for_phase_unit(
     db: Session, *, phase_key: str, unit_key: str
 ) -> set[int]:
     """معرّفات مجلدات مستوى الوحدة تحت مرحلة التمرين (بأي عمق)."""
-    prepare_dilemma_eval_ibank_tree(db)
     uk = _resolve_unit_key(unit_key, db)
     pk = _resolve_phase_key(phase_key, db)
     if not uk or not pk:
         return set()
+    phase_map = _phase_unit_folder_ids_map(db, pk)
+    return set(phase_map.get(uk, set()))
+
+
+def _is_nested_unit_folder_maps(
+    db: Session,
+    node: InformationBankTreeNode,
+    nodes_by_id: dict[int, InformationBankTreeNode],
+) -> bool:
+    if not node.is_folder or _is_phase_root_folder(node) or node.parent_id is None:
+        return False
+    parent = nodes_by_id.get(int(node.parent_id))
+    if parent is None or not parent.is_folder:
+        return False
+    if _is_phase_root_folder(parent):
+        return False
+    if _match_phase_key_by_folder_name(db, parent.name or ""):
+        return False
+    return bool((parent.catalog_unit_key or "").strip())
+
+
+def _unit_key_for_node_maps(
+    node: InformationBankTreeNode,
+    nodes_by_id: dict[int, InformationBankTreeNode],
+) -> str:
+    uk = (node.catalog_unit_key or "").strip()
+    if uk:
+        return uk
+    if node.is_folder or node.parent_id is None:
+        return ""
+    parent = nodes_by_id.get(int(node.parent_id))
+    if parent is None or not parent.is_folder:
+        return ""
+    return (parent.catalog_unit_key or "").strip()
+
+
+def _effective_unit_key_for_node_maps(
+    db: Session,
+    node: InformationBankTreeNode,
+    nodes_by_id: dict[int, InformationBankTreeNode],
+) -> str:
+    raw = _unit_key_for_node_maps(node, nodes_by_id)
+    uk = _resolve_unit_key(raw, db)
+    if uk:
+        return uk
+    if node.is_folder and not _is_nested_unit_folder_maps(db, node, nodes_by_id):
+        guessed = _match_unit_key_by_folder_name(db, node.name)
+        return _resolve_unit_key(guessed, db) if guessed else ""
+    return ""
+
+
+def _folder_resolved_unit_key_maps(
+    db: Session,
+    node: InformationBankTreeNode,
+    nodes_by_id: dict[int, InformationBankTreeNode],
+    cache: dict[int, str],
+) -> str:
+    from app.ibank_dilemma_folder_import import is_dilemma_folder_unit_key
+
+    nid = int(node.id)
+    if nid in cache:
+        return cache[nid]
+    raw_uk = (node.catalog_unit_key or "").strip()
+    if is_dilemma_folder_unit_key(raw_uk):
+        cache[nid] = ""
+        return ""
+    uk = _resolve_unit_key(raw_uk, db)
+    if uk:
+        cache[nid] = uk
+        return uk
+    if _is_nested_unit_folder_maps(db, node, nodes_by_id):
+        cache[nid] = ""
+        return ""
+    eff = _effective_unit_key_for_node_maps(db, node, nodes_by_id)
+    if is_dilemma_folder_unit_key(eff):
+        cache[nid] = ""
+        return ""
+    result = _resolve_unit_key(eff, db) or ""
+    cache[nid] = result
+    return result
+
+
+def _effective_phase_key_for_node_maps(
+    db: Session,
+    node: InformationBankTreeNode,
+) -> str:
+    raw = (node.catalog_phase_key or "").strip()
+    if raw:
+        pk = _resolve_phase_key(raw, db)
+        if pk:
+            return pk
+    if node.is_folder and _is_phase_root_folder(node):
+        guessed = _match_phase_key_by_folder_name(db, node.name)
+        return _resolve_phase_key(guessed, db) if guessed else ""
+    return ""
+
+
+def _phase_root_nodes_for_key_maps(
+    db: Session,
+    phase_key: str,
+    nodes_by_id: dict[int, InformationBankTreeNode],
+) -> list[InformationBankTreeNode]:
+    pk = _resolve_phase_key(phase_key, db)
+    if not pk:
+        return []
+    match_keys = _phase_match_keys(pk)
+    out: list[InformationBankTreeNode] = []
+    for root in nodes_by_id.values():
+        if root.parent_id is not None or not root.is_folder:
+            continue
+        rpk = _effective_phase_key_for_node_maps(db, root)
+        if rpk in match_keys:
+            out.append(root)
+    out.sort(key=lambda n: (int(n.sort_order or 0), int(n.id)))
+    return out
+
+
+def _phase_unit_folder_ids_map(
+    db: Session, phase_key: str
+) -> dict[str, set[int]]:
+    """مجلدات مستوى الوحدة لكل مفتاح — تمريرة واحدة على شجرة المرحلة."""
+    pk = _resolve_phase_key(phase_key, db) or normalize_exercise_phase(phase_key)
+    if not pk:
+        return {}
+    cache = None
     try:
         from flask import g, has_app_context
 
         if has_app_context():
-            cache = getattr(g, "_unit_folder_ids_cache", None)
+            cache = getattr(g, "_phase_unit_folder_ids_map", None)
             if cache is None:
                 cache = {}
-                g._unit_folder_ids_cache = cache
-            key = (pk, uk)
-            hit = cache.get(key)
+                g._phase_unit_folder_ids_map = cache
+            hit = cache.get(pk)
             if hit is not None:
                 return hit
     except Exception:
         cache = None
-        key = None
 
-    nodes_by_id = _dilemma_eval_nodes_by_id(db)
-    children_by_parent: dict[int | None, list[InformationBankTreeNode]] = defaultdict(list)
-    for node in nodes_by_id.values():
-        children_by_parent[node.parent_id].append(node)
-
-    from app.info_bank_tree import folder_resolved_unit_key
-
-    out: set[int] = set()
-    for phase_root in _phase_root_nodes_for_key(db, pk):
+    nodes_by_id, children_by_parent = _dilemma_eval_tree_maps(db)
+    folder_uk_cache: dict[int, str] = {}
+    out: dict[str, set[int]] = defaultdict(set)
+    for phase_root in _phase_root_nodes_for_key_maps(db, pk, nodes_by_id):
         queue = [int(phase_root.id)]
         seen: set[int] = set()
         while queue:
@@ -1468,16 +1599,20 @@ def _unit_folder_ids_for_phase_unit(
             if nid in seen:
                 continue
             seen.add(nid)
-            for child in children_by_parent.get(nid, []):
+            for child in children_by_parent.get(nid, ()):
                 cid = int(child.id)
                 queue.append(cid)
                 if not child.is_folder:
                     continue
-                if folder_resolved_unit_key(db, child) == uk:
-                    out.add(cid)
-    if cache is not None and key is not None:
-        cache[key] = out
-    return out
+                resolved = _folder_resolved_unit_key_maps(
+                    db, child, nodes_by_id, folder_uk_cache
+                )
+                if resolved:
+                    out[resolved].add(cid)
+    result = {k: set(v) for k, v in out.items()}
+    if cache is not None:
+        cache[pk] = result
+    return result
 
 
 def _folder_group_for_file_node(
@@ -1563,30 +1698,46 @@ def build_eval_list_rows_for_group(
     return rows
 
 
-def _dilemma_eval_nodes_by_id(db: Session) -> dict[int, InformationBankTreeNode]:
+def _dilemma_eval_tree_maps(
+    db: Session,
+) -> tuple[dict[int, InformationBankTreeNode], dict[int | None, list[InformationBankTreeNode]]]:
     try:
         from flask import g, has_app_context
 
         if has_app_context():
-            cached = getattr(g, "_dilemma_eval_nodes_by_id", None)
-            if isinstance(cached, dict):
-                return cached
+            nodes = getattr(g, "_dilemma_eval_nodes_by_id", None)
+            children = getattr(g, "_dilemma_eval_children_by_parent", None)
+            if isinstance(nodes, dict) and isinstance(children, dict):
+                return nodes, children
     except Exception:
         pass
-    mapping = {
-        int(n.id): n
-        for n in db.query(InformationBankTreeNode)
+
+    all_nodes = (
+        db.query(InformationBankTreeNode)
         .filter(InformationBankTreeNode.kind == INFO_BANK_EVAL_LIST_KIND)
+        .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
         .all()
-    }
+    )
+    nodes_by_id = {int(n.id): n for n in all_nodes}
+    children_by_parent: dict[int | None, list[InformationBankTreeNode]] = defaultdict(list)
+    for node in all_nodes:
+        children_by_parent[node.parent_id].append(node)
+    for siblings in children_by_parent.values():
+        siblings.sort(key=lambda n: (int(n.sort_order or 0), int(n.id)))
     try:
         from flask import g, has_app_context
 
         if has_app_context():
-            g._dilemma_eval_nodes_by_id = mapping
+            g._dilemma_eval_nodes_by_id = nodes_by_id
+            g._dilemma_eval_children_by_parent = dict(children_by_parent)
     except Exception:
         pass
-    return mapping
+    return nodes_by_id, dict(children_by_parent)
+
+
+def _dilemma_eval_nodes_by_id(db: Session) -> dict[int, InformationBankTreeNode]:
+    nodes_by_id, _children = _dilemma_eval_tree_maps(db)
+    return nodes_by_id
 
 
 def build_eval_list_folder_groups(
@@ -1707,7 +1858,9 @@ def build_eval_list_display_groups(
     judge_by_unit, trainee_by_unit = exercise_roster_labels_by_unit(db, int(exercise_id))
     phase_keys = effective_eval_list_phase_keys(db, roster_units=roster_units)
     if not phase_keys:
-        phase_keys = sorted({pk for (pk, _uk) in ibank_index.keys()})
+        from app.information_bank_catalog import ordered_training_phase_keys
+
+        phase_keys = ordered_training_phase_keys({pk for (pk, _uk) in ibank_index.keys()})
     if phase_key:
         pk_resolved = _resolve_phase_key(phase_key, db) or normalize_exercise_phase(phase_key)
         if pk_resolved:
@@ -1774,11 +1927,6 @@ def build_eval_list_display_groups(
                     "eval_items": eval_items,
                     "ibank_sources": ibank_sources,
                     "ibank_source_count": len(ibank_sources),
-                    "list_rows": build_eval_list_rows_for_group(
-                        ibank_sources=ibank_sources,
-                        eval_items=eval_items,
-                        published_by_node=unit_published_by_node,
-                    ),
                     "list_folder_groups": build_eval_list_folder_groups(
                         db,
                         phase_key=pk,

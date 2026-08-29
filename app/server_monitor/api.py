@@ -119,6 +119,7 @@ def api_server_devices():
     for r in rows:
         out.append(
             {
+                "device_id": r.device_id,
                 "device_name": r.device_name,
                 "device_ip": r.device_ip,
                 "military_number": r.military_number,

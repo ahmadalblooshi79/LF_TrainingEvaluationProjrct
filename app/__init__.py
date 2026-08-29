@@ -88,8 +88,8 @@ def create_app() -> Flask:
         ensure_information_bank_phase_included_column()
         ensure_information_bank_unit_included_column()
         ensure_information_bank_unit_brigade_group_column()
-        ensure_information_bank_unit_label_migrations()
         ensure_ibank_section_schema()
+        ensure_information_bank_unit_label_migrations()
         from app.ibank_section_ctx import register_ibank_section_session_events
 
         register_ibank_section_session_events()
@@ -119,6 +119,10 @@ def create_app() -> Flask:
             return
         if path.startswith("/api/remote-control/stream"):
             return
+        # فحص صحة التابلت — بدون فتح قاعدة البيانات (أسرع وأقل قفلاً)
+        if path == "/api/tablet/health":
+            g.db = None
+            return
         g.db = SessionLocal()
         from app.ibank_section_ctx import bind_ibank_section_from_exercise
         from app.models import Exercise
@@ -127,7 +131,20 @@ def create_app() -> Flask:
         bind_ibank_section_from_exercise(
             getattr(ex, "exercise_type", None) if ex is not None else None
         )
-        # طلبات خفيفة — لا مزامنة كتالوج (تسريع الدخول والنبضات والصفحات البسيطة)
+        # طلبات خفيفة للتابلت — بدون مزامنة كتالوج
+        if path.startswith("/api/tablet/"):
+            light_prefixes = (
+                "/api/tablet/health",
+                "/api/tablet/auth/login",
+                "/api/tablet/auth/logout",
+                "/api/tablet/device/setup-login",
+                "/api/tablet/device/package",
+            )
+            if not any(path == p or path.startswith(p + "/") for p in light_prefixes):
+                from app.planning_catalog_sync import sync_planning_catalogs_from_db
+
+                sync_planning_catalogs_from_db(g.db)
+            return
         if path.startswith("/api/") or path in ("/login", "/logout"):
             return
         from app.planning_catalog_sync import sync_planning_catalogs_from_db

@@ -972,9 +972,9 @@ def _evaluation_saved_total_pct(sr: EvaluationListSavedResult | None) -> float |
 
 _CONTROL_REPORT_PHASE_FALLBACK: tuple[tuple[str, str], ...] = (
     ("preparation", "مرحلة التحضير"),
-    ("opening", "مرحلة الإنفتاح"),
-    ("battle_exposure", "مرحلة المعركة التعرضية"),
     ("reorganization", "مرحلة مسارات التقييم"),
+    ("opening", "مرحلة الانفتاح"),
+    ("battle_exposure", "مرحلة العملية التعرضية"),
 )
 
 
@@ -14921,10 +14921,6 @@ def _render_admin_evaluation_lists(
         roster_judge_unit_keys,
         summarize_judge_roster_for_eval_lists,
     )
-    from app.planning_catalog_sync import sync_planning_catalogs_from_db
-
-    # المزامنة تتم في before_request — لا تُفرض مجدداً في كل تصفح.
-    sync_planning_catalogs_from_db(db)
 
     current_exercise = _admin_current_workspace_exercise(db, user)
     error = (request.args.get("err") or "").strip()
@@ -14958,7 +14954,8 @@ def _render_admin_evaluation_lists(
         published_count = sum(
             1
             for g in eval_groups
-            for r in g.get("list_rows") or []
+            for folder in g.get("list_folder_groups") or []
+            for r in folder.get("rows") or []
             if r.get("published")
         )
         page_note = ""
@@ -16000,13 +15997,19 @@ def admin_information_bank_phases_included_save():
                 )
         for row in rows:
             row.included_in_exercise = (row.key or "").strip() in new_keys
-        db.commit()
+        from app.info_bank_tree import (
+            ensure_information_bank_kind,
+            invalidate_information_bank_kind_cache,
+        )
         from app.planning_catalog_sync import sync_planning_catalogs_from_db
 
+        invalidate_information_bank_kind_cache("dilemma_eval")
+        ensure_information_bank_kind(db, "dilemma_eval")
         sync_planning_catalogs_from_db(db, force=True)
+        db.commit()
         return _ibank_included_save_http_response(
             tab="phases",
-            ok_msg="تم حفظ تحديدات وإلغاءات مراحل التمرين — تُطبَّق على قوائم التخطيط والمحكمين.",
+            ok_msg="تم حفظ تحديدات وإلغاءات مراحل التمرين — تُطبَّق على قوائم التخطيط والمحكمين ومجلدات قوائم التقييم.",
         )
     except Exception:
         db.rollback()
@@ -17314,7 +17317,18 @@ def admin_information_bank_tree_delete(node_id: int):
         abort(404)
     tab = kind_tab(row.kind)
     kind_deleted = (row.kind or "").strip()
-    delete_node(db, row)
+    try:
+        delete_node(db, row)
+    except ValueError as exc:
+        db.rollback()
+        err = str(exc) or "لا يمكن حذف هذا العنصر."
+        if (
+            request.accept_mimetypes.best_match(["application/json", "text/html"])
+            == "application/json"
+            or (request.headers.get("X-Requested-With") or "").strip() == "XMLHttpRequest"
+        ):
+            return jsonify(ok=False, error=err), 400
+        return _admin_information_bank_tree_redirect(tab=tab, err=err)
     db.commit()
     if kind_deleted == "action_eval":
         from app.ibank_action_eval_dilemma_tree import invalidate_action_eval_dilemma_tree_cache
@@ -17369,6 +17383,9 @@ def admin_information_bank_tree_unit_level(node_id: int):
             invalidate_information_bank_kind_cache("action_eval")
         else:
             set_folder_unit_level(db, kind=kind, node_id=node_id, unit_key=unit_key)
+            from app.info_bank_tree import invalidate_information_bank_kind_cache
+
+            invalidate_information_bank_kind_cache(kind)
         db.commit()
     except ValueError as exc:
         db.rollback()
@@ -17377,7 +17394,7 @@ def admin_information_bank_tree_unit_level(node_id: int):
             return jsonify(ok=False, error=err), 400
         return _admin_information_bank_tree_redirect(tab=tab, err=err)
     ok_msg = (
-        "تم تعيين مستوى الوحدة لهذا المجلد ومحتوياته (المجلدات الفرعية ذات التعيين الخاص تبقى كما هي)."
+        "تم تعيين مستوى الوحدة للمجلد ولجميع قوائم التقييم (ملفات Excel) تحته."
         if is_folder
         else "تم تعيين مستوى الوحدة للملف."
     )
@@ -17743,6 +17760,7 @@ def admin_information_bank_eval_list_purge_all():
 
     from app.ibank_action_eval_dilemma_tree import invalidate_action_eval_dilemma_tree_cache
     from app.info_bank_tree import (
+        ensure_information_bank_kind,
         invalidate_information_bank_kind_cache,
         kind_tab,
         purge_information_bank_tree,
@@ -17755,6 +17773,8 @@ def admin_information_bank_eval_list_purge_all():
     tab = kind_tab(kind)
     stats = purge_information_bank_tree(db, kind)
     invalidate_information_bank_kind_cache(kind)
+    if kind == "dilemma_eval":
+        ensure_information_bank_kind(db, "dilemma_eval")
     if kind == "action_eval":
         invalidate_action_eval_dilemma_tree_cache()
     if kind == "dilemma_lists":

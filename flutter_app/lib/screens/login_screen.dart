@@ -121,15 +121,22 @@ class _LoginScreenState extends State<LoginScreen> {
       _testHint = null;
     });
     await ApiClient.instance.init();
+    final target = ApiClient.instance.baseUrl;
     final ok = await HealthService.instance.check(force: true);
     if (!mounted) return;
     setState(() {
       _testingConn = false;
-      _testHint = ok
-          ? '✅ تم الاتصال بالخادم'
-          : (_offlineReady
-              ? '⚠️ Offline Mode — يمكن الدخول بالبيانات المحلية'
-              : '⚠️ Offline Mode — يلزم أول دخول عبر السيرفر مرة واحدة');
+      if (ok) {
+        _testHint = '✅ تم الاتصال بالخادم ($target)';
+      } else if (_offlineReady) {
+        _testHint =
+            '⚠️ تعذّر الاتصال ($target) — يمكن الدخول بالبيانات المحلية';
+      } else if (target.trim().isEmpty) {
+        _testHint = '⚠️ اضبط عنوان السيرفر أولاً (مثال 192.168.1.10:8005)';
+      } else {
+        _testHint =
+            '⚠️ تعذّر الاتصال بـ $target — تأكد أن السيرفر يعمل على نفس الشبكة';
+      }
     });
   }
 
@@ -244,7 +251,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 _mode = m;
                 _error = null;
                 if (m == _LoginMode.deviceAdmin) {
-                  _userCtrl.text = 'device_admin';
+                  _userCtrl.text = 'manager';
                 }
               }),
               onSubmit: _submit,
@@ -259,16 +266,28 @@ class _LoginScreenState extends State<LoginScreen> {
                 ],
               );
             }
-            return SingleChildScrollView(
-              child: Column(
-                children: [
-                  const SizedBox(height: 210, child: _Branding()),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                    child: card,
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          const _Branding(),
+                          SizedBox(height: _loginGapBelowLogo(context)),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                            child: card,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ],
-              ),
+                );
+              },
             );
           },
         ),
@@ -276,6 +295,9 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
+
+/// ~3 سم تحت الشعار (160 dpi baseline).
+double _loginGapBelowLogo(BuildContext context) => 1 * 160 / 2.54;
 
 class _Branding extends StatelessWidget {
   const _Branding();
@@ -471,7 +493,7 @@ class _LoginCard extends StatelessWidget {
               const SizedBox(height: 22),
               _field(
                 controller: userCtrl,
-                hint: isAdmin ? 'device_admin' : 'اسم المستخدم',
+                hint: isAdmin ? 'manager' : 'اسم المستخدم',
                 icon: Icons.person_outline,
                 validator: (v) => (v == null || v.trim().isEmpty) ? 'مطلوب' : null,
               ),
@@ -496,6 +518,55 @@ class _LoginCard extends StatelessWidget {
                 ),
                 validator: (v) => (v == null || v.isEmpty) ? 'مطلوب' : null,
                 onSubmit: onSubmit,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: submitting ? null : onSubmit,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.gold,
+                  foregroundColor: AppColors.darkText,
+                  disabledBackgroundColor: AppColors.gold.withValues(alpha: 0.7),
+                  disabledForegroundColor: AppColors.darkText,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: submitting
+                    ? Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.darkText,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            'جاري تسجيل الدخول...',
+                            style: AppTextStyles.cairo(
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.darkText,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      )
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.login, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            isAdmin ? 'دخول إدارة الجهاز' : 'تسجيل الدخول',
+                            style: AppTextStyles.cairo(
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.darkText,
+                            ),
+                          ),
+                        ],
+                      ),
               ),
               if (!isAdmin) ...[
                 const SizedBox(height: 14),
@@ -589,55 +660,6 @@ class _LoginCard extends StatelessWidget {
                   ),
                 ),
               ],
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: submitting ? null : onSubmit,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.gold,
-                  foregroundColor: AppColors.darkText,
-                  disabledBackgroundColor: AppColors.gold.withValues(alpha: 0.7),
-                  disabledForegroundColor: AppColors.darkText,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                child: submitting
-                    ? Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: AppColors.darkText,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Text(
-                            'جاري تسجيل الدخول...',
-                            style: AppTextStyles.cairo(
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.darkText,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      )
-                    : Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.login, size: 20),
-                          const SizedBox(width: 8),
-                          Text(
-                            isAdmin ? 'دخول إدارة الجهاز' : 'تسجيل الدخول',
-                            style: AppTextStyles.cairo(
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.darkText,
-                            ),
-                          ),
-                        ],
-                      ),
-              ),
               const SizedBox(height: 14),
               Text(
                 versionLabel,

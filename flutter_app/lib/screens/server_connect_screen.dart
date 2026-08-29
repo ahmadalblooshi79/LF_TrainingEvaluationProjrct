@@ -41,6 +41,9 @@ class _ServerConnectScreenState extends State<ServerConnectScreen> {
     var url = _ctrl.text.trim();
     if (url.isEmpty && kIsWeb) url = Uri.base.origin;
     await ApiClient.instance.setBaseUrl(url);
+    if (!mounted) return;
+    // اعرض العنوان بعد التطبيع (مثلاً إضافة :8005)
+    setState(() => _ctrl.text = ApiClient.instance.baseUrl);
   }
 
   Future<void> _save() async {
@@ -58,14 +61,18 @@ class _ServerConnectScreenState extends State<ServerConnectScreen> {
       _result = null;
     });
     await _apply();
-    final ok = await ApiClient.instance.ping();
+    final target = ApiClient.instance.baseUrl;
+    final ok = await ApiClient.instance.ping(
+      timeout: const Duration(seconds: 10),
+    );
+    final detail = ApiClient.instance.lastPingDetail;
     if (!mounted) return;
     setState(() {
       _testing = false;
       _ok = ok;
       _result = ok
-          ? 'تم الاتصال بالخادم بنجاح'
-          : 'تعذّر الاتصال — تحقق من عنوان IP والمنفذ والشبكة';
+          ? 'تم الاتصال بالخادم بنجاح\n$target'
+          : 'تعذّر الاتصال بـ $target\n${detail.isNotEmpty ? detail : 'تحقق أن السيرفر يعمل وأن الجهاز على نفس الشبكة'}';
     });
   }
 

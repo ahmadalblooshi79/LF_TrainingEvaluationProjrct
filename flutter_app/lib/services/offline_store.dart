@@ -628,6 +628,28 @@ class OfflineStore {
     );
   }
 
+  Future<List<String>> cacheKeysLike(String pattern) async {
+    if (kIsWeb) {
+      final prefs = _prefs ?? await SharedPreferences.getInstance();
+      return prefs
+          .getKeys()
+          .where((k) => k.startsWith(_cachePrefix) && k.contains(pattern))
+          .map((k) => k.substring(_cachePrefix.length))
+          .toList();
+    }
+    final db = await _database;
+    final rows = await db.query(
+      'cache',
+      columns: ['cache_key'],
+      where: 'cache_key LIKE ?',
+      whereArgs: ['%$pattern%'],
+    );
+    return rows
+        .map((r) => (r['cache_key'] ?? '').toString())
+        .where((k) => k.isNotEmpty)
+        .toList();
+  }
+
   Future<Map<String, dynamic>?> cacheGet(String key) async {
     if (kIsWeb) {
       final prefs = _prefs ?? await SharedPreferences.getInstance();

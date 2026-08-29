@@ -36,12 +36,21 @@ def eval_control_approved(saved: SavedRow | None) -> bool:
 
 
 def eval_status_done(saved: SavedRow | None) -> bool:
-    """موقف ينجز/لم ينجز — يعتمد على اعتماد المحكم؛ يبقى ينجز بعد إعادة الفتح حتى يحفظ المحكم."""
+    """موقف معتمد/لم ينجز — القوائم المعادة للمحكم تُعدّ غير مكتملة حتى يُعاد اعتمادها."""
     if saved is None:
         return False
-    if eval_reopened_for_judge(saved) and eval_judge_approved(saved):
-        return True
+    if eval_reopened_for_judge(saved):
+        return False
     return eval_judge_approved(saved)
+
+
+def eval_status_label_ar(saved: SavedRow | None) -> str:
+    """تسمية عمود الموقف للقوائم."""
+    if saved is not None and eval_reopened_for_judge(saved):
+        return "معاد للتقييم"
+    if eval_status_done(saved):
+        return "معتمد"
+    return "لم ينجز"
 
 
 def eval_judge_can_edit(saved: SavedRow | None) -> bool:
@@ -362,10 +371,10 @@ def build_planner_flow_eval_row(
         "trained_unit": (getattr(exercise, "trained_unit", "") or "").strip(),
         "delivery_dt": (
             getattr(saved, "approved_at", None)
-            if saved is not None and eval_judge_approved(saved)
+            if saved is not None and eval_judge_approved(saved) and not eval_reopened_for_judge(saved)
             else None
         ),
-        "status_label": "ينجز" if is_done else "لم ينجز",
+        "status_label": eval_status_label_ar(saved),
         "status_done": is_done,
         "grade_label": display_grade_label(getattr(saved, "grade_label", "") if saved else "") if saved else "",
         "dispatch_label": dispatch_label,
@@ -396,10 +405,10 @@ def build_evaluation_list_row(
         "trained_unit": (getattr(exercise, "trained_unit", "") or "").strip(),
         "delivery_dt": (
             getattr(saved, "approved_at", None)
-            if saved is not None and eval_judge_approved(saved)
+            if saved is not None and eval_judge_approved(saved) and not eval_reopened_for_judge(saved)
             else None
         ),
-        "status_label": "ينجز" if is_done else "لم ينجز",
+        "status_label": eval_status_label_ar(saved),
         "status_done": is_done,
         "grade_label": display_grade_label(getattr(saved, "grade_label", "") if saved else "") if saved else "",
         "dispatch_label": dispatch_label,

@@ -33,12 +33,14 @@ class ApiClient {
   ApiClient._internal();
   static final ApiClient instance = ApiClient._internal();
 
-  final http.Client _http = http.Client();
   CookieJar? _cookieJar;
   String _baseUrl = '';
   bool _ready = false;
 
   final ValueNotifier<bool> online = ValueNotifier<bool>(true);
+
+  /// آخر تفاصيل فحص الاتصال (للواجهة).
+  String lastPingDetail = '';
 
   String get baseUrl => _baseUrl;
 
@@ -48,7 +50,12 @@ class ApiClient {
   Future<void> init() async {
     if (_ready) return;
     final prefs = await SharedPreferences.getInstance();
-    _baseUrl = (prefs.getString(kServerBaseUrlPrefKey) ?? '').trim();
+    final raw = (prefs.getString(kServerBaseUrlPrefKey) ?? '').trim();
+    _baseUrl = raw.isEmpty ? '' : _normalizeBaseUrl(raw);
+    // أعد حفظ العنوان المطبَّع (منفذ 8005 / أرقام لاتينية) إن تغيّر
+    if (_baseUrl.isNotEmpty && _baseUrl != raw) {
+      await prefs.setString(kServerBaseUrlPrefKey, _baseUrl);
+    }
     if (kIsWeb) {
       // Browser manages cookies for same-origin PWA; keep an in-memory jar
       // only as a no-op helper for header parsing paths.
@@ -63,18 +70,46 @@ class ApiClient {
   }
 
   Future<void> setBaseUrl(String url) async {
+    await init();
     _baseUrl = _normalizeBaseUrl(url);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(kServerBaseUrlPrefKey, _baseUrl);
   }
 
+  /// يطبيّع العنوان: أرقام عربية → لاتينية، http افتراضي، منفذ 8005 إن غاب.
   static String _normalizeBaseUrl(String url) {
-    var u = url.trim();
+    var u = _toWesternDigits(url.trim())
+        .replaceAll('\u200e', '')
+        .replaceAll('\u200f', '')
+        .replaceAll('\u202a', '')
+        .replaceAll('\u202b', '')
+        .replaceAll('\u202c', '')
+        .replaceAll(' ', '');
     if (u.endsWith('/')) u = u.substring(0, u.length - 1);
-    if (u.isNotEmpty && !u.startsWith('http://') && !u.startsWith('https://')) {
+    if (u.isEmpty) return u;
+    if (!u.startsWith('http://') && !u.startsWith('https://')) {
       u = 'http://$u';
     }
-    return u;
+    final parsed = Uri.tryParse(u);
+    if (parsed == null || !parsed.hasAuthority) return u;
+    // إن لم يُحدد المنفذ لـ http → المنفذ الافتراضي للتطبيق 8005
+    if (!parsed.hasPort &&
+        (parsed.scheme == 'http' || parsed.scheme.isEmpty)) {
+      return parsed.replace(scheme: 'http', port: 8005).toString().replaceAll(RegExp(r'/$'), '');
+    }
+    return parsed.toString().replaceAll(RegExp(r'/$'), '');
+  }
+
+  static String _toWesternDigits(String input) {
+    const eastern = '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹';
+    const western = '01234567890123456789';
+    final buf = StringBuffer();
+    for (final rune in input.runes) {
+      final ch = String.fromCharCode(rune);
+      final i = eastern.indexOf(ch);
+      buf.write(i >= 0 ? western[i] : ch);
+    }
+    return buf.toString();
   }
 
   Future<void> clearCookies() async {
@@ -96,16 +131,33 @@ class ApiClient {
     );
   }
 
-  Future<Map<String, String>> _headersFor(Uri uri, {bool json = true}) async {
+  Future<Map<String, String>> _headersFor(
+    Uri uri, {
+    bool jsonBody = false,
+  }) async {
     final headers = <String, String>{'Accept': 'application/json'};
-    if (json) headers['Content-Type'] = 'application/json';
+    if (jsonBody) headers['Content-Type'] = 'application/json';
     if (!kIsWeb) {
-      final cookies = await _cookieJar?.loadForRequest(uri) ?? const [];
+      final cookies =
+          await io_env.loadCookiesForRequest(_cookieJar ?? CookieJar(), uri);
       if (cookies.isNotEmpty) {
         headers['Cookie'] =
             cookies.map((c) => '${c.name}=${c.value}').join('; ');
       }
     }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final did = (prefs.getString('lf_device_id') ?? '').trim();
+      if (did.isNotEmpty) {
+        // معرّف الجهاز ASCII فقط
+        headers['X-LF-Device-Id'] = did.replaceAll(RegExp(r'[^\x20-\x7E]'), '');
+      }
+      final dname = (prefs.getString('lf_device_name') ?? '').trim();
+      if (dname.isNotEmpty) {
+        // ترويسات HTTP لا تقبل العربية — نرسلها مرمّزة ثم يفكّها السيرفر
+        headers['X-LF-Device-Name'] = Uri.encodeComponent(dname);
+      }
+    } catch (_) {}
     return headers;
   }
 
@@ -135,7 +187,7 @@ class ApiClient {
   }) async {
     await init();
     final uri = _uri(path, query);
-    final headers = await _headersFor(uri);
+    final headers = await _headersFor(uri, jsonBody: body != null);
     if (idempotencyKey != null && idempotencyKey.isNotEmpty) {
       headers['Idempotency-Key'] = idempotencyKey;
       headers['X-Client-Op-Id'] = idempotencyKey;
@@ -143,34 +195,19 @@ class ApiClient {
     final effectiveTimeout = timeout ??
         (method == 'GET'
             ? const Duration(seconds: 45)
-            : const Duration(seconds: 15));
+            : const Duration(seconds: 20));
     try {
-      http.Response resp;
-      final encodedBody = body == null ? null : jsonEncode(body);
-      switch (method) {
-        case 'GET':
-          resp = await _http
-              .get(uri, headers: headers)
-              .timeout(effectiveTimeout);
-          break;
-        case 'POST':
-          resp = await _http
-              .post(uri, headers: headers, body: encodedBody)
-              .timeout(effectiveTimeout);
-          break;
-        case 'PUT':
-          resp = await _http
-              .put(uri, headers: headers, body: encodedBody)
-              .timeout(effectiveTimeout);
-          break;
-        case 'DELETE':
-          resp = await _http
-              .delete(uri, headers: headers)
-              .timeout(effectiveTimeout);
-          break;
-        default:
-          throw ApiException('طريقة غير مدعومة: $method');
-      }
+      final encodedBody =
+          body == null ? null : utf8.encode(jsonEncode(body));
+      final resp = await io_env.sendHttp(
+        method: method,
+        uri: uri,
+        headers: headers,
+        bodyBytes: encodedBody,
+        timeout: effectiveTimeout,
+        cookieJar: kIsWeb ? null : _cookieJar,
+      );
+      // احتياطي إن لم تُحفظ كوكيز dart:io
       await _saveCookies(uri, resp);
       online.value = true;
       final data = await _decode(resp);
@@ -193,12 +230,13 @@ class ApiClient {
     } on ApiException {
       rethrow;
     } catch (e) {
-      if (io_env.isNetworkError(e)) {
-        online.value = false;
-        throw ApiOfflineException();
-      }
       online.value = false;
-      throw ApiOfflineException();
+      final msg = e.toString();
+      throw ApiOfflineException(
+        msg.isNotEmpty && msg != 'Instance of \'ApiOfflineException\''
+            ? 'تعذّر الاتصال بالخادم ($msg)'
+            : 'تعذّر الاتصال بالخادم',
+      );
     }
   }
 
@@ -218,13 +256,17 @@ class ApiClient {
   }) async {
     await init();
     final uri = _uri(path, query);
-    final headers = await _headersFor(uri, json: false);
+    final headers = await _headersFor(uri, jsonBody: false);
     headers['Accept'] = '*/*';
     final effectiveTimeout = timeout ?? const Duration(seconds: 90);
     try {
-      final resp = await _http
-          .get(uri, headers: headers)
-          .timeout(effectiveTimeout);
+      final resp = await io_env.sendHttp(
+        method: 'GET',
+        uri: uri,
+        headers: headers,
+        timeout: effectiveTimeout,
+        cookieJar: kIsWeb ? null : _cookieJar,
+      );
       await _saveCookies(uri, resp);
       online.value = true;
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
@@ -241,12 +283,8 @@ class ApiClient {
     } on ApiException {
       rethrow;
     } catch (e) {
-      if (io_env.isNetworkError(e)) {
-        online.value = false;
-        throw ApiOfflineException();
-      }
       online.value = false;
-      throw ApiOfflineException();
+      throw ApiOfflineException('تعذّر الاتصال بالخادم ($e)');
     }
   }
 
@@ -311,7 +349,7 @@ class ApiClient {
   }) async {
     await init();
     final uri = _uri('/api/tablet/media/criterion');
-    final headers = await _headersFor(uri, json: false);
+    final headers = await _headersFor(uri, jsonBody: false);
     if (idempotencyKey != null && idempotencyKey.isNotEmpty) {
       headers['Idempotency-Key'] = idempotencyKey;
       headers['X-Client-Op-Id'] = idempotencyKey;
@@ -362,7 +400,7 @@ class ApiClient {
   }) async {
     await init();
     final uri = _uri('/api/tablet/media/upload/chunk');
-    final headers = await _headersFor(uri, json: false);
+    final headers = await _headersFor(uri, jsonBody: false);
     final req = http.MultipartRequest('POST', uri);
     req.headers.addAll(headers);
     req.fields['upload_session_id'] = uploadSessionId;
@@ -399,16 +437,22 @@ class ApiClient {
     }
   }
 
-  Future<bool> ping({Duration timeout = const Duration(seconds: 3)}) async {
+  Future<bool> ping({Duration timeout = const Duration(seconds: 10)}) async {
     try {
+      await init();
       if (!isConfigured) {
         online.value = false;
+        lastPingDetail = 'لم يُضبط عنوان السيرفر';
         return false;
       }
-      await get('/api/tablet/health', timeout: timeout);
-      return true;
-    } catch (_) {
+      final base = _baseUrl.isEmpty ? Uri.base.origin : _baseUrl;
+      final result = await io_env.probeServer(base, timeout: timeout);
+      lastPingDetail = result.detail;
+      online.value = result.ok;
+      return result.ok;
+    } catch (e) {
       online.value = false;
+      lastPingDetail = '$e';
       return false;
     }
   }

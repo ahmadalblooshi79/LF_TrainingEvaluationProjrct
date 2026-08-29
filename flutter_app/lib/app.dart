@@ -11,6 +11,7 @@ import 'screens/evaluation_lists_screen.dart';
 import 'screens/exercise_details_screen.dart';
 import 'screens/flow_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/incomplete_tasks_screen.dart';
 import 'screens/library_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/messages_screen.dart';
@@ -80,6 +81,10 @@ final GoRouter _router = GoRouter(
       builder: (context, state) => const DeviceSetupScreen(),
     ),
     GoRoute(path: '/home', builder: (context, state) => const HomeScreen()),
+    GoRoute(
+      path: '/incomplete',
+      builder: (context, state) => const IncompleteTasksScreen(),
+    ),
     GoRoute(
       path: '/exercise-details',
       builder: (context, state) => const ExerciseDetailsScreen(),

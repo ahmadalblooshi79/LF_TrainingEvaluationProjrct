@@ -11,18 +11,32 @@ class ConnectivityService {
   static final ConnectivityService instance = ConnectivityService._internal();
 
   final ValueNotifier<bool> hasNetwork = ValueNotifier<bool>(true);
+
+  /// Wi‑Fi أو Ethernet — شبكة محلية LAN (لا يشمل بيانات الجوال).
+  final ValueNotifier<bool> isLocalNetwork = ValueNotifier<bool>(false);
+
   StreamSubscription<List<ConnectivityResult>>? _sub;
+
+  static bool _isLocalNetwork(List<ConnectivityResult> results) {
+    if (results.contains(ConnectivityResult.none)) return false;
+    return results.contains(ConnectivityResult.wifi) ||
+        results.contains(ConnectivityResult.ethernet);
+  }
+
+  void _applyResults(List<ConnectivityResult> results) {
+    hasNetwork.value = !results.contains(ConnectivityResult.none);
+    isLocalNetwork.value = _isLocalNetwork(results);
+  }
 
   Future<void> init() async {
     try {
       final result = await Connectivity().checkConnectivity();
-      hasNetwork.value = !result.contains(ConnectivityResult.none);
+      _applyResults(result);
     } catch (_) {
       hasNetwork.value = true;
+      isLocalNetwork.value = !kIsWeb;
     }
-    _sub = Connectivity().onConnectivityChanged.listen((results) {
-      hasNetwork.value = !results.contains(ConnectivityResult.none);
-    });
+    _sub = Connectivity().onConnectivityChanged.listen(_applyResults);
   }
 
   void dispose() {

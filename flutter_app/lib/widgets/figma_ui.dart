@@ -147,13 +147,22 @@ class FigmaStatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = done ? AppColors.doneGreen : AppColors.notDoneRed;
-    final bg = outlineOnly
-        ? AppColors.white
-        : (done ? AppColors.doneGreenBg : AppColors.notDoneRedBg);
     final text = (label != null && label!.isNotEmpty)
         ? label!
-        : (done ? 'منجز' : 'غير منجز');
+        : (done ? 'معتمد' : 'لم ينجز');
+    final returned = text.contains('معاد');
+    final Color color;
+    final Color bg;
+    if (returned) {
+      color = AppColors.notDoneRed;
+      bg = outlineOnly ? AppColors.white : const Color(0xFFFFCDD2);
+    } else if (done) {
+      color = AppColors.doneGreen;
+      bg = outlineOnly ? AppColors.white : AppColors.doneGreenBg;
+    } else {
+      color = AppColors.notDoneRed;
+      bg = outlineOnly ? AppColors.white : AppColors.notDoneRedBg;
+    }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(

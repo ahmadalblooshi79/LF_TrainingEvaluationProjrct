@@ -19,9 +19,12 @@ class PackageSyncService {
       await ApiClient.instance.post(
         '/api/tablet/device/setup-login',
         body: {'username': username, 'password': password},
-        timeout: const Duration(seconds: 12),
+        timeout: const Duration(seconds: 30),
       );
       return true;
+    } on ApiOfflineException catch (e) {
+      lastError = e.message;
+      return false;
     } on ApiException catch (e) {
       lastError = e.message;
       return false;
@@ -37,7 +40,7 @@ class PackageSyncService {
     try {
       final data = await ApiClient.instance.get(
         '/api/tablet/device/package',
-        timeout: const Duration(seconds: 120),
+        timeout: const Duration(minutes: 3),
       );
       final judges = (data['judges'] as List?) ?? const [];
       for (final raw in judges) {
@@ -114,8 +117,16 @@ class PackageSyncService {
           Map<String, dynamic>.from(data['exercise'] as Map),
         );
       }
+      if (lastJudgeCount <= 0) {
+        lastError =
+            'الحزمة وصلت لكن بدون محكمين — تأكد من وجود حسابات محكمين في التمرين';
+        return false;
+      }
       await DeviceAdminService.instance.markDeviceReady();
-      return lastJudgeCount > 0;
+      return true;
+    } on ApiOfflineException catch (e) {
+      lastError = e.message;
+      return false;
     } on ApiException catch (e) {
       lastError = e.message;
       return false;

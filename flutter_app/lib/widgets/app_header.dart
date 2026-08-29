@@ -52,117 +52,20 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
     final onHome = loc == '/home';
     final phone = DeviceLayout.isCompactHeader(context);
 
-    final actions = <Widget>[
-      if (showOnlineChip) const OnlineStatusChip(),
-      ValueListenableBuilder<int>(
-        valueListenable: SyncService.instance.pendingCount,
-        builder: (_, count, __) {
-          if (count <= 0) return const SizedBox.shrink();
-          return Padding(
-            padding: const EdgeInsets.only(left: 2),
-            child: _SqIcon(
-              icon: Icons.cloud_upload_outlined,
-              badge: '$count',
-              tooltip: 'بانتظار المزامنة',
-              compact: phone,
-              onTap: () => context.push('/sync-status'),
-            ),
-          );
-        },
-      ),
-      if (showUtilityActions) ...[
-        _SqIcon(
-          icon: Icons.mail_outline,
-          tooltip: 'الرسائل',
-          compact: phone,
-          onTap: () => context.push('/messages'),
-        ),
-        ValueListenableBuilder<int>(
-          valueListenable: NotificationsBadgeService.instance.unreadCount,
-          builder: (_, unread, __) {
-            final badge = unread > 0
-                ? (unread > 99 ? '99+' : '$unread')
-                : null;
-            return _SqIcon(
-              icon: Icons.notifications_none,
-              tooltip: unread > 0
-                  ? 'سجل الإشعارات ($unread غير مقروء)'
-                  : 'سجل الإشعارات',
-              badge: badge,
-              badgeColor: AppColors.notDoneRed,
-              compact: phone,
-              onTap: () => context.push('/notifications'),
-            );
-          },
-        ),
-        _SqIcon(
-          icon: Icons.menu_book_outlined,
-          tooltip: 'المكتبة',
-          compact: phone,
-          onTap: () => context.push('/library'),
-        ),
-      ],
-      if (showSettings)
-        _SqIcon(
-          icon: Icons.settings_outlined,
-          tooltip: 'الإعدادات',
-          compact: phone,
-          onTap: () => context.push('/settings'),
-        ),
-      if (canPop)
-        _SqIcon(
-          icon: Icons.arrow_forward,
-          tooltip: 'رجوع',
-          compact: phone,
-          onTap: onBack ?? () => Navigator.of(context).maybePop(),
-        ),
-      if (!onHome)
-        _SqIcon(
-          icon: Icons.home_outlined,
-          tooltip: 'الصفحة الرئيسية',
-          compact: phone,
-          onTap: () => context.go('/home'),
-        ),
-      if (showLogout)
-        Padding(
-          padding: const EdgeInsets.only(right: 2),
-          child: Material(
-            color: AppColors.headerCream,
-            borderRadius: BorderRadius.circular(8),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: () => context.read<AuthService>().logout(),
-              child: Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: phone ? 8 : 10,
-                  vertical: phone ? 6 : 8,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.divider),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.logout, size: 16, color: AppColors.olive),
-                    if (!phone) ...[
-                      const SizedBox(width: 4),
-                      Text(
-                        'خروج',
-                        style: AppTextStyles.cairo(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.olive,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-    ];
+    final landscapeActions = _buildActionsLeftToRight(
+      context,
+      phone: phone,
+      canPop: canPop,
+      onHome: onHome,
+    );
+
+    final portraitActions = _buildActionsLeftToRight(
+      context,
+      phone: phone,
+      canPop: canPop,
+      onHome: onHome,
+      reverse: true,
+    );
 
     return Material(
       color: AppColors.headerBar,
@@ -243,117 +146,249 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                       alignment: Alignment.centerLeft,
                       child: SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
-                        reverse: true,
-                        child: Row(children: actions),
+                        child: Row(children: portraitActions),
                       ),
                     ),
                   ],
                 )
-              : SizedBox(
-                  height: 88,
-                  child: Row(
-                    children: [
-                      Image.asset(
-                        'assets/images/uae_mod.png',
-                        height: 52,
-                        fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => const Icon(
-                          Icons.shield,
-                          size: 40,
-                          color: AppColors.gold,
+              : Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: SizedBox(
+                    height: 88,
+                    child: Row(
+                      children: [
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: landscapeActions,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        flex: 3,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'التحكيم الذكي',
-                              style: AppTextStyles.cairo(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.goldDark,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            Text(
-                              'نظام إدارة التمارين',
-                              style: AppTextStyles.cairo(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.olive,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            if (line3.isNotEmpty)
+                        Expanded(
+                          flex: 4,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
                               Text(
-                                line3,
+                                pageTitle,
                                 style: AppTextStyles.cairo(
-                                  fontSize: 10,
-                                  color: AppColors.muted,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        flex: 4,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              pageTitle,
-                              style: AppTextStyles.cairo(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.olive,
-                              ),
-                              textAlign: TextAlign.center,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            if (judgeName.isNotEmpty)
-                              Text(
-                                judgeName,
-                                style: AppTextStyles.cairo(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.goldDark,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.olive,
                                 ),
                                 textAlign: TextAlign.center,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
-                            if (unit.isNotEmpty)
+                              if (judgeName.isNotEmpty)
+                                Text(
+                                  judgeName,
+                                  style: AppTextStyles.cairo(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.goldDark,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              if (unit.isNotEmpty)
+                                Text(
+                                  unit,
+                                  style: AppTextStyles.cairo(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.muted,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                            ],
+                          ),
+                        ),
+                        Flexible(
+                          flex: 3,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
                               Text(
-                                unit,
+                                'التحكيم الذكي',
+                                style: AppTextStyles.cairo(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.goldDark,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.right,
+                              ),
+                              Text(
+                                'نظام إدارة التمارين',
                                 style: AppTextStyles.cairo(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w600,
-                                  color: AppColors.muted,
+                                  color: AppColors.olive,
                                 ),
-                                textAlign: TextAlign.center,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.right,
                               ),
-                          ],
+                              if (line3.isNotEmpty)
+                                Text(
+                                  line3,
+                                  style: AppTextStyles.cairo(
+                                    fontSize: 10,
+                                    color: AppColors.muted,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.right,
+                                ),
+                            ],
+                          ),
                         ),
-                      ),
-                      ...actions,
-                    ],
+                        const SizedBox(width: 8),
+                        Image.asset(
+                          'assets/images/uae_mod.png',
+                          height: 52,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => const Icon(
+                            Icons.shield,
+                            size: 40,
+                            color: AppColors.gold,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
         ),
       ),
     );
+  }
+
+  /// ترتيب العرض من أقصى اليسار: خروج | Home | Back | إعدادات | مكتبة | تنبيهات | رسائل | مزامنة | اتصال
+  List<Widget> _buildActionsLeftToRight(
+    BuildContext context, {
+    required bool phone,
+    required bool canPop,
+    required bool onHome,
+    bool reverse = false,
+  }) {
+    final items = <Widget>[
+      if (showLogout)
+        Padding(
+          padding: const EdgeInsets.only(right: 2),
+          child: Material(
+            color: AppColors.headerCream,
+            borderRadius: BorderRadius.circular(8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => context.read<AuthService>().logout(),
+              child: Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: phone ? 8 : 10,
+                  vertical: phone ? 6 : 8,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.divider),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.logout, size: 16, color: AppColors.olive),
+                    if (!phone) ...[
+                      const SizedBox(width: 4),
+                      Text(
+                        'خروج',
+                        style: AppTextStyles.cairo(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.olive,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      if (!onHome)
+        _SqIcon(
+          icon: Icons.home_outlined,
+          tooltip: 'الصفحة الرئيسية',
+          compact: phone,
+          onTap: () => context.go('/home'),
+        ),
+      if (canPop)
+        _SqIcon(
+          icon: Icons.arrow_forward,
+          tooltip: 'رجوع',
+          compact: phone,
+          onTap: onBack ?? () => Navigator.of(context).maybePop(),
+        ),
+      if (showSettings)
+        _SqIcon(
+          icon: Icons.settings_outlined,
+          tooltip: 'الإعدادات',
+          compact: phone,
+          onTap: () => context.push('/settings'),
+        ),
+      if (showUtilityActions) ...[
+        _SqIcon(
+          icon: Icons.menu_book_outlined,
+          tooltip: 'المكتبة',
+          compact: phone,
+          onTap: () => context.push('/library'),
+        ),
+        ValueListenableBuilder<int>(
+          valueListenable: NotificationsBadgeService.instance.unreadCount,
+          builder: (_, unread, __) {
+            final badge = unread > 0
+                ? (unread > 99 ? '99+' : '$unread')
+                : null;
+            return _SqIcon(
+              icon: Icons.notifications_none,
+              tooltip: unread > 0
+                  ? 'سجل الإشعارات ($unread غير مقروء)'
+                  : 'سجل الإشعارات',
+              badge: badge,
+              badgeColor: AppColors.notDoneRed,
+              compact: phone,
+              onTap: () => context.push('/notifications'),
+            );
+          },
+        ),
+        _SqIcon(
+          icon: Icons.mail_outline,
+          tooltip: 'الرسائل',
+          compact: phone,
+          onTap: () => context.push('/messages'),
+        ),
+      ],
+      ValueListenableBuilder<int>(
+        valueListenable: SyncService.instance.pendingCount,
+        builder: (_, count, __) {
+          if (count <= 0) return const SizedBox.shrink();
+          return Padding(
+            padding: const EdgeInsets.only(left: 2),
+            child: _SqIcon(
+              icon: Icons.cloud_upload_outlined,
+              badge: '$count',
+              tooltip: 'بانتظار المزامنة',
+              compact: phone,
+              onTap: () => context.push('/sync-status'),
+            ),
+          );
+        },
+      ),
+      if (showOnlineChip) const OnlineStatusChip(),
+    ];
+    return reverse ? items.reversed.toList() : items;
   }
 }
 
