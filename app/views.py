@@ -486,6 +486,127 @@ def _unlink_planner_bundle_file(relpath: str) -> None:
         pass
 
 
+_PLANNER_FLOW_DAY_ID_RE = re.compile(r"^day-\d{1,20}$")
+
+
+def _safe_planner_flow_day_id(raw: str | None) -> str:
+    s = str(raw or "").strip()
+    return s if _PLANNER_FLOW_DAY_ID_RE.fullmatch(s) else ""
+
+
+def _planner_flow_day_pdf_relpath(bundle_id: int, day_id: str) -> str:
+    return f"{int(bundle_id)}/day_pdfs/{day_id}.pdf"
+
+
+def _planner_flow_day_display_label(bundle: ExercisePlannerFlowBundle, day_id: str) -> str:
+    days, _active = _parse_planner_flow_table_days(getattr(bundle, "flow_table_json", None))
+    for d in days:
+        if str(d.get("id") or "") == day_id:
+            lab = (d.get("label") or "").strip()
+            if lab:
+                return lab
+    m = re.fullmatch(r"day-(\d+)", day_id)
+    if m:
+        return f"اليوم/{m.group(1)}"
+    return day_id
+
+
+def _copy_planner_day_pdfs(src_bundle_id: int, dest_bundle_id: int) -> int:
+    """نسخ ملفات PDF الأيام من حزمة المصدر إلى حزمة أخرى دون تعديل الجدول."""
+    if int(src_bundle_id) == int(dest_bundle_id):
+        return 0
+    root = _planner_flow_bundle_root()
+    src_dir = root / str(int(src_bundle_id)) / "day_pdfs"
+    if not src_dir.is_dir():
+        return 0
+    dest_dir = root / str(int(dest_bundle_id)) / "day_pdfs"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for src in src_dir.glob("*.pdf"):
+        if not _PLANNER_FLOW_DAY_ID_RE.fullmatch(src.stem):
+            continue
+        dest = dest_dir / src.name
+        try:
+            dest.write_bytes(src.read_bytes())
+            copied += 1
+        except OSError:
+            continue
+    return copied
+
+
+def _find_exercise_day_pdf_path(db, exercise_id: int, day_id: str):
+    safe = _safe_planner_flow_day_id(day_id)
+    if not safe:
+        return None
+    ids = [
+        int(r[0])
+        for r in db.query(ExercisePlannerFlowBundle.id)
+        .filter(ExercisePlannerFlowBundle.exercise_id == int(exercise_id))
+        .all()
+    ]
+    for bid in ids:
+        p = _planner_bundle_file_abspath(_planner_flow_day_pdf_relpath(bid, safe))
+        if p is not None:
+            return p
+    return None
+
+
+def _ensure_exercise_day_pdf_file(db, bundle: ExercisePlannerFlowBundle, day_id: str):
+    """يعيد مسار PDF اليوم إن وُجد، أو يبنيه من الجدول ويحفظه."""
+    found = _find_exercise_day_pdf_path(db, int(bundle.exercise_id), day_id)
+    if found is not None:
+        return found
+    safe = _safe_planner_flow_day_id(day_id)
+    if not safe:
+        return None
+    days, _active = _parse_planner_flow_table_days(getattr(bundle, "flow_table_json", None))
+    day = next((d for d in days if str(d.get("id") or "") == safe), None)
+    if day is None:
+        return None
+    from app.planner_flow_table_pdf import build_planner_flow_table_pdf
+
+    pdf = build_planner_flow_table_pdf(
+        day_label=str(day.get("label") or safe),
+        note=str(day.get("note") or ""),
+        rows=list(day.get("rows") or []),
+    )
+    if not pdf:
+        return None
+    if _write_planner_flow_day_pdf(int(bundle.id), safe, pdf) is None:
+        return None
+    return _planner_bundle_file_abspath(_planner_flow_day_pdf_relpath(int(bundle.id), safe))
+
+
+def _write_planner_flow_day_pdf(bundle_id: int, day_id: str, data: bytes) -> str | None:
+    """يحفظ PDF اليوم على القرص دون تعديل جدول المجرى. يعيد المسار النسبي أو None."""
+    safe_day = _safe_planner_flow_day_id(day_id)
+    if not safe_day or not _is_pdf_bytes(data):
+        return None
+    rel = _planner_flow_day_pdf_relpath(int(bundle_id), safe_day)
+    root = _planner_flow_bundle_root()
+    dest = (root / rel).resolve()
+    try:
+        dest.relative_to(root)
+    except ValueError:
+        return None
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        dest.write_bytes(data)
+    except OSError:
+        return None
+    return rel.replace("\\", "/")
+
+
+def _planner_workspace_bundle_or_abort(db, user, bundle_id: int):
+    if not can_access_planner_hub(user):
+        abort(403)
+    ex = _current_workspace_exercise(db, user)
+    bundle = db.get(ExercisePlannerFlowBundle, bundle_id)
+    if ex is None or bundle is None or bundle.exercise_id != ex.id:
+        abort(404)
+    return ex, bundle
+
+
 def _sanitize_planner_bundle_orphan_event_flow(
     db, bundle: ExercisePlannerFlowBundle | None
 ) -> bool:
@@ -7415,6 +7536,98 @@ def planner_flow_bundle_save_flow_table(bundle_id: int):
     )
 
 
+def _planner_flow_day_pdf_back_url(bundle: ExercisePlannerFlowBundle) -> str:
+    return url_for(
+        "views.planner_flow_bundle_workspace",
+        phase=bundle.exercise_phase,
+        unit=bundle.unit_level_key,
+    )
+
+
+def _store_planner_day_pdf_after_word_import(
+    bundle_id: int,
+    day_id: str,
+    docx_bytes: bytes,
+    *,
+    day_label: str,
+    note: str,
+    rows: list[dict],
+) -> bool:
+    """يحفظ PDF اليوم من ملف Word (أو من الجدول إن تعذر التحويل). لا يمس JSON الجدول."""
+    from app.planner_flow_docx_to_pdf import convert_docx_bytes_to_pdf
+    from app.planner_flow_table_pdf import build_planner_flow_table_pdf
+
+    pdf = convert_docx_bytes_to_pdf(docx_bytes)
+    if pdf is None:
+        pdf = build_planner_flow_table_pdf(
+            day_label=day_label, note=note or "", rows=rows or []
+        )
+    if not pdf:
+        return False
+    return _write_planner_flow_day_pdf(int(bundle_id), day_id, pdf) is not None
+
+
+@bp.route("/planner/create-flow/<int:bundle_id>/days/<day_id>/pdf", methods=["GET"])
+def planner_flow_bundle_day_pdf(bundle_id: int, day_id: str):
+    user = get_current_user_optional()
+    next_path = f"/planner/create-flow/{int(bundle_id)}/days/{day_id}/pdf"
+    if not user:
+        return redirect(f"/login?next={quote(next_path)}")
+    from flask import g
+
+    db = g.db
+    _ex, bundle = _planner_workspace_bundle_or_abort(db, user, bundle_id)
+    safe_day = _safe_planner_flow_day_id(day_id)
+    if not safe_day:
+        abort(404)
+    rel = _planner_flow_day_pdf_relpath(int(bundle.id), safe_day)
+    has_file = _planner_bundle_file_abspath(rel) is not None
+    return render_template(
+        "planner_flow_day_pdf.html",
+        **_ctx(
+            user,
+            bundle=bundle,
+            day_id=safe_day,
+            day_label=_planner_flow_day_display_label(bundle, safe_day),
+            has_pdf=has_file,
+            pdf_file_url=(
+                url_for(
+                    "views.planner_flow_bundle_day_pdf_file",
+                    bundle_id=int(bundle.id),
+                    day_id=safe_day,
+                )
+                if has_file
+                else ""
+            ),
+            back_url=_planner_flow_day_pdf_back_url(bundle),
+            err_msg="",
+            ok_msg="",
+            subpage_close_fallback=_planner_flow_day_pdf_back_url(bundle),
+            **_hub_back_ctx_for_request_path(),
+        ),
+    )
+
+
+@bp.route("/planner/create-flow/<int:bundle_id>/days/<day_id>/pdf-file", methods=["GET"])
+def planner_flow_bundle_day_pdf_file(bundle_id: int, day_id: str):
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    from flask import g
+
+    db = g.db
+    _ex, bundle = _planner_workspace_bundle_or_abort(db, user, bundle_id)
+    safe_day = _safe_planner_flow_day_id(day_id)
+    if not safe_day:
+        abort(404)
+    path = _planner_bundle_file_abspath(
+        _planner_flow_day_pdf_relpath(int(bundle.id), safe_day)
+    )
+    if path is None:
+        abort(404)
+    return send_file(path, mimetype="application/pdf", as_attachment=False)
+
+
 @bp.route("/planner/create-flow/<int:bundle_id>/import-flow-docx", methods=["POST"])
 def planner_flow_bundle_import_flow_docx(bundle_id: int):
     user = get_current_user_optional()
@@ -7485,6 +7698,22 @@ def planner_flow_bundle_import_flow_docx(bundle_id: int):
     )
     db.commit()
 
+    day_label = next(
+        (d.get("label") or target_id for d in days if d.get("id") == target_id),
+        target_id,
+    )
+    warnings = list(parsed.get("warnings") or [])
+    pdf_ok = _store_planner_day_pdf_after_word_import(
+        int(bundle.id),
+        target_id,
+        raw,
+        day_label=str(day_label or target_id),
+        note=parsed.get("note") or "",
+        rows=parsed.get("rows") or [],
+    )
+    if not pdf_ok:
+        warnings.append("تعذر تجهيز ملف PDF من Word.")
+
     return jsonify(
         {
             "ok": True,
@@ -7492,7 +7721,8 @@ def planner_flow_bundle_import_flow_docx(bundle_id: int):
             "days": days,
             "note": parsed.get("note") or "",
             "row_count": len(parsed.get("rows") or []),
-            "warnings": parsed.get("warnings") or [],
+            "warnings": warnings,
+            "pdf_ok": pdf_ok,
         }
     )
 
@@ -7619,6 +7849,14 @@ def planner_flow_bundle_distribute_flow_to_judges(bundle_id: int):
         ),
     )
     db.commit()
+    dest_ids = [
+        int(r[0])
+        for r in db.query(ExercisePlannerFlowBundle.id)
+        .filter(ExercisePlannerFlowBundle.exercise_id == int(ex.id))
+        .all()
+    ]
+    for dest_id in dest_ids:
+        _copy_planner_day_pdfs(int(bundle.id), dest_id)
     return jsonify({"ok": True, **stats})
 
 
@@ -15680,7 +15918,7 @@ def _ensure_information_bank_catalog_rows(db) -> None:
     """يجب أن تكون صفوف الكتالوج الافتراضي مطابقة لـ ``TRAINING_PHASES`` وقوالب مستويات الوحدات.
 
     تنشئ أي مفاتيح ناقصة عند أول تشغيل. مراحل التمرين: تُحدَّث التسمية من الكتالوج البرمجي.
-    مستويات الوحدات: تُحدَّث الترتيب ومجموعة اللواء فقط — تسمية المستخدم من زر «تعديل» لا تُستبدل.
+    مستويات الوحدات: تُحدَّث مجموعة اللواء فقط — تسمية المستخدم وترتيبه من صفحة التنظيم لا يُستبدلان.
     """
     changed = False
     if apply_information_bank_unit_label_migrations(db):
@@ -15726,10 +15964,7 @@ def _ensure_information_bank_catalog_rows(db) -> None:
                 if getattr(r, "brigade_group", None) != bg_key:
                     r.brigade_group = bg_key
                     changed = True
-                # لا نُعيد فرض التسمية من القالب — يُحفظ تعديل المستخدم عبر زر «تعديل»
-                if r.sort_order != idx:
-                    r.sort_order = idx
-                    changed = True
+                # لا نُعيد فرض التسمية أو الترتيب — يُحفظان من صفحة التنظيم
                 if not r.is_system:
                     r.is_system = True
                     changed = True
@@ -16906,6 +17141,50 @@ def admin_information_bank_unit_edit():
     return _edit_response(ok=True, label=label, unit_key=key, tab=tab)
 
 
+@bp.route("/admin/information-bank/units/move", methods=["POST"])
+def admin_information_bank_unit_move():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.ibank_unit_order import apply_information_bank_unit_order
+    from app.planning_catalog_sync import invalidate_planning_catalog_cache
+
+    raw_keys = request.form.getlist("unit_keys")
+    if len(raw_keys) == 1 and "," in (raw_keys[0] or ""):
+        raw_keys = [p.strip() for p in raw_keys[0].split(",") if p.strip()]
+    tab = (request.form.get("brigade_tab") or "units-bg-1").strip()
+    from app.ibank_ui import ibank_brigade_groups_for_page, is_removed_brigade_tab
+
+    if is_removed_brigade_tab(tab) or tab not in {bg["tab"] for bg in ibank_brigade_groups_for_page()}:
+        tab = "units-bg-1"
+    ajax = (request.headers.get("X-Requested-With") or "").strip() == "XMLHttpRequest"
+
+    def _move_response(*, ok: bool, err_msg: str = "", **extra):
+        if ajax:
+            if ok:
+                return jsonify(ok=True, **extra)
+            return jsonify(ok=False, error=err_msg), 400
+        if ok:
+            return redirect(
+                url_for("views.admin_information_bank", tab=tab, ok="تم تحريك مستوى الوحدة.")
+            )
+        return redirect(url_for("views.admin_information_bank", tab=tab, err=err_msg))
+
+    if not raw_keys:
+        return _move_response(ok=False, err_msg="ترتيب غير صالح.")
+    db = g.db
+    try:
+        keys = apply_information_bank_unit_order(db, ordered_keys=raw_keys)
+        db.commit()
+        invalidate_planning_catalog_cache()
+    except ValueError as exc:
+        db.rollback()
+        return _move_response(ok=False, err_msg=str(exc) or "تعذّر التحريك.")
+    return _move_response(ok=True, keys=keys, tab=tab)
+
+
 @bp.route("/admin/information-bank/units/delete", methods=["POST"])
 def admin_information_bank_unit_delete():
     user = get_current_user_optional()
@@ -17965,6 +18244,7 @@ _EXERCISE_WORKSPACE_TABS: tuple[tuple[str, str], ...] = (
     ("specific", "الفكرة الخاصة"),
     ("program", "البرنامج"),
     ("map", "الخريطة"),
+    ("papers", "أوراق التمرين"),
 )
 
 
@@ -18030,25 +18310,33 @@ def exercise_detail(eid):
     can_edit = bool(can_plan_exercises(user))
     active_tab = _exercise_workspace_tab_from_request()
     ok_msg = ""
+    error = ""
     if request.method == "POST":
         if not can_edit:
             abort(403)
+        if active_tab == "papers":
+            return redirect(url_for("views.exercise_detail", eid=int(eid), tab="papers"))
         _apply_exercise_workspace_form(ex)
         db.commit()
         active_tab = _exercise_workspace_tab_from_request()
         return redirect(
             url_for("views.exercise_detail", eid=int(eid), tab=active_tab, ok=1)
         )
-    if request.args.get("ok"):
+    if active_tab == "papers":
+        ok_msg = (request.args.get("ok") or "").strip()
+        error = (request.args.get("err") or "").strip()
+    elif request.args.get("ok"):
         ok_msg = "تم حفظ البيانات."
     from app.exercise_program_table import render_program_table_html
     from app.exercise_text_format import split_idea_paragraphs
+    from app.library_tree import build_tree_payload, exercise_papers_kind, library_kind_title
 
     program_table_html = render_program_table_html(
         getattr(ex, "program_table_json", None) or ""
     )
     general_idea_paragraphs = split_idea_paragraphs(ex.general_idea_text or "")
     specific_idea_paragraphs = split_idea_paragraphs(ex.specific_idea_text or "")
+    papers_kind = exercise_papers_kind(int(eid))
     return render_template(
         "exercise_detail.html",
         **_ctx(
@@ -18060,10 +18348,14 @@ def exercise_detail(eid):
             active_workspace_tab=active_tab,
             exercise_type_level_display=_exercise_type_level_display_text(ex),
             ok_msg=ok_msg,
+            error=error,
             program_table_html=program_table_html,
             general_idea_paragraphs=general_idea_paragraphs,
             specific_idea_paragraphs=specific_idea_paragraphs,
             exercise_import_pptx_url=url_for("views.exercise_import_pptx", eid=int(eid)),
+            exercise_papers_kind=papers_kind,
+            exercise_papers_tree=build_tree_payload(db, papers_kind),
+            library_kind_title=library_kind_title,
             **_subpage_close_ctx("/dashboard"),
         ),
     )
@@ -18096,6 +18388,231 @@ def exercise_import_pptx(eid: int):
     if not parsed.get("ok"):
         return jsonify(parsed), 400
     return jsonify(parsed)
+
+
+def _exercise_papers_redirect(eid: int, *, ok: str = "", err: str = ""):
+    kw: dict = {"eid": int(eid), "tab": "papers"}
+    if ok:
+        kw["ok"] = ok
+    if err:
+        kw["err"] = err
+    return redirect(url_for("views.exercise_detail", **kw))
+
+
+def _exercise_papers_access(eid: int, *, manage: bool):
+    user = get_current_user_optional()
+    if not user:
+        if manage:
+            abort(403)
+        return None, None, None
+    if manage and not can_plan_exercises(user):
+        abort(403)
+    from flask import g
+
+    from app.library_tree import exercise_papers_kind
+
+    db = g.db
+    ex = db.query(Exercise).filter(Exercise.id == eid).first()
+    if not ex:
+        abort(404)
+    return user, db, exercise_papers_kind(int(eid))
+
+
+@bp.route("/exercises/<int:eid>/papers/tree/folder", methods=["POST"])
+def exercise_papers_folder_add(eid: int):
+    _user, db, kind = _exercise_papers_access(eid, manage=True)
+    parent_raw = (request.form.get("parent_id") or "").strip()
+    parent_id = int(parent_raw) if parent_raw.isdigit() else None
+    name = (request.form.get("folder_name") or "").strip()
+    if not name:
+        return _exercise_papers_redirect(eid, err="أدخل اسم المجلد.")
+    try:
+        from app.ibank_section_ctx import ibank_section_bypass
+        from app.library_tree import add_custom_folder
+
+        with ibank_section_bypass():
+            add_custom_folder(db, kind=kind, parent_id=parent_id, name=name)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        return _exercise_papers_redirect(eid, err=str(exc) or "تعذر إنشاء المجلد.")
+    return _exercise_papers_redirect(eid, ok="تم إنشاء المجلد.")
+
+
+@bp.route("/exercises/<int:eid>/papers/tree/upload", methods=["POST"])
+def exercise_papers_upload(eid: int):
+    _user, db, kind = _exercise_papers_access(eid, manage=True)
+    from app.config import LIBRARY_DIR
+    from app.library_tree import get_library_node, upload_files_to_tree
+
+    LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
+    parent_raw = (request.form.get("parent_id") or "").strip()
+    parent_id = int(parent_raw) if parent_raw.isdigit() else None
+    if parent_id is not None:
+        parent = get_library_node(db, parent_id)
+        if parent is None or parent.kind != kind or not parent.is_folder:
+            return _exercise_papers_redirect(eid, err="المجلد المستهدف غير صالح.")
+    files = [x for x in request.files.getlist("files") if x and getattr(x, "filename", "").strip()]
+    if not files:
+        return _exercise_papers_redirect(eid, err="اختر ملفاً أو مجلداً للإدراج.")
+    added, errors = upload_files_to_tree(
+        db, kind=kind, parent_id=parent_id, file_storages=files
+    )
+    chunk_mode = (request.form.get("chunk_mode") or "").strip() == "1"
+    wants_json = (
+        chunk_mode
+        or (request.headers.get("X-Requested-With") or "").strip() == "XMLHttpRequest"
+        or request.accept_mimetypes.best_match(["application/json", "text/html"])
+        == "application/json"
+    )
+    if added:
+        db.commit()
+    else:
+        db.rollback()
+    err_q = " ".join(errors[:3])[:400] if errors else ""
+    chunk_final = (request.form.get("chunk_final") or "1").strip() != "0"
+    if wants_json:
+        redirect_url = ""
+        if chunk_final:
+            if added:
+                redirect_url = url_for(
+                    "views.exercise_detail",
+                    eid=int(eid),
+                    tab="papers",
+                    ok="تم إدراج الملفات بنجاح.",
+                )
+            else:
+                redirect_url = url_for(
+                    "views.exercise_detail",
+                    eid=int(eid),
+                    tab="papers",
+                    err=err_q or "لم يُدرج أي ملف مدعوم (PDF أو Word أو Excel).",
+                )
+        return jsonify(
+            ok=bool(added),
+            added=int(added),
+            errors=errors[:20],
+            redirect=redirect_url if chunk_final else "",
+        )
+    if not added:
+        return _exercise_papers_redirect(
+            eid,
+            err=err_q or "لم يُدرج أي ملف مدعوم (PDF أو Word أو Excel).",
+        )
+    return _exercise_papers_redirect(
+        eid, ok=f"تم إدراج {added} ملف(ات) مع الحفاظ على أسماء المسارات."
+    )
+
+
+@bp.route("/exercises/<int:eid>/papers/tree/purge-all", methods=["POST"])
+def exercise_papers_purge_all(eid: int):
+    _user, db, kind = _exercise_papers_access(eid, manage=True)
+    from app.library_tree import library_kind_title, purge_library_tree
+
+    count = purge_library_tree(db, kind)
+    db.commit()
+    title = library_kind_title(kind)
+    return _exercise_papers_redirect(
+        eid, ok=f"تم حذف جميع ملفات ومجلدات «{title}» ({count} عنصر)."
+    )
+
+
+@bp.route("/exercises/<int:eid>/papers/tree/<int:node_id>/delete", methods=["POST"])
+def exercise_papers_delete(eid: int, node_id: int):
+    _user, db, kind = _exercise_papers_access(eid, manage=True)
+    from app.library_tree import delete_library_node, get_library_node, is_exercise_papers_kind
+
+    row = get_library_node(db, node_id)
+    if row is None or not is_exercise_papers_kind(row.kind) or row.kind != kind:
+        abort(404)
+    delete_library_node(db, row)
+    db.commit()
+    if (
+        request.accept_mimetypes.best_match(["application/json", "text/html"])
+        == "application/json"
+        or (request.headers.get("X-Requested-With") or "").strip() == "XMLHttpRequest"
+    ):
+        return jsonify(ok=True, node_id=int(node_id))
+    return _exercise_papers_redirect(eid, ok="تم الحذف.")
+
+
+@bp.route("/exercises/<int:eid>/papers/tree/move", methods=["POST"])
+def exercise_papers_move(eid: int):
+    user = get_current_user_optional()
+    if not user or not can_plan_exercises(user):
+        return jsonify(ok=False, error="غير مسموح."), 403
+    from flask import g
+
+    from app.library_tree import (
+        exercise_papers_kind,
+        get_library_node,
+        is_exercise_papers_kind,
+        move_tree_node,
+    )
+
+    kind = exercise_papers_kind(int(eid))
+    data = request.get_json(force=True, silent=True) or {}
+    req_kind = (data.get("kind") or "").strip()
+    if req_kind and req_kind != kind:
+        return jsonify(ok=False, error="نوع غير صالح."), 400
+    try:
+        nid = int(data.get("node_id"))
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="بيانات غير صالحة."), 400
+    parent_raw = data.get("parent_id")
+    try:
+        pid = int(parent_raw) if parent_raw is not None and parent_raw != "" else 0
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="بيانات غير صالحة."), 400
+    parent_id = None if pid < 1 else pid
+    db = g.db
+    if db.query(Exercise).filter(Exercise.id == eid).first() is None:
+        return jsonify(ok=False, error="التمرين غير موجود."), 404
+    row = get_library_node(db, nid)
+    if row is None or not is_exercise_papers_kind(row.kind) or row.kind != kind:
+        return jsonify(ok=False, error="العنصر غير موجود."), 404
+    try:
+        from app.ibank_section_ctx import ibank_section_bypass
+
+        with ibank_section_bypass():
+            move_tree_node(db, kind=kind, node_id=nid, parent_id=parent_id)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        return jsonify(ok=False, error=str(exc) or "تعذّر النقل."), 400
+    return jsonify(ok=True)
+
+
+@bp.route("/exercises/<int:eid>/papers/tree/<int:node_id>/file", methods=["GET"])
+def exercise_papers_file(eid: int, node_id: int):
+    user, db, kind = _exercise_papers_access(eid, manage=False)
+    if not user:
+        abort(403)
+    from app.library_tree import get_library_node, is_exercise_papers_kind, node_file_abspath
+
+    row = get_library_node(db, node_id)
+    if (
+        row is None
+        or row.is_folder
+        or not is_exercise_papers_kind(row.kind)
+        or row.kind != kind
+    ):
+        abort(404)
+    if not (row.file_relpath or "").strip():
+        abort(404)
+    path = node_file_abspath(row.kind, row.file_relpath)
+    if path is None:
+        abort(404)
+    low = path.name.lower()
+    if low.endswith((".xlsx", ".xlsm")):
+        mt = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif low.endswith(".docx"):
+        mt = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    elif low.endswith(".doc"):
+        mt = "application/msword"
+    else:
+        mt = _mimetype_info_bank_event_flow(path)
+    return send_file(path, mimetype=mt, as_attachment=False, download_name=path.name)
 
 
 def _library_redirect(*, tab: str, ok: str = "", err: str = ""):
@@ -18207,7 +18724,10 @@ def library_tree_folder_add():
         return _library_redirect(tab=tab, err="أدخل اسم المجلد.")
     ensure_library_tree(db, kind)
     try:
-        add_custom_folder(db, kind=kind, parent_id=parent_id, name=name)
+        from app.ibank_section_ctx import ibank_section_bypass
+
+        with ibank_section_bypass():
+            add_custom_folder(db, kind=kind, parent_id=parent_id, name=name)
         db.commit()
     except ValueError as exc:
         db.rollback()
@@ -18225,7 +18745,7 @@ def library_tree_upload():
     from app.library_tree import (
         LIBRARY_TREE_KINDS,
         ensure_library_tree,
-        get_node,
+        get_library_node,
         library_kind_tab,
         upload_files_to_tree,
     )
@@ -18242,8 +18762,8 @@ def library_tree_upload():
     parent_id = int(parent_raw) if parent_raw.isdigit() else None
     ensure_library_tree(db, kind)
     if parent_id is not None:
-        parent = get_node(db, parent_id, kind)
-        if parent is None or not parent.is_folder:
+        parent = get_library_node(db, parent_id)
+        if parent is None or parent.kind != kind or not parent.is_folder:
             return _library_redirect(tab=tab, err="المجلد المستهدف غير صالح.")
     files = [x for x in request.files.getlist("files") if x and getattr(x, "filename", "").strip()]
     if not files:
@@ -18267,13 +18787,20 @@ def library_tree_upload():
     if wants_json:
         redirect_url = ""
         if chunk_final:
-            redirect_url = url_for(
-                "views.library",
-                tab=tab,
-                ok="تم إدراج الملفات بنجاح.",
-            )
+            if added:
+                redirect_url = url_for(
+                    "views.library",
+                    tab=tab,
+                    ok="تم إدراج الملفات بنجاح.",
+                )
+            else:
+                redirect_url = url_for(
+                    "views.library",
+                    tab=tab,
+                    err=err_q or "لم يُدرج أي ملف مدعوم (PDF أو Word أو Excel).",
+                )
         return jsonify(
-            ok=True,
+            ok=bool(added),
             added=int(added),
             errors=errors[:20],
             redirect=redirect_url if chunk_final else "",
@@ -18287,6 +18814,33 @@ def library_tree_upload():
     return _library_redirect(tab=tab, ok=ok_msg)
 
 
+@bp.route("/library/tree/purge-all", methods=["POST"])
+def library_tree_purge_all():
+    user = get_current_user_optional()
+    if not user or not can_edit_references(user):
+        abort(403)
+    from flask import g
+
+    from app.library_tree import (
+        LIBRARY_TREE_KINDS,
+        library_kind_tab,
+        library_kind_title,
+        purge_library_tree,
+    )
+
+    kind = (request.form.get("kind") or "").strip()
+    if kind not in LIBRARY_TREE_KINDS:
+        abort(400)
+    tab = library_kind_tab(kind)
+    count = purge_library_tree(g.db, kind)
+    g.db.commit()
+    title = library_kind_title(kind)
+    return _library_redirect(
+        tab=tab,
+        ok=f"تم حذف جميع ملفات ومجلدات «{title}» ({count} عنصر).",
+    )
+
+
 @bp.route("/library/tree/<int:node_id>/delete", methods=["POST"])
 def library_tree_delete(node_id: int):
     user = get_current_user_optional()
@@ -18295,14 +18849,15 @@ def library_tree_delete(node_id: int):
     from flask import g
 
     from app.library_tree import (
+        LIBRARY_TREE_KINDS,
         delete_library_node,
-        is_library_tree_kind,
+        get_library_node,
         library_kind_tab,
     )
 
     db = g.db
-    row = db.get(InformationBankTreeNode, node_id)
-    if row is None or not is_library_tree_kind(row.kind):
+    row = get_library_node(db, node_id)
+    if row is None or row.kind not in LIBRARY_TREE_KINDS:
         abort(404)
     tab = library_kind_tab(row.kind)
     delete_library_node(db, row)
@@ -18323,7 +18878,11 @@ def library_tree_move():
         return jsonify(ok=False, error="غير مسموح."), 403
     from flask import g
 
-    from app.library_tree import LIBRARY_TREE_KINDS, is_library_tree_kind, move_tree_node
+    from app.library_tree import (
+        LIBRARY_TREE_KINDS,
+        get_library_node,
+        move_tree_node,
+    )
 
     data = request.get_json(force=True, silent=True) or {}
     kind = (data.get("kind") or "").strip()
@@ -18340,11 +18899,14 @@ def library_tree_move():
         return jsonify(ok=False, error="بيانات غير صالحة."), 400
     parent_id = None if pid < 1 else pid
     db = g.db
-    row = db.get(InformationBankTreeNode, nid)
-    if row is None or not is_library_tree_kind(row.kind):
+    row = get_library_node(db, nid)
+    if row is None or row.kind not in LIBRARY_TREE_KINDS:
         return jsonify(ok=False, error="العنصر غير موجود."), 404
     try:
-        move_tree_node(db, kind=kind, node_id=nid, parent_id=parent_id)
+        from app.ibank_section_ctx import ibank_section_bypass
+
+        with ibank_section_bypass():
+            move_tree_node(db, kind=kind, node_id=nid, parent_id=parent_id)
         db.commit()
     except ValueError as exc:
         db.rollback()
@@ -18359,10 +18921,10 @@ def library_tree_file(node_id: int):
         abort(403)
     from flask import g
 
-    from app.library_tree import is_library_tree_kind, node_file_abspath
+    from app.library_tree import LIBRARY_TREE_KINDS, get_library_node, node_file_abspath
 
-    row = g.db.get(InformationBankTreeNode, node_id)
-    if row is None or row.is_folder or not is_library_tree_kind(row.kind):
+    row = get_library_node(g.db, node_id)
+    if row is None or row.is_folder or row.kind not in LIBRARY_TREE_KINDS:
         abort(404)
     if not (row.file_relpath or "").strip():
         abort(404)

@@ -42,6 +42,11 @@ _TABLET_MAIN_MENU = [
         "route": "/positives-negatives",
     },
     {
+        "id": "exercise_papers",
+        "title": "أوراق التمرين",
+        "route": "/exercise-papers",
+    },
+    {
         "id": "objectives",
         "title": "الأهداف التدريبية",
         "route": "/objectives",
@@ -557,20 +562,39 @@ def tablet_flow(user: User):
     if not rows:
         rows = list(fields.get("flow_table_rows") or [])
 
-    def _row_out(r: dict, idx: int) -> dict:
+    def _row_out(r: dict, seq: int) -> dict:
         kind = (r.get("kind") or "row").strip().lower()
         return {
-            "seq": idx + 1,
+            "seq": seq,
             "kind": kind,
             "time": (r.get("time") or r.get("timing") or "").strip(),
+            "time_kora": (r.get("time_kora") or "").strip(),
+            "time_from": (r.get("time_from") or "").strip(),
+            "time_to": (r.get("time_to") or "").strip(),
+            "report_systems": (
+                r.get("report_systems") or r.get("report_real") or r.get("report_kora") or ""
+            ).strip(),
             "text": (r.get("text") or r.get("description") or "").strip(),
             "assignee": (r.get("assignee") or "").strip(),
-            "method": (r.get("method") or r.get("imposition") or "").strip(),
-            "expected": (r.get("expected") or r.get("expected_reaction") or "").strip(),
+            "reaction": (
+                r.get("reaction") or r.get("expected") or r.get("expected_reaction") or ""
+            ).strip(),
+            "notes": (r.get("notes") or "").strip(),
             "tone": "event"
             if kind == "event"
             else ("dilemma" if kind == "dilemma" else "row"),
         }
+
+    out_rows = []
+    seq = 0
+    for r in rows:
+        kind = (r.get("kind") or "row").strip().lower()
+        if kind == "row":
+            seq += 1
+            n = seq
+        else:
+            n = 0
+        out_rows.append(_row_out(r, n))
 
     return jsonify(
         {
@@ -590,7 +614,7 @@ def tablet_flow(user: User):
                 }
                 for d in days
             ],
-            "rows": [_row_out(r, i) for i, r in enumerate(rows)],
+            "rows": out_rows,
             "readonly": True,
         }
     )
@@ -1426,7 +1450,10 @@ def tablet_library(user: User):
     """مكتبة النظام — قراءة فقط (نفس تبويبات/شجرة صفحة المكتبة)."""
     from app.library_tree import LIBRARY_TAB_SPECS, LIBRARY_TREE_KINDS, build_tree_payload
 
-    trees = {kind: build_tree_payload(g.db, kind) for kind in LIBRARY_TREE_KINDS}
+    trees = {
+        kind: build_tree_payload(g.db, kind, only_existing_files=True)
+        for kind in LIBRARY_TREE_KINDS
+    }
     tabs = [
         {"tab_id": tab_id, "kind": kind, "title": title}
         for tab_id, kind, title in LIBRARY_TAB_SPECS
@@ -1437,15 +1464,28 @@ def tablet_library(user: User):
 @bp.get("/library/nodes/<int:node_id>/file")
 @_require_judge_json
 def tablet_library_file(user: User, node_id: int):
-    """تنزيل/عرض ملف من المكتبة (جلسة التابلت)."""
+    """تنزيل/عرض ملف من المكتبة أو أوراق التمرين (جلسة التابلت)."""
     from flask import send_file
 
-    from app.library_tree import is_library_tree_kind, node_file_abspath
-    from app.models.domain import InformationBankTreeNode
+    from app.library_tree import (
+        LIBRARY_TREE_KINDS,
+        exercise_papers_kind,
+        get_library_node,
+        is_exercise_papers_kind,
+        node_file_abspath,
+    )
     from app.views import _mimetype_info_bank_event_flow
 
-    row = g.db.get(InformationBankTreeNode, node_id)
-    if row is None or row.is_folder or not is_library_tree_kind(row.kind):
+    row = get_library_node(g.db, node_id)
+    if row is None or row.is_folder:
+        return _json_error("الملف غير موجود", 404)
+    if row.kind in LIBRARY_TREE_KINDS:
+        pass
+    elif is_exercise_papers_kind(row.kind):
+        ex = _exercise_for(user)
+        if ex is None or row.kind != exercise_papers_kind(int(ex.id)):
+            return _json_error("الملف غير موجود", 404)
+    else:
         return _json_error("الملف غير موجود", 404)
     if not (row.file_relpath or "").strip():
         return _json_error("الملف غير موجود", 404)
@@ -1465,6 +1505,51 @@ def tablet_library_file(user: User, node_id: int):
         except Exception:
             mt = "application/octet-stream"
     return send_file(path, mimetype=mt, as_attachment=False, download_name=path.name)
+
+
+@bp.get("/exercise-papers")
+@_require_judge_json
+def tablet_exercise_papers(user: User):
+    """أوراق التمرين — نفس شجرة تبويب معلومات التمرين، قراءة فقط."""
+    from app.library_tree import (
+        EXERCISE_PAPERS_TITLE,
+        build_tree_payload,
+        exercise_papers_kind,
+    )
+
+    ex = _exercise_for(user)
+    if ex is None:
+        return _json_error("لا يوجد تمرين نشط", 404)
+    kind = exercise_papers_kind(int(ex.id))
+    tree = build_tree_payload(g.db, kind, only_existing_files=True)
+    return jsonify(
+        {
+            "ok": True,
+            "exercise_id": int(ex.id),
+            "kind": kind,
+            "title": EXERCISE_PAPERS_TITLE,
+            "tree": _filter_tree_pdfs(tree),
+            "readonly": True,
+        }
+    )
+
+
+def _filter_tree_pdfs(nodes: list) -> list:
+    """التابلت يعرض أوراق التمرين كملفات PDF فقط."""
+    out = []
+    for n in nodes:
+        if not isinstance(n, dict):
+            continue
+        if n.get("is_folder"):
+            kids = _filter_tree_pdfs(list(n.get("children") or []))
+            if not kids:
+                continue
+            folder = dict(n)
+            folder["children"] = kids
+            out.append(folder)
+        elif n.get("file_url") and str(n.get("name") or "").lower().endswith(".pdf"):
+            out.append(n)
+    return out
 
 
 @bp.get("/notifications")
@@ -1666,7 +1751,11 @@ def tablet_exercise_details(user: User):
         {
             "ok": True,
             "readonly": True,
-            "tabs": [{"key": k, "label": lab} for k, lab in _EXERCISE_WORKSPACE_TABS],
+            "tabs": [
+                {"key": k, "label": lab}
+                for k, lab in _EXERCISE_WORKSPACE_TABS
+                if k != "papers"
+            ],
             "exercise": {
                 "id": int(ex.id),
                 "name": (ex.title or "").strip(),

@@ -1,5 +1,5 @@
 <script>
-/* planner-flow-table v41 — literal Word import; assignee remains 8th */
+/* planner-flow-table v44 — PDF tab closes without extra navigation */
 (function () {
   'use strict';
 
@@ -41,6 +41,8 @@
     var readOnly = section.getAttribute('data-readonly') === '1';
     var tabsEl = section.querySelector('#pf-flow-days-tabs');
     var dayAddBtn = section.querySelector('#pf-flow-day-add');
+    var dayPdfUrlTpl = section.getAttribute('data-day-pdf-url-tpl') || '';
+    var dayPdfBtn = section.querySelector('#pf-flow-day-pdf-btn');
     var clearDayBtn = section.querySelector('#pf-flow-clear-day-btn');
     var daysMenu = section.querySelector('#pf-flow-days-menu');
     var dayNoteEl = section.querySelector('#pf-flow-day-note');
@@ -1067,6 +1069,9 @@
               window.ibankFetchActionEvalDays();
             }
             var msg = 'تم الاستيراد (' + (res.j.row_count || 0) + ' صف)';
+            if (res.j.pdf_ok) {
+              msg += ' — تم تجهيز PDF';
+            }
             if (res.j.warnings && res.j.warnings.length) {
               msg += ' — ' + res.j.warnings.join(' ');
             }
@@ -1242,6 +1247,15 @@
         e.stopPropagation();
         contextDayId = tab.getAttribute('data-day-id');
         showDaysMenu(e.clientX, e.clientY);
+      });
+    }
+
+    if (dayPdfBtn && dayPdfUrlTpl) {
+      dayPdfBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        if (!activeDayId) return;
+        var url = dayPdfUrlTpl.split('__DAY__').join(encodeURIComponent(activeDayId));
+        window.open(url, '_blank');
       });
     }
 

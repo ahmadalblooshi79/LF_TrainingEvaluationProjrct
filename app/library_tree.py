@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import PurePosixPath
+import shutil
+from pathlib import Path, PurePosixPath
 
 from sqlalchemy.orm import Session
 
@@ -48,9 +49,29 @@ _LIBRARY_KIND_BY_TAB = {tab: kind for tab, kind, _ in LIBRARY_TAB_SPECS}
 _LIBRARY_TAB_BY_KIND = {kind: tab for tab, kind, _ in LIBRARY_TAB_SPECS}
 _LIBRARY_TITLE_BY_KIND = {kind: title for _, kind, title in LIBRARY_TAB_SPECS}
 
+EXERCISE_PAPERS_KIND_PREFIX = "ex_p_"
+EXERCISE_PAPERS_TITLE = "أوراق التمرين"
+
+
+def exercise_papers_kind(exercise_id: int) -> str:
+    return f"{EXERCISE_PAPERS_KIND_PREFIX}{int(exercise_id)}"
+
+
+def parse_exercise_papers_eid(kind: str) -> int | None:
+    k = (kind or "").strip()
+    if not k.startswith(EXERCISE_PAPERS_KIND_PREFIX):
+        return None
+    rest = k[len(EXERCISE_PAPERS_KIND_PREFIX) :]
+    return int(rest) if rest.isdigit() else None
+
+
+def is_exercise_papers_kind(kind: str) -> bool:
+    return parse_exercise_papers_eid(kind) is not None
+
 
 def is_library_tree_kind(kind: str) -> bool:
-    return (kind or "").strip() in LIBRARY_TREE_KINDS
+    k = (kind or "").strip()
+    return k in LIBRARY_TREE_KINDS or is_exercise_papers_kind(k)
 
 
 def library_kind_tab(kind: str) -> str:
@@ -77,6 +98,8 @@ def library_active_tab_from_request(tab_arg: str | None) -> str:
 
 
 def library_kind_title(kind: str) -> str:
+    if is_exercise_papers_kind(kind):
+        return EXERCISE_PAPERS_TITLE
     return _LIBRARY_TITLE_BY_KIND.get(kind, "المكتبة")
 
 
@@ -94,7 +117,26 @@ def node_file_abspath(kind: str, relpath: str | None):
         out.relative_to(base)
     except ValueError:
         return None
-    return out if out.is_file() else None
+    if out.is_file():
+        return out
+    name = Path(norm).name
+    if not name:
+        return None
+    tree = (base / kind / "tree").resolve()
+    try:
+        tree.relative_to(base)
+    except ValueError:
+        return None
+    if not tree.is_dir():
+        return None
+    found = [p for p in tree.rglob(name) if p.is_file()]
+    if len(found) == 1:
+        try:
+            found[0].resolve().relative_to(base)
+        except ValueError:
+            return None
+        return found[0]
+    return None
 
 
 def ensure_library_tree(db: Session, kind: str) -> None:
@@ -103,14 +145,27 @@ def ensure_library_tree(db: Session, kind: str) -> None:
         return
 
 
-def build_tree_payload(db: Session, kind: str) -> list[dict]:
+def get_library_node(db: Session, node_id: int) -> _Node | None:
+    """قراءة عقدة مكتبة بلا عزل قسم بنك المعلومات."""
+    from app.ibank_section_ctx import ibank_section_bypass
+
+    with ibank_section_bypass():
+        return db.get(_Node, int(node_id))
+
+
+def build_tree_payload(
+    db: Session, kind: str, *, only_existing_files: bool = False
+) -> list[dict]:
     ensure_library_tree(db, kind)
-    rows = (
-        db.query(_Node)
-        .filter(_Node.kind == kind)
-        .order_by(_Node.sort_order, _Node.id)
-        .all()
-    )
+    from app.ibank_section_ctx import ibank_section_bypass
+
+    with ibank_section_bypass():
+        rows = (
+            db.query(_Node)
+            .filter(_Node.kind == kind)
+            .order_by(_Node.sort_order, _Node.id)
+            .all()
+        )
     by_parent: dict[int | None, list[_Node]] = defaultdict(list)
     for r in rows:
         by_parent[r.parent_id].append(r)
@@ -118,20 +173,38 @@ def build_tree_payload(db: Session, kind: str) -> list[dict]:
         if pid is not None:
             siblings.sort(key=lambda n: (_natural_sort_key(n.name or ""), int(n.id)))
 
-    def node_dict(n: _Node) -> dict:
-        children = [node_dict(c) for c in by_parent.get(int(n.id), [])]
+    def node_dict(n: _Node) -> dict | None:
+        children = [
+            c
+            for c in (node_dict(ch) for ch in by_parent.get(int(n.id), []))
+            if c is not None
+        ]
+        if n.is_folder:
+            if only_existing_files and not children:
+                return None
+            return {
+                "id": int(n.id),
+                "name": n.name,
+                "is_folder": True,
+                "is_system": bool(n.is_system),
+                "children": children,
+            }
+        rel = (n.file_relpath or "").strip()
+        exists = bool(rel) and node_file_abspath(n.kind, rel) is not None
+        if only_existing_files and not exists:
+            return None
         d: dict = {
             "id": int(n.id),
             "name": n.name,
-            "is_folder": bool(n.is_folder),
+            "is_folder": False,
             "is_system": bool(n.is_system),
             "children": children,
         }
-        if not n.is_folder and n.file_relpath:
+        if exists:
             d["file_url"] = True
         return d
 
-    return [node_dict(n) for n in by_parent.get(None, [])]
+    return [n for n in (node_dict(r) for r in by_parent.get(None, [])) if n is not None]
 
 
 def _write_file_bytes_library(
@@ -181,9 +254,33 @@ def upload_files_to_tree(
         return upload_files_to_parent(
             db, kind=kind, parent_id=int(parent_id), file_storages=file_storages
         )
+    from app.ibank_section_ctx import ibank_section_bypass
+
     added = 0
     errors: list[str] = []
     touched_parents: set[int | None] = {parent_id}
+    with ibank_section_bypass():
+        return _upload_files_to_tree_inner(
+            db,
+            kind=kind,
+            parent_id=parent_id,
+            file_storages=file_storages,
+            added=added,
+            errors=errors,
+            touched_parents=touched_parents,
+        )
+
+
+def _upload_files_to_tree_inner(
+    db: Session,
+    *,
+    kind: str,
+    parent_id: int | None,
+    file_storages: list,
+    added: int,
+    errors: list[str],
+    touched_parents: set[int | None],
+) -> tuple[int, list[str]]:
     for f in _sort_file_storages_by_path(file_storages):
         raw_name = (getattr(f, "filename", "") or "").strip()
         if not raw_name:
@@ -278,16 +375,38 @@ def delete_library_node(db: Session, node: _Node) -> None:
     if not is_library_tree_kind(node.kind):
         delete_node(db, node)
         return
+    from app.ibank_section_ctx import ibank_section_bypass
     from app.info_bank_tree import _collect_descendants_post_order
 
-    descendants = _collect_descendants_post_order(db, int(node.id))
-    for ch in descendants:
-        if not ch.is_folder and ch.file_relpath:
-            unlink_library_file(ch.kind, ch.file_relpath)
-        db.delete(ch)
-    if not node.is_folder and node.file_relpath:
-        unlink_library_file(node.kind, node.file_relpath)
-    db.delete(node)
+    with ibank_section_bypass():
+        descendants = _collect_descendants_post_order(db, int(node.id))
+        for ch in descendants:
+            if not ch.is_folder and ch.file_relpath:
+                unlink_library_file(ch.kind, ch.file_relpath)
+            db.delete(ch)
+        if not node.is_folder and node.file_relpath:
+            unlink_library_file(node.kind, node.file_relpath)
+        db.delete(node)
+
+
+def purge_library_tree(db: Session, kind: str) -> int:
+    """حذف كل مجلدات وملفات تبويب المكتبة مع الملفات على القرص."""
+    if not is_library_tree_kind(kind):
+        raise ValueError("نوع غير صالح.")
+    from app.ibank_section_ctx import ibank_section_bypass
+
+    with ibank_section_bypass():
+        rows = db.query(_Node).filter(_Node.kind == kind).all()
+        count = len(rows)
+        for row in rows:
+            if not row.is_folder and row.file_relpath:
+                unlink_library_file(row.kind, row.file_relpath)
+            db.delete(row)
+        db.flush()
+    tree_dir = LIBRARY_DIR / kind / "tree"
+    if tree_dir.is_dir():
+        shutil.rmtree(tree_dir, ignore_errors=True)
+    return count
 
 
 def unlink_library_file(kind: str, relpath: str | None) -> None:
@@ -302,18 +421,24 @@ def unlink_library_file(kind: str, relpath: str | None) -> None:
 
 __all__ = [
     "ALLOWED_FILE_EXTENSIONS",
+    "EXERCISE_PAPERS_TITLE",
     "LIBRARY_TAB_SPECS",
     "LIBRARY_TREE_KINDS",
     "add_custom_folder",
     "build_tree_payload",
     "delete_library_node",
     "ensure_library_tree",
+    "exercise_papers_kind",
+    "get_library_node",
     "get_node",
+    "is_exercise_papers_kind",
     "is_library_tree_kind",
     "library_kind_tab",
     "library_kind_title",
     "library_tab_kind",
     "move_tree_node",
     "node_file_abspath",
+    "parse_exercise_papers_eid",
+    "purge_library_tree",
     "upload_files_to_tree",
 ]

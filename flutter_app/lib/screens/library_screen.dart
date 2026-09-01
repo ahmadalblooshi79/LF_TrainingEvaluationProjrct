@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 
-import '../services/api_client.dart';
+import '../services/tablet_repository.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_header.dart';
 import '../widgets/figma_ui.dart';
 import 'library_pdf_screen.dart';
 
 /// المكتبة — مطابقة لصفحة النظام (تبويبات + شجرة) — قراءة فقط.
+/// [exercisePapers]: شجرة أوراق التمرين من معلومات التمرين، بدون تبويبات المكتبة.
 class LibraryScreen extends StatefulWidget {
-  const LibraryScreen({super.key});
+  const LibraryScreen({super.key, this.exercisePapers = false});
+
+  final bool exercisePapers;
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
@@ -33,26 +36,43 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _error = null;
     });
     try {
-      final data = await ApiClient.instance.get('/api/tablet/library');
-      final tabsRaw = (data['tabs'] as List?) ?? const [];
-      final treesRaw = (data['trees'] as Map?) ?? const {};
-      final tabs = tabsRaw
-          .whereType<Map>()
-          .map((m) => _LibTab.fromJson(Map<String, dynamic>.from(m)))
-          .toList();
+      final fetched = widget.exercisePapers
+          ? await TabletRepository.instance.fetchExercisePapers()
+          : await TabletRepository.instance.fetchLibrary();
+      final data = fetched.data;
+      List<_LibTab> tabs;
       final trees = <String, List<_LibNode>>{};
-      treesRaw.forEach((k, v) {
-        final list = (v as List?) ?? const [];
-        trees[k.toString()] = list
+      var activeKind = '';
+      if (widget.exercisePapers) {
+        final kind = (data['kind'] ?? 'papers').toString();
+        final title = (data['title'] ?? 'أوراق التمرين').toString();
+        tabs = [_LibTab(tabId: 'papers', kind: kind, title: title)];
+        trees[kind] = ((data['tree'] as List?) ?? const [])
             .whereType<Map>()
             .map((m) => _LibNode.fromJson(Map<String, dynamic>.from(m)))
             .toList();
-      });
+        activeKind = kind;
+      } else {
+        final tabsRaw = (data['tabs'] as List?) ?? const [];
+        final treesRaw = (data['trees'] as Map?) ?? const {};
+        tabs = tabsRaw
+            .whereType<Map>()
+            .map((m) => _LibTab.fromJson(Map<String, dynamic>.from(m)))
+            .toList();
+        treesRaw.forEach((k, v) {
+          final list = (v as List?) ?? const [];
+          trees[k.toString()] = list
+              .whereType<Map>()
+              .map((m) => _LibNode.fromJson(Map<String, dynamic>.from(m)))
+              .toList();
+        });
+        activeKind = tabs.isNotEmpty ? tabs.first.kind : '';
+      }
       if (!mounted) return;
       setState(() {
         _tabs = tabs;
         _trees = trees;
-        _activeKind = tabs.isNotEmpty ? tabs.first.kind : '';
+        _activeKind = activeKind;
         _loading = false;
       });
     } catch (e) {
@@ -75,7 +95,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppHeader(
-        pageTitle: 'المكتبة',
+        pageTitle: widget.exercisePapers ? 'أوراق التمرين' : 'المكتبة',
         onBack: () => Navigator.of(context).maybePop(),
         showOnlineChip: false,
       ),
@@ -105,7 +125,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           const Icon(Icons.menu_book_outlined, color: AppColors.goldDark),
                           const SizedBox(width: 8),
                           Text(
-                            'المكتبة',
+                            widget.exercisePapers ? 'أوراق التمرين' : 'المكتبة',
                             style: AppTextStyles.cairo(
                               fontSize: 18,
                               fontWeight: FontWeight.w800,
@@ -120,11 +140,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       ),
                     ),
                     const Divider(height: 16),
-                    SingleChildScrollView(
+                    if (!widget.exercisePapers)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       padding: const EdgeInsets.symmetric(horizontal: 12),
-                      reverse: true,
                       child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: _tabs.map((t) {
                           final selected = t.kind == _activeKind;
                           return Padding(
@@ -164,6 +187,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           );
                         }).toList(),
                       ),
+                    ),
                     ),
                     Expanded(
                       child: Padding(

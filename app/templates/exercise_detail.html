@@ -11,6 +11,9 @@
 {% if ok_msg %}
 <p class="form-ok-banner" role="status"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> {{ ok_msg }}</p>
 {% endif %}
+{% if error %}
+<p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ error }}</p>
+{% endif %}
 
 <section class="card exercise-workspace-card">
   <nav class="exercise-workspace-tabs pf-flow-days-tabs" role="tablist" aria-label="أقسام التمرين الحالي">
@@ -24,7 +27,7 @@
     {% endfor %}
   </nav>
 
-  {% if can_plan %}
+  {% if can_plan and active_workspace_tab != 'papers' %}
   <div class="exercise-workspace-import-bar">
     <button type="button" class="btn btn-ghost btn-sm-compact" id="exercise-import-pptx-btn" title="استيراد من PowerPoint (.pptx)">
       <i class="fa-solid fa-file-import" aria-hidden="true"></i> استيراد PowerPoint
@@ -34,7 +37,7 @@
   </div>
   {% endif %}
 
-  <form method="post" action="{{ url_for('views.exercise_detail', eid=ex.id, tab=active_workspace_tab) }}" class="exercise-workspace-form" id="exercise-workspace-form">
+  <form method="post" action="{{ url_for('views.exercise_detail', eid=ex.id, tab=active_workspace_tab) }}" class="exercise-workspace-form" id="exercise-workspace-form"{% if active_workspace_tab == 'papers' %} hidden{% endif %}>
     <div class="exercise-workspace-panes">
       <div class="exercise-workspace-pane{% if active_workspace_tab == 'info' %} is-active{% endif %}"
            id="exercise-pane-info"
@@ -274,13 +277,38 @@
       </div>
     </div>
 
-    {% if can_plan %}
+    {% if can_plan and active_workspace_tab != 'papers' %}
     <div class="exercise-workspace-actions">
       <button type="submit" class="btn"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ</button>
     </div>
     {% endif %}
   </form>
+
+  <div class="exercise-workspace-pane exercise-papers-wrap{% if active_workspace_tab == 'papers' %} is-active{% endif %}"
+       id="exercise-pane-papers"
+       role="tabpanel"
+       aria-labelledby="exercise-tab-papers"
+       {% if active_workspace_tab != 'papers' %}hidden{% endif %}>
+    {% with
+      kind=exercise_papers_kind,
+      tree_nodes=exercise_papers_tree,
+      library_can_manage=can_plan,
+      tree_folder_url=url_for('views.exercise_papers_folder_add', eid=ex.id),
+      tree_upload_url=url_for('views.exercise_papers_upload', eid=ex.id),
+      tree_purge_url=url_for('views.exercise_papers_purge_all', eid=ex.id),
+      tree_move_url=url_for('views.exercise_papers_move', eid=ex.id),
+      tree_delete_endpoint='views.exercise_papers_delete',
+      tree_file_endpoint='views.exercise_papers_file',
+      tree_url_kwargs={'eid': ex.id},
+      tree_show_heading=false
+    %}
+    {% include 'partials/library_tree_panel.html' %}
+    {% endwith %}
+  </div>
 </section>
+{% if active_workspace_tab == 'papers' %}
+{% include 'partials/library_tree_script.html' %}
+{% endif %}
 {% if can_plan %}
 <script>
 (function () {

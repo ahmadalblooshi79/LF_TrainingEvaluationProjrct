@@ -131,7 +131,13 @@ class PackageSyncService {
       lastError = e.message;
       return false;
     } catch (e) {
-      lastError = 'فشل تنزيل الحزمة: $e';
+      final msg = '$e';
+      if (msg.contains('QuotaExceeded')) {
+        lastError =
+            'امتلأ التخزين المحلي للمتصفح. امسح بيانات الموقع ثم أعد تهيئة الجهاز.';
+      } else {
+        lastError = 'فشل تنزيل الحزمة: $e';
+      }
       return false;
     }
   }

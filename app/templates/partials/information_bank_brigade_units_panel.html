@@ -30,7 +30,7 @@
       </thead>
       <tbody>
         {% for u in units %}
-        <tr data-was-included="{{ '1' if u.included_in_exercise else '0' }}">
+        <tr data-was-included="{{ '1' if u.included_in_exercise else '0' }}" data-unit-key="{{ u.key }}">
           <td class="ibank-col-num">{{ loop.index }}</td>
           <th scope="row">{{ u.label }}</th>
           <td class="ibank-col-included">
@@ -45,7 +45,7 @@
           </td>
           {% if information_bank_can_manage %}
           <td class="ibank-unit-actions-cell">
-            <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-unit-edit" data-unit-key="{{ u.key }}" data-unit-label="{{ u.label|e }}" data-brigade-tab="{{ bg.tab }}" title="تعديل"><i class="fa-solid fa-pen" aria-hidden="true"></i> تعديل</button>
+            <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-unit-edit" data-unit-key="{{ u.key }}" data-unit-label="{{ u.label|e }}" data-brigade-tab="{{ bg.tab }}" title="تعديل — اسحب الصف لترتيب المستوى"><i class="fa-solid fa-pen" aria-hidden="true"></i> تعديل</button>
             <form method="post" action="{{ url_for('views.admin_information_bank_unit_delete') }}" class="ibank-unit-delete-inline" onsubmit="return confirm('حذف هذا المستوى من بنك المعلومات؟');">
               <input type="hidden" name="unit_key" value="{{ u.key }}">
               <input type="hidden" name="brigade_tab" value="{{ bg.tab }}">

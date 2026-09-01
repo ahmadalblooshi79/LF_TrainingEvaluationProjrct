@@ -20,6 +20,9 @@ _bypass: ContextVar[bool] = ContextVar("ibank_section_bypass", default=False)
 _events_registered = False
 
 _IBANK_SECTION_MODELS: tuple[type, ...] | None = None
+_LIBRARY_TREE_KINDS: frozenset[str] = frozenset(
+    {"land_forces", "other_branches", "training_standards"}
+)
 
 
 def is_ibank_section_bypass() -> bool:
@@ -110,6 +113,13 @@ def _on_do_orm_execute(orm_execute_state: ORMExecuteState) -> None:
     if not orm_execute_state.is_select:
         return
     sec = current_ibank_section()
+
+    def _section_loader_criteria(cls, s=sec):
+        cond = cls.ibank_section == s
+        if getattr(cls, "__tablename__", "") == "information_bank_tree_nodes":
+            cond = cls.kind.in_(_LIBRARY_TREE_KINDS) | cond
+        return cond
+
     opts = []
     for model in _section_models():
         col = getattr(model, "ibank_section", None)
@@ -118,8 +128,9 @@ def _on_do_orm_execute(orm_execute_state: ORMExecuteState) -> None:
         opts.append(
             with_loader_criteria(
                 model,
-                lambda cls, s=sec: cls.ibank_section == s,
+                _section_loader_criteria,
                 include_aliases=True,
+                track_closure_variables=False,
             )
         )
     if opts:

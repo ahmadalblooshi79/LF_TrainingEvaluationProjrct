@@ -14,6 +14,7 @@ import '../models/polarity_note.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
 import 'health_service.dart';
+import 'library_pdf_cache.dart';
 import 'media_upload_service.dart';
 import 'offline_store.dart';
 import 'sync_service.dart';
@@ -229,6 +230,73 @@ class TabletRepository {
     try {
       await _downloadAndStore('/api/tablet/incomplete', 'incomplete');
     } catch (_) {}
+    await _prefetchAllLibraryPdfs();
+  }
+
+  Set<int> _collectPdfNodeIds(dynamic root) {
+    final ids = <int>{};
+    void walk(dynamic n) {
+      if (n is List) {
+        for (final x in n) {
+          walk(x);
+        }
+        return;
+      }
+      if (n is! Map) return;
+      if (n.containsKey('id') &&
+          (n.containsKey('is_folder') || n.containsKey('file_url'))) {
+        if (n['is_folder'] == true) {
+          walk(n['children']);
+          return;
+        }
+        if (n['file_url'] == true) {
+          final name = (n['name'] ?? '').toString().toLowerCase();
+          final id = (n['id'] as num?)?.toInt() ?? 0;
+          if (id > 0 && name.endsWith('.pdf')) ids.add(id);
+        }
+        return;
+      }
+      for (final v in n.values) {
+        walk(v);
+      }
+    }
+
+    walk(root);
+    return ids;
+  }
+
+  /// تنزيل كل ملفات PDF (المكتبة + أوراق التمرين) إلى الجهاز للعرض دون شبكة.
+  Future<void> _prefetchAllLibraryPdfs() async {
+    final ids = <int>{};
+    var haveLibrary = false;
+    var havePapers = false;
+    try {
+      final lib = await _downloadAndStore('/api/tablet/library', 'library');
+      haveLibrary = true;
+      ids.addAll(_collectPdfNodeIds(lib['trees']));
+    } catch (_) {}
+    try {
+      final papers = await _downloadAndStore(
+        '/api/tablet/exercise-papers',
+        'exercise_papers',
+      );
+      havePapers = true;
+      ids.addAll(_collectPdfNodeIds(papers['tree']));
+    } catch (_) {}
+    for (final id in ids) {
+      try {
+        final bytes = await ApiClient.instance.getBytes(
+          '/api/tablet/library/nodes/$id/file',
+          timeout: const Duration(seconds: 120),
+        );
+        if (bytes.isNotEmpty) {
+          await LibraryPdfCache.put(id, bytes);
+        }
+      } catch (_) {}
+    }
+    if (haveLibrary && havePapers) {
+      await LibraryPdfCache.pruneExcept(ids);
+    }
   }
 
   Future<Map<String, dynamic>> _downloadAndStore(
@@ -340,6 +408,52 @@ class TabletRepository {
         );
       } catch (_) {}
     }
+  }
+
+  Future<Fetched<Map<String, dynamic>>> fetchLibrary() async {
+    final reachable = await HealthService.instance.check();
+    if (reachable) {
+      try {
+        final data = await _downloadAndStore('/api/tablet/library', 'library');
+        return Fetched(data, false);
+      } catch (_) {}
+    }
+    return _readLocalFirst('/api/tablet/library', 'library');
+  }
+
+  Future<Fetched<Map<String, dynamic>>> fetchExercisePapers() async {
+    final reachable = await HealthService.instance.check();
+    if (reachable) {
+      try {
+        final data = await _downloadAndStore(
+          '/api/tablet/exercise-papers',
+          'exercise_papers',
+        );
+        return Fetched(data, false);
+      } catch (_) {}
+    }
+    return _readLocalFirst('/api/tablet/exercise-papers', 'exercise_papers');
+  }
+
+  /// عرض PDF من المخزون المحلي أولاً؛ التنزيل من السيرفر فقط إن لم يُحفظ بعد.
+  Future<List<int>> fetchLibraryPdf(int nodeId) async {
+    final cached = await LibraryPdfCache.get(nodeId);
+    if (cached != null && cached.isNotEmpty) return cached;
+
+    final reachable = await HealthService.instance.check();
+    if (reachable) {
+      final bytes = await ApiClient.instance.getBytes(
+        '/api/tablet/library/nodes/$nodeId/file',
+        timeout: const Duration(seconds: 120),
+      );
+      if (bytes.isNotEmpty) {
+        await LibraryPdfCache.put(nodeId, bytes);
+        return bytes;
+      }
+    }
+    throw ApiOfflineException(
+      'الملف غير متوفر محلياً — نفّذ «تحديث بياناتي» أثناء الاتصال بالنظام',
+    );
   }
 
   Future<Fetched<HomeData>> fetchHome() async {

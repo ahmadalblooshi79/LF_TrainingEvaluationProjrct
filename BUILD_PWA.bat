@@ -5,9 +5,11 @@ cd /d "%~dp0"
 echo Building Judge Tablet PWA (Flutter Web)...
 echo.
 
+set PATH=%~dp0tools\flutter\bin;%PATH%
+
 where flutter >nul 2>&1
 if errorlevel 1 (
-  echo ERROR: Flutter is not in PATH.
+  echo ERROR: Flutter is not in PATH and tools\flutter is missing.
   exit /b 1
 )
 

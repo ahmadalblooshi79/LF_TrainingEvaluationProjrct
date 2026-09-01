@@ -20,9 +20,10 @@
 {% endmacro %}
 
 <script type="application/json" id="pf-flow-days-json">{{ flow_table_days | tojson }}</script>
-<section class="card planner-flow-action-table-section" id="pf-flow-table-section" dir="rtl"   data-pf-script-ver="41"
+<section class="card planner-flow-action-table-section" id="pf-flow-table-section" dir="rtl"   data-pf-script-ver="44"
   data-active-day-id="{{ flow_table_active_day_id }}"
   {% if pf_flow_enable_day_phase is defined and pf_flow_enable_day_phase %}data-enable-day-phase="1"{% endif %}
+  {% if pf_flow_day_pdf_url_tpl is defined and pf_flow_day_pdf_url_tpl %}data-day-pdf-url-tpl="{{ pf_flow_day_pdf_url_tpl }}"{% endif %}
   {% if readonly_mode %}data-readonly="1"{% endif %}
   {% if not readonly_mode %}
   data-save-url="{{ pf_flow_save_url }}"
@@ -45,6 +46,9 @@
     </div>
     {% if not readonly_mode %}
     <div class="pf-flow-days-tools">
+      {% if pf_flow_day_pdf_url_tpl is defined and pf_flow_day_pdf_url_tpl %}
+      <button type="button" class="pf-flow-day-pdf-btn btn btn-sm-compact btn-ghost" id="pf-flow-day-pdf-btn" title="فتح صفحة PDF لليوم الحالي دون تعديل الجدول"><i class="fa-solid fa-file-pdf" aria-hidden="true"></i> PDF</button>
+      {% endif %}
       <button type="button" class="pf-flow-clear-day-btn btn btn-sm-compact btn-ghost" id="pf-flow-clear-day-btn" title="تفريغ محتوى الجدول في التبويب الحالي"><i class="fa-solid fa-eraser" aria-hidden="true"></i> تفريغ الجدول</button>
       <button type="button" class="pf-flow-import-docx-btn btn btn-sm-compact btn-ghost" id="pf-flow-import-docx-btn" title="استيراد من Word (.docx)"><i class="fa-solid fa-file-import" aria-hidden="true"></i> استيراد Word</button>
       {% if pf_flow_pull_ibank_url is defined and pf_flow_pull_ibank_url %}

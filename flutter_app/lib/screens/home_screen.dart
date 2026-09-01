@@ -31,6 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
     'action_eval': Icons.fact_check_outlined,
     'evaluation_lists': Icons.checklist_rtl,
     'positives_negatives': Icons.thumbs_up_down_outlined,
+    'exercise_papers': Icons.folder_copy_outlined,
     'objectives': Icons.flag_outlined,
   };
 
@@ -462,46 +463,22 @@ class _MenuGrid extends StatelessWidget {
     if (cards.isEmpty) return const SizedBox.shrink();
 
     if (portrait) {
-      return Column(
-        children: [
-          if (cards.isNotEmpty) _row(cards.take(2).toList()),
-          if (cards.length > 2) ...[
-            const SizedBox(height: _gap),
-            _row(cards.skip(2).take(2).toList()),
-          ],
-          if (cards.length > 4) ...[
-            const SizedBox(height: _gap),
-            IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Expanded(child: SizedBox()),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.all(_gap / 2),
-                      child: cards[4],
-                    ),
-                  ),
-                  const Expanded(child: SizedBox()),
-                ],
-              ),
-            ),
-          ],
-        ],
-      );
+      final rows = <Widget>[];
+      for (var i = 0; i < cards.length; i += 2) {
+        if (rows.isNotEmpty) rows.add(const SizedBox(height: _gap));
+        final slice = cards.skip(i).take(2).toList();
+        rows.add(_row(slice));
+      }
+      return Column(children: rows);
     }
 
-    final top = cards.length > 3 ? cards.sublist(0, 3) : cards;
-    final bottom = cards.length > 3 ? cards.sublist(3) : <_MenuCard>[];
-    return Column(
-      children: [
-        if (top.isNotEmpty) _row(top),
-        if (bottom.isNotEmpty) ...[
-          const SizedBox(height: _gap),
-          _row(bottom.length >= 2 ? bottom.sublist(0, 2) : bottom),
-        ],
-      ],
-    );
+    final rows = <Widget>[];
+    for (var i = 0; i < cards.length; i += 3) {
+      if (rows.isNotEmpty) rows.add(const SizedBox(height: _gap));
+      final end = i + 3 > cards.length ? cards.length : i + 3;
+      rows.add(_row(cards.sublist(i, end)));
+    }
+    return Column(children: rows);
   }
 }
 

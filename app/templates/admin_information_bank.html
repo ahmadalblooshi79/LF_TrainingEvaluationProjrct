@@ -172,6 +172,10 @@
         <input type="hidden" name="unit_label" id="ibank-unit-edit-label" value="">
         <input type="hidden" name="brigade_tab" id="ibank-unit-edit-tab" value="">
       </form>
+      <form method="post" action="{{ url_for('views.admin_information_bank_unit_move') }}" id="ibank-unit-move-form" class="sr-only" aria-hidden="true">
+        <input type="hidden" name="unit_keys" id="ibank-unit-move-keys" value="">
+        <input type="hidden" name="brigade_tab" id="ibank-unit-move-tab" value="">
+      </form>
       <form method="post" action="{{ url_for('views.admin_information_bank_designation_edit') }}" id="ibank-desig-edit-form" class="sr-only" aria-hidden="true"></form>
       <form method="post" action="{{ url_for('views.admin_information_bank_designation_alias_edit') }}" id="ibank-desig-alias-edit-form" class="sr-only" aria-hidden="true"></form>
       {% endif %}
@@ -1906,29 +1910,105 @@
     bindIncludedSaveForm("ibank-units-included-form", "ibank-uncheck-password");
     bindIncludedSaveForm("ibank-phases-included-form", "ibank-phases-uncheck-password");
 
-    var editForm = document.getElementById('ibank-unit-edit-form');
-    var editUrl = editForm ? editForm.getAttribute('action') : '';
+    var moveForm = document.getElementById('ibank-unit-move-form');
+    var moveUrl = moveForm ? moveForm.getAttribute('action') : '';
     var tabbedRoot = card.querySelector('.ibank-tabbed') || card;
-    tabbedRoot.addEventListener('click', function (e) {
-      var btn = e.target.closest('.js-ibank-unit-edit');
-      if (!btn || !tabbedRoot.contains(btn)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      var key = btn.getAttribute('data-unit-key') || '';
-      var row = btn.closest('tr');
-      var labelCell = row && row.querySelector('th[scope="row"]');
-      var label = labelCell ? labelCell.textContent.trim() : (btn.getAttribute('data-unit-label') || '');
-      var tab = btn.getAttribute('data-brigade-tab') || '';
-      if (!key || !editUrl) return;
-      var newLabel = window.prompt('تعديل اسم مستوى الوحدة:', label);
-      if (newLabel === null) return;
-      newLabel = newLabel.trim();
-      if (!newLabel) {
-        window.alert('أدخل اسماً صالحاً.');
-        return;
+    var unitDragSrc = null;
+    var unitDropHint = null;
+
+    function unitRowTbody(row) {
+      return row ? row.parentElement : null;
+    }
+
+    function unitRowKeys(tbody) {
+      return Array.prototype.map.call(tbody.querySelectorAll('tr[data-unit-key]'), function (tr) {
+        return tr.getAttribute('data-unit-key') || '';
+      }).filter(Boolean);
+    }
+
+    function renumberUnitRows(tbody) {
+      if (!tbody) return;
+      Array.prototype.forEach.call(tbody.querySelectorAll('tr[data-unit-key]'), function (tr, i) {
+        var num = tr.querySelector('.ibank-col-num');
+        if (num) num.textContent = String(i + 1);
+      });
+    }
+
+    function applyUnitOrder(tbody, keys) {
+      if (!tbody || !keys || !keys.length) return;
+      var byKey = {};
+      Array.prototype.forEach.call(tbody.querySelectorAll('tr[data-unit-key]'), function (tr) {
+        byKey[tr.getAttribute('data-unit-key')] = tr;
+      });
+      keys.forEach(function (k) {
+        if (byKey[k]) tbody.appendChild(byKey[k]);
+      });
+      renumberUnitRows(tbody);
+    }
+
+    function clearUnitDropHints() {
+      if (!tabbedRoot) return;
+      Array.prototype.forEach.call(tabbedRoot.querySelectorAll('.ibank-unit-row--drop-before, .ibank-unit-row--drop-after'), function (tr) {
+        tr.classList.remove('ibank-unit-row--drop-before', 'ibank-unit-row--drop-after');
+      });
+      unitDropHint = null;
+    }
+
+    function setUnitEditButton(row, dragging) {
+      var btn = row && row.querySelector('.js-ibank-unit-edit');
+      if (!btn) return;
+      if (dragging) {
+        btn.innerHTML = '<i class="fa-solid fa-check" aria-hidden="true"></i> تم';
+        btn.setAttribute('title', 'إنهاء التحريك');
+      } else {
+        btn.innerHTML = '<i class="fa-solid fa-pen" aria-hidden="true"></i> تعديل';
+        btn.setAttribute('title', 'تعديل — اسحب الصف لترتيب المستوى');
       }
-      btn.disabled = true;
-      fetch(editUrl, {
+    }
+
+    function setRowDraggable(row, on) {
+      if (!row) return;
+      if (on) row.setAttribute('draggable', 'true');
+      else row.removeAttribute('draggable');
+      Array.prototype.forEach.call(row.children, function (cell) {
+        var lock = cell.classList.contains('ibank-unit-actions-cell') || cell.classList.contains('ibank-col-included');
+        if (lock || !on) {
+          cell.removeAttribute('draggable');
+          if (lock) cell.setAttribute('draggable', 'false');
+          return;
+        }
+        cell.setAttribute('draggable', 'true');
+      });
+      Array.prototype.forEach.call(row.querySelectorAll('button, input, form, a, label'), function (el) {
+        el.setAttribute('draggable', 'false');
+      });
+    }
+
+    function exitUnitDrag(row) {
+      if (!row) return;
+      row.classList.remove('ibank-unit-row--editing', 'ibank-unit-row--dragging');
+      setRowDraggable(row, false);
+      setUnitEditButton(row, false);
+      clearUnitDropHints();
+    }
+
+    function enterUnitDrag(row) {
+      if (!row) return;
+      var tbody = unitRowTbody(row);
+      if (tbody) {
+        Array.prototype.forEach.call(tbody.querySelectorAll('tr.ibank-unit-row--editing'), function (other) {
+          if (other !== row) exitUnitDrag(other);
+        });
+      }
+      row.classList.add('ibank-unit-row--editing');
+      setRowDraggable(row, true);
+      setUnitEditButton(row, true);
+    }
+
+    function persistUnitOrder(tbody, tab) {
+      if (!moveUrl || !tbody) return Promise.resolve();
+      var keys = unitRowKeys(tbody);
+      return fetch(moveUrl, {
         method: 'POST',
         credentials: 'same-origin',
         headers: {
@@ -1937,33 +2017,107 @@
           Accept: 'application/json',
         },
         body: new URLSearchParams({
-          unit_key: key,
-          unit_label: newLabel,
-          brigade_tab: tab,
+          unit_keys: keys.join(','),
+          brigade_tab: tab || '',
         }).toString(),
-      })
-        .then(function (r) {
-          return r.json().then(function (j) {
-            return { ok: r.ok && j && j.ok, json: j || {}, status: r.status };
-          }).catch(function () {
-            return { ok: false, json: {}, status: r.status };
-          });
-        })
-        .then(function (res) {
-          if (!res.ok) {
-            window.alert((res.json && res.json.error) || 'تعذّر حفظ التعديل.');
-            return;
-          }
-          if (labelCell) labelCell.textContent = newLabel;
-          btn.setAttribute('data-unit-label', newLabel);
-          btn.setAttribute('aria-label', 'تعديل — ' + newLabel);
-        })
-        .catch(function () {
-          window.alert('تعذر الاتصال بالخادم.');
-        })
-        .finally(function () {
-          btn.disabled = false;
+      }).then(function (r) {
+        return r.json().then(function (j) {
+          return { ok: r.ok && j && j.ok, json: j || {} };
+        }).catch(function () {
+          return { ok: false, json: {} };
         });
+      }).then(function (res) {
+        if (!res.ok) {
+          window.alert((res.json && res.json.error) || 'تعذّر حفظ الترتيب.');
+          return;
+        }
+        applyUnitOrder(tbody, res.json.keys || keys);
+      }).catch(function () {
+        window.alert('تعذر الاتصال بالخادم.');
+      });
+    }
+
+    function unitDragFromInteractive(el) {
+      return !!(el && el.closest && el.closest('button, input, label, form, a, .ibank-unit-actions-cell'));
+    }
+
+    tabbedRoot.addEventListener('click', function (e) {
+      var editBtn = e.target.closest('.js-ibank-unit-edit');
+      if (!editBtn || !tabbedRoot.contains(editBtn)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var row = editBtn.closest('tr');
+      if (!row) return;
+      if (row.classList.contains('ibank-unit-row--editing')) {
+        exitUnitDrag(row);
+      } else {
+        enterUnitDrag(row);
+      }
+    });
+
+    tabbedRoot.addEventListener('dragstart', function (e) {
+      var row = e.target.closest && e.target.closest('tr[data-unit-key]');
+      if (!row || !tabbedRoot.contains(row) || !row.classList.contains('ibank-unit-row--editing')) return;
+      if (unitDragFromInteractive(e.target)) {
+        e.preventDefault();
+        return;
+      }
+      unitDragSrc = row;
+      row.classList.add('ibank-unit-row--dragging');
+      try {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', row.getAttribute('data-unit-key') || '');
+      } catch (err) {}
+    });
+
+    tabbedRoot.addEventListener('dragover', function (e) {
+      if (!unitDragSrc) return;
+      var over = e.target.closest && e.target.closest('tr[data-unit-key]');
+      if (!over || !tabbedRoot.contains(over) || over === unitDragSrc) return;
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
+      var rect = over.getBoundingClientRect();
+      var before = (e.clientY - rect.top) < rect.height / 2;
+      if (unitDropHint && unitDropHint.row === over && unitDropHint.before === before) return;
+      clearUnitDropHints();
+      over.classList.add(before ? 'ibank-unit-row--drop-before' : 'ibank-unit-row--drop-after');
+      unitDropHint = { row: over, before: before };
+    });
+
+    tabbedRoot.addEventListener('drop', function (e) {
+      if (!unitDragSrc) return;
+      var over = e.target.closest && e.target.closest('tr[data-unit-key]');
+      if (!over || !tabbedRoot.contains(over) || over === unitDragSrc) {
+        clearUnitDropHints();
+        return;
+      }
+      e.preventDefault();
+      var tbody = unitRowTbody(over);
+      var hint = unitDropHint;
+      var before = hint && hint.row === over ? hint.before : true;
+      if (before) {
+        tbody.insertBefore(unitDragSrc, over);
+      } else if (over.nextSibling) {
+        tbody.insertBefore(unitDragSrc, over.nextSibling);
+      } else {
+        tbody.appendChild(unitDragSrc);
+      }
+      clearUnitDropHints();
+      renumberUnitRows(tbody);
+      var tabEl = unitDragSrc.querySelector('.js-ibank-unit-edit');
+      persistUnitOrder(tbody, tabEl ? tabEl.getAttribute('data-brigade-tab') : '');
+    });
+
+    tabbedRoot.addEventListener('dragend', function () {
+      if (unitDragSrc) unitDragSrc.classList.remove('ibank-unit-row--dragging');
+      unitDragSrc = null;
+      clearUnitDropHints();
+    });
+
+    tabbedRoot.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      var editing = tabbedRoot.querySelector('tr.ibank-unit-row--editing');
+      if (editing) exitUnitDrag(editing);
     });
 
     var desigForm = document.getElementById('ibank-desig-edit-form');

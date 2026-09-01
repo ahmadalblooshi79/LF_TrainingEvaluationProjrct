@@ -1088,6 +1088,10 @@ def _collect_exercise_file_relpaths(db: Session, exercise_id: int) -> set[str]:
         for ae in b.action_eval_slots or []:
             if ae.file_relpath:
                 rels.add(ae.file_relpath)
+        day_pdf_dir = PLANNER_FLOW_BUNDLE_DIR / str(int(b.id)) / "day_pdfs"
+        if day_pdf_dir.is_dir():
+            for p in day_pdf_dir.glob("*.pdf"):
+                rels.add(f"{int(b.id)}/day_pdfs/{p.name}")
     for row in db.query(ChatMessage.file_relpath).join(ChatRoom).filter(
         ChatRoom.exercise_id == exercise_id, ChatMessage.file_relpath != ""
     ):
@@ -1268,6 +1272,9 @@ def wipe_exercise_from_system(db: Session, exercise_id: int) -> bool:
         return False
     _remove_exercise_upload_files(db, exercise_id)
     _remove_ai_pn_cache(exercise_id)
+    from app.library_tree import exercise_papers_kind, purge_library_tree
+
+    purge_library_tree(db, exercise_papers_kind(int(exercise_id)))
     _purge_exercise_database_rows(db, exercise_id)
     return True
 

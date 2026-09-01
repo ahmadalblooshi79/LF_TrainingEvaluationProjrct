@@ -275,8 +275,15 @@ class ApiClient {
       if (resp.statusCode == 401) {
         throw ApiException('غير مسجّل الدخول', status: 401);
       }
-      throw ApiException('تعذّر فتح الملف (${resp.statusCode})',
-          status: resp.statusCode);
+      var msg = 'تعذّر فتح الملف (${resp.statusCode})';
+      try {
+        final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
+        if (decoded is Map && decoded['error'] != null) {
+          final err = decoded['error'].toString().trim();
+          if (err.isNotEmpty) msg = err;
+        }
+      } catch (_) {}
+      throw ApiException(msg, status: resp.statusCode);
     } on TimeoutException {
       online.value = false;
       throw ApiOfflineException('انتهت مهلة تحميل الملف');

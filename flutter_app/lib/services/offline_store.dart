@@ -7,6 +7,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
+import 'library_pdf_cache.dart';
+import 'pwa_kv_store.dart' as pwa_kv;
+
 /// حالات مزامنة سجل في الطابور المحلي.
 class SyncStatuses {
   static const pending = 'pending';
@@ -314,9 +317,41 @@ class OfflineStore {
   Future<void> init() async {
     if (kIsWeb) {
       _prefs = await SharedPreferences.getInstance();
+      await pwa_kv.pwaKvInit();
+      await _migrateWebPrefsToIdb();
       return;
     }
     await _database;
+  }
+
+  bool _isWebMigratablePrefKey(String k) =>
+      k.startsWith(_cachePrefix) ||
+      k.startsWith('local_user_') ||
+      k.startsWith('device_meta_') ||
+      k == _opsKey ||
+      k == _mediaKey;
+
+  /// localStorage (~5MB) لا يكفي لحزمة التمرين — انقل الكاش إلى IndexedDB.
+  Future<void> _migrateWebPrefsToIdb() async {
+    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    for (final k in prefs.getKeys().toList()) {
+      if (!_isWebMigratablePrefKey(k)) continue;
+      String? raw;
+      if (k == 'local_user_ids') {
+        final list = prefs.getStringList(k);
+        if (list != null) raw = jsonEncode(list);
+      } else {
+        raw = prefs.getString(k);
+      }
+      if (raw != null && raw.isNotEmpty) {
+        try {
+          await pwa_kv.pwaKvPut(k, raw);
+        } catch (_) {
+          continue;
+        }
+      }
+      await prefs.remove(k);
+    }
   }
 
   Future<Database> get _database async {
@@ -493,8 +528,7 @@ class OfflineStore {
 
   Future<void> setDeviceMeta(String key, String value) async {
     if (kIsWeb) {
-      final prefs = _prefs ?? await SharedPreferences.getInstance();
-      await prefs.setString('device_meta_$key', value);
+      await pwa_kv.pwaKvPut('device_meta_$key', value);
       return;
     }
     final db = await _database;
@@ -507,8 +541,7 @@ class OfflineStore {
 
   Future<String?> getDeviceMeta(String key) async {
     if (kIsWeb) {
-      final prefs = _prefs ?? await SharedPreferences.getInstance();
-      return prefs.getString('device_meta_$key');
+      return pwa_kv.pwaKvGet('device_meta_$key');
     }
     final db = await _database;
     final rows = await db.query(
@@ -537,12 +570,11 @@ class OfflineStore {
       'updated_at': DateTime.now().toIso8601String(),
     };
     if (kIsWeb) {
-      final prefs = _prefs ?? await SharedPreferences.getInstance();
-      await prefs.setString('local_user_$userId', jsonEncode(payload));
-      final idx = prefs.getStringList('local_user_ids') ?? <String>[];
+      await pwa_kv.pwaKvPut('local_user_$userId', jsonEncode(payload));
+      final idx = await _webStringList('local_user_ids');
       if (!idx.contains('$userId')) {
         idx.add('$userId');
-        await prefs.setStringList('local_user_ids', idx);
+        await pwa_kv.pwaKvPut('local_user_ids', jsonEncode(idx));
       }
       return;
     }
@@ -554,13 +586,22 @@ class OfflineStore {
     );
   }
 
+  Future<List<String>> _webStringList(String key) async {
+    final raw = await pwa_kv.pwaKvGet(key);
+    if (raw == null || raw.isEmpty) return <String>[];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) return decoded.map((e) => '$e').toList();
+    } catch (_) {}
+    return <String>[];
+  }
+
   Future<Map<String, dynamic>?> localUserByUsername(String username) async {
     final u = username.trim().toLowerCase();
     if (kIsWeb) {
-      final prefs = _prefs ?? await SharedPreferences.getInstance();
-      final ids = prefs.getStringList('local_user_ids') ?? <String>[];
+      final ids = await _webStringList('local_user_ids');
       for (final id in ids) {
-        final raw = prefs.getString('local_user_$id');
+        final raw = await pwa_kv.pwaKvGet('local_user_$id');
         if (raw == null) continue;
         try {
           final m = Map<String, dynamic>.from(jsonDecode(raw) as Map);
@@ -581,11 +622,10 @@ class OfflineStore {
 
   Future<List<Map<String, dynamic>>> allLocalUsers() async {
     if (kIsWeb) {
-      final prefs = _prefs ?? await SharedPreferences.getInstance();
-      final ids = prefs.getStringList('local_user_ids') ?? <String>[];
+      final ids = await _webStringList('local_user_ids');
       final out = <Map<String, dynamic>>[];
       for (final id in ids) {
-        final raw = prefs.getString('local_user_$id');
+        final raw = await pwa_kv.pwaKvGet('local_user_$id');
         if (raw == null) continue;
         try {
           out.add(Map<String, dynamic>.from(jsonDecode(raw) as Map));
@@ -604,8 +644,7 @@ class OfflineStore {
     String syncStatus = SyncStatuses.synced,
   }) async {
     if (kIsWeb) {
-      final prefs = _prefs ?? await SharedPreferences.getInstance();
-      await prefs.setString(
+      await pwa_kv.pwaKvPut(
         '$_cachePrefix$key',
         jsonEncode({
           'body': json,
@@ -630,10 +669,9 @@ class OfflineStore {
 
   Future<List<String>> cacheKeysLike(String pattern) async {
     if (kIsWeb) {
-      final prefs = _prefs ?? await SharedPreferences.getInstance();
-      return prefs
-          .getKeys()
-          .where((k) => k.startsWith(_cachePrefix) && k.contains(pattern))
+      final keys = await pwa_kv.pwaKvKeys(prefix: _cachePrefix);
+      return keys
+          .where((k) => k.contains(pattern))
           .map((k) => k.substring(_cachePrefix.length))
           .toList();
     }
@@ -652,8 +690,7 @@ class OfflineStore {
 
   Future<Map<String, dynamic>?> cacheGet(String key) async {
     if (kIsWeb) {
-      final prefs = _prefs ?? await SharedPreferences.getInstance();
-      final raw = prefs.getString('$_cachePrefix$key');
+      final raw = await pwa_kv.pwaKvGet('$_cachePrefix$key');
       if (raw == null) return null;
       try {
         final decoded = jsonDecode(raw);
@@ -683,8 +720,7 @@ class OfflineStore {
 
   Future<String?> cacheSyncStatus(String key) async {
     if (kIsWeb) {
-      final prefs = _prefs ?? await SharedPreferences.getInstance();
-      final raw = prefs.getString('$_cachePrefix$key');
+      final raw = await pwa_kv.pwaKvGet('$_cachePrefix$key');
       if (raw == null) return null;
       try {
         final decoded = jsonDecode(raw);
@@ -706,8 +742,7 @@ class OfflineStore {
 
   Future<DateTime?> cacheUpdatedAt(String key) async {
     if (kIsWeb) {
-      final prefs = _prefs ?? await SharedPreferences.getInstance();
-      final raw = prefs.getString('$_cachePrefix$key');
+      final raw = await pwa_kv.pwaKvGet('$_cachePrefix$key');
       if (raw == null) return null;
       try {
         final decoded = jsonDecode(raw);
@@ -747,8 +782,7 @@ class OfflineStore {
 
   Future<List<PendingOp>> pendingOps({int? userId}) async {
     if (kIsWeb) {
-      final prefs = _prefs ?? await SharedPreferences.getInstance();
-      final raw = prefs.getString(_opsKey);
+      final raw = await pwa_kv.pwaKvGet(_opsKey);
       if (raw == null || raw.isEmpty) return [];
       try {
         final decoded = jsonDecode(raw);
@@ -784,8 +818,7 @@ class OfflineStore {
   }
 
   Future<void> _saveOps(List<PendingOp> ops) async {
-    final prefs = _prefs ?? await SharedPreferences.getInstance();
-    await prefs.setString(
+    await pwa_kv.pwaKvPut(
       _opsKey,
       jsonEncode(ops.map((o) => o.toJson()).toList()),
     );
@@ -892,8 +925,7 @@ class OfflineStore {
       final list = await mediaRecords();
       list.removeWhere((m) => m.id == rec.id);
       list.add(rec);
-      final prefs = _prefs ?? await SharedPreferences.getInstance();
-      await prefs.setString(
+      await pwa_kv.pwaKvPut(
         _mediaKey,
         jsonEncode(list.map((m) => m.toRow()).toList()),
       );
@@ -909,8 +941,7 @@ class OfflineStore {
 
   Future<List<LocalMediaRecord>> mediaRecords({bool pendingOnly = false}) async {
     if (kIsWeb) {
-      final prefs = _prefs ?? await SharedPreferences.getInstance();
-      final raw = prefs.getString(_mediaKey);
+      final raw = await pwa_kv.pwaKvGet(_mediaKey);
       if (raw == null || raw.isEmpty) return [];
       try {
         final decoded = jsonDecode(raw);
@@ -1074,23 +1105,17 @@ class OfflineStore {
   }
 
   Future<void> clearAll() async {
+    try {
+      await LibraryPdfCache.clearAll();
+    } catch (_) {}
     if (kIsWeb) {
+      await pwa_kv.pwaKvClear();
       final prefs = _prefs ?? await SharedPreferences.getInstance();
-      final keys = prefs
-          .getKeys()
-          .where(
-            (k) =>
-                k.startsWith(_cachePrefix) ||
-                k.startsWith('local_user_') ||
-                k.startsWith('device_meta_'),
-          )
-          .toList();
-      for (final k in keys) {
-        await prefs.remove(k);
+      for (final k in prefs.getKeys().toList()) {
+        if (_isWebMigratablePrefKey(k)) {
+          await prefs.remove(k);
+        }
       }
-      await prefs.remove(_opsKey);
-      await prefs.remove(_mediaKey);
-      await prefs.remove('local_user_ids');
       return;
     }
     final db = await _database;

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/api_client.dart';
+import '../services/tablet_repository.dart';
 import '../theme/app_theme.dart';
 import 'library_pdf_view_stub.dart'
     if (dart.library.html) 'library_pdf_view_web.dart'
@@ -28,8 +29,6 @@ class _LibraryPdfScreenState extends State<LibraryPdfScreen> {
   String? _error;
   List<int>? _bytes;
 
-  String get _apiPath => '/api/tablet/library/nodes/${widget.nodeId}/file';
-
   @override
   void initState() {
     super.initState();
@@ -43,11 +42,8 @@ class _LibraryPdfScreenState extends State<LibraryPdfScreen> {
       _bytes = null;
     });
     try {
-      // تحميل عبر الجلسة ثم عرض داخل التطبيق (ويب: blob/iframe، أصلي: pdfrx).
-      final bytes = await ApiClient.instance.getBytes(
-        _apiPath,
-        timeout: const Duration(seconds: 120),
-      );
+      final bytes =
+          await TabletRepository.instance.fetchLibraryPdf(widget.nodeId);
       if (!mounted) return;
       if (bytes.isEmpty) {
         setState(() {

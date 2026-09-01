@@ -91,6 +91,10 @@ final GoRouter _router = GoRouter(
     ),
     GoRoute(path: '/library', builder: (context, state) => const LibraryScreen()),
     GoRoute(
+      path: '/exercise-papers',
+      builder: (context, state) => const LibraryScreen(exercisePapers: true),
+    ),
+    GoRoute(
       path: '/notifications',
       builder: (context, state) => const NotificationsScreen(),
     ),

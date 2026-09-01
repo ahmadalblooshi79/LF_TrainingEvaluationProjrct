@@ -9210,6 +9210,22 @@ main:has(.ibank-tabpane[data-tab-pane="dilemma-lists"].is-active) .ibank-tab-bod
   display: inline;
   margin: 0;
 }
+.ibank-unit-row--editing {
+  background: color-mix(in srgb, var(--accent, #8b6914) 10%, transparent);
+  cursor: grab;
+}
+.ibank-unit-row--editing:active {
+  cursor: grabbing;
+}
+.ibank-unit-row--dragging {
+  opacity: 0.42;
+}
+.ibank-unit-row--drop-before {
+  box-shadow: inset 0 3px 0 var(--accent, #8b6914);
+}
+.ibank-unit-row--drop-after {
+  box-shadow: inset 0 -3px 0 var(--accent, #8b6914);
+}
 .ibank-units-included-form--global {
   margin-top: 0.75rem;
   padding-top: 0.75rem;
@@ -11746,6 +11762,18 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   width: 100%;
   min-width: 0;
 }
+.ibank-tree-purge-form {
+  display: inline-flex;
+  margin: 0;
+}
+.btn-danger {
+  background: linear-gradient(180deg, #b42318 0%, #912018 100%);
+  border-color: #7a1816;
+  color: #fff;
+}
+.btn-danger:hover {
+  color: #fff;
+}
 .ibank-tree-inline-form,
 .ibank-tree-upload-form {
   position: relative;
@@ -12640,6 +12668,17 @@ html {
 .exercise-workspace-hint {
   margin: 0.5rem 0 0;
   font-size: 0.9rem;
+}
+.exercise-papers-wrap {
+  padding: 0.75rem 1.1rem 1.15rem;
+}
+.exercise-papers-wrap .ibank-tree-page,
+.exercise-papers-wrap .ibank-tree-card {
+  margin: 0;
+}
+.exercise-papers-wrap .ibank-tree-card {
+  box-shadow: none;
+  border: 1px solid var(--border-soft, #c9bfb5);
 }
 .exercise-workspace-actions {
   margin-top: 1rem;

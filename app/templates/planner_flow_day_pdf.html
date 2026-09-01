@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}PDF — {{ day_label }}{% endblock %}
+{% block content %}
+<div class="page-header__nav catalog-tools-back">
+  <button type="button" class="btn btn--subpage-close" id="pf-day-pdf-close">
+    <i class="fa-solid fa-xmark" aria-hidden="true"></i> إغلاق
+  </button>
+</div>
+<div class="dilemma-viewer-page" dir="rtl">
+  <div class="dilemma-viewer-toolbar card">
+    <div class="dilemma-viewer-toolbar__titles">
+      <h1 class="dilemma-viewer-title"><i class="fa-solid fa-file-pdf fa-icon-title" aria-hidden="true"></i> PDF — {{ day_label }}</h1>
+      <p class="muted dilemma-viewer-sub">عرض جدول مجرى الأحداث والمعاضل بعد تحويل ملف Word — الجدول في صفحة التخطيط لا يتغيّر.</p>
+    </div>
+  </div>
+  {% if has_pdf and pdf_file_url %}
+  <div class="dilemma-viewer-frame-wrap card">
+    <iframe class="dilemma-viewer-frame" title="PDF {{ day_label }}" src="{{ pdf_file_url }}"></iframe>
+  </div>
+  {% else %}
+  <p class="muted card" role="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> لا يوجد PDF لهذا اليوم بعد. استورد ملف Word من الجدول ليُحوَّل تلقائياً ثم اضغط PDF.</p>
+  {% endif %}
+</div>
+<script>
+(function () {
+  var btn = document.getElementById("pf-day-pdf-close");
+  if (!btn) return;
+  btn.addEventListener("click", function (e) {
+    e.preventDefault();
+    window.close();
+    setTimeout(function () {
+      if (window.history.length > 1) {
+        window.history.back();
+      }
+    }, 50);
+  });
+})();
+</script>
+{% endblock %}

@@ -1,32 +1,46 @@
-{# kind: land_forces | other_branches | training_standards #}
+{# kind: land_forces | other_branches | training_standards | ex_p_<eid> #}
 {% set tree_title = library_kind_title(kind) %}
+{% set tree_folder_url = tree_folder_url|default(url_for('views.library_tree_folder_add'), true) %}
+{% set tree_upload_url = tree_upload_url|default(url_for('views.library_tree_upload'), true) %}
+{% set tree_purge_url = tree_purge_url|default(url_for('views.library_tree_purge_all'), true) %}
+{% set tree_move_url = tree_move_url|default(url_for('views.library_tree_move'), true) %}
+{% set tree_delete_endpoint = tree_delete_endpoint|default('views.library_tree_delete') %}
+{% set tree_file_endpoint = tree_file_endpoint|default('views.library_tree_file') %}
+{% set tree_url_kwargs = tree_url_kwargs if tree_url_kwargs is defined else {} %}
+{% set tree_show_heading = tree_show_heading if tree_show_heading is defined else true %}
 <div class="ibank-tree-page" dir="rtl" data-ibank-tree-kind="{{ kind }}">
   <section class="card ibank-tree-card">
+    {% if tree_show_heading %}
     <h2 class="h2-in-card"><i class="fa-solid fa-folder-tree fa-icon-title" aria-hidden="true"></i> {{ tree_title }}</h2>
+    {% endif %}
     {% if library_can_manage %}
-    <span class="js-ibank-tree-move-url-holder" data-move-url="{{ url_for('views.library_tree_move') }}" hidden aria-hidden="true"></span>
+    <span class="js-ibank-tree-move-url-holder" data-move-url="{{ tree_move_url }}" hidden aria-hidden="true"></span>
     <div class="ibank-tree-toolbar">
       <div class="ibank-tree-toolbar__main-row">
-        <form method="post" action="{{ url_for('views.library_tree_folder_add') }}" class="ibank-tree-inline-form ibank-tree-inline-form--grow js-ibank-tree-folder-form">
+        <form method="post" action="{{ tree_folder_url }}" class="ibank-tree-inline-form ibank-tree-inline-form--grow js-ibank-tree-folder-form">
           <input type="hidden" name="kind" value="{{ kind }}">
           <input type="hidden" name="parent_id" value="" class="js-ibank-tree-parent-id">
           <input type="text" name="folder_name" class="ibank-tree-folder-name-input" placeholder="اسم مجلد جديد" maxlength="500" required aria-label="اسم المجلد">
           <button type="submit" class="btn btn-ghost btn-sm-compact"><i class="fa-solid fa-folder-plus" aria-hidden="true"></i> إضافة مجلد</button>
         </form>
-        <form method="post" action="{{ url_for('views.library_tree_upload') }}" enctype="multipart/form-data" class="ibank-tree-upload-form js-ibank-tree-upload-files-form">
+        <form method="post" action="{{ tree_upload_url }}" enctype="multipart/form-data" class="ibank-tree-upload-form js-ibank-tree-upload-files-form">
           <input type="hidden" name="kind" value="{{ kind }}">
           <input type="hidden" name="parent_id" value="" class="js-ibank-tree-upload-parent">
           <input type="file" name="files" multiple class="ibank-tree-file-input js-ibank-tree-files" tabindex="-1" aria-hidden="true"
                  accept=".pdf,.doc,.docx,.xlsx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
           <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-pick-files"><i class="fa-solid fa-file" aria-hidden="true"></i> إرفاق ملفات</button>
         </form>
-        <form method="post" action="{{ url_for('views.library_tree_upload') }}" enctype="multipart/form-data" class="ibank-tree-upload-form js-ibank-tree-upload-dir-form">
+        <form method="post" action="{{ tree_upload_url }}" enctype="multipart/form-data" class="ibank-tree-upload-form js-ibank-tree-upload-dir-form">
           <input type="hidden" name="kind" value="{{ kind }}">
           <input type="hidden" name="parent_id" value="" class="js-ibank-tree-upload-parent">
           <input type="file" name="files" multiple class="ibank-tree-file-input js-ibank-tree-dir" tabindex="-1" aria-hidden="true" webkitdirectory directory>
           <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-pick-dir" title="اختر مجلداً مصدراً — يمكن إضافة عدة مجلدات قبل الإدراج، أو سحبها إلى الشريط دفعة واحدة."><i class="fa-solid fa-folder-open" aria-hidden="true"></i> إرفاق مجلد</button>
         </form>
         <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-clear-select"><i class="fa-solid fa-xmark" aria-hidden="true"></i> إلغاء التحديد</button>
+        <form method="post" action="{{ tree_purge_url }}" class="ibank-tree-purge-form" onsubmit="return confirm('حذف جميع الملفات والمجلدات في «{{ tree_title }}»؟ لا يمكن التراجع.');">
+          <input type="hidden" name="kind" value="{{ kind }}">
+          <button type="submit" class="btn btn-danger btn-sm-compact"><i class="fa-solid fa-trash-can" aria-hidden="true"></i> حذف جميع الملفات</button>
+        </form>
       </div>
       <p class="ibank-tree-dir-pick-status js-ibank-dir-pick-status" role="status" hidden></p>
       <p class="ibank-tree-selection-label js-ibank-tree-target-label" role="status">المستهدف: الجذر — انقر «تحديد» على مجلد في الشجرة (أو ارفع مباشرة إلى الجذر)</p>
@@ -47,10 +61,10 @@
               {% endif %}
               <span class="ibank-tree-label">{{ n.name }}</span>
               {% if not n.is_folder %}
-              <a class="ibank-tree-open" href="{{ url_for('views.library_tree_file', node_id=n.id) }}" target="_blank" rel="noopener">فتح</a>
+              <a class="ibank-tree-open" href="{{ url_for(tree_file_endpoint, node_id=n.id, **tree_url_kwargs) }}" target="_blank" rel="noopener">فتح</a>
               {% endif %}
               {% if library_can_manage %}
-              <form method="post" action="{{ url_for('views.library_tree_delete', node_id=n.id) }}" class="ibank-tree-delete-form js-ibank-tree-delete-form" data-confirm-msg="حذف هذا العنصر{% if n.is_folder %} وجميع محتوياته{% endif %}؟">
+              <form method="post" action="{{ url_for(tree_delete_endpoint, node_id=n.id, **tree_url_kwargs) }}" class="ibank-tree-delete-form js-ibank-tree-delete-form" data-confirm-msg="حذف هذا العنصر{% if n.is_folder %} وجميع محتوياته{% endif %}؟">
                 <button type="submit" class="btn btn-ghost btn-sm-compact" title="حذف"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
               </form>
               {% endif %}

@@ -8,6 +8,19 @@ import '../widgets/app_header.dart';
 import '../widgets/async_state_views.dart';
 import '../widgets/figma_ui.dart';
 
+const _flowCols = <({String label, int flex})>[
+  (label: 'ت', flex: 1),
+  (label: 'التوقيت الحقيقي', flex: 2),
+  (label: 'توقيت نظام كورا', flex: 2),
+  (label: 'من', flex: 1),
+  (label: 'إلى', flex: 1),
+  (label: 'أنظمة التبليغ', flex: 2),
+  (label: 'وصف المعضلة/الحدث', flex: 3),
+  (label: 'المكلف بالإجراء والمتابعة', flex: 2),
+  (label: 'رد الفعل المتوقع', flex: 2),
+  (label: 'الملاحظات', flex: 2),
+];
+
 class FlowScreen extends StatefulWidget {
   const FlowScreen({super.key});
 
@@ -110,23 +123,32 @@ class _FlowScreenState extends State<FlowScreen> {
                       ],
                     ),
                   ),
-                  const FigmaTableHeader(
-                    cells: [
-                      (label: 'ت', flex: 1),
-                      (label: 'الوقت', flex: 2),
-                      (label: 'وصف الحدث / المعضلة', flex: 5),
-                      (label: 'المكلف بالإجراء والمتابعة', flex: 2),
-                      (label: 'أسلوب فرض المعضلة', flex: 2),
-                      (label: 'رد الفعل المتوقع', flex: 3),
-                    ],
-                  ),
                   Expanded(
-                    child: data.rows.isEmpty
-                        ? const EmptyView(message: 'لا توجد أحداث لهذا اليوم')
-                        : ListView.builder(
-                            itemCount: data.rows.length,
-                            itemBuilder: (_, i) => _Row(row: data.rows[i]),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final tableW = constraints.maxWidth < 1180 ? 1180.0 : constraints.maxWidth;
+                        return SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: SizedBox(
+                            width: tableW,
+                            height: constraints.maxHeight,
+                            child: Column(
+                              children: [
+                                const _FlowHeader(),
+                                Expanded(
+                                  child: data.rows.isEmpty
+                                      ? const EmptyView(message: 'لا توجد أحداث لهذا اليوم')
+                                      : ListView.builder(
+                                          itemCount: data.rows.length,
+                                          itemBuilder: (_, i) => _Row(row: data.rows[i]),
+                                        ),
+                                ),
+                              ],
+                            ),
                           ),
+                        );
+                      },
+                    ),
                   ),
                 ],
               ),
@@ -134,6 +156,44 @@ class _FlowScreenState extends State<FlowScreen> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _FlowHeader extends StatelessWidget {
+  const _FlowHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: AppColors.tableHeader,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < _flowCols.length; i++) ...[
+              if (i > 0)
+                Container(width: 1.2, color: AppColors.white.withValues(alpha: 0.35)),
+              Expanded(
+                flex: _flowCols[i].flex,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                  child: Text(
+                    _flowCols[i].label,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    style: AppTextStyles.cairo(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -153,8 +213,8 @@ class _Row extends StatelessWidget {
     }
   }
 
-  static final _whiteCell = AppTextStyles.cairo(
-    fontSize: 15,
+  static final _cellStyle = AppTextStyles.cairo(
+    fontSize: 12,
     fontWeight: FontWeight.w600,
     color: AppColors.darkText,
   );
@@ -164,15 +224,11 @@ class _Row extends StatelessWidget {
       flex: flex,
       child: Container(
         alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
         decoration: const BoxDecoration(
           border: Border(left: BorderSide(color: AppColors.divider, width: 1)),
         ),
-        child: Text(
-          text,
-          textAlign: align,
-          style: _whiteCell,
-        ),
+        child: Text(text, textAlign: align, style: _cellStyle),
       ),
     );
   }
@@ -187,57 +243,27 @@ class _Row extends StatelessWidget {
       ),
       child: span
           ? Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 36,
-                    child: Text(
-                      '${row.seq}',
-                      textAlign: TextAlign.center,
-                      style: AppTextStyles.cairo(fontSize: 15, fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      row.text,
-                      textAlign: TextAlign.center,
-                      style: AppTextStyles.cairo(fontSize: 16, fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                ],
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              child: Text(
+                row.text,
+                textAlign: TextAlign.center,
+                style: AppTextStyles.cairo(fontSize: 14, fontWeight: FontWeight.w800),
               ),
             )
           : IntrinsicHeight(
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _cell('${row.seq}', flex: 1),
+                  _cell(row.seq > 0 ? '${row.seq}' : '', flex: 1),
                   _cell(row.time, flex: 2),
-                  Expanded(
-                    flex: 5,
-                    child: Container(
-                      alignment: Alignment.centerRight,
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                      decoration: const BoxDecoration(
-                        border: Border(left: BorderSide(color: AppColors.divider, width: 1)),
-                      ),
-                      child: Text(row.text, style: _whiteCell, textAlign: TextAlign.right),
-                    ),
-                  ),
+                  _cell(row.timeKora, flex: 2),
+                  _cell(row.timeFrom, flex: 1),
+                  _cell(row.timeTo, flex: 1),
+                  _cell(row.reportSystems, flex: 2),
+                  _cell(row.text, flex: 3, align: TextAlign.right),
                   _cell(row.assignee, flex: 2),
-                  _cell(row.method, flex: 2),
-                  Expanded(
-                    flex: 3,
-                    child: Container(
-                      alignment: Alignment.centerRight,
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                      decoration: const BoxDecoration(
-                        border: Border(left: BorderSide(color: AppColors.divider, width: 1)),
-                      ),
-                      child: Text(row.expected, style: _whiteCell, textAlign: TextAlign.right),
-                    ),
-                  ),
+                  _cell(row.reaction, flex: 2, align: TextAlign.right),
+                  _cell(row.notes, flex: 2, align: TextAlign.right),
                 ],
               ),
             ),
