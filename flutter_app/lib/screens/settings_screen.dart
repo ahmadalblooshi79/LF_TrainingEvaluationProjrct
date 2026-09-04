@@ -190,17 +190,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 12),
             ValueListenableBuilder<int>(
               valueListenable: SyncService.instance.pendingCount,
-              builder: (context, count, _) => Row(
+              builder: (context, count, _) => Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(
-                    child: Text(
-                      'عمليات بانتظار الرفع: $count',
-                      style: AppTextStyles.body,
-                    ),
+                  Text(
+                    'عمليات بانتظار الرفع: $count',
+                    style: AppTextStyles.body,
                   ),
-                  TextButton(
+                  const SizedBox(height: 10),
+                  ElevatedButton.icon(
                     onPressed: () => context.push('/sync-status'),
-                    child: const Text('إدارة المزامنة'),
+                    icon: const Icon(Icons.sync, size: 20),
+                    label: const Text('إدارة المزامنة'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.buttonBrown,
+                      foregroundColor: AppColors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
                   ),
                 ],
               ),

@@ -13,11 +13,13 @@ import 'library_pdf_view_stub.dart'
 class LibraryPdfScreen extends StatefulWidget {
   const LibraryPdfScreen({
     super.key,
-    required this.nodeId,
+    this.nodeId = 0,
+    this.flowDayId,
     required this.title,
   });
 
   final int nodeId;
+  final String? flowDayId;
   final String title;
 
   @override
@@ -42,8 +44,10 @@ class _LibraryPdfScreenState extends State<LibraryPdfScreen> {
       _bytes = null;
     });
     try {
-      final bytes =
-          await TabletRepository.instance.fetchLibraryPdf(widget.nodeId);
+      final dayId = (widget.flowDayId ?? '').trim();
+      final bytes = dayId.isNotEmpty
+          ? await TabletRepository.instance.fetchFlowDayPdf(dayId)
+          : await TabletRepository.instance.fetchLibraryPdf(widget.nodeId);
       if (!mounted) return;
       if (bytes.isEmpty) {
         setState(() {

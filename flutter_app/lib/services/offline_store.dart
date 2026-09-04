@@ -920,6 +920,21 @@ class OfflineStore {
     return dest;
   }
 
+  Future<void> deleteMediaRecord(String id) async {
+    if (id.isEmpty) return;
+    if (kIsWeb) {
+      final list = await mediaRecords();
+      list.removeWhere((m) => m.id == id);
+      await pwa_kv.pwaKvPut(
+        _mediaKey,
+        jsonEncode(list.map((m) => m.toRow()).toList()),
+      );
+      return;
+    }
+    final db = await _database;
+    await db.delete('media_files', where: 'id = ?', whereArgs: [id]);
+  }
+
   Future<void> upsertMedia(LocalMediaRecord rec) async {
     if (kIsWeb) {
       final list = await mediaRecords();

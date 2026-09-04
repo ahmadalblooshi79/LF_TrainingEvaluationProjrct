@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import '../widgets/app_header.dart';
 import '../widgets/async_state_views.dart';
 import '../widgets/figma_ui.dart';
+import 'library_pdf_screen.dart';
 
 const _flowCols = <({String label, int flex})>[
   (label: 'ت', flex: 1),
@@ -60,6 +61,25 @@ class _FlowScreenState extends State<FlowScreen> {
     }
   }
 
+  void _openDayPdf() {
+    final data = _data;
+    if (data == null) return;
+    final dayId = (_activeDay ?? data.activeDayId).trim();
+    if (dayId.isEmpty) return;
+    final label = data.days
+        .where((d) => d.id == dayId)
+        .map((d) => d.label)
+        .firstWhere((n) => n.isNotEmpty, orElse: () => dayId);
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => LibraryPdfScreen(
+          flowDayId: dayId,
+          title: 'PDF — $label',
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -89,13 +109,32 @@ class _FlowScreenState extends State<FlowScreen> {
       children: [
         if (_fromCache) const CachedDataBanner(),
         if (data.days.isNotEmpty)
-          FigmaDayChips(
-            labels: data.days.map((d) => (id: d.id, label: d.label)).toList(),
-            activeId: _activeDay ?? data.activeDayId,
-            onSelect: (id) {
-              setState(() => _activeDay = id);
-              _load(day: id);
-            },
+          Row(
+            children: [
+              Expanded(
+                child: FigmaDayChips(
+                  labels: data.days.map((d) => (id: d.id, label: d.label)).toList(),
+                  activeId: _activeDay ?? data.activeDayId,
+                  onSelect: (id) {
+                    setState(() => _activeDay = id);
+                    _load(day: id);
+                  },
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 10, 12, 6),
+                child: ElevatedButton.icon(
+                  onPressed: _openDayPdf,
+                  icon: const Icon(Icons.picture_as_pdf, size: 18),
+                  label: const Text('PDF'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.buttonBrown,
+                    foregroundColor: AppColors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                ),
+              ),
+            ],
           ),
         Expanded(
           child: Padding(

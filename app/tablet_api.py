@@ -28,7 +28,7 @@ _TABLET_MAIN_MENU = [
     {"id": "flow", "title": "مجرى الأحداث والمعاضل", "route": "/flow"},
     {
         "id": "action_eval",
-        "title": "قوائم تقييم الإجراءات",
+        "title": "قوائم تقييم المعاضل",
         "route": "/action-eval",
     },
     {
@@ -618,6 +618,41 @@ def tablet_flow(user: User):
             "readonly": True,
         }
     )
+
+
+@bp.get("/flow/days/<day_id>/file")
+@_require_judge_json
+def tablet_flow_day_pdf(user: User, day_id: str):
+    """PDF يوم المجرى — يُولَّد/يُقرأ من القرص دون تعديل جدول المجرى."""
+    from flask import send_file
+
+    from app.views import (
+        _ensure_exercise_day_pdf_file,
+        _exercise_flow_bundle_with_content,
+        _judge_assigned_planner_bundle,
+        _mimetype_info_bank_event_flow,
+        _safe_planner_flow_day_id,
+    )
+
+    safe = _safe_planner_flow_day_id(day_id)
+    if not safe:
+        return _json_error("اليوم غير صالح", 400)
+    ex = _exercise_for(user)
+    if ex is None:
+        return _json_error("لا يوجد تمرين نشط", 404)
+    bundle = _judge_assigned_planner_bundle(g.db, user, ex)
+    if bundle is None:
+        bundle = _exercise_flow_bundle_with_content(g.db, ex.id)
+    if bundle is None:
+        return _json_error("لا يوجد مجرى أحداث", 404)
+    path = _ensure_exercise_day_pdf_file(g.db, bundle, safe)
+    if path is None:
+        return _json_error("لا يوجد ملف PDF لهذا اليوم", 404)
+    try:
+        mt = _mimetype_info_bank_event_flow(path)
+    except Exception:
+        mt = "application/pdf"
+    return send_file(path, mimetype=mt, as_attachment=False, download_name=path.name)
 
 
 @bp.get("/action-eval")

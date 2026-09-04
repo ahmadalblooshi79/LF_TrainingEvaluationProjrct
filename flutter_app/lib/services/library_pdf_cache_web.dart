@@ -76,6 +76,7 @@ Future<void> pruneLibraryPdfsExcept(Set<int> keepIds) async {
   await for (final c in cursor) {
     final key = c.key;
     final id = key is int ? key : int.tryParse('$key');
+    if (key is String && key.startsWith('flow:')) continue;
     if (id == null || !keepIds.contains(id)) {
       c.delete();
     }
@@ -88,4 +89,60 @@ Future<void> clearLibraryPdfs() async {
   final tx = db.transaction(_storeName, 'readwrite');
   tx.objectStore(_storeName).clear();
   await tx.completed;
+}
+
+String _namedKey(String name) {
+  final s = name.trim();
+  return s.isEmpty ? '' : 'flow:$s';
+}
+
+Future<void> putNamedPdf(String name, List<int> bytes) async {
+  final key = _namedKey(name);
+  if (key.isEmpty || bytes.isEmpty) return;
+  final db = await _openDb();
+  final tx = db.transaction(_storeName, 'readwrite');
+  final store = tx.objectStore(_storeName);
+  store.put(html.Blob([Uint8List.fromList(bytes)], 'application/pdf'), key);
+  await tx.completed;
+}
+
+Future<List<int>?> getNamedPdf(String name) async {
+  final key = _namedKey(name);
+  if (key.isEmpty) return null;
+  final db = await _openDb();
+  final tx = db.transaction(_storeName, 'readonly');
+  final result = await tx.objectStore(_storeName).getObject(key);
+  await tx.completed;
+  if (result == null) return null;
+  if (result is Uint8List) return result.isEmpty ? null : result;
+  if (result is ByteBuffer) {
+    final u = result.asUint8List();
+    return u.isEmpty ? null : u;
+  }
+  if (result is html.Blob) {
+    final reader = html.FileReader();
+    reader.readAsArrayBuffer(result);
+    await reader.onLoad.first;
+    final buf = reader.result;
+    if (buf is ByteBuffer) {
+      final u = buf.asUint8List();
+      return u.isEmpty ? null : u;
+    }
+    if (buf is Uint8List) return buf.isEmpty ? null : buf;
+  }
+  if (result is List) {
+    final u = List<int>.from(result);
+    return u.isEmpty ? null : u;
+  }
+  return null;
+}
+
+Future<bool> hasNamedPdf(String name) async {
+  final key = _namedKey(name);
+  if (key.isEmpty) return false;
+  final db = await _openDb();
+  final tx = db.transaction(_storeName, 'readonly');
+  final result = await tx.objectStore(_storeName).getObject(key);
+  await tx.completed;
+  return result != null;
 }

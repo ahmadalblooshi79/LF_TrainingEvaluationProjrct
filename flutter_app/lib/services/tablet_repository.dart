@@ -173,6 +173,9 @@ class TabletRepository {
             query: {'day': d},
           );
         } catch (_) {}
+        try {
+          await fetchFlowDayPdf(d);
+        } catch (_) {}
       }
     } catch (_) {}
     try {
@@ -453,6 +456,31 @@ class TabletRepository {
     }
     throw ApiOfflineException(
       'الملف غير متوفر محلياً — نفّذ «تحديث بياناتي» أثناء الاتصال بالنظام',
+    );
+  }
+
+  /// PDF يوم المجرى من المخزون المحلي أولاً، ثم التنزيل إن وُجد اتصال.
+  Future<List<int>> fetchFlowDayPdf(String dayId) async {
+    final id = dayId.trim();
+    if (id.isEmpty) {
+      throw ApiException('اليوم غير صالح');
+    }
+    final cached = await LibraryPdfCache.getNamed(id);
+    if (cached != null && cached.isNotEmpty) return cached;
+
+    final reachable = await HealthService.instance.check();
+    if (reachable) {
+      final bytes = await ApiClient.instance.getBytes(
+        '/api/tablet/flow/days/$id/file',
+        timeout: const Duration(seconds: 120),
+      );
+      if (bytes.isNotEmpty) {
+        await LibraryPdfCache.putNamed(id, bytes);
+        return bytes;
+      }
+    }
+    throw ApiOfflineException(
+      'ملف PDF غير متوفر محلياً — نفّذ «تحديث بياناتي» أثناء الاتصال بالنظام',
     );
   }
 
@@ -748,6 +776,7 @@ class TabletRepository {
     required int rowIndex,
     required String mediaKind,
     required String sheetCacheKey,
+    String? docSlot,
     int? evaluationListItemId,
     int? bundleActionEvalId,
   }) async {
@@ -808,6 +837,7 @@ class TabletRepository {
         'id': id,
         'row_index': rowIndex,
         'media_kind': mediaKind,
+        'doc_slot': docSlot ?? '',
         'local_path': localPath,
         'sync_status': MediaSyncStatuses.pending,
         'file_size': size,
@@ -839,6 +869,102 @@ class TabletRepository {
       mediaLocalPath: localPath,
     );
     return localPath;
+  }
+
+  /// يربط الوسائط المحلية المحفوظة بصفوف الورقة بعد إعادة فتحها.
+  Future<void> overlayLocalMediaOnRows({
+    required String sheetCacheKey,
+    required List<EvalRowInput> rows,
+  }) async {
+    final keys = <String>{sheetCacheKey, _scoped(sheetCacheKey)};
+    final seen = <String>{};
+
+    Future<void> applyList(List<dynamic> media) async {
+      for (final raw in media) {
+        if (raw is! Map) continue;
+        final path = (raw['local_path'] ?? '').toString();
+        final idx = int.tryParse('${raw['row_index']}') ?? -1;
+        if (path.isEmpty || idx < 0 || idx >= rows.length) continue;
+        if (!seen.add('$idx|$path')) continue;
+        var slot = (raw['doc_slot'] ?? '').toString().trim();
+        if (slot.isEmpty) {
+          slot = docSlotFromMediaKind((raw['media_kind'] ?? 'photo').toString());
+        }
+        rows[idx].addMedia(slot, path);
+      }
+    }
+
+    for (final key in keys) {
+      final cached = await OfflineStore.instance.cacheGet(key);
+      if (cached == null || cached['local_media'] is! List) continue;
+      await applyList(cached['local_media'] as List);
+    }
+
+    try {
+      final recs = await OfflineStore.instance.mediaRecords();
+      for (final rec in recs) {
+        final sk = rec.sheetCacheKey ?? '';
+        if (sk.isEmpty || !keys.contains(sk)) continue;
+        if (rec.localPath.isEmpty) continue;
+        final idx = rec.rowIndex;
+        if (idx < 0 || idx >= rows.length) continue;
+        if (!seen.add('$idx|${rec.localPath}')) continue;
+        rows[idx].addMedia(docSlotFromMediaKind(rec.mediaKind), rec.localPath);
+      }
+    } catch (_) {}
+  }
+
+  /// حذف آخر توثيق محلي للبند (الملف + الطابور + كاش الورقة).
+  Future<void> removeLastCriterionMedia({
+    required String sheetCacheKey,
+    required int rowIndex,
+    required String localPath,
+  }) async {
+    if (localPath.isEmpty) return;
+    final all = await OfflineStore.instance.mediaRecords();
+    LocalMediaRecord? rec;
+    for (final m in all) {
+      if (m.localPath == localPath) {
+        rec = m;
+        break;
+      }
+    }
+    if (rec != null) {
+      try {
+        await OfflineStore.instance.removeOp(rec.id);
+      } catch (_) {}
+      try {
+        await OfflineStore.instance.deleteMediaRecord(rec.id);
+      } catch (_) {}
+    }
+    try {
+      await File(localPath).delete();
+    } catch (_) {}
+
+    Future<void> stripCache(String key) async {
+      final cached = await OfflineStore.instance.cacheGet(key);
+      if (cached == null) return;
+      final media = (cached['local_media'] is List)
+          ? List<Map<String, dynamic>>.from(
+              (cached['local_media'] as List).whereType<Map>().map(
+                    (e) => Map<String, dynamic>.from(e),
+                  ),
+            )
+          : <Map<String, dynamic>>[];
+      media.removeWhere((e) => (e['local_path'] ?? '').toString() == localPath);
+      cached['local_media'] = media;
+      await OfflineStore.instance.cacheSet(
+        key,
+        cached,
+        syncStatus: SyncStatuses.pending,
+      );
+    }
+
+    await stripCache(sheetCacheKey);
+    final scoped = _scoped(sheetCacheKey);
+    if (scoped != sheetCacheKey) {
+      await stripCache(scoped);
+    }
   }
 
   Future<Fetched<ObjectivesData>> fetchObjectives() async {

@@ -1,0 +1,25 @@
+{
+"upload_session_id": "17312d2e1b224dc2bd73059327f58ac6",
+"client_uuid": "media-1788415407833912-1",
+"user_id": 209,
+"exercise_id": 1,
+"unit_level_key": "ul_mortar",
+"evaluation_list_item_id": 67,
+"bundle_action_eval_id": null,
+"row_index": 2,
+"media_kind": "photo",
+"mime_type": "image/jpeg",
+"file_size": 1729806,
+"checksum": "d335ce4b06d7d27f15da7c1caafbf9628aad58dfffc28fbfa65f61e56dbe6391",
+"original_filename": "a6cbb1e3-628a-4ba0-aac5-b032e63e02d12599815341915106900.jpg",
+"chunk_size": 10485760,
+"total_chunks": 1,
+"received_chunks": [
+0
+],
+"status": "completed",
+"created_at": "2026-09-03T06:06:24.611009Z",
+"updated_at": "2026-09-03T06:06:25.759178Z",
+"server_media_id": 3,
+"final_checksum": "d335ce4b06d7d27f15da7c1caafbf9628aad58dfffc28fbfa65f61e56dbe6391"
+}

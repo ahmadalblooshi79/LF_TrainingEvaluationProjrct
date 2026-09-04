@@ -1,0 +1,25 @@
+{
+"upload_session_id": "1f67262a7956481f9c4a6af92276e56c",
+"client_uuid": "media-1788415438480374-2",
+"user_id": 209,
+"exercise_id": 1,
+"unit_level_key": "ul_mortar",
+"evaluation_list_item_id": 67,
+"bundle_action_eval_id": null,
+"row_index": 2,
+"media_kind": "video",
+"mime_type": "video/mp4",
+"file_size": 5726899,
+"checksum": "0df46281662b9136b8d8d33215077c796fd386e1e31884697502cf0b25cb57da",
+"original_filename": "0a025612-ca6c-415a-8602-b35a6c92db726847043681532038752.mp4",
+"chunk_size": 10485760,
+"total_chunks": 1,
+"received_chunks": [
+0
+],
+"status": "completed",
+"created_at": "2026-09-03T06:06:26.006441Z",
+"updated_at": "2026-09-03T06:06:28.551962Z",
+"server_media_id": 4,
+"final_checksum": "0df46281662b9136b8d8d33215077c796fd386e1e31884697502cf0b25cb57da"
+}

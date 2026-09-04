@@ -10,6 +10,7 @@ import '../theme/grade_style.dart';
 import '../widgets/app_header.dart';
 import '../widgets/async_state_views.dart';
 import '../widgets/sticky_eval_scaffold.dart';
+import 'media_preview_screen.dart';
 
 enum EvalSheetMode { actionEval, evaluationList }
 
@@ -74,6 +75,13 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
           ? await TabletRepository.instance.fetchActionEvalDetail(widget.slot!)
           : await TabletRepository.instance.fetchEvaluationListDetail(widget.unitKey!, widget.itemId!);
       final rows = _rowsFromDetail(result.data);
+      final sheetKey = widget.mode == EvalSheetMode.actionEval
+          ? 'action_eval_detail:${widget.slot}'
+          : 'evaluation_list_detail:${widget.unitKey}:${widget.itemId}';
+      await TabletRepository.instance.overlayLocalMediaOnRows(
+        sheetCacheKey: sheetKey,
+        rows: rows,
+      );
       if (!mounted) return;
       setState(() {
         _detail = result.data;
@@ -218,11 +226,16 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
       final sheetKey = widget.mode == EvalSheetMode.actionEval
           ? 'action_eval_detail:${widget.slot}'
           : 'evaluation_list_detail:${widget.unitKey}:${widget.itemId}';
+      final slot = docSlotFor(
+        video: video,
+        fromGallery: source == ImageSource.gallery,
+      );
       final localPath = await TabletRepository.instance.queueCriterionMedia(
         sourcePath: file.path,
         rowIndex: index,
         mediaKind: video ? 'video' : 'photo',
         sheetCacheKey: sheetKey,
+        docSlot: slot,
         evaluationListItemId:
             widget.mode == EvalSheetMode.evaluationList ? detail.itemId : null,
         bundleActionEvalId:
@@ -230,8 +243,8 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
       );
       if (!mounted) return;
       setState(() {
-        _rows[index].localMediaPaths.add(localPath);
-        _hint = 'حُفظت الوسائط محلياً — ستُرفع عند Sync My Work';
+        _rows[index].addMedia(slot, localPath);
+        _hint = 'حُفظت الوسائط محلياً — ستُرفع عند رفع أعمالي';
       });
     } catch (e) {
       if (!mounted) return;
@@ -239,6 +252,47 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
         SnackBar(content: Text('$e')),
       );
     }
+  }
+
+  Future<void> _removeDoc(int index, String slot) async {
+    if (index < 0 || index >= _rows.length) return;
+    final path = _rows[index].lastMediaInSlot(slot);
+    if (path == null || path.isEmpty) return;
+    final sheetKey = widget.mode == EvalSheetMode.actionEval
+        ? 'action_eval_detail:${widget.slot}'
+        : 'evaluation_list_detail:${widget.unitKey}:${widget.itemId}';
+    try {
+      await TabletRepository.instance.removeLastCriterionMedia(
+        sheetCacheKey: sheetKey,
+        rowIndex: index,
+        localPath: path,
+      );
+      if (!mounted) return;
+      setState(() {
+        _rows[index].removeMediaPath(path);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e')),
+      );
+    }
+  }
+
+  void _previewDoc(int index, String slot) {
+    if (index < 0 || index >= _rows.length) return;
+    final path = _rows[index].lastMediaInSlot(slot);
+    if (path == null || path.isEmpty) return;
+    final isVideo = slot == kDocSlotCameraVideo || slot == kDocSlotGalleryVideo;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => MediaPreviewScreen(
+          path: path,
+          isVideo: isVideo,
+          title: isVideo ? 'معاينة الفيديو' : 'معاينة الصورة',
+        ),
+      ),
+    );
   }
 
   Future<void> _save() async {
@@ -377,7 +431,7 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final pageTitle = widget.mode == EvalSheetMode.actionEval ? 'قوائم تقييم الإجراءات' : 'قوائم التقييم';
+    final pageTitle = widget.mode == EvalSheetMode.actionEval ? 'قوائم تقييم المعاضل' : 'قوائم التقييم';
     final sheetTitle =
         _detail?.title.isNotEmpty == true ? _detail!.title : (widget.fallbackTitle ?? 'ورقة التقييم');
 
@@ -506,6 +560,10 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
                           video: video,
                           source: ImageSource.gallery,
                         ),
+                        onRemoveDoc: detail.canEdit
+                            ? (slot) => _removeDoc(index, slot)
+                            : null,
+                        onPreviewDoc: (slot) => _previewDoc(index, slot),
                       );
                     },
                   ),
@@ -535,7 +593,7 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
 class _EvalSheetCol {
   static const double index = 42;
   static const double metric = 78;
-  static const double docs = 52;
+  static const double docs = 118;
   static const Color cardBorder = Color(0xFFD5CFC0);
   static const Color notesFill = Color(0xFFEFECE4);
   static const Color indexTint = Color(0xFFF7F2E6);
@@ -633,6 +691,8 @@ class _CriterionRow extends StatefulWidget {
     required this.onNotesChanged,
     required this.onCapture,
     this.onPickGallery,
+    this.onRemoveDoc,
+    this.onPreviewDoc,
     this.phoneLayout = false,
   });
 
@@ -646,6 +706,8 @@ class _CriterionRow extends StatefulWidget {
   final ValueChanged<String> onNotesChanged;
   final ValueChanged<bool> onCapture;
   final ValueChanged<bool>? onPickGallery;
+  final ValueChanged<String>? onRemoveDoc;
+  final ValueChanged<String>? onPreviewDoc;
   final bool phoneLayout;
 
   @override
@@ -816,32 +878,13 @@ class _CriterionRowState extends State<_CriterionRow> {
                   ),
                 ),
               ),
-              Column(
-                children: [
-                  _DocBtn(
-                    icon: Icons.camera_alt_outlined,
-                    enabled: widget.canEdit,
-                    onTap: () => widget.onCapture(false),
-                  ),
-                  const SizedBox(height: 4),
-                  _DocBtn(
-                    icon: Icons.photo_library_outlined,
-                    enabled: widget.canEdit && widget.onPickGallery != null,
-                    onTap: () => widget.onPickGallery?.call(false),
-                  ),
-                  const SizedBox(height: 4),
-                  _DocBtn(
-                    icon: Icons.videocam_outlined,
-                    enabled: widget.canEdit,
-                    onTap: () => widget.onCapture(true),
-                  ),
-                  const SizedBox(height: 4),
-                  _DocBtn(
-                    icon: Icons.video_library_outlined,
-                    enabled: widget.canEdit && widget.onPickGallery != null,
-                    onTap: () => widget.onPickGallery?.call(true),
-                  ),
-                ],
+              _DocActionsColumn(
+                input: widget.input,
+                canEdit: widget.canEdit,
+                onCapture: widget.onCapture,
+                onPickGallery: widget.onPickGallery,
+                onRemoveDoc: widget.onRemoveDoc,
+                onPreviewDoc: widget.onPreviewDoc,
               ),
             ],
           ),
@@ -1195,49 +1238,106 @@ class _CriterionRowState extends State<_CriterionRow> {
                   right: BorderSide(color: _EvalSheetCol.cardBorder),
                 ),
               ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _DocBtn(
-                    icon: Icons.camera_alt_outlined,
-                    enabled: widget.canEdit,
-                    onTap: () => widget.onCapture(false),
-                  ),
-                  const SizedBox(height: 4),
-                  _DocBtn(
-                    icon: Icons.photo_library_outlined,
-                    enabled: widget.canEdit && widget.onPickGallery != null,
-                    onTap: () => widget.onPickGallery?.call(false),
-                  ),
-                  const SizedBox(height: 4),
-                  _DocBtn(
-                    icon: Icons.videocam_outlined,
-                    enabled: widget.canEdit,
-                    onTap: () => widget.onCapture(true),
-                  ),
-                  const SizedBox(height: 4),
-                  _DocBtn(
-                    icon: Icons.video_library_outlined,
-                    enabled: widget.canEdit && widget.onPickGallery != null,
-                    onTap: () => widget.onPickGallery?.call(true),
-                  ),
-                  if (widget.input.localMediaPaths.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      '${widget.input.localMediaPaths.length}',
-                      style: AppTextStyles.cairo(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.goldDark,
-                      ),
-                    ),
-                  ],
-                ],
+              child: _DocActionsColumn(
+                input: widget.input,
+                canEdit: widget.canEdit,
+                onCapture: widget.onCapture,
+                onPickGallery: widget.onPickGallery,
+                onRemoveDoc: widget.onRemoveDoc,
+                onPreviewDoc: widget.onPreviewDoc,
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _DocActionsColumn extends StatelessWidget {
+  const _DocActionsColumn({
+    required this.input,
+    required this.canEdit,
+    required this.onCapture,
+    this.onPickGallery,
+    this.onRemoveDoc,
+    this.onPreviewDoc,
+  });
+
+  final EvalRowInput input;
+  final bool canEdit;
+  final ValueChanged<bool> onCapture;
+  final ValueChanged<bool>? onPickGallery;
+  final ValueChanged<String>? onRemoveDoc;
+  final ValueChanged<String>? onPreviewDoc;
+
+  Widget _row({
+    required IconData icon,
+    required String slot,
+    required VoidCallback onAdd,
+    required bool addEnabled,
+  }) {
+    final has = input.hasMediaInSlot(slot);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _DocBtn(
+            icon: icon,
+            enabled: addEnabled,
+            onTap: onAdd,
+          ),
+          if (has) ...[
+            const SizedBox(width: 4),
+            _DocBtn(
+              icon: Icons.visibility_outlined,
+              enabled: true,
+              onTap: () => onPreviewDoc?.call(slot),
+            ),
+            const SizedBox(width: 4),
+            _DocBtn(
+              icon: Icons.close,
+              enabled: canEdit && onRemoveDoc != null,
+              onTap: () => onRemoveDoc?.call(slot),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _row(
+          icon: Icons.camera_alt_outlined,
+          slot: kDocSlotCameraPhoto,
+          addEnabled: canEdit,
+          onAdd: () => onCapture(false),
+        ),
+        _row(
+          icon: Icons.photo_library_outlined,
+          slot: kDocSlotGalleryPhoto,
+          addEnabled: canEdit && onPickGallery != null,
+          onAdd: () => onPickGallery?.call(false),
+        ),
+        _row(
+          icon: Icons.videocam_outlined,
+          slot: kDocSlotCameraVideo,
+          addEnabled: canEdit,
+          onAdd: () => onCapture(true),
+        ),
+        _row(
+          icon: Icons.video_library_outlined,
+          slot: kDocSlotGalleryVideo,
+          addEnabled: canEdit && onPickGallery != null,
+          onAdd: () => onPickGallery?.call(true),
+        ),
+      ],
     );
   }
 }

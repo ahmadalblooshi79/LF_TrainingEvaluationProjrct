@@ -6,9 +6,14 @@ class MenuItem {
   const MenuItem({required this.id, required this.title, required this.route});
 
   factory MenuItem.fromJson(Map<String, dynamic> json) {
+    final id = (json['id'] ?? '').toString();
+    var title = (json['title'] ?? '').toString();
+    if (id == 'action_eval') {
+      title = 'قوائم تقييم المعاضل';
+    }
     return MenuItem(
-      id: (json['id'] ?? '').toString(),
-      title: (json['title'] ?? '').toString(),
+      id: id,
+      title: title,
       route: (json['route'] ?? '').toString(),
     );
   }

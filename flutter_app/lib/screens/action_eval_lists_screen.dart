@@ -55,7 +55,7 @@ class _ActionEvalListsScreenState extends State<ActionEvalListsScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppHeader(
-        pageTitle: 'قوائم تقييم الإجراءات',
+        pageTitle: 'قوائم تقييم المعاضل',
         onBack: () => Navigator.of(context).maybePop(),
         showOnlineChip: false,
       ),
@@ -110,7 +110,7 @@ class _ActionEvalListsScreenState extends State<ActionEvalListsScreen> {
                   ),
                   Expanded(
                     child: data.lists.isEmpty
-                        ? const EmptyView(message: 'لا توجد قوائم تقييم إجراءات لهذا اليوم')
+                        ? const EmptyView(message: 'لا توجد قوائم تقييم معاضل لهذا اليوم')
                         : ListView.builder(
                             itemCount: data.lists.length,
                             itemBuilder: (_, i) => _Row(index: i + 1, row: data.lists[i]),

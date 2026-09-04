@@ -307,7 +307,7 @@ class _SyncStatusScreenState extends State<SyncStatusScreen> {
                           ElevatedButton.icon(
                             onPressed: _busy ? null : _updateMyData,
                             icon: const Icon(Icons.cloud_download, size: 18),
-                            label: const Text('Update My Data'),
+                            label: const Text('تحديث بياناتي'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.buttonBrown,
                               foregroundColor: AppColors.white,
@@ -317,7 +317,7 @@ class _SyncStatusScreenState extends State<SyncStatusScreen> {
                           ElevatedButton.icon(
                             onPressed: _busy ? null : _syncMyWork,
                             icon: const Icon(Icons.cloud_upload, size: 18),
-                            label: const Text('Sync My Work'),
+                            label: const Text('رفع أعمالي'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.olive,
                               foregroundColor: AppColors.white,
@@ -327,7 +327,7 @@ class _SyncStatusScreenState extends State<SyncStatusScreen> {
                           OutlinedButton.icon(
                             onPressed: _busy ? null : _syncAll,
                             icon: const Icon(Icons.sync, size: 18),
-                            label: const Text('Sync All My Data'),
+                            label: const Text('تحديث ورفع جميع الاعمال'),
                           ),
                           const SizedBox(height: 8),
                           Row(

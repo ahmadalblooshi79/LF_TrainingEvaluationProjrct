@@ -56,4 +56,52 @@ Future<void> clearLibraryPdfs() async {
       await d.delete(recursive: true);
     } catch (_) {}
   }
+  final named = await _namedDir();
+  if (await named.exists()) {
+    try {
+      await named.delete(recursive: true);
+    } catch (_) {}
+  }
+}
+
+String _safeNamedKey(String name) {
+  final s = name.trim();
+  if (s.isEmpty) return '';
+  return s.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+}
+
+Future<Directory> _namedDir() async {
+  final root = await getApplicationDocumentsDirectory();
+  final d = Directory(p.join(root.path, 'flow_day_pdfs'));
+  if (!await d.exists()) {
+    await d.create(recursive: true);
+  }
+  return d;
+}
+
+Future<File?> _namedFile(String name) async {
+  final key = _safeNamedKey(name);
+  if (key.isEmpty) return null;
+  final d = await _namedDir();
+  return File(p.join(d.path, '$key.pdf'));
+}
+
+Future<void> putNamedPdf(String name, List<int> bytes) async {
+  if (bytes.isEmpty) return;
+  final f = await _namedFile(name);
+  if (f == null) return;
+  await f.writeAsBytes(bytes, flush: true);
+}
+
+Future<List<int>?> getNamedPdf(String name) async {
+  final f = await _namedFile(name);
+  if (f == null || !await f.exists()) return null;
+  final b = await f.readAsBytes();
+  return b.isEmpty ? null : b;
+}
+
+Future<bool> hasNamedPdf(String name) async {
+  final f = await _namedFile(name);
+  if (f == null) return false;
+  return f.exists();
 }

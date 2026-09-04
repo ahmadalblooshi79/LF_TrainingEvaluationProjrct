@@ -69,6 +69,22 @@ class AcquiredOption {
   }
 }
 
+const kDocSlotCameraPhoto = 'camera_photo';
+const kDocSlotGalleryPhoto = 'gallery_photo';
+const kDocSlotCameraVideo = 'camera_video';
+const kDocSlotGalleryVideo = 'gallery_video';
+
+String docSlotFor({required bool video, required bool fromGallery}) {
+  if (video) {
+    return fromGallery ? kDocSlotGalleryVideo : kDocSlotCameraVideo;
+  }
+  return fromGallery ? kDocSlotGalleryPhoto : kDocSlotCameraPhoto;
+}
+
+String docSlotFromMediaKind(String mediaKind) {
+  return mediaKind == 'video' ? kDocSlotCameraVideo : kDocSlotCameraPhoto;
+}
+
 /// A single editable row kept in memory while the judge fills the sheet.
 class EvalRowInput {
   String rowKind;
@@ -77,6 +93,7 @@ class EvalRowInput {
   String acquired;
   String notes;
   final List<String> localMediaPaths;
+  final Map<String, List<String>> mediaBySlot;
 
   EvalRowInput({
     required this.rowKind,
@@ -85,7 +102,30 @@ class EvalRowInput {
     required this.acquired,
     required this.notes,
     List<String>? localMediaPaths,
-  }) : localMediaPaths = localMediaPaths ?? [];
+    Map<String, List<String>>? mediaBySlot,
+  })  : localMediaPaths = localMediaPaths ?? [],
+        mediaBySlot = mediaBySlot ?? {};
+
+  void addMedia(String slot, String path) {
+    if (path.isEmpty) return;
+    localMediaPaths.add(path);
+    mediaBySlot.putIfAbsent(slot, () => []).add(path);
+  }
+
+  String? lastMediaInSlot(String slot) {
+    final list = mediaBySlot[slot];
+    if (list == null || list.isEmpty) return null;
+    return list.last;
+  }
+
+  bool hasMediaInSlot(String slot) => lastMediaInSlot(slot) != null;
+
+  void removeMediaPath(String path) {
+    localMediaPaths.remove(path);
+    for (final list in mediaBySlot.values) {
+      list.remove(path);
+    }
+  }
 
   factory EvalRowInput.fromEvalRow(EvalRow row) {
     return EvalRowInput(

@@ -1,0 +1,25 @@
+{
+"upload_session_id": "4bf5dbd226be4fcba21696326fdf09d2",
+"client_uuid": "media-1788415409669604-1",
+"user_id": 203,
+"exercise_id": 1,
+"unit_level_key": "ul_arty_bn_cmd",
+"evaluation_list_item_id": 4,
+"bundle_action_eval_id": null,
+"row_index": 2,
+"media_kind": "photo",
+"mime_type": "image/jpeg",
+"file_size": 2278338,
+"checksum": "9635eb957219d88261a11bb7a1442259bd79cd996c03c4c8ca02df6907e1c911",
+"original_filename": "c25aad9f-6c09-4370-9aa4-4ecddd1888a28330191077231692027.jpg",
+"chunk_size": 10485760,
+"total_chunks": 1,
+"received_chunks": [
+0
+],
+"status": "completed",
+"created_at": "2026-09-03T06:07:42.650821Z",
+"updated_at": "2026-09-03T06:07:43.411081Z",
+"server_media_id": 7,
+"final_checksum": "9635eb957219d88261a11bb7a1442259bd79cd996c03c4c8ca02df6907e1c911"
+}

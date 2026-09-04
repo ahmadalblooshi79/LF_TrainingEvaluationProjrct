@@ -15,4 +15,11 @@ class LibraryPdfCache {
       backend.pruneLibraryPdfsExcept(keepIds);
 
   static Future<void> clearAll() => backend.clearLibraryPdfs();
+
+  static Future<void> putNamed(String name, List<int> bytes) =>
+      backend.putNamedPdf(name, bytes);
+
+  static Future<List<int>?> getNamed(String name) => backend.getNamedPdf(name);
+
+  static Future<bool> hasNamed(String name) => backend.hasNamedPdf(name);
 }

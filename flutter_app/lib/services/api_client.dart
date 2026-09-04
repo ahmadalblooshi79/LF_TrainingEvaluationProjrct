@@ -71,7 +71,11 @@ class ApiClient {
 
   Future<void> setBaseUrl(String url) async {
     await init();
-    _baseUrl = _normalizeBaseUrl(url);
+    final next = _normalizeBaseUrl(url);
+    // لا تمسح عنوان السيرفر المحفوظ عند تحديث التطبيق أو تمرير قيمة فارغة
+    if (next.isEmpty && _baseUrl.isNotEmpty) return;
+    _baseUrl = next;
+    if (_baseUrl.isEmpty) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(kServerBaseUrlPrefKey, _baseUrl);
   }
