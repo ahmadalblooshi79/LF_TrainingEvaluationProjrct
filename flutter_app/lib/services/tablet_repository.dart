@@ -45,19 +45,33 @@ class TabletRepository {
     return OfflineStore.userKey(uid, cacheKey);
   }
 
+  bool _isJudgePrivateKey(String cacheKey) {
+    return cacheKey.startsWith('action_eval_detail:') ||
+        cacheKey.startsWith('evaluation_list_detail:') ||
+        cacheKey.startsWith('action_eval_lists');
+  }
+
   Future<Map<String, dynamic>?> _cacheGetScoped(String cacheKey) async {
     final scoped = _scoped(cacheKey);
     final a = await OfflineStore.instance.cacheGet(scoped);
     if (a != null) return a;
     // لا تقرأ كاشاً غير معزول لتفاصيل القوائم — يخلط بيانات محكّمين مختلفين
-    if (cacheKey.startsWith('action_eval_detail:') ||
-        cacheKey.startsWith('evaluation_list_detail:') ||
-        cacheKey.startsWith('action_eval_lists')) {
+    if (_isJudgePrivateKey(cacheKey)) {
       return null;
     }
     if (scoped != cacheKey) {
-      return OfflineStore.instance.cacheGet(cacheKey);
+      final b = await OfflineStore.instance.cacheGet(cacheKey);
+      if (b != null) return b;
     }
+    try {
+      final hits = await OfflineStore.instance.cacheKeysLike(cacheKey);
+      for (final k in hits) {
+        if (k == cacheKey || k.endsWith(':$cacheKey')) {
+          final v = await OfflineStore.instance.cacheGet(k);
+          if (v != null) return v;
+        }
+      }
+    } catch (_) {}
     return null;
   }
 
@@ -65,12 +79,20 @@ class TabletRepository {
     String cacheKey,
     Map<String, dynamic> data, {
     String syncStatus = SyncStatuses.synced,
-  }) {
-    return OfflineStore.instance.cacheSet(
+  }) async {
+    await OfflineStore.instance.cacheSet(
       _scoped(cacheKey),
       data,
       syncStatus: syncStatus,
     );
+    // نسخة دائمة غير معزولة لشاشات القراءة — تبقى بعد إعادة الفتح حتى لو تغيّر سياق المستخدم لحظياً
+    if (!_isJudgePrivateKey(cacheKey) && _scoped(cacheKey) != cacheKey) {
+      await OfflineStore.instance.cacheSet(
+        cacheKey,
+        data,
+        syncStatus: syncStatus,
+      );
+    }
   }
 
   String _evalListsCacheKey({String? unitKey, String? phase}) =>
@@ -88,16 +110,36 @@ class TabletRepository {
       _evalListsCacheKey(unitKey: '', phase: phase),
       _evalListsCacheKey(unitKey: '', phase: ''),
     ];
-    for (final k in candidates) {
-      final local = await _cacheGetScoped(k);
-      if (local == null) continue;
+    Future<Map<String, dynamic>?> accept(Map<String, dynamic> local) async {
       final wantPhase = (phase ?? '').trim();
       if (wantPhase.isNotEmpty) {
         final cachedPhase = (local['phase_key'] ?? '').toString().trim();
-        if (cachedPhase.isNotEmpty && cachedPhase != wantPhase) continue;
+        if (cachedPhase.isNotEmpty && cachedPhase != wantPhase) return null;
       }
       return local;
     }
+
+    for (final k in candidates) {
+      final local = await _cacheGetScoped(k);
+      if (local == null) continue;
+      final ok = await accept(local);
+      if (ok != null) return ok;
+    }
+
+    try {
+      final uid = AuthService.instance.currentUserId;
+      final pattern =
+          uid != null ? 'u$uid:evaluation_lists' : 'evaluation_lists';
+      Map<String, dynamic>? any;
+      for (final k in await OfflineStore.instance.cacheKeysLike(pattern)) {
+        final local = await OfflineStore.instance.cacheGet(k);
+        if (local == null) continue;
+        any ??= local;
+        final ok = await accept(local);
+        if (ok != null) return ok;
+      }
+      if (any != null) return any;
+    } catch (_) {}
     return null;
   }
 
@@ -125,7 +167,6 @@ class TabletRepository {
     String cacheKey, {
     Map<String, dynamic>? query,
   }) async {
-    final key = _scoped(cacheKey);
     final local = await _cacheGetScoped(cacheKey);
     final reachable = await HealthService.instance.check();
 
@@ -136,10 +177,13 @@ class TabletRepository {
     if (reachable) {
       try {
         final data = await ApiClient.instance.get(path, query: query);
-        await OfflineStore.instance.cacheSet(key, data);
+        await _cacheSetScoped(cacheKey, data);
         return Fetched(Map<String, dynamic>.from(data), false);
       } catch (_) {
-        rethrow;
+        final again = await _cacheGetScoped(cacheKey);
+        if (again != null) {
+          return Fetched(Map<String, dynamic>.from(again), true);
+        }
       }
     }
 
@@ -155,6 +199,9 @@ class TabletRepository {
     } catch (_) {}
     try {
       await _downloadAndStore('/api/tablet/home', 'home');
+    } catch (_) {}
+    try {
+      await _downloadAndStore('/api/tablet/exercise-details', 'exercise_details');
     } catch (_) {}
     try {
       await _downloadAndStore('/api/tablet/polarity-notes', 'polarity_notes');
@@ -247,16 +294,18 @@ class TabletRepository {
       }
       if (n is! Map) return;
       if (n.containsKey('id') &&
-          (n.containsKey('is_folder') || n.containsKey('file_url'))) {
+          (n.containsKey('is_folder') ||
+              n.containsKey('file_url') ||
+              n.containsKey('name'))) {
         if (n['is_folder'] == true) {
           walk(n['children']);
           return;
         }
-        if (n['file_url'] == true) {
-          final name = (n['name'] ?? '').toString().toLowerCase();
-          final id = (n['id'] as num?)?.toInt() ?? 0;
-          if (id > 0 && name.endsWith('.pdf')) ids.add(id);
-        }
+        final name = (n['name'] ?? '').toString().toLowerCase();
+        final id = (n['id'] as num?)?.toInt() ?? 0;
+        final looksPdf = name.endsWith('.pdf') || n['file_url'] == true;
+        if (id > 0 && looksPdf && name.endsWith('.pdf')) ids.add(id);
+        walk(n['children']);
         return;
       }
       for (final v in n.values) {
@@ -297,7 +346,7 @@ class TabletRepository {
         }
       } catch (_) {}
     }
-    if (haveLibrary && havePapers) {
+    if (haveLibrary && havePapers && ids.isNotEmpty) {
       await LibraryPdfCache.pruneExcept(ids);
     }
   }
@@ -414,28 +463,15 @@ class TabletRepository {
   }
 
   Future<Fetched<Map<String, dynamic>>> fetchLibrary() async {
-    final reachable = await HealthService.instance.check();
-    if (reachable) {
-      try {
-        final data = await _downloadAndStore('/api/tablet/library', 'library');
-        return Fetched(data, false);
-      } catch (_) {}
-    }
     return _readLocalFirst('/api/tablet/library', 'library');
   }
 
   Future<Fetched<Map<String, dynamic>>> fetchExercisePapers() async {
-    final reachable = await HealthService.instance.check();
-    if (reachable) {
-      try {
-        final data = await _downloadAndStore(
-          '/api/tablet/exercise-papers',
-          'exercise_papers',
-        );
-        return Fetched(data, false);
-      } catch (_) {}
-    }
     return _readLocalFirst('/api/tablet/exercise-papers', 'exercise_papers');
+  }
+
+  Future<Fetched<Map<String, dynamic>>> fetchExerciseDetails() async {
+    return _readLocalFirst('/api/tablet/exercise-details', 'exercise_details');
   }
 
   /// عرض PDF من المخزون المحلي أولاً؛ التنزيل من السيرفر فقط إن لم يُحفظ بعد.
@@ -645,7 +681,16 @@ class TabletRepository {
     if (effectiveUk.isNotEmpty) query['unit_key'] = effectiveUk;
     if (phase != null && phase.isNotEmpty) query['phase'] = phase;
 
+    final local = await _readEvalListsCache(
+      unitKey: effectiveUk.isNotEmpty ? effectiveUk : null,
+      phase: phase,
+    );
     final reachable = await HealthService.instance.check();
+    if (local != null && !reachable) {
+      final overlaid =
+          await _overlayApprovedStatuses(Map<String, dynamic>.from(local));
+      return Fetched(EvaluationListsData.fromJson(overlaid), true);
+    }
     if (reachable) {
       try {
         final data = await ApiClient.instance.get(
@@ -665,10 +710,6 @@ class TabletRepository {
       }
     }
 
-    final local = await _readEvalListsCache(
-      unitKey: effectiveUk.isNotEmpty ? effectiveUk : null,
-      phase: phase,
-    );
     if (local != null) {
       final overlaid =
           await _overlayApprovedStatuses(Map<String, dynamic>.from(local));

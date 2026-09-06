@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../services/api_client.dart';
+import '../services/tablet_repository.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_header.dart';
+import '../widgets/async_state_views.dart';
 import '../widgets/figma_ui.dart';
 
 /// معلومات التمرين — قراءة فقط، شبكة المربعات مطابقة لصفحة النظام.
@@ -15,6 +17,7 @@ class ExerciseDetailsScreen extends StatefulWidget {
 
 class _ExerciseDetailsScreenState extends State<ExerciseDetailsScreen> {
   bool _loading = true;
+  bool _fromCache = false;
   String? _error;
   String _tab = 'info';
   List<({String key, String label})> _tabs = const [];
@@ -34,11 +37,13 @@ class _ExerciseDetailsScreenState extends State<ExerciseDetailsScreen> {
       _error = null;
     });
     try {
-      final data = await ApiClient.instance.get('/api/tablet/exercise-details');
+      final fetched = await TabletRepository.instance.fetchExerciseDetails();
+      final data = fetched.data;
       final tabsRaw = (data['tabs'] as List?) ?? const [];
       final ex = (data['exercise'] as Map?)?.cast<String, dynamic>() ?? {};
       if (!mounted) return;
       setState(() {
+        _fromCache = fetched.fromCache;
         _tabs = tabsRaw
             .whereType<Map>()
             .map(
@@ -52,6 +57,12 @@ class _ExerciseDetailsScreenState extends State<ExerciseDetailsScreen> {
         _ex = ex;
         _tab = _tabs.isNotEmpty ? _tabs.first.key : 'info';
         _loading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = e.message;
       });
     } catch (e) {
       if (!mounted) return;
@@ -106,6 +117,7 @@ class _ExerciseDetailsScreenState extends State<ExerciseDetailsScreen> {
                 )
               : Column(
                   children: [
+                    if (_fromCache) const CachedDataBanner(),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                       child: Row(

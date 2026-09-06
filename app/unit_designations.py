@@ -229,6 +229,7 @@ def seed_unit_designations_from_xlsx(db: Session, *, force: bool = False) -> dic
     finally:
         wb.close()
 
+    sync_designations_from_organization(db)
     reload_unit_designation_cache(db)
     return {"masters": masters, "aliases": aliases, "source": str(path)}
 
@@ -341,9 +342,413 @@ def canonical_label_for_assignee(assignee_label: str) -> str:
     return canonical_label_for_unit_id(uid) if uid else ""
 
 
+_BN_SLASH_RE = re.compile(r"(?<!السرية)/(\d+)")
+_BN_SPACE_RE = re.compile(r"(?:كتيبة|الكتيبة|قتال)\s+(\d+)\b")
+_CO_NUM_RE = re.compile(r"السرية/(\d+)")
+_COMPANY_CANON_RE = re.compile(r"^(.+?)\s*-\s*السرية/(\d+)\s*$")
+# كتالوج القالب القديم — يُحذف من المسميات ويُستبعد من المزامنة
+DROPPED_TEMPLATE_BATTALIONS = frozenset({"11", "12", "13", "14"})
+
+
+def infer_unit_type(label: str) -> str:
+    t = (label or "").strip()
+    if "هيئة ركن" in t:
+        return "هيئة ركن"
+    if t.startswith("قيادة ") and "السرية/" not in t:
+        return "قيادة"
+    if "فصيل" in t:
+        return "فصيل"
+    if t.startswith("قسم ") or "قسم الأمن" in t:
+        return "قسم"
+    if "سرية" in t or "السرية" in t:
+        return "سرية"
+    if "كتيبة" in t:
+        return "كتيبة"
+    return ""
+
+
+def _battalion_numbers(text: str) -> set[str]:
+    t = text or ""
+    return set(_BN_SLASH_RE.findall(t)) | set(_BN_SPACE_RE.findall(t))
+
+
+def is_dropped_template_battalion_label(label: str) -> bool:
+    """وحدات 11–14 فقط — لا يشمل 31/32/33/34."""
+    nums = _battalion_numbers(label)
+    dropped = nums & DROPPED_TEMPLATE_BATTALIONS
+    kept = nums - DROPPED_TEMPLATE_BATTALIONS
+    return bool(dropped) and not kept
+
+
+def _company_numbers(text: str) -> set[str]:
+    return set(_CO_NUM_RE.findall(text or ""))
+
+
+def alias_matches_canonical(alias: str, canonical: str) -> bool:
+    """المسمى البديل يخص الدلالة إن لم يحمل رقم كتيبة/سرية مخالفاً."""
+    a_bn, c_bn = _battalion_numbers(alias), _battalion_numbers(canonical)
+    a_co, c_co = _company_numbers(alias), _company_numbers(canonical)
+    if c_bn and a_bn and a_bn != c_bn:
+        return False
+    if a_bn and not c_bn:
+        return False
+    if c_co and a_co and a_co != c_co:
+        return False
+    return True
+
+
+def generated_aliases_for_canonical(canonical: str) -> list[str]:
+    """مسميات بديلة مشتقة من الدلالة الرئيسية (عمود المكلف)."""
+    label = (canonical or "").strip()
+    if not label:
+        return []
+    out: list[str] = [label, f"محكم {label}"]
+    if label.startswith("قيادة "):
+        rest = label[len("قيادة ") :].strip()
+        if rest:
+            out.append(f"محكم {rest}")
+    cm = _COMPANY_CANON_RE.match(label)
+    if cm:
+        parent, n = cm.group(1).strip(), cm.group(2)
+        out.append(f"محكم السرية/{n} من {parent}")
+        if parent.startswith("قيادة "):
+            out.append(f"محكم السرية/{n} من {parent[len('قيادة '):].strip()}")
+        return _unique_keep(out)
+
+    short_map = {
+        "سرية الاستطلاع": ("محكم سرية الاستطلاع", "محكم الاستطلاع", "محكم استطلاع"),
+        "سرية الـ م/د": ("محكم سرية الـ م/د", "محكم سرية م/د", "محكم الـ م/د", "محكم م/د"),
+        "سرية الهاون": ("محكم سرية الهاون", "محكم الهاون", "محكم هاون"),
+        "سرية الهندسة": ("محكم سرية الهندسة", "محكم الهندسة", "محكم هندسة", "محكم هندسة الميدان"),
+        "سرية الإشارة": ("محكم سرية الإشارة", "محكم الإشارة", "محكم إشارة"),
+        "القيادة والسيطرة": ("محكم القيادة والسيطرة", "محكم قيادة وسيطرة"),
+        "سرية الدفاع الجوي": ("محكم سرية الدفاع الجوي", "محكم الدفاع الجوي", "محكم دفاع جوي"),
+        "سرية الدفاع الكيميائي": (
+            "محكم سرية الدفاع الكيميائي",
+            "محكم الدفاع الكيميائي",
+            "محكم دفاع كيميائي",
+        ),
+        "كتيبة الإسناد الإداري": (
+            "محكم كتيبة الإسناد الإداري",
+            "محكم الإسناد الإداري",
+        ),
+        "السرية الطبية": ("محكم السرية الطبية", "محكم الطبية", "محكم طبية"),
+        "سرية الصيانة": ("محكم سرية الصيانة", "محكم الصيانة", "محكم صيانة"),
+        "سرية التزويد والنقل": ("محكم سرية التزويد والنقل", "محكم التزويد والنقل"),
+        "فصيل الشرطة العسكرية": ("محكم فصيل الشرطة العسكرية", "محكم الشرطة العسكرية"),
+        "سرية الحرب الإلكترونية": (
+            "محكم سرية الحرب الإلكترونية",
+            "محكم الحرب الإلكترونية",
+        ),
+        "قسم الأمن": ("محكم قسم الأمن", "محكم الأمن"),
+        "قيادة مجموعة اللواء": (
+            "محكم قيادة مجموعة اللواء",
+            "محكم مجموعة اللواء",
+            "محكم قيادة اللواء",
+            "محكم اللواء",
+        ),
+        "هيئة ركن مجموعة اللواء": (
+            "محكم هيئة ركن مجموعة اللواء",
+            "محكم هيئة ركن اللواء",
+        ),
+        "قيادة كتيبة المدفعية": (
+            "محكم قيادة كتيبة المدفعية",
+            "محكم كتيبة المدفعية",
+            "محكم المدفعية",
+        ),
+    }
+    extras = short_map.get(label)
+    if extras:
+        out.extend(extras)
+
+    is_c2_branch = label.startswith("القيادة والسيطرة") and "-" in label
+    is_bn_cmd = (
+        label.startswith("قيادة ")
+        and "كتيبة" in label
+        and "السرية/" not in label
+        and not is_c2_branch
+    )
+    bns = _battalion_numbers(label)
+    if is_bn_cmd and len(bns) == 1:
+        n = next(iter(bns))
+        out.extend(
+            [
+                f"محكم قيادة الكتيبة/{n}",
+                f"محكم قيادة كتيبة/{n}",
+                f"محكم الكتيبة/{n}",
+                f"محكم كتيبة/{n}",
+                f"محكم كتيبة {n}",
+                f"محكم الكتيبة {n}",
+                f"محكم ك/{n}",
+                f"محكم مجموعة القتال/{n}",
+                f"محكم مجموعة قتال/{n}",
+                f"محكم م ق/{n}",
+            ]
+        )
+    return _unique_keep(out)
+
+
+def _unique_keep(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in items:
+        t = (raw or "").strip()
+        n = normalize_designation_text(t)
+        if not t or not n or n in seen:
+            continue
+        seen.add(n)
+        out.append(t)
+    return out
+
+
+def _organization_labels_ordered(db: Session) -> list[str]:
+    from app.ibank_section_ctx import ibank_section_bypass
+    from app.models.domain import InformationBankUnitLevel
+
+    def _collect(rows) -> tuple[list[str], set[str]]:
+        labels: list[str] = []
+        seen: set[str] = set()
+        for r in rows:
+            label = (r.label or "").strip()
+            n = normalize_designation_text(label)
+            if not label or not n or n in seen:
+                continue
+            seen.add(n)
+            labels.append(label)
+        return labels, seen
+
+    current, seen = _collect(
+        [
+            r
+            for r in db.query(InformationBankUnitLevel)
+            .order_by(InformationBankUnitLevel.sort_order, InformationBankUnitLevel.key)
+            .all()
+            if not is_dropped_template_battalion_label(r.label or "")
+        ]
+    )
+    extras: list[str] = []
+    with ibank_section_bypass():
+        all_rows = (
+            db.query(InformationBankUnitLevel)
+            .order_by(
+                InformationBankUnitLevel.ibank_section,
+                InformationBankUnitLevel.sort_order,
+                InformationBankUnitLevel.key,
+            )
+            .all()
+        )
+    for r in all_rows:
+        label = (r.label or "").strip()
+        n = normalize_designation_text(label)
+        if not label or not n or n in seen:
+            continue
+        if is_dropped_template_battalion_label(label):
+            continue
+        seen.add(n)
+        extras.append(label)
+    return current + extras
+
+
+def _find_designation_by_label(
+    rows: list[UnitDesignation], label: str
+) -> UnitDesignation | None:
+    want = normalize_designation_text(label)
+    if not want:
+        return None
+    for m in rows:
+        if normalize_designation_text(m.canonical_label or "") == want:
+            return m
+    return None
+
+
+def _upsert_alias(
+    db: Session,
+    *,
+    unit_id: str,
+    label: str,
+    notes: str,
+    seen_norms: set[str],
+) -> bool:
+    label = (label or "").strip()[:300]
+    norm = normalize_designation_text(label)
+    if not label or not norm or norm in seen_norms:
+        return False
+    existing = (
+        db.query(UnitDesignationAlias)
+        .filter(UnitDesignationAlias.alias_label_norm == norm)
+        .first()
+    )
+    if existing is not None:
+        changed = existing.unit_id != unit_id or (existing.alias_label or "") != label
+        existing.unit_id = unit_id
+        existing.alias_label = label
+        if notes and not (existing.notes or "").strip():
+            existing.notes = notes
+        seen_norms.add(norm)
+        return changed
+    db.add(
+        UnitDesignationAlias(
+            alias_id=next_alias_id(db),
+            unit_id=unit_id,
+            alias_label=label,
+            alias_label_norm=norm,
+            notes=notes,
+        )
+    )
+    db.flush()
+    seen_norms.add(norm)
+    return True
+
+
+def _purge_dropped_template_designations(db: Session) -> int:
+    """حذف دلالات 11–14 ومسمياتها البديلة مع الإبقاء على بقية الوحدات."""
+    removed = 0
+    rows = db.query(UnitDesignation).all()
+    drop_ids = [
+        m.unit_id
+        for m in rows
+        if is_dropped_template_battalion_label(m.canonical_label or "")
+    ]
+    if not drop_ids:
+        return 0
+    drop_set = set(drop_ids)
+    db.query(UnitDesignationAlias).filter(
+        UnitDesignationAlias.unit_id.in_(drop_ids)
+    ).delete(synchronize_session=False)
+    for m in rows:
+        if m.unit_id in drop_set:
+            db.delete(m)
+            removed += 1
+    if removed:
+        db.flush()
+    return removed
+
+
+def sync_designations_from_organization(db: Session) -> dict[str, int]:
+    """يحدّث كشف الدلالات من صفحة التنظيم ويضبط المسميات البديلة لكل دلالة."""
+    purged = _purge_dropped_template_designations(db)
+    org_labels = [
+        lbl
+        for lbl in _organization_labels_ordered(db)
+        if not is_dropped_template_battalion_label(lbl)
+    ]
+    rows = db.query(UnitDesignation).all()
+    changed = purged
+    created = 0
+    for idx, label in enumerate(org_labels, start=1):
+        if is_dropped_template_battalion_label(label):
+            continue
+        rec = _find_designation_by_label(rows, label)
+        if rec is None:
+            rec = UnitDesignation(
+                unit_id=next_unit_id(db),
+                canonical_label=label,
+                unit_type=infer_unit_type(label),
+                is_active=True,
+                sort_order=idx,
+            )
+            db.add(rec)
+            db.flush()
+            rows.append(rec)
+            created += 1
+            changed += 1
+        else:
+            if (rec.canonical_label or "").strip() != label:
+                rec.canonical_label = label
+                changed += 1
+            if not (rec.unit_type or "").strip():
+                rec.unit_type = infer_unit_type(label)
+                changed += 1
+            if int(rec.sort_order or 0) != idx:
+                rec.sort_order = idx
+                changed += 1
+            rec.is_active = True
+
+    extra_start = len(org_labels) + 1
+    extras = [
+        m
+        for m in rows
+        if normalize_designation_text(m.canonical_label or "")
+        not in {normalize_designation_text(x) for x in org_labels}
+    ]
+    extras.sort(key=lambda m: (int(m.sort_order or 0), m.unit_id))
+    for i, rec in enumerate(extras):
+        want = extra_start + i
+        if int(rec.sort_order or 0) != want:
+            rec.sort_order = want
+            changed += 1
+
+    by_canon = {
+        normalize_designation_text(m.canonical_label or ""): m
+        for m in rows
+        if normalize_designation_text(m.canonical_label or "")
+    }
+
+    for a in list(db.query(UnitDesignationAlias).all()):
+        owner = next((m for m in rows if m.unit_id == a.unit_id), None)
+        label = (a.alias_label or "").strip()
+        if owner and alias_matches_canonical(label, owner.canonical_label or ""):
+            continue
+        dest = None
+        n = normalize_designation_text(label)
+        if n in by_canon:
+            dest = by_canon[n]
+        else:
+            cands = [
+                m
+                for m in rows
+                if alias_matches_canonical(label, m.canonical_label or "")
+                and _battalion_numbers(label)
+                and _battalion_numbers(label) == _battalion_numbers(m.canonical_label or "")
+            ]
+            if len(cands) == 1:
+                dest = cands[0]
+        if dest is not None and dest.unit_id != a.unit_id:
+            a.unit_id = dest.unit_id
+            changed += 1
+        elif owner is not None and not alias_matches_canonical(label, owner.canonical_label or ""):
+            db.delete(a)
+            changed += 1
+
+    db.flush()
+    for rec in rows:
+        canon = (rec.canonical_label or "").strip()
+        if not canon:
+            continue
+        seen_norms: set[str] = set()
+        for a in (
+            db.query(UnitDesignationAlias)
+            .filter(UnitDesignationAlias.unit_id == rec.unit_id)
+            .all()
+        ):
+            n = (a.alias_label_norm or "").strip() or normalize_designation_text(
+                a.alias_label or ""
+            )
+            if n:
+                seen_norms.add(n)
+        for cand in generated_aliases_for_canonical(canon):
+            if _upsert_alias(
+                db,
+                unit_id=rec.unit_id,
+                label=cand,
+                notes="مولَّد من الدلالة الرئيسية",
+                seen_norms=seen_norms,
+            ):
+                changed += 1
+
+    if changed:
+        db.flush()
+        reload_unit_designation_cache(db)
+    return {"changed": changed, "created": created, "labels": len(org_labels)}
+
+
 def list_designations_for_ibank(db: Session) -> list[dict]:
     """قائمة الدلالات والمسميات لواجهة بنك المعلومات (مصدر عام بلا تمرين)."""
     ensure_unit_designations_loaded(db)
+    stats = sync_designations_from_organization(db)
+    if stats.get("changed"):
+        db.commit()
+        reload_unit_designation_cache(db)
     rows = (
         db.query(UnitDesignation)
         .order_by(UnitDesignation.sort_order, UnitDesignation.unit_id)

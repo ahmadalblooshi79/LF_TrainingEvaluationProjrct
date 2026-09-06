@@ -34,7 +34,7 @@ class ErrorView extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'إن كنت بدون اتصال: افتح الشاشة مرة وأنت متصل ليُخزَّن المحتوى محلياً.',
+              'بعد «تحديث بياناتي» أو تهيئة الجهاز تُحفظ البيانات محلياً وتعمل دون شبكة.',
               style: AppTextStyles.small,
               textAlign: TextAlign.center,
             ),

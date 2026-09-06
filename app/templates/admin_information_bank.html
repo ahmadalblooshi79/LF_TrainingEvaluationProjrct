@@ -186,7 +186,7 @@
         {% if information_bank_can_manage %}
         <form method="post" action="{{ url_for('views.admin_information_bank_designation_add') }}" class="ibank-inline-add-form">
           <label class="ibank-inline-add-form__label" for="ib-new-desig">الدلالة الرئيسية</label>
-          <input id="ib-new-desig" class="ibank-inline-add-form__input" name="canonical_label" type="text" required autocomplete="off" placeholder="مثال: قيادة كتيبة المشاة الآلية/32">
+          <input id="ib-new-desig" class="ibank-inline-add-form__input" name="canonical_label" type="text" required autocomplete="off" placeholder="مثال: قيادة كتيبة المشاة الآلية/12">
           <label class="ibank-inline-add-form__label" for="ib-new-desig-type">النوع</label>
           <input id="ib-new-desig-type" class="ibank-inline-add-form__input ibank-inline-add-form__input--narrow" name="unit_type" type="text" autocomplete="off" placeholder="كتيبة / سرية">
           <button type="submit" class="btn ibank-inline-add-form__submit"><i class="fa-solid fa-plus" aria-hidden="true"></i> إضافة دلالة</button>

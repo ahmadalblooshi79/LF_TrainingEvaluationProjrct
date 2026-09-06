@@ -182,7 +182,7 @@ def _dilemma_tree_fingerprint(db: Session, exercise_id: int | None) -> tuple:
         if flow
         else (0, "")
     )
-    return (int(n or 0), int(mx_id or 0), flow_fp, int(exercise_id or 0))
+    return (int(n or 0), int(mx_id or 0), flow_fp, int(exercise_id or 0), 2)
 
 
 def _assignees_by_dilemma_from_flow(raw_json: str) -> dict[str, dict[int, list[str]]]:

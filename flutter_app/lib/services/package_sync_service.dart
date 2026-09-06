@@ -183,6 +183,9 @@ class PackageSyncService {
       try {
         await TabletRepository.instance.prefetchForOffline();
       } catch (_) {}
+      try {
+        await TabletRepository.instance.fetchExerciseDetails();
+      } catch (_) {}
       await AuthService.saveLastSyncAt(DateTime.now());
       await NotificationsBadgeService.instance.reportSyncEvent(
         kind: 'update',

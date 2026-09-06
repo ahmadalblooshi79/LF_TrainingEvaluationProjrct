@@ -17090,7 +17090,11 @@ def admin_information_bank_unit_add():
                 is_system=False,
                 catalog_unit_key=unit_key,
             )
+    from app.unit_designations import reload_unit_designation_cache, sync_designations_from_organization
+
+    sync_designations_from_organization(db)
     db.commit()
+    reload_unit_designation_cache(db)
     return redirect(url_for("views.admin_information_bank", tab=tab, ok="تمت إضافة مستوى الوحدة."))
 
 
@@ -17137,7 +17141,11 @@ def admin_information_bank_unit_edit():
         .all()
     ):
         node.name = label[:500]
+    from app.unit_designations import reload_unit_designation_cache, sync_designations_from_organization
+
+    sync_designations_from_organization(db)
     db.commit()
+    reload_unit_designation_cache(db)
     return _edit_response(ok=True, label=label, unit_key=key, tab=tab)
 
 

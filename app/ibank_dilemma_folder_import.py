@@ -26,11 +26,13 @@ DILEMMA_FOLDER_UNIT_PREFIX = "fdlm:"
 IMPORT_FILE_EXTENSIONS = (".xlsx", ".docx", ".doc", ".pdf", ".png", ".jpg", ".jpeg")
 
 _DAY_DIR_RE = re.compile(r"اليوم\s*[/\\-]?\s*(\d+)", re.IGNORECASE)
+_DAYISH_FOLDER_RE = re.compile(r"اليوم", re.IGNORECASE)
 _Y_M_RE = re.compile(
     r"ي\s*(\d+)\s*[-–—]?\s*م\s*(\d+)",
     re.IGNORECASE,
 )
 _MUADALA_RE = re.compile(r"معضل[ةه]\s*[/\\-]?\s*(\d+)", re.IGNORECASE)
+_NUMBERED_ITEM_RE = re.compile(r"^\s*(\d+)\s*[\.\-–—)]\s+\S")
 _DILEMMA_TEXT_NO_RE = re.compile(
     r"(?:ال)?معضل[ةه]\s*[/\\-]?\s*(\d+)",
     re.IGNORECASE,
@@ -84,6 +86,23 @@ def parse_day_no_from_dirname(name: str) -> int | None:
         return None
 
 
+def parse_numbered_dilemma_item(name: str) -> int | None:
+    """رقم المعضلة من بادئة مثل «1. كمين على الاستطلاع» — دون مجلدات اليوم."""
+    text = (name or "").strip()
+    if not text or _DAYISH_FOLDER_RE.search(text):
+        return None
+    if parse_day_no_from_dirname(text) is not None:
+        return None
+    m = _NUMBERED_ITEM_RE.match(text)
+    if not m:
+        return None
+    try:
+        n = int(m.group(1))
+    except ValueError:
+        return None
+    return n if n > 0 else None
+
+
 def parse_dilemma_folder_codes(
     folder_name: str, *, parent_day_no: int | None = None
 ) -> tuple[int, int] | None:
@@ -101,6 +120,9 @@ def parse_dilemma_folder_codes(
             return int(parent_day_no), int(m2.group(1))
         except ValueError:
             return None
+    numbered = parse_numbered_dilemma_item(name)
+    if numbered is not None and parent_day_no:
+        return int(parent_day_no), int(numbered)
     return None
 
 
@@ -506,7 +528,7 @@ def collect_linked_files_by_dilemma(db: Session) -> dict[str, dict[int, list[dic
                         next_dno = c_dno
                     elif str(day_id).endswith(f"-{c_day}") or day_id == day_id_for_number(c_day):
                         next_dno = c_dno
-                # مجلدات بأسماء مثل «معضلة 1» بلا رقم يوم — تحت جذر اليوم
+                # مجلدات بأسماء مثل «معضلة 1» أو «1. كمين…» بلا رقم يوم — تحت جذر اليوم
                 if next_dno is None:
                     m_only = _MUADALA_RE.search(ch.name or "")
                     if m_only:
@@ -514,6 +536,9 @@ def collect_linked_files_by_dilemma(db: Session) -> dict[str, dict[int, list[dic
                             next_dno = int(m_only.group(1))
                         except ValueError:
                             next_dno = None
+                numbered = parse_numbered_dilemma_item(ch.name or "")
+                if numbered is not None:
+                    next_dno = numbered
                 next_uk = (ch.catalog_unit_key or "").strip()
                 if next_uk.startswith(DILEMMA_FOLDER_UNIT_PREFIX):
                     next_uk = folder_unit_key
@@ -534,6 +559,7 @@ def collect_linked_files_by_dilemma(db: Session) -> dict[str, dict[int, list[dic
                     continue
                 _add_file(day_id, dilemma_no, ch, unit_key=folder_unit_key)
 
+    roots_by_day: dict[str, list[InformationBankTreeNode]] = {}
     for root in day_roots:
         day_id = parse_flow_day_catalog_key((root.catalog_phase_key or "").strip())
         day_no = None
@@ -554,6 +580,20 @@ def collect_linked_files_by_dilemma(db: Session) -> dict[str, dict[int, list[dic
             rest = day_id[4:]
             if rest.isdigit():
                 day_no = int(rest)
+        roots_by_day.setdefault(day_id, []).append(root)
+
+    for day_id, roots in roots_by_day.items():
+        # عند تكرار جذر نفس اليوم: الأحدث يحمل القوائم الحالية
+        root = max(roots, key=lambda r: int(r.id))
+        day_no = None
+        m = re.search(r"(\d+)$", day_id)
+        if m:
+            try:
+                day_no = int(m.group(1))
+            except ValueError:
+                day_no = None
+        if day_no is None:
+            day_no = parse_day_no_from_dirname(root.name or "")
         _walk(root, day_id=day_id, day_no=day_no, dilemma_no=None, folder_unit_key="")
 
     return out
