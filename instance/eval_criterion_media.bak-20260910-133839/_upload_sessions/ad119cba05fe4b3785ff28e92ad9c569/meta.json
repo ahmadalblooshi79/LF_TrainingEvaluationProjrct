@@ -1,0 +1,25 @@
+{
+"upload_session_id": "ad119cba05fe4b3785ff28e92ad9c569",
+"client_uuid": "media-1789018968090314-3",
+"user_id": 147,
+"exercise_id": 1,
+"unit_level_key": "ul_tank4_bn_cmd",
+"evaluation_list_item_id": 124,
+"bundle_action_eval_id": null,
+"row_index": 9,
+"media_kind": "photo",
+"mime_type": "image/jpeg",
+"file_size": 1801622,
+"checksum": "dbef820ae5d28a031675796b2fdd64535e7b369eae24bb116cc6dc7f391ef762",
+"original_filename": "c5db4ee2-87c7-4b52-b032-a57e8cc7f7f3939775094103078896.jpg",
+"chunk_size": 10485760,
+"total_chunks": 1,
+"received_chunks": [
+0
+],
+"status": "completed",
+"created_at": "2026-09-10T07:10:38.971163Z",
+"updated_at": "2026-09-10T07:10:39.447830Z",
+"server_media_id": 39,
+"final_checksum": "dbef820ae5d28a031675796b2fdd64535e7b369eae24bb116cc6dc7f391ef762"
+}

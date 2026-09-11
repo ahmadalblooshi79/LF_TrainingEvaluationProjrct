@@ -1,0 +1,25 @@
+{
+"upload_session_id": "6af78ef4a4014542a5e253926e266e2f",
+"client_uuid": "media-1788499937330308-1",
+"user_id": 1,
+"exercise_id": 1,
+"unit_level_key": "ul_brigade_grp_cmd",
+"evaluation_list_item_id": 3,
+"bundle_action_eval_id": null,
+"row_index": 1,
+"media_kind": "photo",
+"mime_type": "image/jpeg",
+"file_size": 1506720,
+"checksum": "eacc8652793036e145c18fbf23e98d0c2bda2e5d8d44f05432cdff29c3d4bf8d",
+"original_filename": "d4a07a69-b3da-4a25-9235-903c99ab79111298956681404501940.jpg",
+"chunk_size": 10485760,
+"total_chunks": 1,
+"received_chunks": [
+0
+],
+"status": "completed",
+"created_at": "2026-09-08T02:04:46.697799Z",
+"updated_at": "2026-09-08T02:04:47.199440Z",
+"server_media_id": 7,
+"final_checksum": "eacc8652793036e145c18fbf23e98d0c2bda2e5d8d44f05432cdff29c3d4bf8d"
+}

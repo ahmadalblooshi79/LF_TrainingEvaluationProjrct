@@ -1,0 +1,11 @@
+Criterion media path migration report
+backup_dir=C:\Users\user\Documents\GitHub\LF_TrainingEvaluationProjrct\instance\eval_criterion_media.bak-20260910-133839
+media_dir=C:\Users\user\Documents\GitHub\LF_TrainingEvaluationProjrct\instance\eval_criterion_media
+total_old_files=34
+migrated=34
+left_legacy=0
+already_new=0
+missing_disk=0
+broken_paths=[]
+migrated_ids=[7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40]
+left_ids=[]

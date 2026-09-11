@@ -1,0 +1,25 @@
+{
+"upload_session_id": "b66226d6c68d4e4aafed126ac50cc30c",
+"client_uuid": "media-1788935084571179-8",
+"user_id": 168,
+"exercise_id": 1,
+"unit_level_key": "ul_mech3_bn_c3",
+"evaluation_list_item_id": 57,
+"bundle_action_eval_id": null,
+"row_index": 1,
+"media_kind": "photo",
+"mime_type": "image/jpeg",
+"file_size": 3098403,
+"checksum": "c563c1ca0b17c28fddd4f9626d4bfe8b467f16227e5411297f30a34bb6c2c3cf",
+"original_filename": "94a940bb-7118-42c9-8435-c94de4dbbc8c3063997781357602518.jpg",
+"chunk_size": 10485760,
+"total_chunks": 1,
+"received_chunks": [
+0
+],
+"status": "completed",
+"created_at": "2026-09-09T08:16:01.553110Z",
+"updated_at": "2026-09-09T08:16:02.455166Z",
+"server_media_id": 18,
+"final_checksum": "c563c1ca0b17c28fddd4f9626d4bfe8b467f16227e5411297f30a34bb6c2c3cf"
+}

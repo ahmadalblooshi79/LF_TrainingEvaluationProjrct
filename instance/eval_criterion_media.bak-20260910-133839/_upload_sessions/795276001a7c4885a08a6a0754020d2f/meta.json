@@ -1,0 +1,25 @@
+{
+"upload_session_id": "795276001a7c4885a08a6a0754020d2f",
+"client_uuid": "media-1640826585217496-3",
+"user_id": 201,
+"exercise_id": 1,
+"unit_level_key": "unit_bg1_a03f5280874e",
+"evaluation_list_item_id": 104,
+"bundle_action_eval_id": null,
+"row_index": 48,
+"media_kind": "photo",
+"mime_type": "image/jpeg",
+"file_size": 1683003,
+"checksum": "494396cbefe83c341a7f09ced59061a292924915522f1a5bddd05de9fdd7f172",
+"original_filename": "f652388f-5beb-4310-b373-ff09aa74687d6853854614957846339.jpg",
+"chunk_size": 10485760,
+"total_chunks": 1,
+"received_chunks": [
+0
+],
+"status": "completed",
+"created_at": "2026-09-10T06:54:12.281452Z",
+"updated_at": "2026-09-10T06:54:12.709745Z",
+"server_media_id": 36,
+"final_checksum": "494396cbefe83c341a7f09ced59061a292924915522f1a5bddd05de9fdd7f172"
+}

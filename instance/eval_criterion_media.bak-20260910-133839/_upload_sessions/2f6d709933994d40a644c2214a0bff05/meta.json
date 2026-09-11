@@ -1,0 +1,27 @@
+{
+"upload_session_id": "2f6d709933994d40a644c2214a0bff05",
+"client_uuid": "media-1640221545520622-3",
+"user_id": 1,
+"exercise_id": 1,
+"unit_level_key": "ul_eng",
+"evaluation_list_item_id": 23,
+"bundle_action_eval_id": null,
+"row_index": 2,
+"media_kind": "video",
+"mime_type": "video/mp4",
+"file_size": 27162396,
+"checksum": "0a79f43e632e10e863342ef6251fee200d1a8df1f34a2128e424b1f110d2457c",
+"original_filename": "1000001134.mp4",
+"chunk_size": 10485760,
+"total_chunks": 3,
+"received_chunks": [
+0,
+1,
+2
+],
+"status": "completed",
+"created_at": "2026-09-08T02:01:48.894910Z",
+"updated_at": "2026-09-08T02:01:55.947188Z",
+"server_media_id": 3,
+"final_checksum": "0a79f43e632e10e863342ef6251fee200d1a8df1f34a2128e424b1f110d2457c"
+}
