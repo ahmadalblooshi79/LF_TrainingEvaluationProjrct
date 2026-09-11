@@ -67,7 +67,7 @@
       </button>
       <button type="button" class="btn btn-ghost btn-xs" id="action-eval-select-all" title="تحديد جميع القوائم">تحديد الكل</button>
       <button type="button" class="btn btn-ghost btn-xs" id="action-eval-select-none" title="إلغاء تحديد جميع القوائم">إلغاء تحديد الكل</button>
-      <button type="submit" class="btn btn-primary btn-xs" id="action-eval-lists-publish-btn">
+      <button type="submit" class="btn btn-primary btn-xs" id="action-eval-lists-publish-btn" onclick="if (!document.querySelectorAll('#action-eval-lists-phase-form .eval-lists-publish-cb:checked').length) { alert('حدّد قائمة واحدة على الأقل للنشر.'); return false; } return confirm('نشر القوائم المحددة لهذا اليوم فقط؟');">
         <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
         نشر القوائم
       </button>
@@ -272,7 +272,7 @@
 
   const syncPublishBtn = () => {
     if (!form || !publishBtn) return;
-    publishBtn.disabled = !form.querySelectorAll(".eval-lists-publish-cb").length;
+    publishBtn.disabled = !form.querySelectorAll(".eval-lists-publish-cb:checked").length;
   };
 
   if (form) {
@@ -328,6 +328,7 @@
         window.alert("حدّد قائمة واحدة على الأقل للنشر.");
         return;
       }
+      if (!window.confirm("نشر القوائم المحددة لهذا المحكم في هذا اليوم فقط؟")) return;
       const dilSec = btn.closest(".eval-lists-dilemma-group");
       const dil = dilSec && dilSec.getAttribute("data-dilemma");
       saveExpandedState(dil ? [dil] : []);

@@ -416,6 +416,120 @@ class TabletRepository {
     return data;
   }
 
+  Set<int> collectPdfNodeIds(dynamic root) => _collectPdfNodeIds(root);
+
+  bool _provisionIsPrivateKey(String cacheKey) {
+    return cacheKey.startsWith('action_eval_detail:') ||
+        cacheKey.startsWith('evaluation_list_detail:') ||
+        cacheKey.startsWith('action_eval_lists') ||
+        cacheKey.startsWith('evaluation_lists') ||
+        cacheKey == 'home' ||
+        cacheKey == 'bootstrap' ||
+        cacheKey == 'session_bundle' ||
+        cacheKey == 'incomplete' ||
+        cacheKey == 'polarity_notes' ||
+        cacheKey.startsWith('flow:');
+  }
+
+  /// تخزين حمولة تهيئة الجهاز لمحكم محدد مع حماية التعديلات المحلية.
+  Future<void> provisionPutForUser({
+    required int userId,
+    required String cacheKey,
+    required Map<String, dynamic> data,
+    bool writeUnscoped = false,
+  }) async {
+    final scopedKey = OfflineStore.userKey(userId, cacheKey);
+    final status = await OfflineStore.instance.cacheSyncStatus(scopedKey);
+    final existing = await OfflineStore.instance.cacheGet(scopedKey);
+    final hasLocalEdits = status == SyncStatuses.pending ||
+        status == SyncStatuses.failed ||
+        (existing != null &&
+            (existing['locally_modified'] == true ||
+                existing['locally_approved'] == true));
+    Map<String, dynamic> toStore;
+    var syncStatus = SyncStatuses.synced;
+    if (hasLocalEdits && existing != null) {
+      final merged = Map<String, dynamic>.from(data);
+      final serverWf = data['workflow'];
+      final serverReopened = serverWf is Map && serverWf['reopened'] == true;
+      if (serverReopened) {
+        merged['locally_approved'] = false;
+        merged['locally_modified'] = existing['locally_modified'] == true;
+        if (existing['locally_modified'] == true) {
+          if (existing['saved_payload'] is Map) {
+            merged['saved_payload'] = existing['saved_payload'];
+          }
+          if (existing['saved_rows'] != null) {
+            merged['saved_rows'] = existing['saved_rows'];
+          }
+        }
+      } else {
+        merged['locally_modified'] = existing['locally_modified'] == true;
+        merged['locally_approved'] = existing['locally_approved'] == true;
+        if (existing['saved_payload'] is Map) {
+          merged['saved_payload'] = existing['saved_payload'];
+        }
+        if (existing['saved_rows'] != null) {
+          merged['saved_rows'] = existing['saved_rows'];
+        }
+      }
+      toStore = merged;
+      syncStatus = serverReopened && existing['locally_modified'] != true
+          ? SyncStatuses.synced
+          : SyncStatuses.pending;
+    } else {
+      toStore = data;
+      if (_isListAggregateCacheKey(cacheKey)) {
+        toStore = await _overlayApprovedStatuses(
+          Map<String, dynamic>.from(data),
+          forUserId: userId,
+        );
+      }
+    }
+    await OfflineStore.instance.cacheSet(
+      scopedKey,
+      toStore,
+      syncStatus: syncStatus,
+    );
+    if (writeUnscoped && !_provisionIsPrivateKey(cacheKey)) {
+      await OfflineStore.instance.cacheSet(
+        cacheKey,
+        toStore,
+        syncStatus: syncStatus,
+      );
+    }
+    if (cacheKey.startsWith('flow:')) {
+      final active = (data['active_day_id'] ?? '').toString();
+      if (active.isNotEmpty && cacheKey == 'flow:') {
+        await OfflineStore.instance.cacheSetForUser(
+          userId,
+          'flow:$active',
+          toStore,
+          syncStatus: syncStatus,
+        );
+      }
+    }
+  }
+
+  Future<void> provisionMirrorEvalListsForUser(
+    int userId,
+    Map<String, dynamic> data, {
+    String? unitKey,
+    String? phase,
+  }) async {
+    final uk = (unitKey ?? data['unit_key'] ?? '').toString();
+    final pk = (phase ?? data['phase_key'] ?? '').toString();
+    final keys = <String>{
+      _evalListsCacheKey(unitKey: uk, phase: pk),
+      if (uk.isNotEmpty) _evalListsCacheKey(unitKey: uk, phase: ''),
+      _evalListsCacheKey(unitKey: '', phase: pk),
+      _evalListsCacheKey(unitKey: '', phase: ''),
+    };
+    for (final k in keys) {
+      await provisionPutForUser(userId: userId, cacheKey: k, data: data);
+    }
+  }
+
   /// مفتاح فتح قائمة الإجراءات: slot_id الفريد أولاً ثم slot_index.
   int? actionEvalOpenId(ListRow row) => row.slotId ?? row.slotIndex;
 
@@ -1295,8 +1409,8 @@ class TabletRepository {
         cacheKey.startsWith('evaluation_lists');
   }
 
-  String _stripUserScope(String fullKey) {
-    final uid = AuthService.instance.currentUserId;
+  String _stripUserScope(String fullKey, [int? userId]) {
+    final uid = userId ?? AuthService.instance.currentUserId;
     if (uid == null) return fullKey;
     final prefix = 'u$uid:';
     if (fullKey.startsWith(prefix)) return fullKey.substring(prefix.length);
@@ -1305,8 +1419,9 @@ class TabletRepository {
 
   /// يدمج حالة «معتمد» من أوراق التقييم المخزّنة محلياً في صفوف القوائم.
   Future<Map<String, dynamic>> _overlayApprovedStatuses(
-    Map<String, dynamic> payload,
-  ) async {
+    Map<String, dynamic> payload, {
+    int? forUserId,
+  }) async {
     final copy = Map<String, dynamic>.from(payload);
     final field = copy.containsKey('lists')
         ? 'lists'
@@ -1321,12 +1436,16 @@ class TabletRepository {
 
     final approvedSlots = <int, String>{};
     final approvedItems = <String, String>{};
+    final uid = forUserId ?? AuthService.instance.currentUserId;
 
     for (final pattern in ['action_eval_detail:', 'evaluation_list_detail:']) {
       for (final fullKey in await OfflineStore.instance.cacheKeysLike(pattern)) {
-        final localKey = _stripUserScope(fullKey);
+        if (uid != null && uid > 0 && !fullKey.startsWith('u$uid:')) continue;
+        final localKey = _stripUserScope(fullKey, uid);
         if (!localKey.startsWith(pattern)) continue;
-        final sheet = await _cacheGetScoped(localKey);
+        final sheet = (uid != null && uid > 0)
+            ? await OfflineStore.instance.cacheGetForUser(uid, localKey)
+            : await _cacheGetScoped(localKey);
         if (sheet == null) continue;
         final wf = sheet['workflow'];
         final reopened = wf is Map && wf['reopened'] == true;

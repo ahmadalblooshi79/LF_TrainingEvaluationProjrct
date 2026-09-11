@@ -157,6 +157,9 @@ def _migrate_legacy_action_eval_phase_roots(db: Session, days: list[dict[str, st
         ck = (root.catalog_phase_key or "").strip()
         if ck in valid_keys:
             continue
+        # جذور أيام المجرى (حتى بمعرّف قديم مرادف) ليست مراحل قديمة — لا تُدمج/تُحذف هنا.
+        if parse_flow_day_catalog_key(ck):
+            continue
         children = (
             db.query(InformationBankTreeNode)
             .filter(InformationBankTreeNode.parent_id == int(root.id))
@@ -239,6 +242,15 @@ def _ensure_action_eval_flow_day_roots(db: Session) -> bool:
     ):
         day_id = parse_flow_day_catalog_key((root.catalog_phase_key or "").strip())
         if day_id and day_id not in valid_ids:
+            from app.flow_day_ids import flow_days_equivalent
+
+            if any(
+                flow_days_equivalent(
+                    db, day_id, vid, label_a=(root.name or "")
+                )
+                for vid in valid_ids
+            ):
+                continue
             stale_roots.append(root)
     for root in stale_roots:
         _purge_stale_action_eval_flow_day_root(db, root)

@@ -42,6 +42,7 @@ from app.models import (
     ExercisePlannerFlowBundle,
     ExercisePlannerFlowBundleActionEval,
     InformationBankTreeNode,
+    PlannerFlowBundleEvalSavedResult,
 )
 from app.unit_levels_catalog import label_for_unit_level_key, normalize_unit_level_key
 from app.planner_flow_judge_labels import flow_assignee_label_for_unit_key
@@ -49,6 +50,7 @@ from app.planner_flow_judge_labels import flow_assignee_label_for_unit_key
 INFO_BANK_ACTION_EVAL_KIND = "action_eval"
 PRIMARY_FLOW_UNIT_KEY = "ul_brigade_grp_cmd"
 _IBANK_REL_RE = re.compile(r"^(\d+)/ibn_(\d+)\.xlsx$", re.IGNORECASE)
+_IN_ACTION_EVAL_REPAIR = False
 
 
 def action_eval_storage_relpath(bundle_id: int, node_id: int) -> str:
@@ -70,6 +72,12 @@ def prepare_action_eval_ibank_tree(db: Session) -> None:
     from app.info_bank_tree import ensure_information_bank_kind
 
     ensure_information_bank_kind(db, INFO_BANK_ACTION_EVAL_KIND)
+
+
+def _prepare_action_eval_ibank_tree_if_needed(db: Session) -> None:
+    if _IN_ACTION_EVAL_REPAIR:
+        return
+    prepare_action_eval_ibank_tree(db)
 
 
 def _effective_unit_key_for_node(db: Session, node: InformationBankTreeNode) -> str:
@@ -120,9 +128,554 @@ def _node_ancestor_ids(db: Session, node: InformationBankTreeNode) -> list[int]:
     return [int(n.id) for n in _node_ancestor_chain(db, node)]
 
 
+def _flow_days_match(db: Session, a: str | None, b: str | None) -> bool:
+    sa = (a or "").strip()
+    sb = (b or "").strip()
+    if not sa or not sb:
+        return False
+    if sa == sb:
+        return True
+    from app.flow_day_ids import flow_days_equivalent
+
+    return flow_days_equivalent(db, sa, sb)
+
+
+_DILEMMA_TEXT_PREFIX_RE = re.compile(
+    r"^(?:ال)?معضل[ةه]\s*[/\\-]?\s*\d+\s*[:：\-–]?\s*",
+    re.IGNORECASE,
+)
+
+
+def _norm_dilemma_key(text: str) -> str:
+    t = (text or "").strip()
+    t = _DILEMMA_TEXT_PREFIX_RE.sub("", t)
+    t = (
+        t.replace("أ", "ا")
+        .replace("إ", "ا")
+        .replace("آ", "ا")
+        .replace("ة", "ه")
+        .replace("ى", "ي")
+    )
+    return re.sub(r"\s+", " ", t).strip()[:120]
+
+
+def _flow_dilemma_day_index(db: Session) -> list[tuple[str, int, str]]:
+    """(day_id, dilemma_no, norm_text) من مجرى بنك المعلومات."""
+    from app.ibank_dilemma_folder_import import parse_dilemma_no_from_text
+    from app.models.domain import InformationBankEventFlowTable
+
+    try:
+        from flask import g, has_app_context
+
+        if has_app_context():
+            hit = getattr(g, "_action_eval_flow_dilemma_day_index", None)
+            if hit is not None:
+                return hit
+    except Exception:
+        has_app_context = lambda: False  # noqa: E731
+
+    row = (
+        db.query(InformationBankEventFlowTable)
+        .order_by(InformationBankEventFlowTable.id)
+        .first()
+    )
+    raw = (getattr(row, "flow_table_json", None) or "").strip() if row else ""
+    out: list[tuple[str, int, str]] = []
+    for day in _parse_flow_table_days(raw):
+        day_id = str(day.get("id") or "").strip()
+        if not day_id:
+            continue
+        for r in day.get("rows") or []:
+            if (r.get("kind") or "").strip().lower() != "dilemma":
+                continue
+            text = str(r.get("text") or "").strip()
+            if not text:
+                continue
+            dno = parse_dilemma_no_from_text(text) or 0
+            key = _norm_dilemma_key(text)
+            if key:
+                out.append((day_id, int(dno or 0), key))
+    try:
+        from flask import g, has_app_context
+
+        if has_app_context():
+            g._action_eval_flow_dilemma_day_index = out
+    except Exception:
+        pass
+    return out
+
+
+def _infer_flow_day_id_from_slot_title(db: Session, title: str) -> str:
+    raw = _strip_action_eval_file_ext(title or "")
+    m = _DILEMMA_TITLE_RE.match(raw)
+    dno = int(m.group("num") or 0) if m else 0
+    dtxt = _norm_dilemma_key((m.group("text") if m else raw) or "")
+    if not dtxt:
+        return ""
+    hits: list[str] = []
+    for day_id, flow_no, flow_key in _flow_dilemma_day_index(db):
+        if dno and flow_no and dno != flow_no:
+            continue
+        if (
+            dtxt == flow_key
+            or dtxt.startswith(flow_key)
+            or flow_key.startswith(dtxt)
+            or flow_key in dtxt
+            or dtxt in flow_key
+        ):
+            hits.append(day_id)
+    if len(set(hits)) == 1:
+        return hits[0]
+    if hits:
+        return hits[0]
+    return ""
+
+
+def _published_item_matches_day(
+    db: Session,
+    want_day: str,
+    *,
+    slot: ExercisePlannerFlowBundleActionEval | None = None,
+    node: InformationBankTreeNode | None = None,
+) -> bool:
+    """اليوم من نص المعضلة في العنوان أولاً — مجلد البنك قد يكون خاطئاً."""
+    want = (want_day or "").strip()
+    if not want:
+        return True
+    inferred = ""
+    if slot is not None:
+        inferred = _infer_flow_day_id_from_slot_title(db, slot.title or "")
+    if inferred:
+        return _flow_days_match(db, inferred, want)
+    if node is not None:
+        node_day = _flow_day_id_for_node(db, node)
+        if node_day:
+            return _flow_days_match(db, node_day, want)
+    return False
+
+
+def _title_belongs_to_flow_day(db: Session, title: str, want_day: str) -> bool:
+    want = (want_day or "").strip()
+    if not want:
+        return True
+    inferred = _infer_flow_day_id_from_slot_title(db, title or "")
+    if not inferred:
+        return True
+    return _flow_days_match(db, inferred, want)
+
+
+def _slot_has_saved_result(db: Session, slot_id: int) -> bool:
+    row = (
+        db.query(PlannerFlowBundleEvalSavedResult.id)
+        .filter(PlannerFlowBundleEvalSavedResult.bundle_action_eval_id == int(slot_id))
+        .first()
+    )
+    return row is not None
+
+
+def _title_dup_key(title: str) -> tuple[str, str]:
+    raw = _strip_action_eval_file_ext(title or "")
+    m = _DILEMMA_TITLE_RE.match(raw)
+    dtxt = _norm_dilemma_key((m.group("text") if m else raw) or "")
+    base = _norm_dilemma_key(_action_eval_title_base(title or ""))
+    return (base, dtxt)
+
+
+def _published_slot_dup_key(slot: ExercisePlannerFlowBundleActionEval) -> tuple[str, str]:
+    return _title_dup_key(slot.title or "")
+
+
+def _saved_result_slot_ids(db: Session, slot_ids: list[int]) -> set[int]:
+    if not slot_ids:
+        return set()
+    rows = (
+        db.query(PlannerFlowBundleEvalSavedResult.bundle_action_eval_id)
+        .filter(PlannerFlowBundleEvalSavedResult.bundle_action_eval_id.in_(slot_ids))
+        .all()
+    )
+    return {int(r[0]) for r in rows}
+
+
+def dedupe_published_action_eval_slots(
+    db: Session, slots: list[ExercisePlannerFlowBundleActionEval]
+) -> list[ExercisePlannerFlowBundleActionEval]:
+    """إخفاء النسخة الفارغة عند تكرار نفس القائمة/المعضلة — لا يُحذف شيء من القاعدة.
+
+    إن وُجدت نتيجتان مدخلتان لنفس المعضلة تُعرضان معاً (كلاهما فعلي).
+    """
+    if len(slots) <= 1:
+        return list(slots)
+    saved_ids = _saved_result_slot_ids(db, [int(s.id) for s in slots])
+    grouped: dict[tuple[str, str], list[ExercisePlannerFlowBundleActionEval]] = defaultdict(list)
+    for slot in slots:
+        grouped[_published_slot_dup_key(slot)].append(slot)
+    out: list[ExercisePlannerFlowBundleActionEval] = []
+    for items in grouped.values():
+        if len(items) == 1:
+            out.extend(items)
+            continue
+        with_res = [s for s in items if int(s.id) in saved_ids]
+        if with_res:
+            out.extend(with_res)
+            continue
+
+        def _keep_score(s: ExercisePlannerFlowBundleActionEval) -> tuple[int, int, int]:
+            nid = parse_action_eval_storage_relpath(s.file_relpath) or 0
+            live = 1 if db.get(InformationBankTreeNode, int(nid)) is not None else 0
+            return (live, int(nid or 0), int(s.id))
+
+        out.append(max(items, key=_keep_score))
+    out.sort(key=lambda s: (int(s.slot_index or 0), int(s.id)))
+    return out
+
+
+def _replace_empty_day_slots_with_saved_siblings(
+    db: Session,
+    day_slots: list[ExercisePlannerFlowBundleActionEval],
+    all_slots: list[ExercisePlannerFlowBundleActionEval],
+) -> list[ExercisePlannerFlowBundleActionEval]:
+    """عرض الخانة ذات النتيجة لنفس عنوان القائمة بدل النسخة الفارغة الظاهرة في اليوم."""
+    if not day_slots or not all_slots:
+        return list(day_slots)
+    saved_ids = _saved_result_slot_ids(db, [int(s.id) for s in all_slots])
+    if not saved_ids:
+        return list(day_slots)
+    by_key: dict[tuple[str, str], list[ExercisePlannerFlowBundleActionEval]] = defaultdict(list)
+    for slot in all_slots:
+        by_key[_published_slot_dup_key(slot)].append(slot)
+    out: list[ExercisePlannerFlowBundleActionEval] = []
+    used_saved: set[int] = set()
+    for slot in day_slots:
+        sid = int(slot.id)
+        if sid in saved_ids:
+            out.append(slot)
+            used_saved.add(sid)
+            continue
+        alts = [
+            s
+            for s in by_key.get(_published_slot_dup_key(slot), [])
+            if int(s.id) in saved_ids and int(s.id) not in used_saved
+        ]
+        if not alts:
+            out.append(slot)
+            continue
+        pick = min(alts, key=lambda s: int(s.id))
+        out.append(pick)
+        used_saved.add(int(pick.id))
+    return out
+
+
+def repair_orphaned_action_eval_slots(
+    db: Session, *, exercise_id: int | None = None
+) -> dict[str, int]:
+    """إعادة ربط القوائم المنشورة بعقد البنك الحالية — دون حذف خانات أو نتائج."""
+    global _IN_ACTION_EVAL_REPAIR
+    nested = _IN_ACTION_EVAL_REPAIR
+    _IN_ACTION_EVAL_REPAIR = True
+    try:
+        return _repair_orphaned_action_eval_slots_inner(db, exercise_id=exercise_id)
+    finally:
+        if not nested:
+            _IN_ACTION_EVAL_REPAIR = False
+
+
+def _repair_orphaned_action_eval_slots_inner(
+    db: Session, *, exercise_id: int | None = None
+) -> dict[str, int]:
+    q = db.query(ExercisePlannerFlowBundleActionEval)
+    if exercise_id is not None:
+        q = q.join(
+            ExercisePlannerFlowBundle,
+            ExercisePlannerFlowBundle.id
+            == ExercisePlannerFlowBundleActionEval.bundle_id,
+        ).filter(ExercisePlannerFlowBundle.exercise_id == int(exercise_id))
+    slots = q.all()
+    remapped = kept_orphan = skipped = 0
+    src_cache: dict[tuple[str, str, str], list[dict]] = {}
+    for slot in slots:
+        nid = parse_action_eval_storage_relpath(slot.file_relpath)
+        if nid is not None and db.get(InformationBankTreeNode, int(nid)) is not None:
+            skipped += 1
+            continue
+        bundle = db.get(ExercisePlannerFlowBundle, int(slot.bundle_id))
+        if bundle is None:
+            kept_orphan += 1
+            continue
+        inferred = _infer_flow_day_id_from_slot_title(db, slot.title or "")
+        uk = (bundle.unit_level_key or "").strip()
+        pk = (bundle.exercise_phase or "").strip()
+        cache_key = (pk, uk, inferred or "")
+        sources = src_cache.get(cache_key)
+        if sources is None:
+            sources = collect_ibank_action_eval_files_for_phase_unit(
+                db, phase_key=pk, unit_key=uk, flow_day_id=inferred or None
+            )
+            src_cache[cache_key] = sources
+        dno = 0
+        base = _action_eval_title_base(slot.title or "")
+        m = _DILEMMA_TITLE_RE.match(_strip_action_eval_file_ext(slot.title or ""))
+        if m:
+            dno = int(m.group("num") or 0)
+        cand = None
+        scored: list[tuple[int, dict]] = []
+        want_base = _norm_dilemma_key(base)
+        for src in sources:
+            score = 0
+            src_dno = int(src.get("dilemma_no") or 0)
+            if dno and src_dno == dno:
+                score += 3
+            src_base = _norm_dilemma_key(_action_eval_title_base(str(src.get("title") or "")))
+            if want_base and src_base and (want_base == src_base or want_base in src_base or src_base in want_base):
+                score += 4
+            if score > 0:
+                scored.append((score, src))
+        if scored:
+            scored.sort(key=lambda x: (-x[0], -int(x[1].get("node_id") or 0)))
+            best_score = scored[0][0]
+            winners = [item for item in scored if item[0] == best_score]
+            # لا نربط إلا عند تطابق اسم القائمة بشكل فريد — تجنّب خلط قائمتين لنفس المعضلة.
+            if len(winners) == 1 and best_score >= 4:
+                cand = winners[0][1]
+        if cand is None:
+            kept_orphan += 1
+            continue
+        new_nid = int(cand["node_id"])
+        taken = False
+        for other in slots:
+            if int(other.id) == int(slot.id):
+                continue
+            other_nid = parse_action_eval_storage_relpath(other.file_relpath)
+            if other_nid is not None and int(other_nid) == new_nid:
+                taken = True
+                break
+        if taken:
+            kept_orphan += 1
+            continue
+        new_rel = action_eval_storage_relpath(int(bundle.id), new_nid)
+        root = PLANNER_FLOW_BUNDLE_DIR.resolve()
+        dest = (root / new_rel).resolve()
+        old_rel = (slot.file_relpath or "").strip()
+        old_path = (root / old_rel).resolve() if old_rel else None
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if old_path is not None and old_path.is_file() and old_path != dest:
+            if not dest.is_file():
+                shutil.copy2(old_path, dest)
+        elif not dest.is_file():
+            src_path = cand.get("src_path")
+            if src_path is not None and Path(src_path).is_file():
+                shutil.copy2(src_path, dest)
+        slot.file_relpath = new_rel.replace("\\", "/")
+        remapped += 1
+    if remapped:
+        db.flush()
+    return {"remapped": remapped, "kept_orphan": kept_orphan, "unchanged": skipped}
+
+
+def _slot_dilemma_no(slot: ExercisePlannerFlowBundleActionEval) -> int:
+    m = _DILEMMA_TITLE_RE.match(_strip_action_eval_file_ext(slot.title or ""))
+    return int(m.group("num") or 0) if m else 0
+
+
+def _relink_saved_slot_to_empty(
+    db: Session,
+    *,
+    bundle: ExercisePlannerFlowBundle,
+    saved: ExercisePlannerFlowBundleActionEval,
+    empty: ExercisePlannerFlowBundleActionEval,
+) -> None:
+    """نقل خانة النتيجة إلى عقدة النسخة الفارغة لليوم الصحيح — دون مسح النتيجة."""
+    root = PLANNER_FLOW_BUNDLE_DIR.resolve()
+    empty_nid = parse_action_eval_storage_relpath(empty.file_relpath)
+    if empty_nid is None:
+        return
+    new_rel = action_eval_storage_relpath(int(bundle.id), int(empty_nid))
+    new_dest = (root / new_rel).resolve()
+    empty_path = (root / (empty.file_relpath or "")).resolve() if empty.file_relpath else None
+    old_path = (root / (saved.file_relpath or "")).resolve() if saved.file_relpath else None
+    new_dest.parent.mkdir(parents=True, exist_ok=True)
+    if empty_path is not None and empty_path.is_file():
+        if empty_path != new_dest:
+            shutil.copy2(empty_path, new_dest)
+    elif old_path is not None and old_path.is_file() and old_path != new_dest:
+        shutil.copy2(old_path, new_dest)
+    if (empty.title or "").strip():
+        saved.title = empty.title
+    saved.file_relpath = new_rel.replace("\\", "/")
+
+
+def restore_misplaced_action_eval_day_slots(
+    db: Session, *, exercise_id: int
+) -> dict[str, int]:
+    """إعادة قوائم اليوم/1 ذات النتائج من مجلد يوم خاطئ، وحذف النسخ الفارغة المكررة."""
+    bundles = (
+        db.query(ExercisePlannerFlowBundle)
+        .filter(ExercisePlannerFlowBundle.exercise_id == int(exercise_id))
+        .all()
+    )
+    relinked = deleted = 0
+    for bundle in bundles:
+        slots = (
+            db.query(ExercisePlannerFlowBundleActionEval)
+            .filter(ExercisePlannerFlowBundleActionEval.bundle_id == int(bundle.id))
+            .order_by(
+                ExercisePlannerFlowBundleActionEval.slot_index,
+                ExercisePlannerFlowBundleActionEval.id,
+            )
+            .all()
+        )
+        if not slots:
+            continue
+        saved_ids = _saved_result_slot_ids(db, [int(s.id) for s in slots])
+        saved_slots = [s for s in slots if int(s.id) in saved_ids]
+        empty_slots = [s for s in slots if int(s.id) not in saved_ids]
+        if not saved_slots or not empty_slots:
+            continue
+
+        def _empty_day(s: ExercisePlannerFlowBundleActionEval) -> str:
+            nid = parse_action_eval_storage_relpath(s.file_relpath)
+            node = db.get(InformationBankTreeNode, int(nid)) if nid else None
+            if node is not None:
+                nd = _flow_day_id_for_node(db, node)
+                if nd:
+                    return nd
+            return _infer_flow_day_id_from_slot_title(db, s.title or "")
+
+        empties_by_key: dict[tuple[str, str], list[ExercisePlannerFlowBundleActionEval]] = defaultdict(list)
+        for s in empty_slots:
+            empties_by_key[_published_slot_dup_key(s)].append(s)
+
+        used_empty: set[int] = set()
+        paired: list[tuple[ExercisePlannerFlowBundleActionEval, ExercisePlannerFlowBundleActionEval]] = []
+
+        def _pick_empty(cands: list[ExercisePlannerFlowBundleActionEval]) -> ExercisePlannerFlowBundleActionEval | None:
+            live = []
+            for e in cands:
+                if int(e.id) in used_empty:
+                    continue
+                nid = parse_action_eval_storage_relpath(e.file_relpath)
+                node = db.get(InformationBankTreeNode, int(nid)) if nid else None
+                live.append((1 if node is not None else 0, int(e.id), e))
+            if not live:
+                return None
+            live.sort(key=lambda t: (-t[0], t[1]))
+            return live[0][2]
+
+        leftover_saved: list[ExercisePlannerFlowBundleActionEval] = []
+        for s in saved_slots:
+            inferred = _infer_flow_day_id_from_slot_title(db, s.title or "")
+            nid = parse_action_eval_storage_relpath(s.file_relpath)
+            node = db.get(InformationBankTreeNode, int(nid)) if nid else None
+            node_day = _flow_day_id_for_node(db, node) if node is not None else ""
+            if inferred and node_day and _flow_days_match(db, inferred, node_day):
+                base = _published_slot_dup_key(s)[0]
+                other_day_empties = [
+                    e
+                    for e in empty_slots
+                    if int(e.id) not in used_empty
+                    and _published_slot_dup_key(e)[0] == base
+                    and _empty_day(e)
+                    and not _flow_days_match(db, _empty_day(e), node_day)
+                ]
+                if other_day_empties and _published_slot_dup_key(s) not in {
+                    _published_slot_dup_key(e) for e in other_day_empties
+                }:
+                    leftover_saved.append(s)
+                continue
+            if not inferred and not node_day:
+                leftover_saved.append(s)
+                continue
+            pick = _pick_empty(empties_by_key.get(_published_slot_dup_key(s), []))
+            if pick is None:
+                leftover_saved.append(s)
+                continue
+            target_day = _empty_day(pick)
+            if inferred and target_day and not _flow_days_match(db, inferred, target_day):
+                leftover_saved.append(s)
+                continue
+            paired.append((s, pick))
+            used_empty.add(int(pick.id))
+
+        leftover_saved_ids = {int(s.id) for s in leftover_saved}
+        occupied_keys = {
+            _published_slot_dup_key(s)
+            for s in saved_slots
+            if int(s.id) not in leftover_saved_ids
+        }
+        leftover_empty = [
+            e
+            for e in empty_slots
+            if int(e.id) not in used_empty
+            and _published_slot_dup_key(e) not in occupied_keys
+            and _infer_flow_day_id_from_slot_title(db, e.title or "")
+        ]
+        leftover_empty.sort(key=lambda e: (_slot_dilemma_no(e), int(e.id)))
+        uniq_empty: list[ExercisePlannerFlowBundleActionEval] = []
+        seen_k: set[tuple[str, str]] = set()
+        for e in leftover_empty:
+            k = _published_slot_dup_key(e)
+            if k in seen_k:
+                continue
+            better = _pick_empty(empties_by_key.get(k, []))
+            if better is None:
+                continue
+            seen_k.add(k)
+            uniq_empty.append(better)
+        leftover_saved.sort(key=lambda s: int(s.id))
+        if leftover_saved and len(leftover_saved) == len(uniq_empty):
+            for s, e in zip(leftover_saved, uniq_empty):
+                if int(e.id) in used_empty:
+                    continue
+                paired.append((s, e))
+                used_empty.add(int(e.id))
+
+        for saved, empty in paired:
+            _relink_saved_slot_to_empty(db, bundle=bundle, saved=saved, empty=empty)
+            relinked += 1
+
+        db.flush()
+        still_empty = [
+            s
+            for s in db.query(ExercisePlannerFlowBundleActionEval)
+            .filter(ExercisePlannerFlowBundleActionEval.bundle_id == int(bundle.id))
+            .all()
+            if int(s.id) not in saved_ids
+        ]
+        still_saved = [
+            s
+            for s in db.query(ExercisePlannerFlowBundleActionEval)
+            .filter(ExercisePlannerFlowBundleActionEval.bundle_id == int(bundle.id))
+            .all()
+            if int(s.id) in saved_ids
+        ]
+        saved_keys = {_published_slot_dup_key(s) for s in still_saved}
+        saved_rels = {
+            (s.file_relpath or "").replace("\\", "/") for s in still_saved
+        }
+        for e in still_empty:
+            if _published_slot_dup_key(e) not in saved_keys:
+                continue
+            rel = (e.file_relpath or "").replace("\\", "/")
+            if rel not in saved_rels:
+                _unlink_bundle_action_file(e.file_relpath)
+            db.delete(e)
+            deleted += 1
+    if relinked or deleted:
+        db.flush()
+    return {"relinked": relinked, "deleted_empty": deleted}
+
+
 def _flow_day_root_nodes_for_id(db: Session, flow_day_id: str) -> list[InformationBankTreeNode]:
-    ck = flow_day_catalog_key(flow_day_id)
-    if not ck:
+    from app.flow_day_ids import flow_day_alias_ids
+
+    want = (flow_day_id or "").strip()
+    if not want:
+        return []
+    keys = [
+        flow_day_catalog_key(i)
+        for i in flow_day_alias_ids(db, want)
+        if flow_day_catalog_key(i)
+    ]
+    if not keys:
         return []
     return (
         db.query(InformationBankTreeNode)
@@ -130,7 +683,7 @@ def _flow_day_root_nodes_for_id(db: Session, flow_day_id: str) -> list[Informati
             InformationBankTreeNode.kind == INFO_BANK_ACTION_EVAL_KIND,
             InformationBankTreeNode.parent_id.is_(None),
             InformationBankTreeNode.is_folder.is_(True),
-            InformationBankTreeNode.catalog_phase_key == ck,
+            InformationBankTreeNode.catalog_phase_key.in_(keys),
         )
         .order_by(InformationBankTreeNode.sort_order, InformationBankTreeNode.id)
         .all()
@@ -138,7 +691,7 @@ def _flow_day_root_nodes_for_id(db: Session, flow_day_id: str) -> list[Informati
 
 
 def _all_flow_day_root_nodes(db: Session) -> list[InformationBankTreeNode]:
-    prepare_action_eval_ibank_tree(db)
+    _prepare_action_eval_ibank_tree_if_needed(db)
     out: list[InformationBankTreeNode] = []
     for day in ibank_event_flow_days(db):
         out.extend(_flow_day_root_nodes_for_id(db, day["id"]))
@@ -302,7 +855,7 @@ def _file_belongs_to_phase_unit(
     file_day = parse_flow_day_catalog_key(f_pk)
     want_day = (flow_day_id or "").strip()
     if want_day or file_day:
-        return bool(file_day) and file_day == want_day
+        return bool(file_day) and _flow_days_match(db, file_day, want_day)
     phase_match = _phase_match_keys(phase_key) or {phase_key}
     resolved = _resolve_phase_key(f_pk, db)
     return bool(resolved and resolved in phase_match)
@@ -316,7 +869,7 @@ def collect_ibank_action_eval_files_for_phase_unit(
     flow_day_id: str | None = None,
 ) -> list[dict]:
     """كل ملفات Excel لمستوى الوحدة — بما فيها المجلدات المتداخلة (سرايا تحت كتيبة)."""
-    prepare_action_eval_ibank_tree(db)
+    _prepare_action_eval_ibank_tree_if_needed(db)
     uk = _resolve_unit_key(unit_key, db)
     if not uk:
         return []
@@ -428,6 +981,12 @@ def collect_ibank_action_eval_files_for_phase_unit(
             int(s["node_id"]),
         )
     )
+    if want_day:
+        sources = [
+            s
+            for s in sources
+            if _title_belongs_to_flow_day(db, str(s.get("title") or ""), want_day)
+        ]
     return sources
 
 
@@ -459,11 +1018,11 @@ def collect_ibank_dilemma_tree_unit_map(
     except Exception:
         cache = None
 
-    prepare_action_eval_ibank_tree(db)
+    _prepare_action_eval_ibank_tree_if_needed(db)
     tree = build_action_eval_dilemma_judge_tree(db, exercise_id=exercise_id)
     out: dict[str, dict] = {}
     for day_id, dilemmas in (tree or {}).items():
-        if want_day and str(day_id) != want_day:
+        if want_day and not _flow_days_match(db, str(day_id), want_day):
             continue
         for d in dilemmas or []:
             dno = int(d.get("dilemma_no") or d.get("num") or 0)
@@ -648,6 +1207,7 @@ def _parse_flow_table_days(raw: str) -> list[dict]:
                 {
                     "id": str(item.get("id") or f"day-{idx + 1}"),
                     "label": str(item.get("label") or f"اليوم/{idx + 1}"),
+                    "phase_key": str(item.get("phase_key") or ""),
                     "rows": _normalize_flow_rows(item.get("rows")),
                 }
             )
@@ -721,54 +1281,89 @@ def collect_flow_day_tabs_for_exercise(
             ),
         }
 
+    from app.flow_day_ids import canonical_flow_day_id, flow_day_ordinal
+
     bundle = primary_flow_bundle_for_exercise(
         db, exercise_id=int(exercise_id), phase_key=phase_key
     )
     raw = (getattr(bundle, "flow_table_json", None) or "").strip() if bundle else ""
     days = _parse_flow_table_days(raw)
-    tabs = [
-        _tab_from(
+    by_ord: dict[int, dict[str, str]] = {}
+    extras: list[dict[str, str]] = []
+
+    def _ingest(day_id: str, label: str, phase_key_raw: str = "") -> None:
+        did = (day_id or "").strip()
+        if not did:
+            return
+        item = {
+            "id": did,
+            "label": (label or "").strip() or did,
+            "phase_key": (phase_key_raw or "").strip(),
+        }
+        ordinal = flow_day_ordinal(did, item["label"])
+        if ordinal is None:
+            extras.append(item)
+            return
+        prev = by_ord.get(ordinal)
+        if prev is None:
+            by_ord[ordinal] = item
+            return
+        if not prev.get("phase_key") and item["phase_key"]:
+            prev["phase_key"] = item["phase_key"]
+        if item["label"] and (
+            not prev.get("label") or prev.get("label") == prev.get("id")
+        ):
+            prev["label"] = item["label"]
+
+    for d in ibank_days or []:
+        _ingest(
             str(d.get("id") or "").strip(),
             str(d.get("label") or "").strip(),
             str(d.get("phase_key") or ""),
         )
-        for d in days
-        if str(d.get("id") or "").strip()
-    ]
+    for d in days:
+        _ingest(
+            str(d.get("id") or "").strip(),
+            str(d.get("label") or "").strip(),
+            str(d.get("phase_key") or ""),
+        )
+
+    tabs: list[dict[str, str]] = []
+    for ordinal in sorted(by_ord):
+        item = by_ord[ordinal]
+        cid = canonical_flow_day_id(db, item["id"], item.get("label") or "") or item["id"]
+        tabs.append(_tab_from(cid, item.get("label") or cid, item.get("phase_key") or ""))
+    for item in extras:
+        tabs.append(
+            _tab_from(item["id"], item.get("label") or item["id"], item.get("phase_key") or "")
+        )
     if tabs:
         return tabs
-    if ibank_days:
-        return [
-            _tab_from(
-                str(d.get("id") or "").strip(),
-                str(d.get("label") or "").strip() or str(d.get("id") or ""),
-                str(d.get("phase_key") or ""),
-            )
-            for d in ibank_days
-            if str(d.get("id") or "").strip()
-        ]
     return [_tab_from("day-1", "اليوم/1")]
 
 
-def extract_assignee_judge_labels_from_bundle(
-    bundle: ExercisePlannerFlowBundle | None,
+def _extract_assignee_judge_labels_from_raw(
+    raw: str,
     *,
     day_id: str | None = None,
+    db: Session | None = None,
 ) -> list[str]:
-    """أصناف المحكمين من عمود المكلف بالإجراء والمتابعة في جدول المجرى."""
+    """أصناف المحكمين من JSON جدول المجرى — مع مطابقة اليوم المنطقي إن وُجد db."""
     from app.planner_flow_judge_labels import parse_assignee_cell_lines
 
-    if bundle is None:
-        return []
-    raw = (getattr(bundle, "flow_table_json", None) or "").strip()
-    if not raw:
+    if not (raw or "").strip():
         return []
     labels: list[str] = []
     seen: set[str] = set()
     want_day = (day_id or "").strip()
     for day in _parse_flow_table_days(raw):
-        if want_day and str(day.get("id") or "") != want_day:
-            continue
+        got_id = str(day.get("id") or "")
+        if want_day:
+            if db is not None:
+                if not _flow_days_match(db, got_id, want_day):
+                    continue
+            elif got_id != want_day:
+                continue
         for row in day.get("rows") or []:
             if (row.get("kind") or "row").strip().lower() != "row":
                 continue
@@ -778,6 +1373,19 @@ def extract_assignee_judge_labels_from_bundle(
                     seen.add(n)
                     labels.append(lbl)
     return labels
+
+
+def extract_assignee_judge_labels_from_bundle(
+    bundle: ExercisePlannerFlowBundle | None,
+    *,
+    day_id: str | None = None,
+    db: Session | None = None,
+) -> list[str]:
+    """أصناف المحكمين من عمود المكلف بالإجراء والمتابعة في جدول المجرى."""
+    if bundle is None:
+        return []
+    raw = (getattr(bundle, "flow_table_json", None) or "").strip()
+    return _extract_assignee_judge_labels_from_raw(raw, day_id=day_id, db=db)
 
 
 def collect_flow_assignee_units_for_phase(
@@ -793,11 +1401,26 @@ def collect_flow_assignee_units_for_phase(
     bundle = primary_flow_bundle_for_exercise(
         db, exercise_id=int(exercise_id), phase_key=phase_key
     )
-    if bundle is None:
+    labels = extract_assignee_judge_labels_from_bundle(
+        bundle, day_id=flow_day_id, db=db
+    )
+    if not labels:
+        from app.models.domain import InformationBankEventFlowTable
+
+        row = (
+            db.query(InformationBankEventFlowTable)
+            .order_by(InformationBankEventFlowTable.id)
+            .first()
+        )
+        raw = (getattr(row, "flow_table_json", None) or "").strip() if row else ""
+        labels = _extract_assignee_judge_labels_from_raw(
+            raw, day_id=flow_day_id, db=db
+        )
+    if not labels:
         return {}
     out: dict[str, list[str]] = defaultdict(list)
     seen_per_unit: dict[str, set[str]] = defaultdict(set)
-    for lbl in extract_assignee_judge_labels_from_bundle(bundle, day_id=flow_day_id):
+    for lbl in labels:
         uk = unit_key_for_assignee_label(lbl, db=db)
         if not uk:
             continue
@@ -1061,8 +1684,11 @@ def publish_action_eval_lists_from_ibank(
         if want_day:
             same_day_ids: set[int] = set()
             for nid in published_ids:
+                slot = by_node.get(int(nid))
                 node = db.get(InformationBankTreeNode, int(nid))
-                if node is not None and _flow_day_id_for_node(db, node) == want_day:
+                if _published_item_matches_day(
+                    db, want_day, slot=slot, node=node
+                ):
                     same_day_ids.add(int(nid))
             selected_node_ids = set(selected_node_ids) | same_day_ids
         else:
@@ -1071,12 +1697,23 @@ def publish_action_eval_lists_from_ibank(
     for nid, slot in list(by_node.items()):
         if int(nid) in selected_node_ids:
             continue
+        # النتائج المدخلة لا تُحذف أبداً — حتى لو اختفت عقدة البنك أو أُلغي التحديد.
+        if _slot_has_saved_result(db, int(slot.id)):
+            continue
+        node = db.get(InformationBankTreeNode, int(nid))
+        if node is None:
+            # عقدة مفقودة: أبقِ المنشور (يتيم) ولا تسحبه تلقائياً.
+            continue
         if want_day:
-            node = db.get(InformationBankTreeNode, int(nid))
-            if node is not None:
-                if _flow_day_id_for_node(db, node) != want_day:
-                    continue
-            else:
+            inferred = _infer_flow_day_id_from_slot_title(db, slot.title or "")
+            if inferred and not _flow_days_match(db, inferred, want_day):
+                _unlink_bundle_action_file(slot.file_relpath)
+                db.delete(slot)
+                removed += 1
+                continue
+            if not _published_item_matches_day(
+                db, want_day, slot=slot, node=node
+            ):
                 continue
         _unlink_bundle_action_file(slot.file_relpath)
         db.delete(slot)
@@ -1161,15 +1798,6 @@ def publish_action_eval_lists_from_ibank(
             dest.relative_to(root)
         except ValueError:
             continue
-        need_copy = True
-        if dest.is_file():
-            try:
-                need_copy = _file_sha256(dest) != _file_sha256(src_path)
-            except OSError:
-                need_copy = True
-        if need_copy:
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_path, dest)
 
         d_idx = int(dilemma_map.get(int(nid), 0) or 0)
         if d_idx <= 0:
@@ -1182,9 +1810,35 @@ def publish_action_eval_lists_from_ibank(
                 "text": (src.get("dilemma_text") or "").strip()[:400],
             }
         title = _slot_title_with_dilemma(str(src["title"]), dilemma)
+        if want_day and not _title_belongs_to_flow_day(db, title, want_day):
+            skipped += 1
+            continue
+        slot = by_node.get(int(nid))
+        if slot is not None and _slot_has_saved_result(db, int(slot.id)):
+            skipped += 1
+            continue
+        if slot is None:
+            want_key = _title_dup_key(title)
+            if any(
+                _slot_has_saved_result(db, int(s.id))
+                and _published_slot_dup_key(s) == want_key
+                for s in by_node.values()
+            ):
+                skipped += 1
+                continue
+
+        need_copy = True
+        if dest.is_file():
+            try:
+                need_copy = _file_sha256(dest) != _file_sha256(src_path)
+            except OSError:
+                need_copy = True
+        if need_copy:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_path, dest)
+
         preferred_index = d_idx if d_idx > 0 else (sort_i + 1)
 
-        slot = by_node.get(int(nid))
         if slot is None:
             slot_index = _reserve_slot_index(preferred_index, int(nid))
             slot = ExercisePlannerFlowBundleActionEval(
@@ -1787,8 +2441,8 @@ def build_action_eval_folder_groups(
     rows = build_action_eval_rows_for_group(
         ibank_sources=ibank_sources,
         published_by_node=published_by_node,
-        # مع يوم محدد: فقط ملفات ذلك اليوم — لا تسرّب منشورات أيام أخرى.
-        include_orphan_published=not bool(want_day),
+        # المنشور يبقى ظاهراً حتى لو اختفت عقدة البنك؛ التصفية حسب اليوم أدناه.
+        include_orphan_published=True,
     )
     src_by_id = {int(s["node_id"]): s for s in ibank_sources}
     # إن وُجدت ملفات مربوطة بمعاضل البنك — جمّع حسب المعضلة لتسهيل النشر اليومي
@@ -1796,11 +2450,17 @@ def build_action_eval_folder_groups(
         grouped: dict[str, dict] = {}
         for row in rows:
             nid = int(row["node_id"])
-            # عند تصفية اليوم تجاهل أي صف بلا مصدر لذلك اليوم (حماية إضافية).
-            if want_day and nid not in src_by_id:
+            slot = published_by_node.get(nid)
+            node = db.get(InformationBankTreeNode, nid)
+            if want_day and not _published_item_matches_day(
+                db, want_day, slot=slot, node=node
+            ):
                 continue
             src = src_by_id.get(nid) or {}
             dno = int(src.get("dilemma_no") or 0)
+            if dno <= 0 and slot is not None:
+                m = _DILEMMA_TITLE_RE.match(_strip_action_eval_file_ext(slot.title or ""))
+                dno = int(m.group("num") or 0) if m else 0
             if dno > 0:
                 fk = str(src.get("folder_key") or f"dilemma-{dno}")
                 fn = str(src.get("folder_name") or src.get("dilemma_text") or f"المعضلة/{dno}")
@@ -1826,7 +2486,13 @@ def build_action_eval_folder_groups(
     uk = _resolve_unit_key(unit_key, db) or unit_key
     grouped = {}
     for row in rows:
-        node = db.get(InformationBankTreeNode, int(row["node_id"]))
+        nid = int(row["node_id"])
+        slot = published_by_node.get(nid)
+        node = db.get(InformationBankTreeNode, nid)
+        if want_day and not _published_item_matches_day(
+            db, want_day, slot=slot, node=node
+        ):
+            continue
         if node is not None:
             if not _file_belongs_to_phase_unit(
                 db,
@@ -1891,9 +2557,11 @@ def collect_published_action_eval_unit_map(
             continue
         day_hits = 0
         if want_day:
-            for nid in published:
+            for nid, slot in published.items():
                 node = db.get(InformationBankTreeNode, int(nid))
-                if node is not None and _flow_day_id_for_node(db, node) == want_day:
+                if _published_item_matches_day(
+                    db, want_day, slot=slot, node=node
+                ):
                     day_hits += 1
             if day_hits <= 0:
                 continue
@@ -1971,77 +2639,95 @@ def build_judge_action_eval_display_groups(
         pk = published_units.get(uk) or ""
         if not pk:
             continue
-        assignees = flow_labels.get(uk, [])
-        g = _build_action_eval_branch_group(
-            db,
-            exercise_id=int(exercise_id),
-            phase_key=pk,
-            unit_key=uk,
-            assignee_labels=assignees,
-            judge_by_unit=judge_by_unit,
-            trainee_by_unit=trainee_by_unit,
-            flow_day_id=flow_day_id,
+        bundle = (
+            db.query(ExercisePlannerFlowBundle)
+            .filter(
+                ExercisePlannerFlowBundle.exercise_id == int(exercise_id),
+                ExercisePlannerFlowBundle.exercise_phase == pk,
+                ExercisePlannerFlowBundle.unit_level_key == uk,
+            )
+            .first()
         )
-        g["unit_label"] = _flow_display_label(uk, assignees, db=db)
-        g["source"] = "published"
-
-        bundle = None
-        bundle_id = g.get("bundle_id")
-        if bundle_id:
-            bundle = db.get(ExercisePlannerFlowBundle, int(bundle_id))
-        published_by_node = _published_slots_by_node(db, bundle) if bundle is not None else {}
-        folders: list[dict] = []
-        pub_count = 0
-        src_by_id = {
-            int(s["node_id"]): s
-            for s in (g.get("ibank_sources") or [])
-            if s.get("node_id") is not None
-        }
-        for folder in g.get("list_folder_groups") or []:
-            rows: list[dict] = []
-            folder_name = str(folder.get("folder_name") or "").strip()
-            for row in folder.get("rows") or []:
-                if not row.get("published"):
-                    continue
-                nid = int(row["node_id"])
-                if want_day:
-                    node = db.get(InformationBankTreeNode, nid)
-                    if node is None or _flow_day_id_for_node(db, node) != want_day:
-                        continue
-                slot = published_by_node.get(nid)
-                if slot is None:
-                    continue
-                src = src_by_id.get(nid) or {}
-                dno = int(row.get("dilemma_no") or src.get("dilemma_no") or 0)
-                dtxt = (
-                    str(src.get("dilemma_text") or "").strip()
-                    or folder_name
-                )
-                rows.append(
-                    {
-                        **row,
-                        "slot_index": int(slot.slot_index),
-                        "slot_id": int(slot.id),
-                        "dilemma_no": dno or row.get("dilemma_no"),
-                        "title": format_action_eval_judge_list_title(
-                            stored_title=slot.title,
-                            source_title=str(src.get("title") or row.get("title") or ""),
-                            dilemma_no=dno,
-                            dilemma_text=dtxt,
-                        ),
-                    }
-                )
-            if rows:
-                folders.append({**folder, "rows": rows})
-                pub_count += len(rows)
-        if pub_count <= 0:
+        if bundle is None:
             continue
+        raw_slots = (
+            db.query(ExercisePlannerFlowBundleActionEval)
+            .filter(ExercisePlannerFlowBundleActionEval.bundle_id == int(bundle.id))
+            .order_by(
+                ExercisePlannerFlowBundleActionEval.slot_index,
+                ExercisePlannerFlowBundleActionEval.id,
+            )
+            .all()
+        )
+        day_slots: list[ExercisePlannerFlowBundleActionEval] = []
+        for slot in raw_slots:
+            nid = parse_action_eval_storage_relpath(slot.file_relpath)
+            node = db.get(InformationBankTreeNode, int(nid)) if nid is not None else None
+            if want_day and not _published_item_matches_day(
+                db, want_day, slot=slot, node=node
+            ):
+                continue
+            day_slots.append(slot)
+        day_slots = _replace_empty_day_slots_with_saved_siblings(
+            db, day_slots, raw_slots
+        )
+        slots = dedupe_published_action_eval_slots(db, day_slots)
+        if not slots:
+            continue
+        assignees = flow_labels.get(uk, [])
+        folders_map: dict[str, dict] = {}
+        for slot in slots:
+            raw = _strip_action_eval_file_ext(slot.title or "")
+            m = _DILEMMA_TITLE_RE.match(raw)
+            dno = int(m.group("num") or 0) if m else 0
+            dtxt = ((m.group("text") if m else "") or "").strip()
+            fk = f"dilemma-{dno}" if dno else "other"
+            fn = dtxt or (f"المعضلة/{dno}" if dno else "قوائم أخرى")
+            bucket = folders_map.setdefault(
+                fk,
+                {
+                    "folder_key": fk,
+                    "folder_name": fn,
+                    "sort_order": dno or 99990,
+                    "rows": [],
+                },
+            )
+            nid = parse_action_eval_storage_relpath(slot.file_relpath) or 0
+            bucket["rows"].append(
+                {
+                    "node_id": int(nid),
+                    "title": format_action_eval_judge_list_title(
+                        stored_title=slot.title,
+                        source_title=slot.title,
+                    ),
+                    "published": True,
+                    "selected": False,
+                    "slot_id": int(slot.id),
+                    "slot_index": int(slot.slot_index),
+                    "dilemma_no": dno or None,
+                }
+            )
+        folders = sorted(
+            folders_map.values(),
+            key=lambda g: (int(g.get("sort_order") or 0), str(g.get("folder_name") or "")),
+        )
+        pub_count = sum(len(f["rows"]) for f in folders)
         published_total += pub_count
         out.append(
             {
-                **g,
+                "phase_key": pk,
+                "phase_label": exercise_phase_label(pk) or pk,
+                "unit_key": uk,
+                "unit_label": _flow_display_label(uk, assignees, db=db),
+                "judge_name": judge_by_unit.get(uk, "—"),
+                "trainee_name": trainee_by_unit.get(uk, "—"),
+                "assignee_labels": assignees,
+                "ibank_sources": [],
+                "ibank_source_count": 0,
+                "bundle_id": int(bundle.id),
                 "list_folder_groups": folders,
                 "published_count": pub_count,
+                "source": "published",
             }
         )
     meta = {
@@ -2283,7 +2969,16 @@ def build_action_eval_dilemma_publish_groups(
     )
     want_day = (flow_day_id or "").strip()
     tree = build_action_eval_dilemma_judge_tree(db, exercise_id=int(exercise_id))
-    day_dilemmas = list(tree.get(want_day) or []) if want_day else []
+    day_dilemmas: list[dict] = []
+    if want_day:
+        day_dilemmas = list(tree.get(want_day) or [])
+        if not day_dilemmas:
+            from app.flow_day_ids import flow_day_alias_ids
+
+            for aid in flow_day_alias_ids(db, want_day):
+                day_dilemmas = list(tree.get(aid) or [])
+                if day_dilemmas:
+                    break
     if not day_dilemmas and not want_day:
         # بدون يوم محدد: ادمج كل الأيام بالترتيب
         for day_id in sorted(
@@ -2319,10 +3014,13 @@ def build_action_eval_dilemma_publish_groups(
         buk = (bundle.unit_level_key or "").strip()
         if not buk:
             continue
-        for nid in _published_slots_by_node(db, bundle).keys():
+        by_node = _published_slots_by_node(db, bundle)
+        for nid, slot in by_node.items():
             if want_day:
                 node = db.get(InformationBankTreeNode, int(nid))
-                if node is None or _flow_day_id_for_node(db, node) != want_day:
+                if not _published_item_matches_day(
+                    db, want_day, slot=slot, node=node
+                ):
                     continue
             published_nodes_by_unit.setdefault(buk, set()).add(int(nid))
 
@@ -2453,20 +3151,12 @@ def withdraw_action_eval_for_deleted_ibank_nodes(
     db: Session,
     node_ids: set[int] | list[int] | tuple[int, ...],
 ) -> int:
-    """سحب القوائم المنشورة المرتبطة بعُقد بنك معلومات حُذفت (أو ستُحذف)."""
+    """لا يُحذف منشور عند اختفاء عقدة البنك — النتائج تبقى، ويُعاد الربط لاحقاً."""
     want = {int(x) for x in (node_ids or []) if x is not None}
     if not want:
         return 0
-    removed = 0
-    rows = db.query(ExercisePlannerFlowBundleActionEval).all()
-    for slot in rows:
-        nid = parse_action_eval_storage_relpath(slot.file_relpath)
-        if nid is None or int(nid) not in want:
-            continue
-        _unlink_bundle_action_file(slot.file_relpath)
-        db.delete(slot)
-        removed += 1
-    return removed
+    # متعمّد: لا db.delete ولا unlink لملف الحزمة. CASCADE على النتائج ممنوع هنا.
+    return 0
 
 
 def withdraw_action_eval_for_units_removed_from_flow(

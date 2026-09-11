@@ -182,7 +182,16 @@ def _dilemma_tree_fingerprint(db: Session, exercise_id: int | None) -> tuple:
         if flow
         else (0, "")
     )
-    return (int(n or 0), int(mx_id or 0), flow_fp, int(exercise_id or 0), 2)
+    from app.flow_day_ids import flow_day_alias_fingerprint
+
+    return (
+        int(n or 0),
+        int(mx_id or 0),
+        flow_fp,
+        int(exercise_id or 0),
+        3,
+        flow_day_alias_fingerprint(db),
+    )
 
 
 def _assignees_by_dilemma_from_flow(raw_json: str) -> dict[str, dict[int, list[str]]]:
@@ -369,7 +378,11 @@ def _build_action_eval_dilemma_judge_tree_uncached(
     raw = (getattr(row, "flow_table_json", None) or "").strip() if row else ""
     dilemmas_by_day = _dilemmas_by_day_from_flow(raw)
     assignees_by_day = _assignees_by_dilemma_from_flow(raw)
-    linked = collect_linked_files_by_dilemma(db)
+    from app.flow_day_ids import expand_flow_day_keyed_lists, merge_flow_day_file_buckets
+
+    linked = merge_flow_day_file_buckets(db, collect_linked_files_by_dilemma(db))
+    from app.action_eval_ibank_sync import _title_belongs_to_flow_day
+
     judge_names = exercise_judge_names_by_unit(db, exercise_id)
     from app.ibank_dilemma_lists import assignments_by_basename
 
@@ -403,6 +416,8 @@ def _build_action_eval_dilemma_judge_tree_uncached(
             for fr in file_rows:
                 name = fr.get("name") or ""
                 if not str(name).lower().endswith((".xlsx", ".xlsm")):
+                    continue
+                if not _title_belongs_to_flow_day(db, name, day_id):
                     continue
                 node_id = int(fr.get("node_id") or fr.get("id") or 0)
                 node = db.get(InformationBankTreeNode, node_id) if node_id else None
@@ -528,4 +543,4 @@ def _build_action_eval_dilemma_judge_tree_uncached(
                 }
             )
         out[day_id] = day_nodes
-    return out
+    return expand_flow_day_keyed_lists(db, out)

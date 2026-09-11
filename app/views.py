@@ -87,6 +87,7 @@ from app.eval_criterion_media import (
     criterion_media_absolute_path,
     group_media_rows,
     persist_criterion_medium,
+    unlink_criterion_media_file,
 )
 from app.evaluation_workflow import (
     apply_chief_approve,
@@ -1100,10 +1101,27 @@ _CONTROL_REPORT_PHASE_FALLBACK: tuple[tuple[str, str], ...] = (
 
 
 def _control_report_catalog_phase_columns() -> list[tuple[str, str]]:
-    """ترتيب مراحل التمرين من كتالوج التخطيط (بنك المعلومات — المدرجة في التمرين)."""
+    """ترتيب عرض المراحل في تقرير السيطرة من اليمين إلى اليسار.
+
+    التحضير → مسارات التقييم → الانفتاح → العملية التعرضية.
+    """
+    from app.information_bank_catalog import ordered_training_phase_keys
+
+    labels = {pk: lbl for pk, lbl in _CONTROL_REPORT_PHASE_FALLBACK}
+    extra: list[str] = []
     if EXERCISE_PHASE_OPTIONS:
-        return list(EXERCISE_PHASE_OPTIONS)
-    return list(_CONTROL_REPORT_PHASE_FALLBACK)
+        for pk, lbl in EXERCISE_PHASE_OPTIONS:
+            if pk in labels:
+                if lbl:
+                    labels[pk] = lbl
+            else:
+                labels[pk] = lbl or pk
+                extra.append(pk)
+    keys = [pk for pk, _ in _CONTROL_REPORT_PHASE_FALLBACK]
+    for pk in ordered_training_phase_keys(extra):
+        if pk not in keys:
+            keys.append(pk)
+    return [(pk, labels.get(pk, pk)) for pk in keys]
 
 
 def _control_report_effective_phase_key(raw: str | None) -> str:
@@ -1136,7 +1154,9 @@ def _control_active_phase_columns(
     *,
     phase_order: list[str] | None = None,
 ) -> list[tuple[str, str]]:
-    """مراحل لها تقييم محفوظ فعلياً — بترتيب الأيام المرتبطة ثم الكتالوج."""
+    """مراحل لها تقييم محفوظ — من اليمين لليسار: تحضير، مسارات التقييم، انفتاح، عملية تعرضية."""
+    from app.information_bank_catalog import ordered_training_phase_keys
+
     active_keys = {
         pk
         for (_uk, pk), dots in dots_by_unit_phase.items()
@@ -1146,16 +1166,16 @@ def _control_active_phase_columns(
     labels = {pk: lbl for pk, lbl in catalog}
     out: list[tuple[str, str]] = []
     seen: set[str] = set()
-    for pk in phase_order or []:
-        pk_n = _control_report_effective_phase_key(pk)
-        if not pk_n or pk_n not in active_keys or pk_n in seen:
-            continue
-        out.append((pk_n, labels.get(pk_n, pk_n)))
-        seen.add(pk_n)
     for pk, lbl in catalog:
         if pk in active_keys and pk not in seen:
             out.append((pk, lbl))
             seen.add(pk)
+    leftover = [pk for pk in active_keys if pk not in seen]
+    for pk in ordered_training_phase_keys(leftover):
+        if pk in seen:
+            continue
+        out.append((pk, labels.get(pk, pk)))
+        seen.add(pk)
     return out
 
 # مفتاح ألوان نتائج القوائم — متوافق مع grade_label_from_percent
@@ -1501,12 +1521,7 @@ def _evaluation_delete_duplicate_saves(db, *, exercise_id: int, evaluation_item_
 
 def _purge_eval_criterion_media_rows(db, media_rows: list) -> None:
     for m in media_rows:
-        abs_p = criterion_media_absolute_path((getattr(m, "file_relpath", None) or "").strip())
-        if abs_p is not None and abs_p.is_file():
-            try:
-                abs_p.unlink()
-            except OSError:
-                pass
+        unlink_criterion_media_file((getattr(m, "file_relpath", None) or "").strip())
         db.delete(m)
 
 
@@ -5204,6 +5219,8 @@ ANALYST_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("evaluation-results", "عرض نتائج التقييم", "fa-square-poll-vertical"),
     ("judges-eval-analysis", "تحليل وتقييم المحكمين", "fa-chart-column"),
     ("positives-negatives", "عرض الإيجابيات والسلبيات", "fa-plus-minus"),
+    ("entered-eval-lists", "المهام المدخلة", "fa-clipboard-check"),
+    ("entered-eval-notes", "الملاحظات المدخلة", "fa-comments"),
     ("incomplete-tasks", "مهام غير مكتملة", "fa-clipboard-list"),
     ("after-action-review", "إنشاء مراجعة ما بعد العمل", "fa-people-arrows"),
     ("visual-documentation", "التوثيق المرئي", "fa-photo-film"),
@@ -5777,6 +5794,88 @@ def analyst_hub_section(slug: str):
                 n_approved_eval_lists=report["n_approved_eval_lists"],
                 n_saved_pending_eval_lists=report["n_saved_pending_eval_lists"],
                 final_eval_can_edit=True,
+            ),
+        )
+    if slug_norm == "entered-eval-lists":
+        from flask import g
+
+        from app.planning_catalog_sync import sync_planning_catalogs_from_db
+
+        db = g.db
+        sync_planning_catalogs_from_db(db)
+        ex = _admin_current_workspace_exercise(db, user)
+        if ex is None:
+            return render_template(
+                "analyst_entered_eval_lists.html",
+                **_actx(
+                    section_title=title,
+                    section_icon="fa-clipboard-check",
+                    has_exercise=False,
+                ),
+            )
+        report = _build_entered_eval_lists_report(db, ex)
+        return render_template(
+            "analyst_entered_eval_lists.html",
+            **_actx(
+                section_title=title,
+                section_icon="fa-clipboard-check",
+                **report,
+            ),
+        )
+    if slug_norm == "entered-eval-notes":
+        from flask import g
+
+        from app.analyst_eval_notes import (
+            SOURCE_ALL,
+            build_entered_eval_notes_report,
+            build_notes_docx_bytes,
+            build_notes_xlsx_bytes,
+            flatten_note_rows,
+            notes_export_filename,
+        )
+        from app.planning_catalog_sync import sync_planning_catalogs_from_db
+
+        db = g.db
+        sync_planning_catalogs_from_db(db)
+        ex = _admin_current_workspace_exercise(db, user)
+        if ex is None:
+            return render_template(
+                "analyst_entered_eval_notes.html",
+                **_actx(
+                    section_title=title,
+                    section_icon="fa-comments",
+                    has_exercise=False,
+                ),
+            )
+        report = build_entered_eval_notes_report(db, ex)
+        export_fmt = (request.args.get("export") or "").strip().lower()
+        export_source = (request.args.get("source") or SOURCE_ALL).strip().lower()
+        if export_fmt in ("xlsx", "docx"):
+            rows = flatten_note_rows(report, source=export_source)
+            title_map = {
+                "eval": "ملاحظات قوائم التقييم",
+                "action": "ملاحظات قوائم تقييم المعاضل",
+                "all": "جميع الملاحظات المدخلة",
+            }
+            doc_title = title_map.get(export_source, title_map["all"])
+            if export_fmt == "xlsx":
+                data = build_notes_xlsx_bytes(rows, title=doc_title)
+                mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            else:
+                data = build_notes_docx_bytes(rows, title=doc_title)
+                mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            return send_file(
+                io.BytesIO(data),
+                mimetype=mime,
+                as_attachment=True,
+                download_name=notes_export_filename(export_source, export_fmt),
+            )
+        return render_template(
+            "analyst_entered_eval_notes.html",
+            **_actx(
+                section_title=title,
+                section_icon="fa-comments",
+                **report,
             ),
         )
     if slug_norm == "incomplete-tasks":
@@ -9024,6 +9123,7 @@ def _render_planner_action_eval_lists(db, user: User):
         summarize_judge_roster_for_eval_lists,
     )
     from app.exercise_phase_catalog import default_exercise_phase_key
+    from app.flow_day_ids import flow_days_equivalent
     from app.planning_catalog_sync import sync_planning_catalogs_from_db
 
     sync_planning_catalogs_from_db(db)
@@ -9058,7 +9158,10 @@ def _render_planner_action_eval_lists(db, user: User):
         if not selected_day_id and day_options:
             selected_day_id = day_options[0]["id"]
         for day in day_options:
-            if day.get("id") == selected_day_id:
+            if day.get("id") == selected_day_id or flow_days_equivalent(
+                db, str(day.get("id") or ""), selected_day_id
+            ):
+                selected_day_id = str(day.get("id") or selected_day_id)
                 selected_day_label = str(day.get("label") or "")
                 # مرحلة اليوم من مجرى بنك المعلومات ما لم تُمرَّر صراحة في الرابط
                 if not phase_from_query and (day.get("phase_key") or "").strip():
@@ -11768,18 +11871,81 @@ def _collect_all_eval_status_rows_flat(
     return rows
 
 
+def _evaluation_list_is_entered(saved: EvaluationListSavedResult | None) -> bool:
+    """قائمة مدخلة: لها نسبة وتقدير من نتيجة محفوظة. بلا نتيجة لا تُدرج."""
+    return _saved_eval_list_has_measurable_result(saved)
+
+
+def _build_entered_eval_lists_report(db, exercise: Exercise) -> dict:
+    """كل قوائم التقييم المدخلة — مرتبة حسب تسلسل التنظيم للوحدة."""
+    items = (
+        db.query(EvaluationListPdfItem)
+        .filter(EvaluationListPdfItem.exercise_id == int(exercise.id))
+        .order_by(
+            _unit_level_order_expr(EvaluationListPdfItem.unit_level_key),
+            _exercise_phase_order_expr(EvaluationListPdfItem.exercise_phase),
+            EvaluationListPdfItem.sort_order,
+            EvaluationListPdfItem.id,
+        )
+        .all()
+    )
+    item_ids = [int(it.id) for it in items if getattr(it, "id", None) is not None]
+    canonical_by_item = (
+        _evaluation_canonical_map_for_items(db, int(exercise.id), item_ids)
+        if item_ids
+        else {}
+    )
+    rows: list[dict] = []
+    for it in items:
+        saved = canonical_by_item.get(int(it.id))
+        if not _evaluation_list_is_entered(saved):
+            continue
+        uk = (it.unit_level_key or "").strip()
+        pct = _evaluation_saved_total_pct(saved)
+        grade = display_grade_label(getattr(saved, "grade_label", "") if saved else "")
+        if not grade and pct is not None:
+            grade = grade_label_from_percent(pct)
+        is_approved = bool(
+            eval_judge_approved(saved) and not eval_reopened_for_judge(saved)
+        )
+        rows.append(
+            {
+                "item_id": int(it.id),
+                "unit_key": uk,
+                "unit_label": (
+                    (getattr(it, "unit_level_label", None) or "").strip()
+                    or label_for_unit_level_key(uk, db=db)
+                    or uk
+                    or "—"
+                ),
+                "item_title": (getattr(it, "text", None) or "تقييم").strip(),
+                "total_pct": pct,
+                "grade_label": grade or "—",
+                "is_approved": is_approved,
+            }
+        )
+    return {
+        "has_exercise": True,
+        "entered_rows": rows,
+        "entered_count": len(rows),
+        "approved_count": sum(1 for r in rows if r["is_approved"]),
+        "pending_count": sum(1 for r in rows if not r["is_approved"]),
+    }
+
+
 def _build_incomplete_evaluations_report(db, user: User, *, role: str) -> dict:
     """قوائم التقييم غير المنجزة فقط — مرتبة حسب وقت بدء المهمة."""
     if role == "judge":
         ex0 = _current_workspace_exercise(db, user)
         unit_filter = None
-        if (
-            ex0 is not None
-            and not is_system_admin(user)
-            and not can_access_chief_judge_hub(user)
-        ):
-            a = _judge_assignment_for_current_exercise(db, user, ex0)
-            unit_filter = (getattr(a, "unit_level_key", "") or "").strip() if a else None
+        if ex0 is not None and _is_individual_judge_user(user):
+            unit_filter = (_judge_assigned_unit_key(db, user, ex0) or "").strip()
+            if not unit_filter:
+                return {
+                    "has_exercise": True,
+                    "incomplete_rows": [],
+                    "incomplete_count": 0,
+                }
         eval_ep = "views.judge_evaluation_list_file_viewer"
         pf_ep = "views.judge_planner_flow_materials_action_evaluate"
         pf_slot = True
@@ -11935,14 +12101,6 @@ def _control_exercise_performance_report(db, user: User) -> dict:
             12: "ديسمبر",
         }.get(int(m or 0), "")
 
-    def _fmt_m_ss(seconds: float | None) -> str:
-        if seconds is None:
-            return "—"
-        s = int(round(max(0.0, float(seconds))))
-        mm = s // 60
-        ss = s % 60
-        return f"{mm}:{ss:02d}"
-
     def _avg(xs: list[float]) -> float | None:
         xs2 = [float(x) for x in xs if x is not None]
         return (sum(xs2) / len(xs2)) if xs2 else None
@@ -12016,21 +12174,6 @@ def _control_exercise_performance_report(db, user: User) -> dict:
     n_eval_lists = len(eval_items)
     n_saved = len(saved_by_item)
     n_approved = len(approved_by_item)
-
-    # متوسط زمن التنفيذ لكل تقييم (تقريب من إنشاء السجل حتى آخر تحديث/اعتماد)
-    durations: list[float] = []
-    for sr in approved_by_item.values():
-        t0 = getattr(sr, "created_at", None)
-        t1 = getattr(sr, "approved_at", None) or getattr(sr, "updated_at", None)
-        if not t0 or not t1:
-            continue
-        try:
-            sec = (t1 - t0).total_seconds()
-        except Exception:
-            continue
-        if 0 <= sec <= 60 * 60 * 24:
-            durations.append(float(sec))
-    avg_duration = _avg(durations)
 
     # إجمالي المعايير/البنود المحسوبة + توزيعها
     scored_row_pcts: list[float] = []
@@ -12326,7 +12469,6 @@ def _control_exercise_performance_report(db, user: User) -> dict:
     ]
 
     kpis = [
-        {"label": "متوسط الزمن", "value": _fmt_m_ss(avg_duration), "hint": "لكل تقييم", "icon": "fa-clock", "tone": "blue"},
         {"label": "قيد التقييم", "value": f"{pending_pct}%", "hint": "من إجمالي التقييم", "icon": "fa-hexagon-nodes", "tone": "violet"},
         {"label": "نسبة الإستكمال", "value": f"{done_pct}%", "hint": "من إجمالي التقييم", "icon": "fa-circle-check", "tone": "purple"},
         {"label": "أقل مجموعة", "value": f"{int(bottom_unit['value']) if bottom_unit else 0}%", "hint": (bottom_unit["label"] if bottom_unit else "—"), "icon": "fa-arrow-down", "tone": "red"},
@@ -14654,14 +14796,9 @@ def eval_criterion_media_delete(media_id: int):
     ):
         abort(403)
     rel = (m.file_relpath or "").strip()
-    abs_p = criterion_media_absolute_path(rel) if rel else None
     db.delete(m)
     db.commit()
-    if abs_p is not None and abs_p.is_file():
-        try:
-            abs_p.unlink()
-        except OSError:
-            pass
+    unlink_criterion_media_file(rel)
     return jsonify(ok=True)
 
 

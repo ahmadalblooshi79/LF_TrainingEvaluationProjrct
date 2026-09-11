@@ -16,8 +16,9 @@ from app.config import EVAL_CRITERION_MEDIA_DIR
 from app.eval_criterion_media import (
     ALLOWED_PHOTO_TYPES,
     ALLOWED_VIDEO_TYPES,
-    ext_for_mime,
+    criterion_media_relpath,
     mime_base,
+    new_media_filename,
     persist_criterion_medium_from_path,
 )
 from app.models import EvaluationCriterionMedia, User
@@ -100,20 +101,21 @@ def _sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
 def _final_relpath(
     *,
     exercise_id: int,
-    user_id: int,
+    unit_level_key: str,
+    list_item_id: int | None,
+    bundle_action_eval_id: int | None,
+    row_index: int,
     media_kind: str,
     mime: str,
-    client_uuid: str,
 ) -> str:
-    mk = "video" if media_kind == "video" else "photo"
-    folder = "videos" if mk == "video" else "images"
-    ext = ext_for_mime(mime, mk)
-    safe = (client_uuid or uuid.uuid4().hex).replace("-", "")[:64]
-    if not safe:
-        safe = uuid.uuid4().hex
-    return (
-        f"uploads/exercises/{int(exercise_id)}/judges/{int(user_id)}/"
-        f"{folder}/{safe}{ext}"
+    fname = new_media_filename(media_kind, mime)
+    return criterion_media_relpath(
+        exercise_id=int(exercise_id),
+        unit_level_key=unit_level_key,
+        list_item_id=list_item_id,
+        bundle_action_eval_id=bundle_action_eval_id,
+        row_index=int(row_index),
+        filename=fname,
     )
 
 
@@ -489,12 +491,18 @@ def complete_upload(user: User, db: Session) -> tuple[dict, int]:
     media_kind = meta.get("media_kind") or "photo"
     mime = meta.get("mime_type") or ""
     client_uuid = meta.get("client_uuid") or ""
+    li_raw = meta.get("evaluation_list_item_id")
+    ba_raw = meta.get("bundle_action_eval_id")
+    li_id = int(li_raw) if li_raw not in (None, "", 0, "0") else None
+    ba_id = int(ba_raw) if ba_raw not in (None, "", 0, "0") else None
     rel = _final_relpath(
         exercise_id=int(meta.get("exercise_id") or 0),
-        user_id=int(user.id),
+        unit_level_key=meta.get("unit_level_key") or "",
+        list_item_id=li_id,
+        bundle_action_eval_id=ba_id,
+        row_index=int(meta.get("row_index") or 0),
         media_kind=media_kind,
         mime=mime,
-        client_uuid=client_uuid or uuid.uuid4().hex,
     )
 
     try:
@@ -502,8 +510,8 @@ def complete_upload(user: User, db: Session) -> tuple[dict, int]:
             db,
             exercise_id=int(meta.get("exercise_id") or 0),
             unit_level_key=meta.get("unit_level_key") or "",
-            list_item_id=meta.get("evaluation_list_item_id"),
-            bundle_action_eval_id=meta.get("bundle_action_eval_id"),
+            list_item_id=li_id,
+            bundle_action_eval_id=ba_id,
             row_index=int(meta.get("row_index") or 0),
             media_kind=media_kind,
             mime_type_in=mime,

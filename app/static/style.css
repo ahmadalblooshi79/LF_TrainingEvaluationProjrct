@@ -7287,16 +7287,19 @@ body.control-report-page .control-panel--tabbed .control-table-wrap {
 }
 .control-report__kpis {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0.32rem;
   margin-bottom: 0.32rem;
   flex-shrink: 0;
 }
 
-/* تبويبات تقرير أداء التمرين — جدول تفصيلي | رسوم المجموعات والمراحل */
+/* تبويبات تقرير أداء التمرين — عرض بحجم النص دون تمديد متساوٍ */
 .control-report-tabs {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-start;
+  width: fit-content;
+  max-width: 100%;
   gap: 0.32rem;
   margin-bottom: 0.28rem;
   padding: 0.1rem;
@@ -7305,13 +7308,15 @@ body.control-report-page .control-panel--tabbed .control-table-wrap {
   border: 1px solid var(--border-light);
 }
 .control-report-tabs__btn {
-  flex: 1 1 auto;
-  min-width: min(100%, 12rem);
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  padding: 0.48rem 0.72rem;
+  padding: 0.42rem 0.62rem;
   border: 1px solid transparent;
   border-radius: calc(var(--radius-sm) - 2px);
   background: transparent;
@@ -7322,6 +7327,7 @@ body.control-report-page .control-panel--tabbed .control-table-wrap {
   line-height: 1.35;
   cursor: pointer;
   text-align: center;
+  white-space: nowrap;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .control-report-tabs__btn i {
@@ -11342,6 +11348,54 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
 }
 .planner-flow-judge-slot-list li:last-child {
   border-bottom: none;
+}
+/* مساحة المحللين — المهام المدخلة */
+.analyst-entered-eval-summary {
+  margin: 0 0 0.65rem;
+  font-size: 0.9rem;
+}
+.analyst-entered-eval-table {
+  width: 100%;
+}
+.analyst-notes-export {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1.1rem;
+  align-items: center;
+  margin-top: 0.55rem;
+}
+.analyst-notes-export__group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.28rem 0.4rem;
+}
+.analyst-notes-export__label {
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--text, #3a3228);
+  margin-inline-end: 0.15rem;
+}
+.analyst-notes-unit-card {
+  margin-top: 0.75rem;
+}
+.analyst-notes-unit-title {
+  margin: 0 0 0.65rem;
+  font-size: 1.05rem;
+}
+.analyst-notes-source-block {
+  margin-bottom: 0.85rem;
+}
+.analyst-notes-source-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0 0.4rem;
+  font-size: 0.95rem;
+}
+.analyst-notes-text {
+  white-space: pre-wrap;
+  line-height: 1.45;
 }
 /* مساحة المحللين — معايير التقييم: عمود الترقيم (ت) */
 .analyst-criteria-seq,

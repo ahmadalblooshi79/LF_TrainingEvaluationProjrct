@@ -9,6 +9,7 @@ from app.info_bank_tree import (
     ensure_information_bank_kind,
     flow_day_catalog_key,
     ibank_event_flow_days,
+    invalidate_information_bank_kind_cache,
 )
 from app.models import InformationBankEventFlowTable, InformationBankTreeNode
 
@@ -18,6 +19,7 @@ class IbankActionEvalFlowDayTests(unittest.TestCase):
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(engine)
         self.db = sessionmaker(bind=engine)()
+        invalidate_information_bank_kind_cache("action_eval")
 
     def test_ensure_action_eval_tree_uses_flow_days(self):
         self.db.add(
@@ -85,6 +87,7 @@ class IbankActionEvalFlowDayTests(unittest.TestCase):
             ensure_ascii=False,
         )
         self.db.commit()
+        invalidate_information_bank_kind_cache("action_eval")
         ensure_information_bank_kind(self.db, "action_eval")
 
         days = ibank_event_flow_days(self.db)

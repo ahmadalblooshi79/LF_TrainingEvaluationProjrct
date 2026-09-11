@@ -431,7 +431,7 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final pageTitle = widget.mode == EvalSheetMode.actionEval ? 'قوائم تقييم المعاضل' : 'قوائم التقييم';
+    final pageTitle = widget.mode == EvalSheetMode.actionEval ? 'قوائم تقييم المعاضل' : 'قوائم تقييم الإجراءات';
     final sheetTitle =
         _detail?.title.isNotEmpty == true ? _detail!.title : (widget.fallbackTitle ?? 'ورقة التقييم');
 

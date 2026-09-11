@@ -78,7 +78,7 @@ class _ActionEvalListsScreenState extends State<ActionEvalListsScreen> {
           child: Align(
             alignment: Alignment.centerRight,
             child: Text(
-              'قوائم التقييم — ${data.unitKey.isNotEmpty ? data.unitKey : 'قيادة مجموعة اللواء'}',
+              'قوائم تقييم المعاضل — ${data.unitKey.isNotEmpty ? data.unitKey : 'قيادة مجموعة اللواء'}',
               style: AppTextStyles.cairo(fontSize: 15, fontWeight: FontWeight.w800),
             ),
           ),

@@ -68,8 +68,12 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
       });
       return;
     }
-    setState(() => _info = 'جارٍ تنزيل حزمة التمرين (قد يستغرق دقيقة)...');
-    final ok = await PackageSyncService.instance.downloadAndStorePackage();
+    setState(() => _info = 'الاتصال بالسيرفر');
+    final ok = await PackageSyncService.instance.downloadAndStorePackage(
+      onProgress: (m) {
+        if (mounted) setState(() => _info = m);
+      },
+    );
     if (!mounted) return;
     if (!ok) {
       setState(() {

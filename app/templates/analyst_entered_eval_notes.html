@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}{{ section_title }} — المحللين{% endblock %}
+{% block content %}
+<div class="analyst-entered-notes-page">
+  <div class="page-header page-header--judge-eval-lists">
+    <h1><i class="fa-solid {{ section_icon | default('fa-comments') }} fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+    <div class="page-header__nav">
+      {% include 'partials/subpage_close.html' %}
+    </div>
+  </div>
+
+  {% if not has_exercise %}
+  <section class="card">
+    <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل. افتح أو أنشئ تمريناً أولاً.</p>
+  </section>
+  {% else %}
+  <section class="card analyst-entered-notes-toolbar">
+    <p class="analyst-entered-eval-summary muted" dir="rtl">
+      جميع الملاحظات المدخلة في قوائم التقييم وقوائم تقييم المعاضل، مرتبة حسب تسلسل التنظيم.
+      <strong> — العدد: {{ notes_count|default(0) }}</strong>
+      <span> (قوائم التقييم: {{ eval_count|default(0) }} — قوائم تقييم المعاضل: {{ action_count|default(0) }})</span>
+    </p>
+    <div class="analyst-notes-export" dir="rtl">
+      <div class="analyst-notes-export__group">
+        <span class="analyst-notes-export__label">قوائم التقييم</span>
+        <a class="btn btn-ghost" href="{{ url_for('views.analyst_hub_section', slug='entered-eval-notes', export='xlsx', source='eval') }}">
+          <i class="fa-solid fa-file-excel" aria-hidden="true"></i> Excel
+        </a>
+        <a class="btn btn-ghost" href="{{ url_for('views.analyst_hub_section', slug='entered-eval-notes', export='docx', source='eval') }}">
+          <i class="fa-solid fa-file-word" aria-hidden="true"></i> Word
+        </a>
+      </div>
+      <div class="analyst-notes-export__group">
+        <span class="analyst-notes-export__label">قوائم تقييم المعاضل</span>
+        <a class="btn btn-ghost" href="{{ url_for('views.analyst_hub_section', slug='entered-eval-notes', export='xlsx', source='action') }}">
+          <i class="fa-solid fa-file-excel" aria-hidden="true"></i> Excel
+        </a>
+        <a class="btn btn-ghost" href="{{ url_for('views.analyst_hub_section', slug='entered-eval-notes', export='docx', source='action') }}">
+          <i class="fa-solid fa-file-word" aria-hidden="true"></i> Word
+        </a>
+      </div>
+      <div class="analyst-notes-export__group analyst-notes-export__group--all">
+        <span class="analyst-notes-export__label">جميع الملاحظات</span>
+        <a class="btn" href="{{ url_for('views.analyst_hub_section', slug='entered-eval-notes', export='xlsx', source='all') }}">
+          <i class="fa-solid fa-file-excel" aria-hidden="true"></i> Excel
+        </a>
+        <a class="btn" href="{{ url_for('views.analyst_hub_section', slug='entered-eval-notes', export='docx', source='all') }}">
+          <i class="fa-solid fa-file-word" aria-hidden="true"></i> Word
+        </a>
+      </div>
+    </div>
+  </section>
+
+  {% if units %}
+    {% for unit in units %}
+    <section class="card analyst-notes-unit-card">
+      <h2 class="analyst-notes-unit-title" dir="rtl">{{ unit.unit_label }}</h2>
+
+      <div class="analyst-notes-source-block">
+        <h3 class="analyst-notes-source-title" dir="rtl">
+          <span class="badge">قوائم التقييم</span>
+          <span class="muted">{{ unit.eval_notes|length }}</span>
+        </h3>
+        {% if unit.eval_notes %}
+        <div class="table-wrap">
+          <table class="judge-eval-lists-table analyst-entered-eval-table" dir="rtl" aria-label="ملاحظات قوائم التقييم — {{ unit.unit_label }}">
+            <thead>
+              <tr>
+                <th scope="col" class="eval-lists-table__seq">ت</th>
+                <th scope="col">مسمى التقييم</th>
+                <th scope="col">البند</th>
+                <th scope="col">الملاحظة</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for n in unit.eval_notes %}
+              <tr>
+                <td class="eval-lists-table__seq">{{ loop.index }}</td>
+                <td class="judge-eval-lists-table__list-title">{{ n.list_title }}</td>
+                <td>{{ n.element }}</td>
+                <td class="analyst-notes-text">{{ n.note }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="muted" dir="rtl">لا توجد ملاحظات في قوائم التقييم لهذه الوحدة.</p>
+        {% endif %}
+      </div>
+
+      <div class="analyst-notes-source-block">
+        <h3 class="analyst-notes-source-title" dir="rtl">
+          <span class="badge badge--done">قوائم تقييم المعاضل</span>
+          <span class="muted">{{ unit.action_notes|length }}</span>
+        </h3>
+        {% if unit.action_notes %}
+        <div class="table-wrap">
+          <table class="judge-eval-lists-table analyst-entered-eval-table" dir="rtl" aria-label="ملاحظات قوائم تقييم المعاضل — {{ unit.unit_label }}">
+            <thead>
+              <tr>
+                <th scope="col" class="eval-lists-table__seq">ت</th>
+                <th scope="col">مسمى التقييم</th>
+                <th scope="col">البند</th>
+                <th scope="col">الملاحظة</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for n in unit.action_notes %}
+              <tr>
+                <td class="eval-lists-table__seq">{{ loop.index }}</td>
+                <td class="judge-eval-lists-table__list-title">{{ n.list_title }}</td>
+                <td>{{ n.element }}</td>
+                <td class="analyst-notes-text">{{ n.note }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="muted" dir="rtl">لا توجد ملاحظات في قوائم تقييم المعاضل لهذه الوحدة.</p>
+        {% endif %}
+      </div>
+    </section>
+    {% endfor %}
+  {% else %}
+  <section class="card">
+    <p class="muted" dir="rtl" style="margin:0;">لا توجد ملاحظات مدخلة حالياً.</p>
+  </section>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

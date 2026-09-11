@@ -70,7 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
         pageSubtitle: session?.unitLabel.isNotEmpty == true
             ? session!.unitLabel
             : (ex?.name ?? 'القائمة الرئيسية'),
-        showLogout: true,
+        showLogout: false,
         showOnlineChip: false,
       ),
       body: _loading
@@ -404,7 +404,7 @@ class _MainMenuBlock extends StatelessWidget {
             final cards = menu
                 .map(
                   (m) => _MenuCard(
-                    title: m.title,
+                    title: m.id == 'evaluation_lists' ? 'قوائم تقييم الإجراءات' : m.title,
                     icon: icons[m.id] ?? Icons.apps,
                     onTap: () => context.push(m.route),
                   ),

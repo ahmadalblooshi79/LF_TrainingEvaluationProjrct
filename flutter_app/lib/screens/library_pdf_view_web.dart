@@ -7,6 +7,7 @@ import 'dart:ui_web' as ui_web;
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../widgets/pdf_nav_sidebar.dart';
 
 Widget buildLibraryPdfView({
   String? webUrl,
@@ -41,10 +42,14 @@ class _BlobPdfView extends StatefulWidget {
 class _BlobPdfViewState extends State<_BlobPdfView> {
   late final String _viewType;
   String? _objectUrl;
+  html.IFrameElement? _iframe;
+  late int _pageCount;
+  int _currentPage = 1;
 
   @override
   void initState() {
     super.initState();
+    _pageCount = estimatePdfPageCount(widget.bytes);
     final data = Uint8List.fromList(widget.bytes);
     final blob = html.Blob([data], 'application/pdf');
     _objectUrl = html.Url.createObjectUrlFromBlob(blob);
@@ -58,8 +63,20 @@ class _BlobPdfViewState extends State<_BlobPdfView> {
         ..style.width = '100%'
         ..style.height = '100%'
         ..allowFullscreen = true;
+      _iframe = iframe;
       return iframe;
     });
+  }
+
+  void _goTo(int page) {
+    final url = _objectUrl;
+    if (url == null) return;
+    final target = page.clamp(1, _pageCount);
+    final framed = _iframe;
+    if (framed != null) {
+      framed.src = '$url#page=$target';
+    }
+    setState(() => _currentPage = target);
   }
 
   @override
@@ -73,7 +90,20 @@ class _BlobPdfViewState extends State<_BlobPdfView> {
 
   @override
   Widget build(BuildContext context) {
-    return HtmlElementView(viewType: _viewType);
+    return ColoredBox(
+      color: AppColors.oliveDark,
+      child: Row(
+        textDirection: TextDirection.rtl,
+        children: [
+          PdfNavSidebar(
+            pageCount: _pageCount,
+            currentPage: _currentPage,
+            onPageTap: _goTo,
+          ),
+          Expanded(child: HtmlElementView(viewType: _viewType)),
+        ],
+      ),
+    );
   }
 }
 

@@ -33,7 +33,7 @@ _TABLET_MAIN_MENU = [
     },
     {
         "id": "evaluation_lists",
-        "title": "قوائم التقييم",
+        "title": "قوائم تقييم الإجراءات",
         "route": "/evaluation-lists",
     },
     {
@@ -294,6 +294,58 @@ def _unit_key_for(user: User, ex: Exercise | None) -> str:
     return _judge_assigned_unit_key(g.db, user, ex)
 
 
+def _tablet_scoped_eval_status_rows(user: User, ex: Exercise | None) -> list:
+    """صفوف موقف التقييم بنفس نطاق وحدة المحكم المستخدم في القوائم."""
+    from app.views import (
+        _collect_all_eval_status_rows_flat,
+        _is_individual_judge_user,
+        _judge_assigned_unit_key,
+    )
+
+    if ex is None:
+        return []
+    uk = (_judge_assigned_unit_key(g.db, user, ex) or "").strip()
+    if _is_individual_judge_user(user) and not uk:
+        return []
+    return _collect_all_eval_status_rows_flat(
+        g.db,
+        exercise=ex,
+        unit_filter=uk or None,
+        eval_open_endpoint="views.judge_evaluation_list_file_viewer",
+        planner_open_endpoint="views.judge_planner_flow_materials_action_evaluate",
+        planner_open_uses_slot=True,
+    )
+
+
+def _tablet_home_payload(user: User) -> dict:
+    """إحصاءات الصفحة الرئيسية والمهام غير المكتملة من نفس مجموعة الصفوف."""
+    from app.views import _incomplete_eval_started_at_sort_key
+
+    ex = _exercise_for(user)
+    bundle = _serialize_user_bundle(user, ex)
+    all_rows = _tablet_scoped_eval_status_rows(user, ex)
+    incomplete_src = [r for r in all_rows if not r.get("status_done")]
+    incomplete_src.sort(key=_incomplete_eval_started_at_sort_key)
+    incomplete_rows = [_safe_row(r) for r in incomplete_src]
+    total = len(all_rows)
+    done = sum(1 for r in all_rows if r.get("status_done"))
+    pct = int(round((done * 100.0 / total), 0)) if total else 0
+    return {
+        "ok": True,
+        **bundle,
+        "stats": {
+            "completion_pct": pct,
+            "completed_count": done,
+            "total_count": total,
+            "incomplete_count": len(incomplete_rows),
+            "completed_lists": done,
+            "incomplete_lists": max(total - done, 0),
+        },
+        "incomplete_tasks": incomplete_rows,
+        "menu": list(_TABLET_MAIN_MENU),
+    }
+
+
 def _judge_display_name(user: User, ex: Exercise | None) -> str:
     from app.models.domain import ExerciseRosterKind, ExerciseRosterRow
 
@@ -486,49 +538,7 @@ def tablet_me(user: User):
 @bp.get("/home")
 @_require_judge_json
 def tablet_home(user: User):
-    from app.views import (
-        _build_incomplete_evaluations_report,
-        _collect_all_eval_status_rows_flat,
-    )
-
-    ex = _exercise_for(user)
-    bundle = _serialize_user_bundle(user, ex)
-    incomplete = _build_incomplete_evaluations_report(g.db, user, role="judge")
-    incomplete_rows = [_safe_row(r) for r in (incomplete.get("incomplete_rows") or [])]
-    incomplete_count = int(incomplete.get("incomplete_count") or 0)
-
-    total = 0
-    done = 0
-    if ex is not None:
-        uk = bundle.get("unit_key") or None
-        all_rows = _collect_all_eval_status_rows_flat(
-            g.db,
-            exercise=ex,
-            unit_filter=uk or None,
-            eval_open_endpoint="views.judge_evaluation_list_file_viewer",
-            planner_open_endpoint="views.judge_planner_flow_materials_action_evaluate",
-            planner_open_uses_slot=True,
-        )
-        total = len(all_rows)
-        done = sum(1 for r in all_rows if r.get("status_done"))
-    pct = int(round((done * 100.0 / total), 0)) if total else 0
-
-    return jsonify(
-        {
-            "ok": True,
-            **bundle,
-            "stats": {
-                "completion_pct": pct,
-                "completed_count": done,
-                "total_count": total,
-                "incomplete_count": incomplete_count,
-                "completed_lists": done,
-                "incomplete_lists": max(total - done, 0),
-            },
-            "incomplete_tasks": incomplete_rows[:50],
-            "menu": list(_TABLET_MAIN_MENU),
-        }
-    )
+    return jsonify(_tablet_home_payload(user))
 
 
 @bp.get("/flow")
@@ -932,7 +942,28 @@ def tablet_evaluation_lists(user: User):
     if ex is None:
         return _json_error("لا يوجد تمرين نشط", 404)
     units = _judge_evaluation_list_unit_levels(g.db, user, ex)
-    # إن لم تُخصَّص وحدة للمحكم: اعرض الوحدات التي لها قوائم فعلياً
+    from app.views import _is_individual_judge_user
+
+    # محكم فردي بلا وحدة: لا تُعرض قوائم كل الوحدات (يسبب عدم تطابق العدد)
+    if not units and _is_individual_judge_user(user):
+        phase_empty = normalize_exercise_phase(
+            (request.args.get("phase") or "").strip() or default_exercise_phase_key()
+        )
+        phase_keys_empty = list(exercise_phase_keys())
+        phase_tabs_empty = [
+            {"key": k, "label": exercise_phase_label(k) or k} for k in phase_keys_empty
+        ]
+        return jsonify(
+            {
+                "ok": True,
+                "unit_key": "",
+                "unit_levels": [],
+                "phase_key": phase_empty,
+                "phase_tabs": phase_tabs_empty,
+                "lists": [],
+            }
+        )
+    # إن لم تُخصَّص وحدة لكبير المحكمين/الإشراف: اعرض الوحدات التي لها قوائم فعلياً
     if not units:
         from app.unit_levels_catalog import unit_level_row
 
@@ -1263,14 +1294,12 @@ def tablet_objectives(user: User):
 @bp.get("/incomplete")
 @_require_judge_json
 def tablet_incomplete(user: User):
-    from app.views import _build_incomplete_evaluations_report
-
-    report = _build_incomplete_evaluations_report(g.db, user, role="judge")
+    home = _tablet_home_payload(user)
     return jsonify(
         {
             "ok": True,
-            "count": int(report.get("incomplete_count") or 0),
-            "tasks": [_safe_row(r) for r in (report.get("incomplete_rows") or [])],
+            "count": int((home.get("stats") or {}).get("incomplete_count") or 0),
+            "tasks": list(home.get("incomplete_tasks") or []),
         }
     )
 
@@ -1279,16 +1308,10 @@ def tablet_incomplete(user: User):
 @_require_judge_json
 def tablet_bootstrap(user: User):
     """حزمة أولية للتخزين المحلي عند الدخول أو قبل Offline."""
-    from app.views import (
-        _build_incomplete_evaluations_report,
-        _collect_all_eval_status_rows_flat,
-    )
-
     ex = _exercise_for(user)
     me = _serialize_user_bundle(user, ex)
-    incomplete = _build_incomplete_evaluations_report(g.db, user, role="judge")
-    incomplete_rows = [_safe_row(r) for r in (incomplete.get("incomplete_rows") or [])]
-    incomplete_count = int(incomplete.get("incomplete_count") or 0)
+    home_payload = _tablet_home_payload(user)
+    incomplete_rows = list(home_payload.get("incomplete_tasks") or [])
 
     objectives = []
     if ex is not None:
@@ -1298,37 +1321,6 @@ def tablet_bootstrap(user: User):
             .order_by(ExerciseObjective.sort_order, ExerciseObjective.id)
             .all()
         )
-
-    total = 0
-    done = 0
-    if ex is not None:
-        uk = me.get("unit_key") or None
-        all_rows = _collect_all_eval_status_rows_flat(
-            g.db,
-            exercise=ex,
-            unit_filter=uk or None,
-            eval_open_endpoint="views.judge_evaluation_list_file_viewer",
-            planner_open_endpoint="views.judge_planner_flow_materials_action_evaluate",
-            planner_open_uses_slot=True,
-        )
-        total = len(all_rows)
-        done = sum(1 for r in all_rows if r.get("status_done"))
-    pct = int(round((done * 100.0 / total), 0)) if total else 0
-
-    home_payload = {
-        "ok": True,
-        **me,
-        "stats": {
-            "completion_pct": pct,
-            "completed_count": done,
-            "total_count": total,
-            "incomplete_count": incomplete_count,
-            "completed_lists": done,
-            "incomplete_lists": max(total - done, 0),
-        },
-        "incomplete_tasks": incomplete_rows[:50],
-        "menu": list(_TABLET_MAIN_MENU),
-    }
 
     return jsonify(
         {
@@ -1843,6 +1835,72 @@ def _require_device_setup_user():
     return user, None
 
 
+def _iter_device_provision_judges():
+    """محكمو الجهاز: حسابات مساحة المحكمين (محكم أو كبير محكمين)."""
+    for ju in g.db.query(User).filter(User.is_active == True).all():  # noqa: E712
+        if not can_access_judge_hub(ju):
+            continue
+        if not (is_judge(ju) or can_access_chief_judge_hub(ju)):
+            continue
+        yield ju
+
+
+def _judge_local_password_seed(ju: User, ex: Exercise | None) -> tuple[str, str]:
+    """(military_number, local_password_seed) — نفس بذرة التهيئة الحالية."""
+    from app.models.domain import JudgeTraineeAssignment
+
+    mil = ""
+    try:
+        if ex is not None:
+            asg = (
+                g.db.query(JudgeTraineeAssignment)
+                .filter(
+                    JudgeTraineeAssignment.exercise_id == int(ex.id),
+                    JudgeTraineeAssignment.judge_user_id == int(ju.id),
+                )
+                .first()
+            )
+            if asg is not None:
+                mil = (asg.judge_military_number or "").strip()
+    except Exception:
+        mil = ""
+    if not mil:
+        mil = (ju.username or "").strip()
+    seed = mil or (ju.username or "").strip()
+    return mil, seed
+
+
+def _provision_judge_user(judge_id: int):
+    """يحمّل المحكم بالـ id دون تبديل جلسة Flask."""
+    ju = g.db.get(User, int(judge_id))
+    if ju is None or not bool(ju.is_active):
+        return None, _json_error("المحكم غير موجود", 404)
+    if not can_access_judge_hub(ju):
+        return None, _json_error("الحساب ليس محكماً", 403)
+    if not (is_judge(ju) or can_access_chief_judge_hub(ju)):
+        return None, _json_error("الحساب ليس محكماً", 403)
+    return ju, None
+
+
+def _with_provision_judge(judge_id: int, handler, *args, **kwargs):
+    """يستدعي منطق GET الحالي لمحكم محدد تحت جلسة تهيئة الجهاز."""
+    _setup, err = _require_device_setup_user()
+    if err is not None:
+        return err
+    ju, jerr = _provision_judge_user(judge_id)
+    if jerr is not None:
+        return jerr
+    return handler.__wrapped__(ju, *args, **kwargs)
+
+
+def _with_device_setup_handler(handler, *args, **kwargs):
+    setup_user, err = _require_device_setup_user()
+    if err is not None:
+        return err
+    assert setup_user is not None
+    return handler.__wrapped__(setup_user, *args, **kwargs)
+
+
 @bp.post("/device/setup-login")
 def tablet_device_setup_login():
     """دخول فني لتهيئة الجهاز وتنزيل حزمة التمرين (ليس Local Admin المحلي)."""
@@ -1888,13 +1946,7 @@ def tablet_device_setup_login():
 
 @bp.get("/device/package")
 def tablet_device_package():
-    """حزمة تمرين كاملة للعمل Offline على التابلت — معزولة لكل محكم."""
-    from app.models.domain import JudgeTraineeAssignment
-    from app.views import (
-        _build_incomplete_evaluations_report,
-        _collect_all_eval_status_rows_flat,
-    )
-
+    """حزمة ملخص قديمة للتوافق — التهيئة الكاملة عبر /device/manifest والمسارات المرحلية."""
     setup_user, err = _require_device_setup_user()
     if err is not None:
         return err
@@ -1919,66 +1971,14 @@ def tablet_device_package():
         for r in objectives
     ]
 
-    judge_users = (
-        g.db.query(User)
-        .filter(User.is_active == True)  # noqa: E712
-        .all()
-    )
     judges_out: list[dict] = []
-    for ju in judge_users:
-        if not can_access_judge_hub(ju):
-            continue
-        if not (is_judge(ju) or can_access_chief_judge_hub(ju)):
-            continue
+    for ju in _iter_device_provision_judges():
         me = _serialize_user_bundle(ju, ex)
-        mil = ""
-        try:
-            asg = (
-                g.db.query(JudgeTraineeAssignment)
-                .filter(
-                    JudgeTraineeAssignment.exercise_id == int(ex.id),
-                    JudgeTraineeAssignment.judge_user_id == int(ju.id),
-                )
-                .first()
-            )
-            if asg is not None:
-                mil = (asg.judge_military_number or "").strip()
-        except Exception:
-            mil = ""
-        if not mil:
-            mil = (ju.username or "").strip()
-
-        incomplete = _build_incomplete_evaluations_report(g.db, ju, role="judge")
-        incomplete_rows = [
-            _safe_row(r) for r in (incomplete.get("incomplete_rows") or [])
-        ]
-        incomplete_count = int(incomplete.get("incomplete_count") or 0)
-        uk = me.get("unit_key") or None
-        all_rows = _collect_all_eval_status_rows_flat(
-            g.db,
-            exercise=ex,
-            unit_filter=uk or None,
-            eval_open_endpoint="views.judge_evaluation_list_file_viewer",
-            planner_open_endpoint="views.judge_planner_flow_materials_action_evaluate",
-            planner_open_uses_slot=True,
-        )
-        total = len(all_rows)
-        done = sum(1 for r in all_rows if r.get("status_done"))
-        pct = int(round((done * 100.0 / total), 0)) if total else 0
-        home_payload = {
-            "ok": True,
-            **me,
-            "stats": {
-                "completion_pct": pct,
-                "completed_count": done,
-                "total_count": total,
-                "incomplete_count": incomplete_count,
-                "completed_lists": done,
-                "incomplete_lists": max(total - done, 0),
-            },
-            "incomplete_tasks": incomplete_rows[:50],
-            "menu": list(_TABLET_MAIN_MENU),
-        }
+        mil, seed = _judge_local_password_seed(ju, ex)
+        home_payload = _tablet_home_payload(ju)
+        incomplete_rows = list(home_payload.get("incomplete_tasks") or [])
+        uk = me.get("unit_key") or ""
+        all_rows = _tablet_scoped_eval_status_rows(ju, ex)
         eval_lists = {
             "ok": True,
             "unit_key": uk or "",
@@ -1993,7 +1993,7 @@ def tablet_device_package():
                 "user_id": int(ju.id),
                 "username": (ju.username or "").strip(),
                 "military_number": mil,
-                "local_password_seed": mil or (ju.username or "").strip(),
+                "local_password_seed": seed,
                 "session": me,
                 "home": home_payload,
                 "objectives": objectives_out,
@@ -2219,3 +2219,161 @@ def tablet_polarity_notes_delete(user: User, note_id: int):
         return jsonify(body), status
     g.db.commit()
     return jsonify(body), status
+
+
+# ---------------------------------------------------------------------------
+# تهيئة الجهاز الكاملة (مرحليّة) — جلسة device_setup دون انتحال جلسات المحكمين
+# ---------------------------------------------------------------------------
+
+
+@bp.get("/device/manifest")
+def tablet_device_manifest():
+    """المرحلة 1: التمرين + دليل المحكمين + بذور الدخول المحلي."""
+    setup_user, err = _require_device_setup_user()
+    if err is not None:
+        return err
+    assert setup_user is not None
+    ex = _exercise_for(setup_user)
+    if ex is None:
+        return _json_error("لا يوجد تمرين نشط", 404)
+
+    objectives = (
+        g.db.query(ExerciseObjective)
+        .filter(ExerciseObjective.exercise_id == int(ex.id))
+        .order_by(ExerciseObjective.sort_order, ExerciseObjective.id)
+        .all()
+    )
+    judges_out = []
+    for ju in _iter_device_provision_judges():
+        me = _serialize_user_bundle(ju, ex)
+        mil, seed = _judge_local_password_seed(ju, ex)
+        judges_out.append(
+            {
+                "user_id": int(ju.id),
+                "username": (ju.username or "").strip(),
+                "military_number": mil,
+                "local_password_seed": seed,
+                "role_key": (ju.role_key or "").strip(),
+                "unit_key": me.get("unit_key") or "",
+                "session": me,
+            }
+        )
+    return jsonify(
+        {
+            "ok": True,
+            "provisioning": True,
+            "cached_at": datetime.utcnow().isoformat() + "Z",
+            "exercise": {
+                "id": int(ex.id),
+                "name": (ex.title or "").strip(),
+                "code": (ex.code or "").strip(),
+                "location": (ex.location_label or "").strip(),
+                "period_label": _period_label(ex),
+            },
+            "objectives": [
+                {
+                    "id": int(r.id),
+                    "sort_order": int(r.sort_order or 0),
+                    "text": r.text or "",
+                }
+                for r in objectives
+            ],
+            "judges": judges_out,
+            "judge_count": len(judges_out),
+        }
+    )
+
+
+@bp.get("/device/judge/<int:judge_id>/bootstrap")
+def tablet_device_judge_bootstrap(judge_id: int):
+    return _with_provision_judge(judge_id, tablet_bootstrap)
+
+
+@bp.get("/device/judge/<int:judge_id>/home")
+def tablet_device_judge_home(judge_id: int):
+    return _with_provision_judge(judge_id, tablet_home)
+
+
+@bp.get("/device/judge/<int:judge_id>/exercise-details")
+def tablet_device_judge_exercise_details(judge_id: int):
+    return _with_provision_judge(judge_id, tablet_exercise_details)
+
+
+@bp.get("/device/judge/<int:judge_id>/polarity-notes")
+def tablet_device_judge_polarity_notes(judge_id: int):
+    return _with_provision_judge(judge_id, tablet_polarity_notes_list)
+
+
+@bp.get("/device/judge/<int:judge_id>/flow")
+def tablet_device_judge_flow(judge_id: int):
+    return _with_provision_judge(judge_id, tablet_flow)
+
+
+@bp.get("/device/judge/<int:judge_id>/action-eval")
+def tablet_device_judge_action_eval(judge_id: int):
+    return _with_provision_judge(judge_id, tablet_action_eval_lists)
+
+
+@bp.get("/device/judge/<int:judge_id>/action-eval/<int:slot>")
+def tablet_device_judge_action_eval_detail(judge_id: int, slot: int):
+    return _with_provision_judge(judge_id, tablet_action_eval_detail, slot)
+
+
+@bp.get("/device/judge/<int:judge_id>/evaluation-lists")
+def tablet_device_judge_evaluation_lists(judge_id: int):
+    return _with_provision_judge(judge_id, tablet_evaluation_lists)
+
+
+@bp.get("/device/judge/<int:judge_id>/evaluation-lists/<unit_key>/<int:item_id>")
+def tablet_device_judge_evaluation_list_detail(
+    judge_id: int, unit_key: str, item_id: int
+):
+    return _with_provision_judge(
+        judge_id, tablet_evaluation_list_detail, unit_key, item_id
+    )
+
+
+@bp.get("/device/judge/<int:judge_id>/objectives")
+def tablet_device_judge_objectives(judge_id: int):
+    return _with_provision_judge(judge_id, tablet_objectives)
+
+
+@bp.get("/device/judge/<int:judge_id>/incomplete")
+def tablet_device_judge_incomplete(judge_id: int):
+    return _with_provision_judge(judge_id, tablet_incomplete)
+
+
+@bp.get("/device/library")
+def tablet_device_library():
+    return _with_device_setup_handler(tablet_library)
+
+
+@bp.get("/device/exercise-papers")
+def tablet_device_exercise_papers():
+    return _with_device_setup_handler(tablet_exercise_papers)
+
+
+@bp.get("/device/exercise-details")
+def tablet_device_shared_exercise_details():
+    return _with_device_setup_handler(tablet_exercise_details)
+
+
+@bp.get("/device/files/library/<int:node_id>")
+def tablet_device_library_file(node_id: int):
+    return _with_device_setup_handler(tablet_library_file, node_id)
+
+
+@bp.get("/device/files/flow-days/<day_id>")
+def tablet_device_flow_day_file(day_id: str):
+    """PDF يوم المجرى — يُبنى ببيانات وحدة المحكم إن مُرّر judge_id."""
+    setup_user, err = _require_device_setup_user()
+    if err is not None:
+        return err
+    judge_id = request.args.get("judge_id", type=int)
+    actor = setup_user
+    if judge_id:
+        ju, jerr = _provision_judge_user(judge_id)
+        if jerr is None:
+            actor = ju
+    assert actor is not None
+    return tablet_flow_day_pdf.__wrapped__(actor, day_id)

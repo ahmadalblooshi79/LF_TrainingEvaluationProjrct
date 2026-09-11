@@ -79,7 +79,7 @@ class _EvaluationListsScreenState extends State<EvaluationListsScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppHeader(
-        pageTitle: 'قوائم التقييم',
+        pageTitle: 'قوائم تقييم الإجراءات',
         onBack: () => Navigator.of(context).maybePop(),
       ),
       body: _loading
@@ -119,7 +119,7 @@ class _EvaluationListsScreenState extends State<EvaluationListsScreen> {
           child: Align(
             alignment: Alignment.centerRight,
             child: Text(
-              'قوائم التقييم — ${unitLabel.isNotEmpty ? unitLabel : 'قيادة مجموعة اللواء'}',
+              'قوائم تقييم الإجراءات — ${unitLabel.isNotEmpty ? unitLabel : 'قيادة مجموعة اللواء'}',
               style: AppTextStyles.cairo(fontSize: 15, fontWeight: FontWeight.w800),
             ),
           ),

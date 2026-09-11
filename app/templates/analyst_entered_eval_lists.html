@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ section_title }} — المحللين{% endblock %}
+{% block content %}
+<div class="analyst-entered-eval-page">
+  <div class="page-header page-header--judge-eval-lists">
+    <h1><i class="fa-solid {{ section_icon | default('fa-clipboard-check') }} fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
+    <div class="page-header__nav">
+      {% include 'partials/subpage_close.html' %}
+    </div>
+  </div>
+
+  {% if not has_exercise %}
+  <section class="card">
+    <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل. افتح أو أنشئ تمريناً أولاً.</p>
+  </section>
+  {% else %}
+  <section class="card judge-eval-lists-fill-card">
+    <p class="analyst-entered-eval-summary muted" dir="rtl">
+      قوائم التقييم المدخلة (معتمدة وغير معتمدة)، مرتبة حسب تسلسل التنظيم للوحدة.
+      {% if entered_count is defined %}
+      <strong> — العدد: {{ entered_count }}</strong>
+      <span> (معتمدة: {{ approved_count|default(0) }} — غير معتمدة: {{ pending_count|default(0) }})</span>
+      {% endif %}
+    </p>
+    {% if entered_rows %}
+    <div class="table-wrap final-report-table-scroll--detail" style="max-height:min(70vh,42rem);">
+      <table class="judge-eval-lists-table analyst-entered-eval-table" dir="rtl" aria-label="قوائم التقييم المدخلة">
+        <thead>
+          <tr>
+            <th scope="col" class="eval-lists-table__seq">ت</th>
+            <th scope="col">الوحدة المتدربة</th>
+            <th scope="col">مسمى التقييم</th>
+            <th scope="col">النسبة</th>
+            <th scope="col">التقدير</th>
+            <th scope="col">معتمدة أو غير معتمدة</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in entered_rows %}
+          <tr class="{% if r.is_approved %}eval-row-tone--sent{% else %}eval-row-tone--pending{% endif %}">
+            <td class="eval-lists-table__seq">{{ loop.index }}</td>
+            <td>{{ r.unit_label or "—" }}</td>
+            <td class="judge-eval-lists-table__list-title">{{ r.item_title }}</td>
+            <td>{% if r.total_pct is not none %}{{ (r.total_pct | round(2)) }}%{% else %}—{% endif %}</td>
+            <td>{{ r.grade_label or "—" }}</td>
+            <td>
+              {% if r.is_approved %}
+              <span class="badge badge--done">معتمدة</span>
+              {% else %}
+              <span class="badge badge--not-done">غير معتمدة</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted" dir="rtl" style="margin:0;">لا توجد قوائم تقييم مدخلة حالياً.</p>
+    {% endif %}
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

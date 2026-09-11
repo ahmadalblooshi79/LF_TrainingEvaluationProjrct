@@ -48,10 +48,6 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    final hint = AuthService.instance.savedUsernameHint;
-    if (hint != null && hint.isNotEmpty) {
-      _userCtrl.text = hint;
-    }
     _refreshServerHint();
     _loadMeta();
     // حالة الاتصال للشارة فقط — لا تمنع الدخول

@@ -559,41 +559,22 @@ def collect_linked_files_by_dilemma(db: Session) -> dict[str, dict[int, list[dic
                     continue
                 _add_file(day_id, dilemma_no, ch, unit_key=folder_unit_key)
 
+    from app.flow_day_ids import flow_day_ordinal
+
     roots_by_day: dict[str, list[InformationBankTreeNode]] = {}
     for root in day_roots:
         day_id = parse_flow_day_catalog_key((root.catalog_phase_key or "").strip())
-        day_no = None
-        if day_id:
-            m = re.search(r"(\d+)$", day_id)
-            if m:
-                try:
-                    day_no = int(m.group(1))
-                except ValueError:
-                    day_no = None
+        day_no = flow_day_ordinal(day_id or "", root.name or "")
         if not day_id:
-            day_no = parse_day_no_from_dirname(root.name or "")
             if day_no is None:
                 continue
             day_id = day_id_for_number(day_no)
-        # جذور بأيام غير رقمية (day-1785…) — استخرج من catalog فقط
-        if day_no is None and day_id.startswith("day-"):
-            rest = day_id[4:]
-            if rest.isdigit():
-                day_no = int(rest)
         roots_by_day.setdefault(day_id, []).append(root)
 
     for day_id, roots in roots_by_day.items():
         # عند تكرار جذر نفس اليوم: الأحدث يحمل القوائم الحالية
         root = max(roots, key=lambda r: int(r.id))
-        day_no = None
-        m = re.search(r"(\d+)$", day_id)
-        if m:
-            try:
-                day_no = int(m.group(1))
-            except ValueError:
-                day_no = None
-        if day_no is None:
-            day_no = parse_day_no_from_dirname(root.name or "")
+        day_no = flow_day_ordinal(day_id, root.name or "")
         _walk(root, day_id=day_id, day_no=day_no, dilemma_no=None, folder_unit_key="")
 
     return out
