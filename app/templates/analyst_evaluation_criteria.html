@@ -24,7 +24,7 @@
 
 <div class="ibank-tabbed analyst-criteria-tabbed" dir="rtl">
   <div class="ibank-tabs-row" role="tablist" aria-label="تبويبات معايير التقييم">
-    <button type="button" class="ibank-tab{% if active_tab == 'phases' %} is-active{% endif %}" data-tab-btn="phases" role="tab" aria-selected="{{ 'true' if active_tab == 'phases' else 'false' }}">قوائم التقييم (المراحل)</button>
+    <button type="button" class="ibank-tab{% if active_tab == 'phases' %} is-active{% endif %}" data-tab-btn="phases" role="tab" aria-selected="{{ 'true' if active_tab == 'phases' else 'false' }}">قوائم تقييم الإجراءات (المراحل)</button>
     <button type="button" class="ibank-tab{% if active_tab == 'dilemma' %} is-active{% endif %}" data-tab-btn="dilemma" role="tab" aria-selected="{{ 'true' if active_tab == 'dilemma' else 'false' }}">قوائم تقييم المعاضل</button>
   </div>
   <div class="ibank-tab-body">
@@ -102,7 +102,7 @@
                         <option value="{{ url_for('views.analyst_evaluation_criteria_phase', unit_id=row.unit_id, phase_key=phase_key) }}">{{ phase_label }}</option>
                         {% endfor %}
                       </select>
-                      <label class="analyst-criteria-delete-btn" title="حذف الوحدة" data-confirm="حذف هذه الوحدة من قوائم التقييم (المراحل)؟">
+                      <label class="analyst-criteria-delete-btn" title="حذف الوحدة" data-confirm="حذف هذه الوحدة من قوائم تقييم الإجراءات (المراحل)؟">
                         <input type="checkbox" class="sr-only analyst-criteria-delete-input" name="delete_unit_ids" value="{{ row.unit_id }}">
                         <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
                         <span class="sr-only">حذف {{ row.unit_label }}</span>
@@ -216,7 +216,7 @@
                 {% elif not dilemma_distribution_rows %}
                 <tr class="analyst-criteria-empty-row">
                   <td class="analyst-criteria-seq muted">—</td>
-                  <td class="muted analyst-criteria-empty-msg">لا توجد وحدات معنية بهذه المرحلة بعد (قوائم التقييم، حزم المجرى، أو مكلفو المعاضل في الأيام المرتبطة).</td>
+                  <td class="muted analyst-criteria-empty-msg">لا توجد وحدات معنية بهذه المرحلة بعد (قوائم تقييم الإجراءات، حزم المجرى، أو مكلفو المعاضل في الأيام المرتبطة).</td>
                   <td class="muted">—</td>
                   <td class="muted">—</td>
                   <td class="muted">—</td>
@@ -232,7 +232,7 @@
                   <th scope="row" class="analyst-criteria-unit-cell">
                     <input type="hidden" name="unit_ids" value="{{ row.unit_id }}">
                     <input type="hidden" name="unit_level_key__{{ row.unit_id }}" value="{{ row.unit_level_key or '' }}">
-                    <span class="analyst-criteria-unit-label" title="مستوى الوحدة — قوائم التقييم">{{ row.unit_label }}</span>
+                    <span class="analyst-criteria-unit-label" title="مستوى الوحدة — قوائم تقييم الإجراءات">{{ row.unit_label }}</span>
                   </th>
                   <td class="analyst-criteria-num-cell">{% if phase_total is number %}{{ phase_total|round(2) }}{% else %}—{% endif %}</td>
                   <td class="analyst-criteria-num-cell">{% if total_mark is number %}{{ total_mark|round(2) }}{% else %}—{% endif %}</td>

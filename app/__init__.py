@@ -35,6 +35,7 @@ from app.database import (
     ensure_ai_agentic_foundation_tables,
     ensure_ai_training_center_tables,
     ensure_tablet_offline_support,
+    ensure_judge_electronic_signature_schema,
 )
 
 # تسجيل النماذج لضمان اكتمال metadata
@@ -102,6 +103,7 @@ def create_app() -> Flask:
         ensure_ai_agentic_foundation_tables()
         ensure_ai_training_center_tables()
         ensure_tablet_offline_support()
+        ensure_judge_electronic_signature_schema()
         from app.seed import seed_all
         from app.ibank_section_clone import ensure_wargames_ibank_clone
 
@@ -139,6 +141,7 @@ def create_app() -> Flask:
                 "/api/tablet/auth/logout",
                 "/api/tablet/device/setup-login",
                 "/api/tablet/device/package",
+                "/api/tablet/signature",
             )
             if not any(path == p or path.startswith(p + "/") for p in light_prefixes):
                 from app.planning_catalog_sync import sync_planning_catalogs_from_db

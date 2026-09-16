@@ -1,5 +1,5 @@
 {# جدول تعبئة قائمة التقييم — تمرير وسفلي ثابتان، مكتسبة كقائمة حسب القصوى #}
-<div class="eval-structured-layout{% if not eval_can_edit|default(false) %} eval-structured-layout--readonly{% endif %}" dir="rtl" id="eval-structured-root" data-crit-upload-url="{{ eval_crit_upload_url|default('', true)|e }}" data-crit-li="{{ eval_crit_list_item_id if eval_crit_list_item_id is not none else '' }}" data-crit-ba="{{ eval_crit_bundle_action_id if eval_crit_bundle_action_id is not none else '' }}" data-approve-incomplete="{% if eval_approve_incomplete|default(false) %}1{% else %}0{% endif %}" data-approve-grade-blocked="{% if eval_approve_grade_blocked|default(false) %}1{% else %}0{% endif %}" data-readonly="{% if eval_can_edit|default(false) %}0{% else %}1{% endif %}">
+<div class="eval-structured-layout{% if not eval_can_edit|default(false) %} eval-structured-layout--readonly{% endif %}" dir="rtl" id="eval-structured-root" data-eval-entry="{% if eval_can_edit|default(false) %}1{% else %}0{% endif %}" data-crit-upload-url="{{ eval_crit_upload_url|default('', true)|e }}" data-crit-li="{{ eval_crit_list_item_id if eval_crit_list_item_id is not none else '' }}" data-crit-ba="{{ eval_crit_bundle_action_id if eval_crit_bundle_action_id is not none else '' }}" data-approve-incomplete="{% if eval_approve_incomplete|default(false) %}1{% else %}0{% endif %}" data-approve-grade-blocked="{% if eval_approve_grade_blocked|default(false) %}1{% else %}0{% endif %}" data-readonly="{% if eval_can_edit|default(false) %}0{% else %}1{% endif %}" data-has-signature="{% if judge_has_master_signature|default(false) %}1{% else %}0{% endif %}" data-judge-name="{{ judge_name|default('')|e }}" data-unit-label="{{ unit_label|default('')|e }}" data-list-title="{{ item_title|default('')|e }}">
   <div class="eval-structured-layout__scroll" id="eval-structured-scroll">
     <table class="eval-preview-table eval-structured eval-structured--tight" role="table" aria-label="جدول التقييم" id="eval-structured-table">
       <thead>
@@ -112,7 +112,20 @@
       </tbody>
     </table>
   </div>
-  <p class="form-error-banner eval-approve-block-msg" id="eval-approve-block-msg" role="alert" dir="rtl"{% if not eval_approve_incomplete|default(false) and not eval_approve_grade_blocked|default(false) %} hidden{% endif %}>{% if eval_approve_grade_blocked|default(false) %}لا يمكن الاعتماد: التقدير «راسب» أو «مقبول» — عدّل العلامات إلى «جيد» فما فوق، أو اكتب ملاحظات في خانة الملاحظات ثم احفظ.{% elif eval_approve_incomplete|default(false) %}لا يمكن الاعتماد: يوجد بند أو أكثر لم تُدخل له المكتسبة (الخانات المحددة باللون الأحمر). اختر علامة أو «لا ينطبق»، ثم احفظ إن لزم، ثم أعد الاعتماد.{% endif %}</p>
+  {% if saved_is_approved|default(false) and eval_signature_url|default('') %}
+  <section class="eval-judge-esign" dir="rtl" aria-label="الاعتماد الإلكتروني">
+    <div class="eval-judge-esign__row"><span class="eval-judge-esign__k">المحكم:</span> <span class="eval-judge-esign__v">{{ judge_name|default('—') }}</span></div>
+    <div class="eval-judge-esign__row"><span class="eval-judge-esign__k">الوحدة:</span> <span class="eval-judge-esign__v">{{ unit_label|default('—') }}</span></div>
+    <div class="eval-judge-esign__sig">
+      <span class="eval-judge-esign__k">التوقيع:</span>
+      <img class="eval-judge-esign__img" src="{{ eval_signature_url }}" alt="توقيع المحكم الإلكتروني" width="220" height="72">
+    </div>
+    <div class="eval-judge-esign__row"><span class="eval-judge-esign__k">تاريخ الاعتماد:</span> <span class="eval-judge-esign__v">{% if saved_approved_at %}{{ saved_approved_at.strftime('%d/%m/%Y') }}{% else %}—{% endif %}</span></div>
+    <div class="eval-judge-esign__row"><span class="eval-judge-esign__k">الوقت:</span> <span class="eval-judge-esign__v">{% if saved_approved_at %}{{ saved_approved_at.strftime('%H:%M') }}{% else %}—{% endif %}</span></div>
+    <div class="eval-judge-esign__status">حالة القائمة: معتمدة إلكترونياً</div>
+  </section>
+  {% endif %}
+  <p class="form-error-banner eval-approve-block-msg" id="eval-approve-block-msg" role="alert" dir="rtl"{% if not eval_approve_incomplete|default(false) and not eval_approve_grade_blocked|default(false) and not eval_approve_no_signature|default(false) and not eval_approve_signature_mismatch|default(false) %} hidden{% endif %}>{% if eval_approve_signature_mismatch|default(false) %}تعذّر الاعتماد: التوقيع لا يخص الحساب الحالي.{% elif eval_approve_no_signature|default(false) %}لا يوجد توقيع إلكتروني مسجل لهذا الحساب. يرجى تسجيل التوقيع قبل اعتماد القائمة.{% elif eval_approve_grade_blocked|default(false) %}لا يمكن الاعتماد: التقدير «راسب» أو «مقبول» — عدّل العلامات إلى «جيد» فما فوق، أو اكتب ملاحظات في خانة الملاحظات ثم احفظ.{% elif eval_approve_incomplete|default(false) %}لا يمكن الاعتماد: يوجد بند أو أكثر لم تُدخل له المكتسبة (الخانات المحددة باللون الأحمر). اختر علامة أو «لا ينطبق»، ثم احفظ إن لزم، ثم أعد الاعتماد.{% endif %}</p>
   <p class="eval-acquired-warn" id="eval-acquired-warn" role="alert" hidden></p>
   {% if eval_chief_next_step_hint|default(false) and (show_chief_approve|default(false) or show_chief_reopen|default(false)) %}
   <p class="eval-chief-hint-row muted" dir="rtl"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> بعد <strong>اعتماد كبير المحكمين</strong> يُرسل التقييم إلى <strong>اعتماد السيطرة</strong>.</p>
@@ -156,6 +169,28 @@
     </div>
   </div>
 </div>
+<div id="eval-esign-dialog" class="eval-esign-dialog" hidden dir="rtl" role="dialog" aria-modal="true" aria-labelledby="eval-esign-dialog-title">
+  <div class="eval-esign-dialog__card">
+    <h2 id="eval-esign-dialog-title" class="eval-esign-dialog__title">اعتماد وتوقيع قائمة التقييم</h2>
+    <div id="eval-esign-dialog-missing" hidden>
+      <p>لا يوجد توقيع إلكتروني مسجل لهذا الحساب.<br>يرجى تسجيل التوقيع قبل اعتماد القائمة.</p>
+      <div class="eval-esign-dialog__actions">
+        <button type="button" class="btn btn-ghost" id="eval-esign-cancel-missing">إلغاء</button>
+        <a class="btn" id="eval-esign-register" href="/tablet/">تسجيل التوقيع</a>
+      </div>
+    </div>
+    <div id="eval-esign-dialog-confirm">
+      <p class="eval-esign-dialog__meta"><strong>المحكم:</strong> <span id="eval-esign-judge-name"></span></p>
+      <p class="eval-esign-dialog__meta"><strong>الوحدة:</strong> <span id="eval-esign-unit"></span></p>
+      <p class="eval-esign-dialog__meta"><strong>اسم القائمة:</strong> <span id="eval-esign-list"></span></p>
+      <p class="eval-esign-dialog__pledge">أقر بأنني راجعت نتائج التقييم وأعتمد البيانات الواردة في هذه القائمة.</p>
+      <div class="eval-esign-dialog__actions">
+        <button type="button" class="btn btn-ghost" id="eval-esign-cancel">إلغاء</button>
+        <button type="button" class="btn btn-danger" id="eval-esign-confirm">توقيع واعتماد</button>
+      </div>
+    </div>
+  </div>
+</div>
 <script>
 (function () {
   var table = document.getElementById('eval-structured-table');
@@ -167,6 +202,37 @@
   var approveMsgEl = document.getElementById('eval-approve-block-msg');
   var root = document.getElementById('eval-structured-root');
   var approveForm = document.getElementById('eval-approve-form');
+  var evalEntry = !!(root && (root.getAttribute('data-eval-entry') === '1' || root.getAttribute('data-readonly') !== '1'));
+  window.__lfEvalEntryDirty = false;
+
+  function markEvalDirty() {
+    window.__lfEvalEntryDirty = true;
+  }
+  function markEvalClean() {
+    window.__lfEvalEntryDirty = false;
+  }
+
+  if (evalEntry) {
+    window.addEventListener('beforeunload', function (e) {
+      if (!window.__lfEvalEntryDirty) return;
+      e.preventDefault();
+      e.returnValue = '';
+    });
+    root.addEventListener('change', function (e) {
+      var t = e.target;
+      if (!t) return;
+      if (t.matches('select, textarea, input:not([type="file"]):not([type="hidden"]):not([type="submit"]):not([type="button"])')) {
+        markEvalDirty();
+      }
+    });
+    root.addEventListener('input', function (e) {
+      var t = e.target;
+      if (!t) return;
+      if (t.matches('textarea, input:not([type="file"]):not([type="hidden"]):not([type="submit"]):not([type="button"])')) {
+        markEvalDirty();
+      }
+    });
+  }
 
   function clearAcqIncompleteHighlight() {
     table.querySelectorAll('td.eval-col--acq.eval-acq--incomplete').forEach(function (td) {
@@ -261,6 +327,7 @@
     fetch(formEl.action, { method: 'POST', body: fd, credentials: 'same-origin', redirect: 'follow' })
       .then(function (resp) {
         if (resp.ok) {
+          markEvalClean();
           if (busyHint) {
             busyHint.textContent = 'تم حفظ نتائج التقييم بنجاح';
             busyHint.classList.add('eval-save-hint--ok');
@@ -280,7 +347,6 @@
           }, 450);
           return;
         }
-        if (navigateEvalResponse(resp, busyHint)) return;
         if (busyHint) busyHint.textContent = 'تعذّر تنفيذ العملية — أعد المحاولة';
       })
       .catch(function () {
@@ -329,8 +395,44 @@
         approveMsgEl.hidden = true;
         approveMsgEl.textContent = '';
       }
-      submitEvalActionForm(approveForm, hintEl);
+      openEvalEsignDialog(function () {
+        submitEvalActionForm(approveForm, hintEl);
+      });
     });
+  }
+
+  function openEvalEsignDialog(onConfirm) {
+    var dlg = document.getElementById('eval-esign-dialog');
+    if (!dlg) {
+      if (typeof onConfirm === 'function') onConfirm();
+      return;
+    }
+    var hasSig = root && root.getAttribute('data-has-signature') === '1';
+    var missing = document.getElementById('eval-esign-dialog-missing');
+    var confirmBox = document.getElementById('eval-esign-dialog-confirm');
+    var nameEl = document.getElementById('eval-esign-judge-name');
+    var unitEl = document.getElementById('eval-esign-unit');
+    var listEl = document.getElementById('eval-esign-list');
+    if (nameEl) nameEl.textContent = (root && root.getAttribute('data-judge-name')) || '';
+    if (unitEl) unitEl.textContent = (root && root.getAttribute('data-unit-label')) || '';
+    if (listEl) listEl.textContent = (root && root.getAttribute('data-list-title')) || '';
+    if (missing) missing.hidden = !!hasSig;
+    if (confirmBox) confirmBox.hidden = !hasSig;
+    dlg.hidden = false;
+    function closeDlg() {
+      dlg.hidden = true;
+    }
+    var cancel = document.getElementById('eval-esign-cancel');
+    var cancelMissing = document.getElementById('eval-esign-cancel-missing');
+    var ok = document.getElementById('eval-esign-confirm');
+    if (cancel) cancel.onclick = closeDlg;
+    if (cancelMissing) cancelMissing.onclick = closeDlg;
+    if (ok) {
+      ok.onclick = function () {
+        closeDlg();
+        if (typeof onConfirm === 'function') onConfirm();
+      };
+    }
   }
 
   var chiefApproveForm = document.getElementById('eval-chief-approve-form');
@@ -679,6 +781,7 @@
     var tr = btn.closest('tr');
     if (!tr || !tr.parentNode) return;
     tr.parentNode.removeChild(tr);
+    markEvalDirty();
     renumberRows();
     updateTotal();
   });
@@ -693,11 +796,12 @@
     var sumAcq = 0;
     var anyNumericAcquired = false;
     table.querySelectorAll('.eval-structured-row.eval-row--score').forEach(function (tr) {
-      var mx = parseMaxAttr(tr);
-      if (!isNaN(mx) && mx > 0) sumMax += mx;
       var sel = tr.querySelector('.eval-acquired-input');
       var rawAcq = sel ? String(sel.value || '').trim() : '';
-      if (rawAcq !== '' && rawAcq !== 'na') {
+      var acqNa = rawAcq.toLowerCase() === 'na';
+      var mx = parseMaxAttr(tr);
+      if (!acqNa && !isNaN(mx) && mx > 0) sumMax += mx;
+      if (rawAcq !== '' && !acqNa) {
         var an = parseFloat(rawAcq.replace(',', '.'));
         if (!isNaN(an)) {
           sumAcq += an;
@@ -911,9 +1015,9 @@
             throw new Error('bad');
           }
           var td = inp.closest('.eval-col--crit');
-          if (!td) return location.reload();
+          if (!td) return;
           var wrap = td.querySelector('.eval-crit-buttons');
-          if (!wrap) return location.reload();
+          if (!wrap) return;
           var span = document.createElement('span');
           span.className = 'eval-crit-slot-item';
           var isVid = String(j.media_kind || rk).toLowerCase() === 'video';

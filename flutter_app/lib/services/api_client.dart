@@ -33,7 +33,9 @@ class ApiClient {
   ApiClient._internal();
   static final ApiClient instance = ApiClient._internal();
 
-  CookieJar? _cookieJar;
+  CookieJar? _judgeJar;
+  CookieJar? _deviceJar;
+  bool _useDeviceAuth = false;
   String _baseUrl = '';
   bool _ready = false;
 
@@ -57,16 +59,32 @@ class ApiClient {
       await prefs.setString(kServerBaseUrlPrefKey, _baseUrl);
     }
     if (kIsWeb) {
-      // Browser manages cookies for same-origin PWA; keep an in-memory jar
-      // only as a no-op helper for header parsing paths.
-      _cookieJar = CookieJar();
+      // Browser manages cookies for same-origin PWA; in-memory jars are
+      // placeholders. Native uses isolated judge vs device jars.
+      _judgeJar = CookieJar();
+      _deviceJar = CookieJar();
       if (_baseUrl.isEmpty) {
         _baseUrl = Uri.base.origin;
       }
     } else {
-      _cookieJar = await io_env.createCookieJar();
+      _judgeJar = await io_env.createCookieJar(name: 'judge');
+      _deviceJar = await io_env.createCookieJar(name: 'device');
     }
     _ready = true;
+  }
+
+  CookieJar? get _activeJar => _useDeviceAuth ? _deviceJar : _judgeJar;
+
+  /// واجهات تهيئة الجهاز تستخدم جلسة منفصلة عن جلسة المحكم.
+  Future<T> withDeviceAuth<T>(Future<T> Function() action) async {
+    await init();
+    final prev = _useDeviceAuth;
+    _useDeviceAuth = true;
+    try {
+      return await action();
+    } finally {
+      _useDeviceAuth = prev;
+    }
   }
 
   Future<void> setBaseUrl(String url) async {
@@ -116,8 +134,12 @@ class ApiClient {
     return buf.toString();
   }
 
-  Future<void> clearCookies() async {
-    await _cookieJar?.deleteAll();
+  Future<void> clearCookies({bool device = false}) async {
+    if (device) {
+      await _deviceJar?.deleteAll();
+    } else {
+      await _judgeJar?.deleteAll();
+    }
   }
 
   Uri _uri(String path, [Map<String, dynamic>? query]) {
@@ -143,7 +165,7 @@ class ApiClient {
     if (jsonBody) headers['Content-Type'] = 'application/json';
     if (!kIsWeb) {
       final cookies =
-          await io_env.loadCookiesForRequest(_cookieJar ?? CookieJar(), uri);
+          await io_env.loadCookiesForRequest(_activeJar ?? CookieJar(), uri);
       if (cookies.isNotEmpty) {
         headers['Cookie'] =
             cookies.map((c) => '${c.name}=${c.value}').join('; ');
@@ -166,8 +188,8 @@ class ApiClient {
   }
 
   Future<void> _saveCookies(Uri uri, http.Response resp) async {
-    if (kIsWeb || _cookieJar == null) return;
-    await io_env.saveCookiesFromResponse(_cookieJar!, uri, resp);
+    if (kIsWeb || _activeJar == null) return;
+    await io_env.saveCookiesFromResponse(_activeJar!, uri, resp);
   }
 
   Future<Map<String, dynamic>> _decode(http.Response resp) async {
@@ -209,7 +231,7 @@ class ApiClient {
         headers: headers,
         bodyBytes: encodedBody,
         timeout: effectiveTimeout,
-        cookieJar: kIsWeb ? null : _cookieJar,
+        cookieJar: kIsWeb ? null : _activeJar,
       );
       // احتياطي إن لم تُحفظ كوكيز dart:io
       await _saveCookies(uri, resp);
@@ -269,7 +291,7 @@ class ApiClient {
         uri: uri,
         headers: headers,
         timeout: effectiveTimeout,
-        cookieJar: kIsWeb ? null : _cookieJar,
+        cookieJar: kIsWeb ? null : _activeJar,
       );
       await _saveCookies(uri, resp);
       online.value = true;

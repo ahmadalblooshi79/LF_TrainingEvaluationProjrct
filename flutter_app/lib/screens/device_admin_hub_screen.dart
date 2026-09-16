@@ -200,7 +200,7 @@ class _DeviceAdminHubScreenState extends State<DeviceAdminHubScreen> {
                     });
                     final ok =
                         await PackageSyncService.instance.downloadAndStorePackage(
-                      onProgress: (m) {
+                      onProgress: (m, {progress}) {
                         if (mounted) {
                           setState(() {
                             _msgOk = true;

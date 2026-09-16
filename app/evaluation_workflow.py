@@ -105,6 +105,9 @@ def apply_chief_reopen(saved: SavedRow) -> None:
     saved.is_chief_approved = False
     saved.chief_approved_by_id = None
     saved.chief_approved_at = None
+    from app.judge_signature import clear_signature_snapshot
+
+    clear_signature_snapshot(saved)
 
 
 def apply_judge_save_after_reopen(saved: SavedRow) -> None:
@@ -115,6 +118,9 @@ def apply_judge_save_after_reopen(saved: SavedRow) -> None:
     saved.approved_by_id = None
     saved.approved_at = None
     saved.reopened_for_judge = False
+    from app.judge_signature import clear_signature_snapshot
+
+    clear_signature_snapshot(saved)
 
 
 def eval_dispatch_status_ar(saved: SavedRow | None) -> tuple[str, str]:

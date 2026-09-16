@@ -9,6 +9,7 @@ from sqlalchemy import (
     Integer,
     Float,
     Boolean,
+    LargeBinary,
     UniqueConstraint,
     Index,
 )
@@ -424,6 +425,12 @@ class PlannerFlowBundleEvalSavedResult(Base):
         ForeignKey("users.id"), nullable=True, index=True
     )
     control_approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    signature_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    signature_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    signature_png: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    signature_registered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
@@ -544,8 +551,31 @@ class EvaluationListSavedResult(Base):
         ForeignKey("users.id"), nullable=True, index=True
     )
     control_approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    signature_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    signature_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    signature_png: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    signature_registered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class JudgeElectronicSignature(Base):
+    """التوقيع الإلكتروني الرئيسي للمحكم — مرتبط بـ user_id فقط."""
+
+    __tablename__ = "judge_electronic_signatures"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    png_blob: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(32), default="registered", index=True)
+    source: Mapped[str] = mapped_column(String(32), default="tablet")
+    registered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class EvaluationCriterionMedia(Base):

@@ -87,6 +87,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppHeader(
         pageTitle: 'الإعدادات',
         showSettings: false,
+        showLogout: true,
         onBack: () => Navigator.of(context).maybePop(),
       ),
       backgroundColor: AppColors.background,
@@ -182,6 +183,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ],
                 );
               },
+            ),
+            const SizedBox(height: 28),
+            Text('التوقيع الإلكتروني', style: AppTextStyles.subtitle),
+            const SizedBox(height: 8),
+            ElevatedButton.icon(
+              onPressed: () => context.push('/signature'),
+              icon: const Icon(Icons.draw_outlined, size: 20),
+              label: const Text('التوقيع الإلكتروني'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.buttonBrown,
+                foregroundColor: AppColors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
             ),
             const SizedBox(height: 28),
             Text('حالة الاتصال والمزامنة', style: AppTextStyles.subtitle),

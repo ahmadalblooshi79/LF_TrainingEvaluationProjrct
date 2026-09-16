@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -204,6 +205,103 @@ def _fill_footer_judge_name(ws, judge_name: str, *, max_row: int, max_col: int) 
             return
 
 
+def _is_signature_label(raw: str) -> bool:
+    key = _footer_label_key(raw)
+    if not key:
+        return False
+    if len(raw) > 40:
+        return False
+    return key == "التوقيع" or (key.startswith("التوقيع") and len(key) <= 12)
+
+
+def _visual_left_value_cell(ws, row: int, label_col: int, *, max_col: int):
+    """الخانة المقابلة يسار التسمية في ورقة RTL (عمود أعلى رقماً)."""
+    for nc in (label_col + 2, label_col + 1, 7, 6):
+        if nc < 1 or nc == label_col:
+            continue
+        if nc > max(max_col, 8):
+            continue
+        target = _writable_cell(ws, row, nc)
+        tv = target.value
+        if _is_name_placeholder(tv) or tv is None or not str(tv).strip():
+            return target
+    return _writable_cell(ws, row, min(label_col + 2, max(max_col, 7)))
+
+
+def _find_signature_anchor_cell(ws, *, max_row: int, max_col: int):
+    """خلية خانة التوقيع: يسار كلمة «التوقيع» في تذييل القائمة."""
+    start = max(1, int(max_row) - 40)
+    scan_cols = min(int(max_col), 12)
+    for r in range(int(max_row), start - 1, -1):
+        for c in range(1, scan_cols + 1):
+            cell = _writable_cell(ws, r, c)
+            raw = _cell_to_str(cell.value)
+            if not raw or not _is_signature_label(raw):
+                continue
+            label_col = int(getattr(cell, "column", None) or c)
+            return _visual_left_value_cell(ws, int(getattr(cell, "row", None) or r), label_col, max_col=max_col)
+    for r in range(int(max_row), start - 1, -1):
+        for c in range(1, scan_cols + 1):
+            cell = _writable_cell(ws, r, c)
+            raw = _cell_to_str(cell.value)
+            if not raw:
+                continue
+            key = _footer_label_key(raw)
+            if key != "المحكم" and not (key.startswith("المحكم") and len(key) <= 12):
+                continue
+            if len(raw) > 40:
+                continue
+            label_col = int(getattr(cell, "column", None) or c)
+            return _visual_left_value_cell(
+                ws, int(getattr(cell, "row", None) or r) + 1, label_col, max_col=max_col
+            )
+    return _writable_cell(ws, max(int(max_row), 1), 7)
+
+
+def _embed_transparent_signature(
+    ws,
+    png_bytes: bytes | None,
+    *,
+    max_row: int,
+    max_col: int,
+) -> str | None:
+    """يدرج PNG بألفا في خانة التوقيع (يسار كلمة التوقيع) دون تسطيح على خلفية بيضاء."""
+    if not png_bytes:
+        return None
+    from openpyxl.drawing.image import Image as XLImage
+    from openpyxl.utils import get_column_letter
+    from PIL import Image as PILImage
+
+    try:
+        im = PILImage.open(io.BytesIO(png_bytes))
+        if im.mode != "RGBA":
+            return None
+        w, h = im.size
+    except Exception:
+        return None
+    if w <= 0 or h <= 0:
+        return None
+    max_h, max_w = 58.0, 190.0
+    scale = min(max_w / float(w), max_h / float(h), 1.0)
+    disp_w = max(24, int(w * scale))
+    disp_h = max(16, int(h * scale))
+    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    tmp.write(png_bytes)
+    tmp.close()
+    img = XLImage(tmp.name)
+    img.width = disp_w
+    img.height = disp_h
+    target = _find_signature_anchor_cell(ws, max_row=max_row, max_col=max_col)
+    anchor_row = int(getattr(target, "row", None) or max_row)
+    anchor_col = int(getattr(target, "column", None) or 7)
+    img.anchor = f"{get_column_letter(anchor_col)}{anchor_row}"
+    ws.add_image(img)
+    dim = ws.row_dimensions[anchor_row]
+    current = float(dim.height or 0)
+    dim.height = max(current, disp_h * 0.75, 28.0)
+    return tmp.name
+
+
 def build_evaluation_list_xlsx_bytes(
     source_path: Path,
     *,
@@ -214,6 +312,8 @@ def build_evaluation_list_xlsx_bytes(
     judge_name: str,
     eval_rows: list[dict[str, Any]] | None,
     saved_rows: list[dict[str, Any]] | None,
+    signature_png: bytes | None = None,
+    approved_at: Any | None = None,
 ) -> bytes:
     """
     ينسخ ملف المصدر، يحدّث العنوان والبيانات الوصفية وعلامات المحكم،
@@ -316,9 +416,19 @@ def build_evaluation_list_xlsx_bytes(
 
         # صف التذييل «المحكم» — اسم المحكم من صفحة قائمة التقييم
         _fill_footer_judge_name(ws, judge_name, max_row=mr, max_col=mc)
+        tmp_sig = _embed_transparent_signature(
+            ws, signature_png, max_row=mr, max_col=mc
+        )
 
         buf = io.BytesIO()
-        wb.save(buf)
+        try:
+            wb.save(buf)
+        finally:
+            if tmp_sig:
+                try:
+                    Path(tmp_sig).unlink(missing_ok=True)
+                except Exception:
+                    pass
         buf.seek(0)
         return buf.getvalue()
     finally:

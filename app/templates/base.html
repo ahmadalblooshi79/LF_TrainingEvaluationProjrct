@@ -7,7 +7,7 @@
   <title>{% block title %}نظام إدارة التمارين{% endblock %}</title>
   <link rel="stylesheet" href="/static/fonts-local.css?v=fonts-local-1">
   <link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css?v=fa-6.5.1">
-  <link rel="stylesheet" href="/static/style.css?v=analyst-entered-notes-v1">
+  <link rel="stylesheet" href="/static/style.css?v=cr-report-pdf-v2">
   <link rel="stylesheet" href="/static/responsive-v2.2.css?v=ui-refine-base-v1">
   <link rel="stylesheet" href="/static/ui-refine.css?v=ibank-tree-judge-aside-v2">
   <script src="/static/select_all_controls.js?v=select-all-v1" defer></script>
@@ -383,7 +383,16 @@
     return /\/chat-rooms\//.test(window.location.pathname);
   }
 
+  /** نموذج تعبئة تقييم قابل للتحرير — ليس لوحة مراقبة مباشرة. */
+  function isEvaluationEntryPage() {
+    var root = document.getElementById("eval-structured-root");
+    if (!root) return false;
+    if (root.getAttribute("data-eval-entry") === "1") return true;
+    return root.getAttribute("data-readonly") !== "1";
+  }
+
   function isLiveMonitorPage() {
+    if (isEvaluationEntryPage()) return false;
     var p = window.location.pathname;
     if (/\/control\//.test(p)) return true;
     if (/\/incomplete-tasks/.test(p)) return true;
@@ -487,6 +496,9 @@
     if (isInformationBankGatePage()) return;
     if (isHeavyAutoRefreshExemptPage()) return;
     if (isPlannerFlowTableEditorPage()) return;
+    // صفحات إدخال التقييم: لا إعادة تحميل تلقائية — العمل المحلي غير المحفوظ أولوية.
+    if (isEvaluationEntryPage()) return;
+    if (window.__lfEvalEntryDirty) return;
     // في صفحات المحادثة نحفظ المسودة ثم نُعيد التحميل دون تأخير
     // لضمان وصول الرسائل الجديدة فوراً للمستلمين.
     if (isChatRoomPage()) {

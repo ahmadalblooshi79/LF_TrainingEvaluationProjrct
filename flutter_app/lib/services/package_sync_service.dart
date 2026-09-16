@@ -2,12 +2,14 @@ import '../models/list_row.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
 import 'device_admin_service.dart';
+import 'health_service.dart';
+import 'identity_log.dart';
 import 'library_pdf_cache.dart';
 import 'notifications_badge_service.dart';
 import 'offline_store.dart';
 import 'tablet_repository.dart';
 
-typedef ProvisionProgress = void Function(String message);
+typedef ProvisionProgress = void Function(String message, {double? progress});
 
 /// تنزيل وتخزين حزمة التمرين مع عزل كل محكم في Local DB.
 class PackageSyncService {
@@ -20,11 +22,13 @@ class PackageSyncService {
   Future<bool> setupLogin(String username, String password) async {
     lastError = null;
     try {
-      await ApiClient.instance.post(
-        '/api/tablet/device/setup-login',
-        body: {'username': username, 'password': password},
-        timeout: const Duration(seconds: 30),
-      );
+      await ApiClient.instance.withDeviceAuth(() async {
+        await ApiClient.instance.post(
+          '/api/tablet/device/setup-login',
+          body: {'username': username, 'password': password},
+          timeout: const Duration(seconds: 30),
+        );
+      });
       return true;
     } on ApiOfflineException catch (e) {
       lastError = e.message;
@@ -139,13 +143,19 @@ class PackageSyncService {
     return true;
   }
 
-  Future<bool> downloadAndStorePackage({ProvisionProgress? onProgress}) async {
+  Future<bool> downloadAndStorePackage({ProvisionProgress? onProgress}) {
+    return ApiClient.instance.withDeviceAuth(
+      () => _downloadAndStorePackageImpl(onProgress: onProgress),
+    );
+  }
+
+  Future<bool> _downloadAndStorePackageImpl({ProvisionProgress? onProgress}) async {
     lastError = null;
     lastJudgeCount = 0;
     final failures = <String>[];
     try {
-      onProgress?.call('الاتصال بالسيرفر');
-      onProgress?.call('تنزيل معلومات التمرين');
+      onProgress?.call('الاتصال بالسيرفر', progress: 0.02);
+      onProgress?.call('تنزيل معلومات التمرين', progress: 0.05);
       final manifest = await _get('/api/tablet/device/manifest');
       final judges = (manifest['judges'] as List?) ?? const [];
       if (judges.isEmpty) {
@@ -155,7 +165,7 @@ class PackageSyncService {
         return false;
       }
 
-      onProgress?.call('تنزيل حسابات المحكمين');
+      onProgress?.call('تنزيل حسابات المحكمين', progress: 0.12);
       final judgeIds = <int>[];
       for (final raw in judges) {
         if (raw is! Map) continue;
@@ -209,7 +219,10 @@ class PackageSyncService {
       final n = judgeIds.length;
       for (var i = 0; i < n; i++) {
         final userId = judgeIds[i];
-        onProgress?.call('تهيئة المحكم ${i + 1} من $n');
+        onProgress?.call(
+          'تهيئة المحكم ${i + 1} من $n',
+          progress: 0.15 + 0.55 * ((i + 1) / n),
+        );
         try {
           final bootstrap = await _get(
             '/api/tablet/device/judge/$userId/bootstrap',
@@ -373,7 +386,7 @@ class PackageSyncService {
         }
       }
 
-      onProgress?.call('تنزيل المكتبة وأوراق التمرين');
+      onProgress?.call('تنزيل المكتبة وأوراق التمرين', progress: 0.72);
       final pdfIds = <int>{};
       Map<String, dynamic>? libraryPayload;
       Map<String, dynamic>? papersPayload;
@@ -412,7 +425,7 @@ class PackageSyncService {
         failures.add('أوراق التمرين: $e');
       }
 
-      onProgress?.call('تنزيل ملفات PDF');
+      onProgress?.call('تنزيل ملفات PDF', progress: 0.80);
       final missingPdfs = <String>[];
       for (final id in pdfIds) {
         try {
@@ -453,7 +466,7 @@ class PackageSyncService {
         failures.add('ملفات PDF ناقصة: ${missingPdfs.length}');
       }
 
-      onProgress?.call('التحقق من البيانات');
+      onProgress?.call('التحقق من البيانات', progress: 0.95);
       var allJudgesOk = true;
       for (final uid in judgeIds) {
         if (!await _verifyJudgeReady(uid)) {
@@ -487,7 +500,7 @@ class PackageSyncService {
       }
 
       await DeviceAdminService.instance.markDeviceReady();
-      onProgress?.call('تمت تهيئة الجهاز بنجاح');
+      onProgress?.call('اكتمال التهيئة', progress: 1);
       return true;
     } on ApiOfflineException catch (e) {
       lastError = e.message;
@@ -519,11 +532,29 @@ class PackageSyncService {
       lastError = 'لا توجد جلسة محكم';
       return false;
     }
+    identityLog('SYNC START user_id=$uid source=updateMyData');
+    final reachable = await HealthService.instance.ensureReachableForSync();
+    if (!reachable) {
+      lastError =
+          'تعذر الاتصال بالسيرفر. تحقق من كابل الشبكة وحاول مرة أخرى.';
+      return false;
+    }
     try {
       final data = await ApiClient.instance.get(
         '/api/tablet/me/updates',
         timeout: const Duration(seconds: 60),
       );
+      identityLog(
+        'BOOTSTRAP RECEIVED payload_user_id=${AuthService.userIdFromPayload(data)}',
+      );
+      if (!AuthService.instance.serverPayloadMatchesSession(data)) {
+        lastError =
+            'استجابة السيرفر لا تطابق المحكم الحالي — لم تُطبَّق بيانات مستخدم آخر';
+        identityLog(
+          'IDENTITY MISMATCH expected=$uid received=${AuthService.userIdFromPayload(data)} endpoint=/api/tablet/me/updates',
+        );
+        return false;
+      }
       await OfflineStore.instance.cacheSetForUser(uid, 'bootstrap', data);
       await OfflineStore.instance.cacheSetForUser(uid, 'session_bundle', data);
       if (data['home'] is Map) {
@@ -547,7 +578,7 @@ class PackageSyncService {
           Map<String, dynamic>.from(data['polarity_notes'] as Map),
         );
       }
-      AuthService.instance.applySessionJson(data);
+      AuthService.instance.applySessionJson(data, source: 'updateMyData');
       try {
         await TabletRepository.instance.prefetchForOffline();
       } catch (_) {}
@@ -559,6 +590,7 @@ class PackageSyncService {
         kind: 'update',
         detail: 'تم تحديث بياناتي من النظام.',
       );
+      identityLog('SYNC COMPLETE user_id=${AuthService.instance.currentUserId}');
       return true;
     } on ApiException catch (e) {
       lastError = e.message;

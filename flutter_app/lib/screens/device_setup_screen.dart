@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import '../services/api_client.dart';
 import '../services/health_service.dart';
@@ -20,6 +19,8 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
   final _userCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   bool _busy = false;
+  bool _complete = false;
+  double _progress = 0;
   String? _error;
   String? _info;
 
@@ -31,7 +32,7 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
   }
 
   Future<void> _run() async {
-    if (_busy) return;
+    if (_busy || _complete) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
     await ApiClient.instance.init();
     if (ApiClient.instance.baseUrl.trim().isEmpty) {
@@ -40,17 +41,19 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
     }
     setState(() {
       _busy = true;
+      _complete = false;
+      _progress = 0;
       _error = null;
       _info = 'جارٍ اختبار الاتصال...';
     });
-    final reachable = await HealthService.instance.check(force: true);
+    final reachable = await HealthService.instance.ensureReachableForSync();
     if (!reachable) {
       final detail = ApiClient.instance.lastPingDetail;
       setState(() {
         _busy = false;
         _error = detail.isNotEmpty
-            ? 'السيرفر غير متاح\n$detail'
-            : 'السيرفر غير متاح';
+            ? 'تعذر الاتصال بالسيرفر. تحقق من كابل الشبكة وحاول مرة أخرى.\n$detail'
+            : 'تعذر الاتصال بالسيرفر. تحقق من كابل الشبكة وحاول مرة أخرى.';
         _info = null;
       });
       return;
@@ -68,10 +71,17 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
       });
       return;
     }
-    setState(() => _info = 'الاتصال بالسيرفر');
+    setState(() {
+      _info = 'الاتصال بالسيرفر';
+      _progress = 0.02;
+    });
     final ok = await PackageSyncService.instance.downloadAndStorePackage(
-      onProgress: (m) {
-        if (mounted) setState(() => _info = m);
+      onProgress: (m, {progress}) {
+        if (!mounted) return;
+        setState(() {
+          _info = m;
+          if (progress != null) _progress = progress;
+        });
       },
     );
     if (!mounted) return;
@@ -79,17 +89,15 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
       setState(() {
         _busy = false;
         _error = PackageSyncService.instance.lastError ?? 'فشل تنزيل الحزمة';
-        _info = null;
       });
       return;
     }
     setState(() {
       _busy = false;
-      _info =
-          'الجهاز جاهز — تم تخزين ${PackageSyncService.instance.lastJudgeCount} محكم محلياً.';
+      _complete = true;
+      _progress = 1;
+      _info = 'اكتمال التهيئة';
     });
-    await Future<void>.delayed(const Duration(milliseconds: 800));
-    if (mounted) context.pop(true);
   }
 
   @override
@@ -101,74 +109,98 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
         showSettings: false,
         onBack: () => Navigator.of(context).maybePop(),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'أدخل حساب فني من النظام الرئيسي (صلاحية تهيئة الأجهزة) '
-                'لتنزيل حزمة التمرين إلى قاعدة البيانات المحلية.',
-                style: AppTextStyles.body,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _userCtrl,
-                decoration: const InputDecoration(labelText: 'اسم المستخدم (السيرفر)'),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'مطلوب' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _passCtrl,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'كلمة المرور'),
-                validator: (v) => (v == null || v.isEmpty) ? 'مطلوب' : null,
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _busy ? null : _run,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.buttonBrown,
-                  foregroundColor: AppColors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                child: _busy
-                    ? const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: AppColors.white,
-                        ),
-                      )
-                    : const Text('اتصال وتنزيل الحزمة'),
-              ),
-              if (_info != null) ...[
-                const SizedBox(height: 12),
-                Text(
-                  _info!,
-                  style: AppTextStyles.cairo(
-                    color: AppColors.olive,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-              if (_error != null) ...[
-                const SizedBox(height: 12),
-                Text(
-                  _error!,
-                  style: AppTextStyles.cairo(
-                    color: AppColors.notDoneRed,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ],
+      body: Column(
+        children: [
+          Directionality(
+            textDirection: TextDirection.rtl,
+            child: LinearProgressIndicator(
+              value: _busy || _complete ? _progress.clamp(0, 1) : 0,
+              minHeight: 10,
+              backgroundColor: const Color(0xFFE6DDCC),
+              color: _complete ? AppColors.doneGreen : AppColors.goldDark,
+            ),
           ),
-        ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'أدخل حساب فني من النظام الرئيسي (صلاحية تهيئة الأجهزة) '
+                      'لتنزيل حزمة التمرين إلى قاعدة البيانات المحلية.',
+                      style: AppTextStyles.body,
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _userCtrl,
+                      enabled: !_complete,
+                      decoration: const InputDecoration(
+                        labelText: 'اسم المستخدم (السيرفر)',
+                      ),
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? 'مطلوب' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _passCtrl,
+                      enabled: !_complete,
+                      obscureText: true,
+                      decoration: const InputDecoration(labelText: 'كلمة المرور'),
+                      validator: (v) =>
+                          (v == null || v.isEmpty) ? 'مطلوب' : null,
+                    ),
+                    const SizedBox(height: 20),
+                    ElevatedButton(
+                      onPressed: (_busy || _complete) ? null : _run,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.buttonBrown,
+                        foregroundColor: AppColors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: _busy
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AppColors.white,
+                              ),
+                            )
+                          : const Text('اتصال وتنزيل الحزمة'),
+                    ),
+                    if (_info != null) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        _info!,
+                        textAlign: TextAlign.center,
+                        style: AppTextStyles.cairo(
+                          color: _complete
+                              ? AppColors.doneGreen
+                              : AppColors.olive,
+                          fontWeight: FontWeight.w800,
+                          fontSize: _complete ? 22 : 16,
+                        ),
+                      ),
+                    ],
+                    if (_error != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        _error!,
+                        style: AppTextStyles.cairo(
+                          color: AppColors.notDoneRed,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

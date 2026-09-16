@@ -576,6 +576,9 @@ def sync_all_exercises_day_phase_links_from_ibank(db: Session) -> None:
     days = ibank_event_flow_days(db)
     for (ex_id,) in db.query(Exercise.id).all():
         ensure_default_analyst_day_phase_links(db, int(ex_id), flow_days=days)
+    from app.action_eval_ibank_sync import remigrate_action_eval_slots_to_ibank_day_phases
+
+    remigrate_action_eval_slots_to_ibank_day_phases(db)
 
 
 def set_ibank_flow_day_phase(
@@ -625,6 +628,11 @@ def set_ibank_flow_day_phase(
         row.flow_table_json = json.dumps(data, ensure_ascii=False)
         if hasattr(row, "updated_at"):
             row.updated_at = datetime.utcnow()
+        from app.action_eval_ibank_sync import remigrate_action_eval_slots_for_flow_day
+
+        remigrate_action_eval_slots_for_flow_day(
+            db, flow_day_id=did, new_phase_key=pk
+        )
     return changed
 
 

@@ -227,4 +227,26 @@ const ROSTER_UNIT_LEVELS = {{ unit_levels | tojson }};
 })();
 </script>
 {% endif %}
+{% if roster_kind == 'judge' and judge_signature_rows %}
+<div class="card" dir="rtl" style="margin-top:1.25rem;">
+  <h2 class="h2-in-card"><i class="fa-solid fa-signature fa-icon-title" aria-hidden="true"></i> التوقيع الإلكتروني</h2>
+  <div class="table-wrap">
+    <table class="admin-users-table">
+      <thead>
+        <tr><th>اسم المحكم</th><th>الوحدة</th><th>التوقيع</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for row in judge_signature_rows %}
+        <tr>
+          <td>{{ row.full_name }} <code>{{ row.username }}</code></td>
+          <td>{{ row.unit_label }}</td>
+          <td>{% if row.registered %}✓ مسجل{% else %}غير مسجل{% endif %}</td>
+          <td>{% if row.registered %}<a href="/admin/users/{{ row.user_id }}/signature">عرض</a>{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

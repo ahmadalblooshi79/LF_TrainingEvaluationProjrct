@@ -32,18 +32,20 @@ int estimatePdfPageCount(List<int> bytes) {
   }
 }
 
-/// شريط جانبي: مصغّرة شكل صفحة + رقم الصفحة، للانتقال المباشر.
+/// شريط جانبي: مصغّرة لمحتوى الصفحة + رقم الصفحة، للانتقال المباشر.
 class PdfNavSidebar extends StatelessWidget {
   const PdfNavSidebar({
     super.key,
     required this.pageCount,
     required this.currentPage,
     required this.onPageTap,
+    this.pagePreviewBuilder,
   });
 
   final int pageCount;
   final int currentPage;
   final ValueChanged<int> onPageTap;
+  final Widget Function(int page, bool selected)? pagePreviewBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -78,7 +80,8 @@ class PdfNavSidebar extends StatelessWidget {
                     borderRadius: BorderRadius.circular(6),
                     child: Column(
                       children: [
-                        _PageThumb(page: page, selected: selected),
+                        pagePreviewBuilder?.call(page, selected) ??
+                            _PageThumb(page: page, selected: selected),
                         const SizedBox(height: 4),
                         Text(
                           '$page',

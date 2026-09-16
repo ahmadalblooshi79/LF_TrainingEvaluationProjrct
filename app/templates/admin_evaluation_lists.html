@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 
-{% block title %}قوائم التقييم — مساحة التخطيط{% endblock %}
+{% block title %}قوائم تقييم الإجراءات — مساحة التخطيط{% endblock %}
 
 {% block content %}
 
 <div class="page-header eval-lists-page-header">
 
-  <h1><i class="fa-solid fa-clipboard-list fa-icon-title" aria-hidden="true"></i> قوائم التقييم</h1>
+  <h1><i class="fa-solid fa-clipboard-list fa-icon-title" aria-hidden="true"></i> قوائم تقييم الإجراءات</h1>
 
   <div class="page-header__nav">
     {% include 'partials/subpage_close.html' %}
@@ -86,7 +86,7 @@
         نشر المحددة
       </button>
       {% if current_exercise %}
-      <button type="submit" form="eval-lists-withdraw-all-form" class="btn btn-ghost btn-xs eval-lists-toolbar-btn" onclick="return confirm('سحب نشر جميع القوائم المنشورة لهذه المرحلة؟');">
+      <button type="submit" form="eval-lists-withdraw-all-form" class="btn btn-ghost btn-xs eval-lists-toolbar-btn" onclick="return confirm('سحب القوائم غير المستخدمة فقط لهذه المرحلة؟\nالقوائم ذات النتائج أو العلامات ستبقى.');">
         <i class="fa-solid fa-cloud-arrow-down" aria-hidden="true"></i>
         سحب القوائم
       </button>

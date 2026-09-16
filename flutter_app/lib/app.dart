@@ -20,6 +20,7 @@ import 'screens/positives_negatives_screen.dart';
 import 'screens/objectives_screen.dart';
 import 'screens/server_connect_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/signature_screen.dart';
 import 'screens/sync_status_screen.dart';
 import 'services/auth_service.dart';
 import 'services/device_admin_service.dart';
@@ -144,6 +145,10 @@ final GoRouter _router = GoRouter(
     GoRoute(
       path: '/settings',
       builder: (context, state) => const SettingsScreen(),
+    ),
+    GoRoute(
+      path: '/signature',
+      builder: (context, state) => const SignatureScreen(),
     ),
     GoRoute(
       path: '/sync-status',

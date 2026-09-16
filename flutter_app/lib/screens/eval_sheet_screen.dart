@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/eval_sheet.dart';
+import '../models/eval_sheet_scoring.dart';
 import '../services/api_client.dart';
+import '../services/auth_service.dart';
+import '../services/signature_store.dart';
 import '../services/tablet_repository.dart';
 import '../theme/app_theme.dart';
 import '../theme/device_layout.dart';
@@ -10,6 +14,7 @@ import '../theme/grade_style.dart';
 import '../widgets/app_header.dart';
 import '../widgets/async_state_views.dart';
 import '../widgets/sticky_eval_scaffold.dart';
+import 'media_preview_backend.dart';
 import 'media_preview_screen.dart';
 
 enum EvalSheetMode { actionEval, evaluationList }
@@ -38,8 +43,6 @@ class EvalSheetScreen extends StatefulWidget {
   State<EvalSheetScreen> createState() => _EvalSheetScreenState();
 }
 
-const _nonApprovableGrades = {'راسب', 'مقبول', 'متوسط'};
-
 class _EvalSheetScreenState extends State<EvalSheetScreen> {
   EvalSheetDetail? _detail;
   List<EvalRowInput> _rows = [];
@@ -50,6 +53,7 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
   bool _approving = false;
   bool _savedThisSession = false;
   String? _hint;
+  bool _hintIsError = false;
 
   @override
   void initState() {
@@ -100,12 +104,6 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
     }
   }
 
-  double? _parseNum(String s) {
-    final t = s.trim().replaceAll(',', '.');
-    if (t.isEmpty) return null;
-    return double.tryParse(t);
-  }
-
   double? _templateMax(int index) {
     final rows = _detail?.evalRows ?? const [];
     if (index < 0 || index >= rows.length) return null;
@@ -114,42 +112,12 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
   }
 
   double? _rowPercent(int index) {
-    final input = _rows[index];
-    if (input.rowKind == 'section') return null;
-    if (input.acquired.isEmpty || input.acquired == 'na') return null;
-    final n = _parseNum(input.acquired);
-    if (n == null) return null;
-    final mx = _templateMax(index);
-    if (mx != null && n > mx + 1e-6) return null;
-    return (n / (mx ?? 5)) * 100;
-  }
-
-  String _gradeFromPct(double? p) {
-    if (p == null) return 'غير محسوب';
-    if (p < 60) return 'راسب';
-    if (p < 70) return 'مقبول';
-    if (p < 80) return 'جيد';
-    if (p < 90) return 'جيد جداً';
-    return 'ممتاز';
+    if (index < 0 || index >= _rows.length) return null;
+    return rowPercent(input: _rows[index], templateMax: _templateMax(index));
   }
 
   ({double sumMax, double sumAcq, bool anyAcq}) _totalsRaw() {
-    double sumMax = 0, sumAcq = 0;
-    bool anyAcq = false;
-    for (var i = 0; i < _rows.length; i++) {
-      if (_rows[i].rowKind == 'section') continue;
-      final mx = _templateMax(i);
-      if (mx != null) sumMax += mx;
-      final acq = _rows[i].acquired;
-      if (acq.isNotEmpty && acq != 'na') {
-        final n = _parseNum(acq);
-        if (n != null) {
-          sumAcq += n;
-          anyAcq = true;
-        }
-      }
-    }
-    return (sumMax: sumMax, sumAcq: sumAcq, anyAcq: anyAcq);
+    return evalSheetTotals(rows: _rows, templateMax: _templateMax);
   }
 
   double? get _totalPct {
@@ -158,12 +126,15 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
     return (t.sumAcq / t.sumMax) * 100;
   }
 
-  bool get _hasAnyNotes => _rows.any((r) => r.rowKind != 'section' && r.notes.trim().isNotEmpty);
-
   List<int> get _emptyAcquiredIndexes => [
         for (var i = 0; i < _rows.length; i++)
           if (_rows[i].rowKind != 'section' && _rows[i].acquired.trim().isEmpty) i,
       ];
+
+  List<int> get _rowsMissingRequiredNotes => rowsMissingRequiredNotes(
+        rows: _rows,
+        percentOf: _rowPercent,
+      );
 
   bool get _canApproveNow {
     final detail = _detail;
@@ -172,9 +143,9 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
     if (!detail.canEdit && !detail.canApprove && !_savedThisSession) return false;
     if (!_savedThisSession) return false;
     if (_emptyAcquiredIndexes.isNotEmpty) return false;
-    final grade = _gradeFromPct(_totalPct);
-    if (!_nonApprovableGrades.contains(grade)) return true;
-    return _hasAnyNotes;
+    if (_rowsMissingRequiredNotes.isNotEmpty) return false;
+    final grade = gradeFromPct(_totalPct);
+    return grade.isNotEmpty && grade != 'غير محسوب';
   }
 
   String _scoreKey(double n) {
@@ -254,10 +225,9 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
     }
   }
 
-  Future<void> _removeDoc(int index, String slot) async {
+  Future<void> _removeDoc(int index, String path) async {
     if (index < 0 || index >= _rows.length) return;
-    final path = _rows[index].lastMediaInSlot(slot);
-    if (path == null || path.isEmpty) return;
+    if (path.isEmpty) return;
     final sheetKey = widget.mode == EvalSheetMode.actionEval
         ? 'action_eval_detail:${widget.slot}'
         : 'evaluation_list_detail:${widget.unitKey}:${widget.itemId}';
@@ -279,11 +249,9 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
     }
   }
 
-  void _previewDoc(int index, String slot) {
+  void _previewDoc(int index, String path, {required bool isVideo}) {
     if (index < 0 || index >= _rows.length) return;
-    final path = _rows[index].lastMediaInSlot(slot);
-    if (path == null || path.isEmpty) return;
-    final isVideo = slot == kDocSlotCameraVideo || slot == kDocSlotGalleryVideo;
+    if (path.isEmpty) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => MediaPreviewScreen(
@@ -298,9 +266,18 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
   Future<void> _save() async {
     final detail = _detail;
     if (detail == null || _saving || !detail.canEdit) return;
+    if (_rowsMissingRequiredNotes.isNotEmpty) {
+      setState(() {
+        _hint =
+            'لا يمكن الحفظ: أدخل ملاحظات في الصفوف ذات النتيجة راسب أو مقبول.';
+        _hintIsError = true;
+      });
+      return;
+    }
     setState(() {
       _saving = true;
       _hint = null;
+      _hintIsError = false;
     });
     try {
       await (widget.mode == EvalSheetMode.actionEval
@@ -339,19 +316,22 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
             workflow: d.workflow,
           );
         }
-        _hint = 'حُفظت النتائج محلياً — ستُزامن مع الخادم';
+        _hint = 'تم الحفظ';
+        _hintIsError = false;
       });
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
         _saving = false;
         _hint = e.message;
+        _hintIsError = true;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _saving = false;
         _hint = 'تعذّر الحفظ: $e';
+        _hintIsError = true;
       });
     }
   }
@@ -359,6 +339,78 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
   Future<void> _approve() async {
     final detail = _detail;
     if (detail == null || _approving || !_canApproveNow) return;
+    final uid = AuthService.instance.currentUserId;
+    if (uid == null || uid <= 0) {
+      setState(() => _hint = 'تعذّر التحقق من الحساب الحالي.');
+      return;
+    }
+    final rec = await SignatureStore.instance.loadForUser(uid);
+    if (!mounted) return;
+    if (rec == null || !rec.isRegistered || rec.userId != uid || rec.pngB64.isEmpty) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('لا يوجد توقيع إلكتروني'),
+          content: const Text(
+            'لا يوجد توقيع إلكتروني مسجل لهذا الحساب.\nيرجى تسجيل التوقيع قبل اعتماد القائمة.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('إلغاء'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                context.push('/signature');
+              },
+              child: const Text('تسجيل التوقيع'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('اعتماد وتوقيع قائمة التقييم'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('المحكم: ${AuthService.instance.session?.user.judgeDisplayName ?? '—'}'),
+            Text('الوحدة: ${detail.unitLabel}'),
+            Text('اسم القائمة: ${detail.title}'),
+            const SizedBox(height: 12),
+            const Text(
+              'أقر بأنني راجعت نتائج التقييم وأعتمد البيانات الواردة في هذه القائمة.',
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('توقيع واعتماد'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final recAgain = await SignatureStore.instance.loadForUser(uid);
+    if (!mounted) return;
+    if (recAgain == null ||
+        recAgain.userId != uid ||
+        !recAgain.isRegistered ||
+        recAgain.pngB64.isEmpty) {
+      setState(() => _hint = 'تعذّر الاعتماد: التوقيع لا يخص الحساب الحالي.');
+      return;
+    }
+
     setState(() {
       _approving = true;
       _hint = null;
@@ -373,16 +425,22 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
                 _rows,
               ));
       }
-      final grade = _gradeFromPct(_totalPct);
+      final grade = gradeFromPct(_totalPct);
       await (widget.mode == EvalSheetMode.actionEval
           ? TabletRepository.instance.approveActionEval(
               widget.slot!,
               gradeLabel: grade == 'غير محسوب' ? null : grade,
+              signatureUserId: uid,
+              signatureVersion: recAgain.version,
+              signaturePngB64: recAgain.pngB64,
             )
           : TabletRepository.instance.approveEvaluationList(
               widget.unitKey!,
               widget.itemId!,
               gradeLabel: grade == 'غير محسوب' ? null : grade,
+              signatureUserId: uid,
+              signatureVersion: recAgain.version,
+              signaturePngB64: recAgain.pngB64,
             ));
       if (!mounted) return;
       setState(() {
@@ -412,6 +470,10 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
             label: 'معتمد محلياً – بانتظار المزامنة',
             reopened: false,
           ),
+          approvalSignaturePng: recAgain.pngBytes,
+          approvalSignatureVersion: recAgain.version,
+          approvalSignatureAt: DateTime.now().toIso8601String(),
+          approvalSignatureUserId: uid,
         );
       });
     } on ApiException catch (e) {
@@ -472,7 +534,7 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
 
     final totals = _totalsRaw();
     final pct = _totalPct;
-    final grade = _gradeFromPct(pct);
+    final grade = gradeFromPct(pct);
 
     return Column(
       children: [
@@ -522,8 +584,12 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
                     padding: DeviceLayout.isPhoneWidth(context)
                         ? const EdgeInsets.fromLTRB(6, 6, 6, 6)
                         : const EdgeInsets.fromLTRB(10, 10, 10, 10),
-                    itemCount: _rows.length,
+                    itemCount: _rows.length +
+                        (detail.isApproved && detail.approvalSignaturePng != null ? 1 : 0),
                     itemBuilder: (context, index) {
+                      if (index >= _rows.length) {
+                        return _JudgeEsignBlock(detail: detail);
+                      }
                       final input = _rows[index];
                       if (input.rowKind == 'section') {
                         return Container(
@@ -550,7 +616,8 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
                         canEdit: detail.canEdit,
                         options: _optionsFor(index),
                         percent: _rowPercent(index),
-                        grade: _gradeFromPct(_rowPercent(index)),
+                        grade: gradeFromPct(_rowPercent(index)),
+                        notesRequired: _rowsMissingRequiredNotes.contains(index),
                         phoneLayout: DeviceLayout.isPhoneWidth(context),
                         onAcquiredChanged: (v) => setState(() => _rows[index].acquired = v),
                         onNotesChanged: (v) => setState(() => _rows[index].notes = v),
@@ -561,9 +628,10 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
                           source: ImageSource.gallery,
                         ),
                         onRemoveDoc: detail.canEdit
-                            ? (slot) => _removeDoc(index, slot)
+                            ? (path) => _removeDoc(index, path)
                             : null,
-                        onPreviewDoc: (slot) => _previewDoc(index, slot),
+                        onPreviewDoc: (path, isVideo) =>
+                            _previewDoc(index, path, isVideo: isVideo),
                       );
                     },
                   ),
@@ -579,6 +647,10 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
               saving: _saving,
               approving: _approving,
               hint: _hint,
+              hintIsError: _hintIsError,
+              blockMessage: _rowsMissingRequiredNotes.isEmpty
+                  ? null
+                  : 'لا يمكن اعتماد نتائج التقييم النهائي إلا بعد إدخال ملاحظات في الصفوف ذات النتيجة راسب أو مقبول.',
               onSave: _save,
               onApprove: _approve,
             ),
@@ -593,7 +665,7 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
 class _EvalSheetCol {
   static const double index = 42;
   static const double metric = 78;
-  static const double docs = 118;
+  static const double docs = 168;
   static const Color cardBorder = Color(0xFFD5CFC0);
   static const Color notesFill = Color(0xFFEFECE4);
   static const Color indexTint = Color(0xFFF7F2E6);
@@ -694,6 +766,7 @@ class _CriterionRow extends StatefulWidget {
     this.onRemoveDoc,
     this.onPreviewDoc,
     this.phoneLayout = false,
+    this.notesRequired = false,
   });
 
   final int index;
@@ -707,8 +780,9 @@ class _CriterionRow extends StatefulWidget {
   final ValueChanged<bool> onCapture;
   final ValueChanged<bool>? onPickGallery;
   final ValueChanged<String>? onRemoveDoc;
-  final ValueChanged<String>? onPreviewDoc;
+  final void Function(String path, bool isVideo)? onPreviewDoc;
   final bool phoneLayout;
+  final bool notesRequired;
 
   @override
   State<_CriterionRow> createState() => _CriterionRowState();
@@ -735,6 +809,48 @@ class _CriterionRowState extends State<_CriterionRow> {
   void dispose() {
     _notesCtrl.dispose();
     super.dispose();
+  }
+
+  InputDecoration get _notesDecoration {
+    final requiredNotes = widget.notesRequired;
+    final side = requiredNotes
+        ? const BorderSide(color: Color(0xFFB42318), width: 1.4)
+        : BorderSide.none;
+    return InputDecoration(
+      hintText: requiredNotes
+          ? 'ملاحظات إلزامية للنتيجة راسب أو مقبول'
+          : 'اكتب ملاحظاتك هنا (اختياري)',
+      hintStyle: AppTextStyles.cairo(
+        fontSize: 12.5,
+        color: requiredNotes ? const Color(0xFFB42318) : AppColors.muted,
+      ),
+      filled: true,
+      fillColor: requiredNotes ? const Color(0xFFFDECEC) : _EvalSheetCol.notesFill,
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 10,
+      ),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(6),
+        borderSide: side,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(6),
+        borderSide: side,
+      ),
+      disabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(6),
+        borderSide: side,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(6),
+        borderSide: BorderSide(
+          color: requiredNotes ? const Color(0xFFB42318) : AppColors.goldBorder,
+          width: 1.4,
+        ),
+      ),
+    );
   }
 
   Future<void> _pickScore() async {
@@ -978,39 +1094,7 @@ class _CriterionRowState extends State<_CriterionRow> {
             minLines: 1,
             maxLines: 2,
             style: AppTextStyles.cairo(fontSize: 12.5),
-            decoration: InputDecoration(
-              hintText: 'اكتب ملاحظاتك هنا (اختياري)',
-              hintStyle: AppTextStyles.cairo(
-                fontSize: 12.5,
-                color: AppColors.muted,
-              ),
-              filled: true,
-              fillColor: _EvalSheetCol.notesFill,
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 10,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(6),
-                borderSide: BorderSide.none,
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(6),
-                borderSide: BorderSide.none,
-              ),
-              disabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(6),
-                borderSide: BorderSide.none,
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(6),
-                borderSide: const BorderSide(
-                  color: AppColors.goldBorder,
-                  width: 1,
-                ),
-              ),
-            ),
+            decoration: _notesDecoration,
             onChanged: widget.onNotesChanged,
           ),
         ],
@@ -1189,39 +1273,7 @@ class _CriterionRowState extends State<_CriterionRow> {
                       minLines: 1,
                       maxLines: 2,
                       style: AppTextStyles.cairo(fontSize: 12.5),
-                      decoration: InputDecoration(
-                        hintText: 'اكتب ملاحظاتك هنا (اختياري)',
-                        hintStyle: AppTextStyles.cairo(
-                          fontSize: 12.5,
-                          color: AppColors.muted,
-                        ),
-                        filled: true,
-                        fillColor: _EvalSheetCol.notesFill,
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(6),
-                          borderSide: BorderSide.none,
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(6),
-                          borderSide: BorderSide.none,
-                        ),
-                        disabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(6),
-                          borderSide: BorderSide.none,
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(6),
-                          borderSide: const BorderSide(
-                            color: AppColors.goldBorder,
-                            width: 1,
-                          ),
-                        ),
-                      ),
+                      decoration: _notesDecoration,
                       onChanged: widget.onNotesChanged,
                     ),
                   ],
@@ -1269,74 +1321,117 @@ class _DocActionsColumn extends StatelessWidget {
   final ValueChanged<bool> onCapture;
   final ValueChanged<bool>? onPickGallery;
   final ValueChanged<String>? onRemoveDoc;
-  final ValueChanged<String>? onPreviewDoc;
+  final void Function(String path, bool isVideo)? onPreviewDoc;
 
-  Widget _row({
+  static bool _isVideoSlot(String slot) =>
+      slot == kDocSlotCameraVideo || slot == kDocSlotGalleryVideo;
+
+  Widget _addBtn({
     required IconData icon,
-    required String slot,
     required VoidCallback onAdd,
     required bool addEnabled,
   }) {
-    final has = input.hasMediaInSlot(slot);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _DocBtn(
-            icon: icon,
-            enabled: addEnabled,
-            onTap: onAdd,
-          ),
-          if (has) ...[
-            const SizedBox(width: 4),
-            _DocBtn(
-              icon: Icons.visibility_outlined,
-              enabled: true,
-              onTap: () => onPreviewDoc?.call(slot),
-            ),
-            const SizedBox(width: 4),
-            _DocBtn(
-              icon: Icons.close,
-              enabled: canEdit && onRemoveDoc != null,
-              onTap: () => onRemoveDoc?.call(slot),
-            ),
-          ],
-        ],
+      padding: const EdgeInsets.only(bottom: 4, left: 4),
+      child: _DocBtn(
+        icon: icon,
+        enabled: addEnabled,
+        onTap: onAdd,
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final items = <({String slot, String path, bool video})>[];
+    input.mediaBySlot.forEach((slot, paths) {
+      for (final path in paths) {
+        if (path.isEmpty) continue;
+        items.add((slot: slot, path: path, video: _isVideoSlot(slot)));
+      }
+    });
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _row(
-          icon: Icons.camera_alt_outlined,
-          slot: kDocSlotCameraPhoto,
-          addEnabled: canEdit,
-          onAdd: () => onCapture(false),
+        Wrap(
+          children: [
+            _addBtn(
+              icon: Icons.camera_alt_outlined,
+              addEnabled: canEdit,
+              onAdd: () => onCapture(false),
+            ),
+            _addBtn(
+              icon: Icons.photo_library_outlined,
+              addEnabled: canEdit && onPickGallery != null,
+              onAdd: () => onPickGallery?.call(false),
+            ),
+            _addBtn(
+              icon: Icons.videocam_outlined,
+              addEnabled: canEdit,
+              onAdd: () => onCapture(true),
+            ),
+            _addBtn(
+              icon: Icons.video_library_outlined,
+              addEnabled: canEdit && onPickGallery != null,
+              onAdd: () => onPickGallery?.call(true),
+            ),
+          ],
         ),
-        _row(
-          icon: Icons.photo_library_outlined,
-          slot: kDocSlotGalleryPhoto,
-          addEnabled: canEdit && onPickGallery != null,
-          onAdd: () => onPickGallery?.call(false),
-        ),
-        _row(
-          icon: Icons.videocam_outlined,
-          slot: kDocSlotCameraVideo,
-          addEnabled: canEdit,
-          onAdd: () => onCapture(true),
-        ),
-        _row(
-          icon: Icons.video_library_outlined,
-          slot: kDocSlotGalleryVideo,
-          addEnabled: canEdit && onPickGallery != null,
-          onAdd: () => onPickGallery?.call(true),
-        ),
+        if (items.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              children: [
+                for (final item in items)
+                  Container(
+                    width: 72,
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      color: AppColors.cardWhite,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: AppColors.goldDark, width: 1),
+                    ),
+                    child: Column(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(3),
+                          child: SizedBox(
+                            width: 64,
+                            height: 48,
+                            child: buildMediaThumb(
+                              path: item.path,
+                              isVideo: item.video,
+                              size: 48,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _DocBtn(
+                              icon: Icons.visibility_outlined,
+                              enabled: true,
+                              onTap: () =>
+                                  onPreviewDoc?.call(item.path, item.video),
+                            ),
+                            const SizedBox(width: 2),
+                            _DocBtn(
+                              icon: Icons.close,
+                              enabled: canEdit && onRemoveDoc != null,
+                              onTap: () => onRemoveDoc?.call(item.path),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
       ],
     );
   }
@@ -1375,6 +1470,62 @@ class _DocBtn extends StatelessWidget {
   }
 }
 
+class _JudgeEsignBlock extends StatelessWidget {
+  const _JudgeEsignBlock({required this.detail});
+
+  final EvalSheetDetail detail;
+
+  @override
+  Widget build(BuildContext context) {
+    final png = detail.approvalSignaturePng;
+    if (png == null) return const SizedBox.shrink();
+    String date = '—';
+    String time = '—';
+    final raw = detail.approvalSignatureAt ?? '';
+    final parsed = DateTime.tryParse(raw);
+    if (parsed != null) {
+      final local = parsed.toLocal();
+      date =
+          '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')}/${local.year}';
+      time =
+          '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 16, 8, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('المحكم: ${AuthService.instance.session?.user.judgeDisplayName ?? '—'}'),
+          Text('الوحدة: ${detail.unitLabel}'),
+          const SizedBox(height: 6),
+          const Text('التوقيع:'),
+          Align(
+            alignment: Alignment.centerRight,
+            child: ColoredBox(
+              color: Colors.transparent,
+              child: Image.memory(
+                png,
+                height: 72,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
+              ),
+            ),
+          ),
+          Text('تاريخ الاعتماد: $date'),
+          Text('الوقت: $time'),
+          Text(
+            'حالة القائمة: معتمدة إلكترونياً',
+            style: AppTextStyles.cairo(
+              fontWeight: FontWeight.w700,
+              color: AppColors.doneGreen,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _FooterBar extends StatelessWidget {
   const _FooterBar({
     required this.sumMax,
@@ -1388,6 +1539,8 @@ class _FooterBar extends StatelessWidget {
     required this.saving,
     required this.approving,
     required this.hint,
+    required this.hintIsError,
+    this.blockMessage,
     required this.onSave,
     required this.onApprove,
   });
@@ -1403,6 +1556,8 @@ class _FooterBar extends StatelessWidget {
   final bool saving;
   final bool approving;
   final String? hint;
+  final bool hintIsError;
+  final String? blockMessage;
   final VoidCallback onSave;
   final VoidCallback onApprove;
 
@@ -1434,14 +1589,27 @@ class _FooterBar extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (hint != null && canEdit)
+          if (blockMessage != null && canEdit)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                blockMessage!,
+                style: AppTextStyles.cairo(
+                  fontSize: 12,
+                  color: const Color(0xFFB42318),
+                  fontWeight: FontWeight.w700,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          if (hint != null && canEdit && hint != blockMessage)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Text(
                 hint!,
                 style: AppTextStyles.cairo(
                   fontSize: 12,
-                  color: AppColors.doneGreen,
+                  color: hintIsError ? const Color(0xFFB42318) : AppColors.doneGreen,
                   fontWeight: FontWeight.w600,
                 ),
                 textAlign: TextAlign.center,
@@ -1508,7 +1676,7 @@ class _FooterBar extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Text(
-                'معتمد',
+                'معتمدة إلكترونياً',
                 style: AppTextStyles.cairo(
                   fontSize: 20,
                   fontWeight: FontWeight.w800,

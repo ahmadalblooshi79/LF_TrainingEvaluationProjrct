@@ -654,6 +654,62 @@ def ensure_tablet_offline_support() -> None:
     # الجدول الجديد يُنشأ عبر create_all؛ لا حاجة لـ CREATE يدوي هنا.
 
 
+_SIGNATURE_SNAPSHOT_COLUMN_SPECS: tuple[tuple[str, str], ...] = (
+    ("signature_user_id", "INTEGER"),
+    ("signature_version", "INTEGER"),
+    ("signature_png", "BLOB"),
+    ("signature_registered_at", "DATETIME"),
+)
+
+
+def ensure_judge_electronic_signature_schema() -> None:
+    """جدول التوقيع الرئيسي + لقطة ثابتة على نتائج التقييم المعتمدة."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    try:
+        insp = inspect(engine)
+        tables = set(insp.get_table_names())
+    except Exception:
+        return
+    if "judge_electronic_signatures" not in tables:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS judge_electronic_signatures (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL UNIQUE,
+                        png_blob BLOB NOT NULL,
+                        version INTEGER DEFAULT 1,
+                        status VARCHAR(32) DEFAULT 'registered',
+                        source VARCHAR(32) DEFAULT 'tablet',
+                        registered_at DATETIME,
+                        updated_at DATETIME,
+                        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                    )
+                    """
+                )
+            )
+    for table_name in (
+        "evaluation_list_saved_results",
+        "planner_flow_bundle_eval_saved_results",
+    ):
+        try:
+            cols = {c["name"] for c in inspect(engine).get_columns(table_name)}
+        except Exception:
+            continue
+        stmts = [
+            f"ALTER TABLE {table_name} ADD COLUMN {name} {typ}"
+            for name, typ in _SIGNATURE_SNAPSHOT_COLUMN_SPECS
+            if name not in cols
+        ]
+        if not stmts:
+            continue
+        with engine.begin() as conn:
+            for sql in stmts:
+                conn.execute(text(sql))
+
+
 def _sqlite_table_columns(insp, table: str) -> set[str]:
     if table not in insp.get_table_names():
         return set()

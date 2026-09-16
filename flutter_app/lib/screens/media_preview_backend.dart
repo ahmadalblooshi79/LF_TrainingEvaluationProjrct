@@ -7,3 +7,11 @@ import 'package:flutter/material.dart';
 Widget buildMediaPreview({required String path, required bool isVideo}) {
   return backend.buildMediaPreview(path: path, isVideo: isVideo);
 }
+
+Widget buildMediaThumb({
+  required String path,
+  required bool isVideo,
+  double size = 36,
+}) {
+  return backend.buildMediaThumb(path: path, isVideo: isVideo, size: size);
+}

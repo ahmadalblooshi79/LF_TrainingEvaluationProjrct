@@ -178,11 +178,35 @@ class ActionEvalMultiDayPublishTests(unittest.TestCase):
             unit_key=self.unit_key,
             selected_node_ids=set(),
             flow_day_id="day-2",
+            allow_remove=True,
         )
         self.db.flush()
         published = published_action_eval_node_ids_for_bundle(self.db, bundle)
         self.assertIn(self.nid_day1, published)
         self.assertNotIn(self.nid_day2, published)
+
+    def test_publish_does_not_auto_withdraw_unselected(self):
+        publish_action_eval_lists_from_ibank(
+            self.db,
+            exercise_id=1,
+            phase_key="preparation",
+            unit_key=self.unit_key,
+            selected_node_ids={self.nid_day1, self.nid_day2},
+            flow_day_id="day-1",
+        )
+        publish_action_eval_lists_from_ibank(
+            self.db,
+            exercise_id=1,
+            phase_key="preparation",
+            unit_key=self.unit_key,
+            selected_node_ids=set(),
+            flow_day_id="day-2",
+        )
+        self.db.flush()
+        bundle = self._bundle_after_publish()
+        published = published_action_eval_node_ids_for_bundle(self.db, bundle)
+        self.assertIn(self.nid_day1, published)
+        self.assertIn(self.nid_day2, published)
 
     def test_publish_day_two_sixth_list_avoids_slot_six_collision(self):
         """يوم1 بخمس قوائم ثم يوم2 بست — السادسة لا تُعاد استخدام 6 المحجوز مؤقتاً."""

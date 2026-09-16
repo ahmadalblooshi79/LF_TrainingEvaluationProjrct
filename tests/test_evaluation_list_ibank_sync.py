@@ -210,12 +210,12 @@ class PublishAllDoesNotAutoPublishTests(unittest.TestCase):
     @patch("app.evaluation_list_ibank_sync.prepare_dilemma_eval_ibank_tree")
     @patch("app.evaluation_list_ibank_sync.roster_eval_display_unit_keys")
     @patch("app.evaluation_list_ibank_sync.effective_eval_list_phase_keys")
+    @patch("app.evaluation_list_ibank_sync.collect_ibank_eval_files_for_phase_unit")
     @patch("app.evaluation_list_ibank_sync.publish_evaluation_lists_from_ibank")
-    @patch("app.evaluation_list_ibank_sync.prune_ibank_evaluation_lists_not_in_roster")
-    def test_publish_all_passes_empty_selection(
+    def test_publish_all_does_not_withdraw(
         self,
-        mock_prune,
         mock_publish,
+        mock_collect,
         mock_phases,
         mock_units,
         _mock_prepare,
@@ -225,20 +225,11 @@ class PublishAllDoesNotAutoPublishTests(unittest.TestCase):
         db = sessionmaker(bind=engine)()
         mock_units.return_value = {"ul_mech2_bn_c1"}
         mock_phases.return_value = ["preparation"]
-        mock_publish.return_value = {
-            "added": 0,
-            "updated": 0,
-            "removed": 2,
-            "sources": 0,
-            "sources_available": 5,
-        }
-        mock_prune.return_value = 0
+        mock_collect.return_value = [{"node_id": i} for i in range(5)]
 
         stats = publish_all_evaluation_lists_from_ibank(db, exercise_id=1)
 
-        mock_publish.assert_called_once()
-        _args, kwargs = mock_publish.call_args
-        self.assertEqual(kwargs.get("selected_node_ids"), set())
+        mock_publish.assert_not_called()
         self.assertEqual(int(stats["sources_available"]), 5)
-        self.assertEqual(int(stats["removed"]), 2)
+        self.assertEqual(int(stats["removed"]), 0)
         self.assertEqual(int(stats["added"]), 0)

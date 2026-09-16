@@ -60,6 +60,9 @@
           <th scope="col">الموقف</th>
           <th scope="col">إرسال للاعتماد</th>
           <th scope="col">فتح</th>
+          {% if can_delete_published_eval_lists %}
+          <th scope="col">حذف</th>
+          {% endif %}
         </tr>
       </thead>
       <tbody>
@@ -77,6 +80,16 @@
             <span class="judge-eval-dispatch-badge judge-eval-dispatch-badge--{{ r.row_tone | default('none') }}">{{ r.dispatch_label or "—" }}</span>
           </td>
           <td><a href="{{ r.open_href }}">فتح التقييم</a></td>
+          {% if can_delete_published_eval_lists %}
+          <td>
+            {% if r.slot_id %}
+            <form method="post" action="{{ url_for('views.admin_delete_published_action_eval_slot', slot_id=r.slot_id) }}" style="display:inline;margin:0;">
+              <input type="hidden" name="next" value="{{ request.full_path.rstrip('?') }}">
+              <button type="submit" class="btn btn-ghost btn-xs" onclick="return confirm('حذف هذه القائمة وجميع نتائجها حتى لو كانت معتمدة؟ لا يمكن التراجع.');">حذف</button>
+            </form>
+            {% else %}—{% endif %}
+          </td>
+          {% endif %}
         </tr>
         {% endfor %}
       </tbody>

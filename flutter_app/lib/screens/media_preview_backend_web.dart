@@ -19,6 +19,34 @@ Widget buildMediaPreview({required String path, required bool isVideo}) {
   );
 }
 
+Widget buildMediaThumb({
+  required String path,
+  required bool isVideo,
+  double size = 36,
+}) {
+  if (isVideo) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Icon(Icons.videocam, color: AppColors.goldDark, size: size * 0.55),
+    );
+  }
+  return ClipRRect(
+    borderRadius: BorderRadius.circular(4),
+    child: Image.network(
+      path,
+      width: size,
+      height: size,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => SizedBox(
+        width: size,
+        height: size,
+        child: Icon(Icons.image, color: AppColors.goldDark, size: size * 0.55),
+      ),
+    ),
+  );
+}
+
 class _VideoPreview extends StatefulWidget {
   const _VideoPreview({required this.path});
   final String path;

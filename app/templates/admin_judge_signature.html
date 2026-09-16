@@ -1,0 +1,24 @@
+{% extends "admin_shell.html" %}
+{% block title %}توقيع المحكم{% endblock %}
+{% block admin_workspace %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-signature fa-icon-title" aria-hidden="true"></i> التوقيع الإلكتروني</h1>
+  <p class="muted"><a href="/admin/users">إدارة المستخدمين</a> — عرض فقط، دون إنشاء توقيع نيابة عن المحكم</p>
+</div>
+<div class="card" dir="rtl">
+  <p><strong>اسم المحكم:</strong> {{ target.full_name or target.username }}</p>
+  <p><strong>اسم المستخدم:</strong> <code>{{ target.username }}</code></p>
+  <p><strong>الوحدة:</strong> {{ signature_unit_label }}</p>
+  <p><strong>حالة التوقيع:</strong> {{ signature_meta.status_ar }}</p>
+  {% if signature_has_png %}
+  <p><strong>صورة التوقيع:</strong></p>
+  <div class="eval-judge-esign eval-judge-esign--admin">
+    <img class="eval-judge-esign__img" src="/admin/users/{{ target.id }}/signature.png" alt="توقيع المحكم" width="280" height="90">
+  </div>
+  <p class="muted">تاريخ التسجيل: {% if signature_meta.registered_at %}{{ signature_meta.registered_at }}{% else %}—{% endif %}</p>
+  <p class="muted">آخر تحديث: {% if signature_meta.updated_at %}{{ signature_meta.updated_at }}{% else %}—{% endif %}</p>
+  {% else %}
+  <p>غير مسجل</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import base64
 from datetime import datetime
 from functools import wraps
 
@@ -58,6 +59,67 @@ def _json_error(message: str, status: int = 400, **extra):
     body = {"ok": False, "error": message}
     body.update(extra)
     return jsonify(body), status
+
+
+def _reject_eval_approve_if_blocked(saved):
+    from app.evaluation_list_columns import payload_rows_missing_required_notes
+    from app.views import (
+        _evaluation_payload_has_empty_acquired_for_approve,
+        _evaluation_saved_allows_judge_approve,
+        _parse_saved_eval_rows,
+    )
+
+    rows = _parse_saved_eval_rows(getattr(saved, "payload_json", None))
+    if _evaluation_payload_has_empty_acquired_for_approve(rows):
+        return _json_error(
+            "لا يمكن الاعتماد: يوجد بند أو أكثر لم تُدخل له المكتسبة.",
+            400,
+        )
+    if payload_rows_missing_required_notes(rows):
+        return _json_error(
+            "لا يمكن الاعتماد: أدخل ملاحظات في الصفوف ذات النتيجة راسب أو مقبول.",
+            400,
+        )
+    if not _evaluation_saved_allows_judge_approve(saved):
+        return _json_error("لا يمكن الاعتماد: لم تُحسب نتيجة نهائية.", 400)
+    return None
+
+
+def _approval_signature_payload(saved) -> dict | None:
+    from app.judge_signature import snapshot_png
+
+    if saved is None or not getattr(saved, "is_approved", False):
+        return None
+    png = snapshot_png(saved)
+    if not png:
+        return None
+    approved_at = getattr(saved, "approved_at", None)
+    return {
+        "user_id": getattr(saved, "signature_user_id", None),
+        "version": getattr(saved, "signature_version", None),
+        "png_b64": base64.b64encode(png).decode("ascii"),
+        "approved_at": approved_at.isoformat() if approved_at else None,
+    }
+
+
+def _signed_judge_approve(user: User, saved, data: dict):
+    from app.evaluation_workflow import apply_judge_approve
+    from app.judge_signature import (
+        JudgeSignatureError,
+        attach_signature_snapshot,
+        resolve_approval_png,
+    )
+
+    png, version = resolve_approval_png(
+        g.db,
+        user,
+        request_png_b64=data.get("signature_png_b64") or data.get("png_b64"),
+        request_user_id=data.get("signature_user_id") or data.get("user_id"),
+    )
+    apply_judge_approve(saved, getattr(user, "id", None))
+    attach_signature_snapshot(
+        saved, user_id=int(user.id), png_bytes=png, version=version
+    )
 
 
 def _resolve_planner_action_eval_pair(user: User, ex: Exercise | None, slot: int):
@@ -535,6 +597,88 @@ def tablet_me(user: User):
     return jsonify({"ok": True, **_serialize_user_bundle(user, _exercise_for(user))})
 
 
+@bp.get("/signature")
+@_require_judge_json
+def tablet_signature_get(user: User):
+    from app.judge_signature import get_master, master_png_bytes, signature_public_meta
+
+    row = get_master(g.db, int(user.id))
+    meta = signature_public_meta(row)
+    png = master_png_bytes(row)
+    body = {
+        "ok": True,
+        "user_id": int(user.id),
+        **meta,
+    }
+    if png:
+        body["png_b64"] = base64.b64encode(png).decode("ascii")
+    return jsonify(body)
+
+
+@bp.post("/signature")
+@_require_judge_json
+def tablet_signature_save(user: User):
+    from app.judge_signature import (
+        JudgeSignatureError,
+        decode_png_b64,
+        get_master,
+        save_or_replace_master,
+        signature_public_meta,
+    )
+
+    data = request.get_json(silent=True) or {}
+    client_op_id = _client_op_id_from_request(data)
+    replay = _idempotent_response(user, client_op_id)
+    if replay is not None:
+        return replay
+    claimed = data.get("user_id") or data.get("signature_user_id")
+    if claimed not in (None, "", 0, "0"):
+        try:
+            if int(claimed) != int(user.id):
+                return _json_error(
+                    "تعذّر الحفظ: التوقيع لا يخص الحساب الحالي.",
+                    403,
+                    code="owner_mismatch",
+                )
+        except (TypeError, ValueError):
+            return _json_error(
+                "تعذّر الحفظ: التوقيع لا يخص الحساب الحالي.",
+                403,
+                code="owner_mismatch",
+            )
+    try:
+        png = decode_png_b64(data.get("png_b64") or data.get("signature_png_b64"))
+        replace = bool(data.get("replace")) or get_master(g.db, int(user.id)) is None
+        row = save_or_replace_master(
+            g.db,
+            int(user.id),
+            png,
+            source="tablet",
+            replace=replace,
+        )
+        g.db.commit()
+    except JudgeSignatureError as exc:
+        g.db.rollback()
+        status = 409 if exc.code == "exists" else 400
+        return _json_error(exc.message, status, code=exc.code)
+    body = {
+        "ok": True,
+        "saved": True,
+        "user_id": int(user.id),
+        "client_op_id": client_op_id or None,
+        **signature_public_meta(row),
+    }
+    _record_client_op(
+        user,
+        client_op_id=client_op_id,
+        op_type="save_signature",
+        path=request.path,
+        response_body={k: v for k, v in body.items() if k != "png_b64"},
+        exercise_id=getattr(_exercise_for(user), "id", None),
+    )
+    return jsonify(body)
+
+
 @bp.get("/home")
 @_require_judge_json
 def tablet_home(user: User):
@@ -811,6 +955,7 @@ def tablet_action_eval_detail(user: User, slot: int):
             "can_edit": bool(wf.get("eval_can_edit")),
             "can_approve": bool(wf.get("show_eval_approve")),
             "is_approved": bool(wf.get("saved_is_approved")),
+            "approval_signature": _approval_signature_payload(canon),
             "workflow": {
                 "label": (wf.get("eval_workflow_label") or wf.get("workflow_label") or ""),
                 "reopened": bool(
@@ -876,7 +1021,8 @@ def tablet_action_eval_save(user: User, slot: int):
 @bp.post("/action-eval/<int:slot>/approve")
 @_require_judge_json
 def tablet_action_eval_approve(user: User, slot: int):
-    from app.evaluation_workflow import apply_judge_approve, eval_judge_can_edit
+    from app.evaluation_workflow import eval_judge_can_edit
+    from app.judge_signature import JudgeSignatureError
     from app.views import _planner_bundle_eval_canonical_saved
 
     data = request.get_json(silent=True) or {}
@@ -907,8 +1053,16 @@ def tablet_action_eval_approve(user: User, slot: int):
             )
             return jsonify(body)
         return _json_error("لا يمكن اعتماد هذه القائمة حالياً", 403)
-    apply_judge_approve(saved, getattr(user, "id", None))
-    g.db.commit()
+    blocked = _reject_eval_approve_if_blocked(saved)
+    if blocked is not None:
+        return blocked
+    try:
+        _signed_judge_approve(user, saved, data)
+        g.db.commit()
+    except JudgeSignatureError as exc:
+        g.db.rollback()
+        status = 403 if exc.code in ("no_signature", "owner_mismatch") else 400
+        return _json_error(exc.message, status, code=exc.code)
     body = {"ok": True, "approved": True, "client_op_id": client_op_id or None}
     _record_client_op(
         user,
@@ -1125,6 +1279,7 @@ def tablet_evaluation_list_detail(user: User, unit_key: str, item_id: int):
             "can_edit": bool(wf.get("eval_can_edit")),
             "can_approve": bool(wf.get("show_eval_approve")),
             "is_approved": bool(wf.get("saved_is_approved")),
+            "approval_signature": _approval_signature_payload(saved),
             "workflow": {
                 "label": (wf.get("eval_workflow_label") or wf.get("workflow_label") or ""),
                 "reopened": bool(
@@ -1179,6 +1334,13 @@ def tablet_evaluation_list_save(user: User, unit_key: str, item_id: int):
         _evaluation_commit_payload_save(
             g.db, user=user, item=item, current_exercise=ex, raw=raw
         )
+    except HTTPException as exc:
+        return _json_error(
+            (exc.description if isinstance(exc.description, str) else None)
+            or str(exc)
+            or "فشل الحفظ",
+            int(exc.code or 400),
+        )
     except Exception as exc:
         return _json_error(str(exc) or "فشل الحفظ", 400)
     body = {"ok": True, "saved": True, "client_op_id": client_op_id or None}
@@ -1198,7 +1360,8 @@ def tablet_evaluation_list_save(user: User, unit_key: str, item_id: int):
 def tablet_evaluation_list_approve(user: User, unit_key: str, item_id: int):
     from werkzeug.exceptions import Forbidden, HTTPException
 
-    from app.evaluation_workflow import apply_judge_approve, eval_judge_can_edit
+    from app.evaluation_workflow import eval_judge_can_edit
+    from app.judge_signature import JudgeSignatureError
     from app.models.domain import EvaluationListPdfItem
     from app.views import (
         _enforce_judge_unit_scope,
@@ -1248,8 +1411,16 @@ def tablet_evaluation_list_approve(user: User, unit_key: str, item_id: int):
             )
             return jsonify(body)
         return _json_error("لا يمكن اعتماد هذه القائمة حالياً", 403)
-    apply_judge_approve(saved, getattr(user, "id", None))
-    g.db.commit()
+    blocked = _reject_eval_approve_if_blocked(saved)
+    if blocked is not None:
+        return blocked
+    try:
+        _signed_judge_approve(user, saved, data)
+        g.db.commit()
+    except JudgeSignatureError as exc:
+        g.db.rollback()
+        status = 403 if exc.code in ("no_signature", "owner_mismatch") else 400
+        return _json_error(exc.message, status, code=exc.code)
     body = {"ok": True, "approved": True, "client_op_id": client_op_id or None}
     _record_client_op(
         user,

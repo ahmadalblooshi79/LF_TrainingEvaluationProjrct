@@ -78,6 +78,7 @@ def inject_header_exercise():
         "header_admin_menu_active": {},
         "heartbeat_poll_ms": HEARTBEAT_POLL_MS,
         "heartbeat_fast_poll_ms": HEARTBEAT_FAST_POLL_MS,
+        "can_delete_published_eval_lists": False,
     }
 
     if not has_request_context():
@@ -112,6 +113,7 @@ def inject_header_exercise():
 
     u = get_current_user_optional()
     if u is not None:
+        base["can_delete_published_eval_lists"] = bool(is_system_admin(u))
         nav_hubs: list[dict[str, str]] = []
 
         def _push_hub(href: str, label: str, icon: str, can_fn) -> None:

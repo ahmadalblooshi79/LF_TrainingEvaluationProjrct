@@ -7,10 +7,11 @@ import 'package:cookie_jar/cookie_jar.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
-Future<CookieJar> createCookieJar() async {
+Future<CookieJar> createCookieJar({String name = 'judge'}) async {
   try {
     final dir = await getApplicationDocumentsDirectory();
-    final cookiePath = '${dir.path}${Platform.pathSeparator}.cookies';
+    final safe = name.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    final cookiePath = '${dir.path}${Platform.pathSeparator}.cookies_$safe';
     await Directory(cookiePath).create(recursive: true);
     return PersistCookieJar(
       storage: FileStorage(cookiePath),

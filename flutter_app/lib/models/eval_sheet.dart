@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 /// One row of a structured evaluation sheet (rubric layout parsed from the
 /// original Excel template on the server).
 class EvalRow {
@@ -202,6 +205,10 @@ class EvalSheetDetail {
   final bool locallyApproved;
   final String approvalSyncStatus;
   final EvalWorkflow workflow;
+  final Uint8List? approvalSignaturePng;
+  final int? approvalSignatureVersion;
+  final String? approvalSignatureAt;
+  final int? approvalSignatureUserId;
 
   const EvalSheetDetail({
     required this.kind,
@@ -224,6 +231,10 @@ class EvalSheetDetail {
     this.locallyApproved = false,
     this.approvalSyncStatus = '',
     required this.workflow,
+    this.approvalSignaturePng,
+    this.approvalSignatureVersion,
+    this.approvalSignatureAt,
+    this.approvalSignatureUserId,
   });
 
   factory EvalSheetDetail.fromJson(Map<String, dynamic> json) {
@@ -286,6 +297,22 @@ class EvalSheetDetail {
       // واجهة «معتمد ومقفول» فقط عندما لا يُسمح بالتعديل
       isApproved = json['is_approved'] == true && !canEdit;
     }
+    Uint8List? sigPng;
+    int? sigVer;
+    String? sigAt;
+    int? sigUid;
+    final sigRaw = json['approval_signature'];
+    if (sigRaw is Map) {
+      final b64 = (sigRaw['png_b64'] ?? '').toString();
+      if (b64.isNotEmpty) {
+        try {
+          sigPng = base64Decode(b64);
+        } catch (_) {}
+      }
+      sigVer = (sigRaw['version'] as num?)?.toInt();
+      sigAt = (sigRaw['approved_at'] ?? '').toString();
+      sigUid = (sigRaw['user_id'] as num?)?.toInt();
+    }
     return EvalSheetDetail(
       kind: (json['kind'] ?? '').toString(),
       slot: (json['slot'] as num?)?.toInt(),
@@ -309,6 +336,10 @@ class EvalSheetDetail {
       locallyApproved: locallyApproved,
       approvalSyncStatus: (json['approval_sync_status'] ?? '').toString(),
       workflow: workflow,
+      approvalSignaturePng: sigPng,
+      approvalSignatureVersion: sigVer,
+      approvalSignatureAt: sigAt,
+      approvalSignatureUserId: sigUid,
     );
   }
 }

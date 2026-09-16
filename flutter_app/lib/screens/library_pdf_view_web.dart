@@ -55,7 +55,7 @@ class _BlobPdfViewState extends State<_BlobPdfView> {
     _objectUrl = html.Url.createObjectUrlFromBlob(blob);
     _viewType =
         'lf-library-pdf-blob-${identityHashCode(this)}-${DateTime.now().microsecondsSinceEpoch}';
-    final src = _objectUrl!;
+    final src = '$_objectUrl#page=1&zoom=page-fit&view=Fit';
     ui_web.platformViewRegistry.registerViewFactory(_viewType, (int viewId) {
       final iframe = html.IFrameElement()
         ..src = src
@@ -74,7 +74,7 @@ class _BlobPdfViewState extends State<_BlobPdfView> {
     final target = page.clamp(1, _pageCount);
     final framed = _iframe;
     if (framed != null) {
-      framed.src = '$url#page=$target';
+      framed.src = '$url#page=$target&zoom=page-fit&view=Fit';
     }
     setState(() => _currentPage = target);
   }

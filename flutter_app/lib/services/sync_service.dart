@@ -6,6 +6,7 @@ import 'api_client.dart';
 import 'auth_service.dart';
 import 'connectivity_service.dart';
 import 'health_service.dart';
+import 'identity_log.dart';
 import 'media_upload_service.dart';
 import 'notifications_badge_service.dart';
 import 'offline_store.dart';
@@ -129,14 +130,29 @@ class SyncService {
     }
   }
 
+  static const _syncFailMsg =
+      'تعذر الاتصال بالسيرفر. تحقق من كابل الشبكة وحاول مرة أخرى.';
+
   /// مزامنة كاملة: رفع المعلّق ثم تنزيل «تحديث بياناتي».
   Future<({bool ok, String? message})> runFullSync({bool silent = false}) async {
-    await HealthService.instance.check(force: true);
-    if (!HealthService.instance.serverReachable.value) {
-      return (ok: false, message: 'السيرفر غير متاح — تحقق من الشبكة وعنوان الخادم');
+    final expectedId = AuthService.instance.currentUserId;
+    identityLog('SYNC START user_id=$expectedId source=runFullSync');
+    final reachable = await HealthService.instance.ensureReachableForSync();
+    if (!reachable) {
+      identityLog('SYNC COMPLETE user_id=${AuthService.instance.currentUserId} result=unreachable');
+      return (ok: false, message: _syncFailMsg);
     }
 
     await flush();
+    if (expectedId != AuthService.instance.currentUserId) {
+      identityLog(
+        'IDENTITY MISMATCH expected=$expectedId received=${AuthService.instance.currentUserId} endpoint=runFullSync.afterFlush',
+      );
+      return (
+        ok: false,
+        message: 'تعذر إكمال المزامنة دون تغيير حساب المحكم الحالي.',
+      );
+    }
     final upErr = lastError.value;
 
     syncing.value = true;
@@ -148,6 +164,18 @@ class SyncService {
       syncing.value = false;
       _updateUiState();
     }
+
+    final afterId = AuthService.instance.currentUserId;
+    if (expectedId != afterId) {
+      identityLog(
+        'IDENTITY MISMATCH expected=$expectedId received=$afterId endpoint=runFullSync.afterDownload',
+      );
+      return (
+        ok: false,
+        message: 'تعذر إكمال المزامنة دون تغيير حساب المحكم الحالي.',
+      );
+    }
+    identityLog('SYNC COMPLETE user_id=$afterId');
 
     final ok = (upErr == null || upErr.isEmpty) && downOk;
     if (ok) {
@@ -253,8 +281,9 @@ class SyncService {
 
   Future<void> flush({bool mediaOnly = false}) async {
     if (syncing.value) return;
-    final reachable = await HealthService.instance.check();
+    final reachable = await HealthService.instance.ensureReachableForSync();
     if (!reachable) {
+      lastError.value = _syncFailMsg;
       _updateUiState();
       return;
     }

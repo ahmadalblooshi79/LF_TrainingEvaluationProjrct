@@ -10,6 +10,7 @@ import '../models/user.dart';
 import 'api_client.dart';
 import 'connectivity_service.dart';
 import 'device_presence_service.dart';
+import 'identity_log.dart';
 import 'offline_store.dart';
 
 const String kLastSessionCacheKey = 'session_bundle';
@@ -87,14 +88,51 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void applySessionJson(Map<String, dynamic> data) {
-    try {
-      _session = SessionBundle.fromJson(data);
-      notifyListeners();
-    } catch (_) {}
+  int? get currentUserId => _session?.user.id;
+
+  static int? userIdFromPayload(Map<String, dynamic> data) {
+    final u = data['user'];
+    if (u is Map) return (u['id'] as num?)?.toInt();
+    return (data['user_id'] as num?)?.toInt();
   }
 
-  int? get currentUserId => _session?.user.id;
+  bool serverPayloadMatchesSession(Map<String, dynamic> data) {
+    final expected = currentUserId;
+    final got = userIdFromPayload(data);
+    if (expected == null || expected <= 0) return true;
+    if (got == null || got <= 0) return true;
+    if (got != expected) {
+      identityLog(
+        'IDENTITY MISMATCH expected=$expected received=$got endpoint=payload',
+      );
+      return false;
+    }
+    return true;
+  }
+
+  bool applySessionJson(Map<String, dynamic> data, {String source = 'unknown'}) {
+    try {
+      final next = SessionBundle.fromJson(data);
+      final oldId = _session?.user.id;
+      identityLog(
+        'CURRENT USER WRITE ATTEMPT old_user_id=$oldId new_user_id=${next.user.id} source=$source',
+      );
+      if (oldId != null &&
+          oldId > 0 &&
+          next.user.id > 0 &&
+          next.user.id != oldId) {
+        identityLog(
+          'IDENTITY MISMATCH expected=$oldId received=${next.user.id} source=$source',
+        );
+        return false;
+      }
+      _session = next;
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   @Deprecated('Use prepareLocalAuth')
   Future<void> restoreFromCache() => prepareLocalAuth();
@@ -134,7 +172,12 @@ class AuthService extends ChangeNotifier {
         '/api/tablet/me',
         timeout: const Duration(seconds: 8),
       );
-      _session = SessionBundle.fromJson(data);
+      identityLog(
+        'SERVER SESSION CHECK server_user_id=${userIdFromPayload(data)}',
+      );
+      if (!applySessionJson(data, source: 'refreshFromServer')) {
+        return false;
+      }
       await OfflineStore.instance.cacheSet(kLastSessionCacheKey, data);
       notifyListeners();
       return true;
@@ -203,6 +246,9 @@ class AuthService extends ChangeNotifier {
           'session_bundle',
         );
         _session = SessionBundle.fromJson(scoped ?? sessionMap);
+        identityLog(
+          'LOGIN SUCCESS user_id=${_session?.user.id} source=offline_local_user',
+        );
         _lastLoginWasOffline = true;
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool(kWasLoggedInPrefKey, true);
@@ -232,6 +278,9 @@ class AuthService extends ChangeNotifier {
     }
     try {
       _session = SessionBundle.fromJson(session);
+      identityLog(
+        'LOGIN SUCCESS user_id=${_session?.user.id} source=offline_legacy',
+      );
       _lastLoginWasOffline = true;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(kWasLoggedInPrefKey, true);
@@ -289,6 +338,7 @@ class AuthService extends ChangeNotifier {
           timeout: const Duration(seconds: 10),
         );
         _session = SessionBundle.fromJson(data);
+        identityLog('LOGIN SUCCESS user_id=${_session?.user.id} source=online');
         await OfflineStore.instance.cacheSet(kLastSessionCacheKey, data);
         await _persistLocalAuth(username, password);
         final uid = _session?.user.id ?? 0;
@@ -345,6 +395,7 @@ class AuthService extends ChangeNotifier {
     } catch (_) {
       // best effort
     }
+    identityLog('LOGOUT user_id=${_session?.user.id} source=explicit');
     _session = null;
     _lastLoginWasOffline = false;
     final prefs = await SharedPreferences.getInstance();

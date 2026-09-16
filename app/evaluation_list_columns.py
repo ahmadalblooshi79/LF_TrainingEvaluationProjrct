@@ -583,8 +583,8 @@ def grade_allows_judge_approve(
     payload_rows: list | None = None,
 ) -> bool:
     """
-    الاعتماد مسموح لتقدير جيد فما فوق، أو لتقدير راسب/مقبول إذا وُجدت
-    ملاحظات في خانة الملاحظات (أي بند) بعد الحفظ.
+    الاعتماد مسموح إذا اكتملت المكتسبة وحُسبت نتيجة، وبعد تعبئة ملاحظات
+    كل صف نتيجته «راسب» أو «مقبول».
     """
     if total_pct is not None:
         overall = grade_label_from_percent(float(total_pct))
@@ -592,8 +592,8 @@ def grade_allows_judge_approve(
         overall = display_grade_label(grade_label)
     if not overall or overall == "غير محسوب":
         return False
-    if overall not in _NON_APPROVABLE_GRADES:
-        return True
-    if not payload_rows:
+    if payload_rows_missing_required_notes(payload_rows):
         return False
-    return payload_has_any_notes(payload_rows)
+    if overall in _NON_APPROVABLE_GRADES and not payload_rows:
+        return False
+    return True

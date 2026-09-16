@@ -53,7 +53,7 @@
     <div class="table-wrap">
     <table class="admin-users-table">
       <thead>
-        <tr><th>المعرف</th><th>نوع المستخدم / الاسم</th><th>اسم المستخدم</th><th>مفعّل</th><th>إجراءات</th></tr>
+        <tr><th>المعرف</th><th>نوع المستخدم / الاسم</th><th>اسم المستخدم</th><th>مفعّل</th><th>التوقيع</th><th>إجراءات</th></tr>
       </thead>
       <tbody>
       {% for u in users %}
@@ -62,6 +62,17 @@
           <td><i class="fa-solid fa-user fa-td" aria-hidden="true"></i> {% if rdefs.get(u.role_key) %}{{ rdefs[u.role_key].title_ar }}{% else %}غير محدد{% endif %} / {{ u.full_name }}</td>
           <td><code>{{ u.username }}</code></td>
           <td>{% if u.is_active %}<i class="fa-solid fa-check ok-check" aria-hidden="true"></i> نعم{% else %}<i class="fa-solid fa-xmark off-check" aria-hidden="true"></i> لا{% endif %}</td>
+          <td>
+            {% if u.role_key == 'judge' %}
+              {% if signature_user_ids and u.id in signature_user_ids %}
+                <a href="/admin/users/{{ u.id }}/signature">✓ مسجل</a>
+              {% else %}
+                غير مسجل
+              {% endif %}
+            {% else %}
+              —
+            {% endif %}
+          </td>
           <td class="admin-users-actions">
             <a class="btn btn-ghost admin-users-action-btn" href="/admin/users/{{ u.id }}/edit"><i class="fa-solid fa-pen" aria-hidden="true"></i> تعديل</a>
             {% if user.id != u.id %}

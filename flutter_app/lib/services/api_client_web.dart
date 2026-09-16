@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:http/http.dart' as http;
 
-Future<CookieJar> createCookieJar() async => CookieJar();
+Future<CookieJar> createCookieJar({String name = 'judge'}) async => CookieJar();
 
 Future<void> saveCookiesFromResponse(
   CookieJar jar,

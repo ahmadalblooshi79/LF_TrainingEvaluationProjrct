@@ -10,3 +10,19 @@ Widget buildMediaPreview({required String path, required bool isVideo}) {
     ),
   );
 }
+
+Widget buildMediaThumb({
+  required String path,
+  required bool isVideo,
+  double size = 36,
+}) {
+  return SizedBox(
+    width: size,
+    height: size,
+    child: Icon(
+      isVideo ? Icons.videocam : Icons.image,
+      color: AppColors.goldDark,
+      size: size * 0.6,
+    ),
+  );
+}

@@ -1,4 +1,11 @@
-"""مزامنة قوائم التقييم في التخطيط من تبويب «قوائم التقييم» في بنك المعلومات (dilemma_eval)."""
+"""مزامنة قوائم التقييم في التخطيط من تبويب «قوائم التقييم» في بنك المعلومات (dilemma_eval).
+
+قاعدة السحب (صريحة): لا سحب تلقائي لقوائم التقييم بأي شكل.
+السحب يدوي فقط عبر أزرار «سحب» / «سحب القوائم» في مساحة التخطيط.
+القوائم ذات النتائج أو العلامات لا تُسحب حتى عند الطلب اليدوي.
+القوائم غير المستخدمة (بدون نتائج) تُسحب عند الطلب اليدوي فقط.
+لا سحب عند حفظ المجرى، حفظ المحكمين، مزامنة البنك، أو اختفاء عقدة.
+"""
 from __future__ import annotations
 
 # تشغيل مباشر: python app/evaluation_list_ibank_sync.py
@@ -32,10 +39,13 @@ from app.info_bank_tree import (
     node_file_abspath,
 )
 from app.models import (
+    EvaluationCriterionMedia,
     EvaluationListPdfItem,
+    EvaluationListSavedResult,
     ExerciseRosterKind,
     ExerciseRosterRow,
     InformationBankTreeNode,
+    JudgeIncompleteTaskStatus,
 )
 from app.unit_levels_catalog import (
     label_for_unit_level_key,
@@ -47,6 +57,15 @@ from app.ibank_ui import unit_level_row_is_removed_brigade
 # تبويب «قوائم التقييم» في بنك المعلومات — ليس action_eval (قوائم تقييم الإجراءات).
 INFO_BANK_EVAL_LIST_KIND = "dilemma_eval"
 _IBANK_REL_RE = re.compile(r"^(.+)/ibn_(\d+)\.xlsx$", re.IGNORECASE)
+
+
+def _eval_item_has_saved_result(db: Session, item_id: int) -> bool:
+    row = (
+        db.query(EvaluationListSavedResult.id)
+        .filter(EvaluationListSavedResult.evaluation_item_id == int(item_id))
+        .first()
+    )
+    return row is not None
 
 
 def ibank_eval_storage_relpath(unit_key: str, node_id: int) -> str:
@@ -1016,8 +1035,13 @@ def sync_evaluation_lists_from_ibank(
     allowed_unit_keys: set[str] | None = None,
     ibank_index: dict[tuple[str, str], list[dict]] | None = None,
     sources: list[dict] | None = None,
+    allow_remove: bool = False,
 ) -> dict[str, int]:
-    """نسخ ملفات Excel من بنك المعلومات (مجلد المرحلة × مستوى الوحدة) إلى التمرين."""
+    """نسخ ملفات Excel من بنك المعلومات (مجلد المرحلة × مستوى الوحدة) إلى التمرين.
+
+    السحب (الحذف) لا يحدث إلا إذا allow_remove=True (طلب سحب يدوي).
+    القوائم ذات النتائج لا تُحذف ولا تُستبدل حتى عند السحب اليدوي.
+    """
     phase_norm = _resolve_phase_key(phase_key, db) or normalize_exercise_phase(phase_key)
     uk = _resolve_unit_key(unit_key, db) or normalize_unit_level_key(unit_key)
     if not phase_norm or not uk:
@@ -1051,7 +1075,7 @@ def sync_evaluation_lists_from_ibank(
             by_node_id[nid] = item
 
     EVALUATION_LIST_XLSX_DIR.mkdir(parents=True, exist_ok=True)
-    added = updated = removed = 0
+    added = updated = removed = skipped_with_results = 0
 
     for idx, src in enumerate(sources):
         node_id = int(src["node_id"])
@@ -1068,6 +1092,10 @@ def sync_evaluation_lists_from_ibank(
                 src_path = alt
             else:
                 continue
+        item = by_node_id.get(node_id)
+        if item is not None and _eval_item_has_saved_result(db, int(item.id)):
+            skipped_with_results += 1
+            continue
         need_copy = True
         if dest.is_file():
             try:
@@ -1078,7 +1106,6 @@ def sync_evaluation_lists_from_ibank(
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src_path, dest)
 
-        item = by_node_id.get(node_id)
         if item is None:
             db.add(
                 EvaluationListPdfItem(
@@ -1109,14 +1136,18 @@ def sync_evaluation_lists_from_ibank(
             if need_copy or changed:
                 updated += 1
 
-    for item in existing:
-        nid = parse_ibank_eval_storage_relpath(item.pdf_relpath)
-        if nid is None or nid in source_ids:
-            continue
-        if item.pdf_relpath:
-            _unlink_eval_list_copy(item.pdf_relpath)
-        db.delete(item)
-        removed += 1
+    if allow_remove:
+        for item in existing:
+            nid = parse_ibank_eval_storage_relpath(item.pdf_relpath)
+            if nid is None or nid in source_ids:
+                continue
+            if _eval_item_has_saved_result(db, int(item.id)):
+                skipped_with_results += 1
+                continue
+            if item.pdf_relpath:
+                _unlink_eval_list_copy(item.pdf_relpath)
+            db.delete(item)
+            removed += 1
 
     if added or updated or removed:
         db.flush()
@@ -1126,6 +1157,7 @@ def sync_evaluation_lists_from_ibank(
         "updated": updated,
         "removed": removed,
         "sources": len(sources),
+        "skipped_with_results": skipped_with_results,
     }
 
 
@@ -1158,25 +1190,8 @@ def sync_evaluation_lists_for_unit_all_phases(
 def prune_ibank_evaluation_lists_not_in_roster(
     db: Session, *, exercise_id: int, active_unit_keys: set[str]
 ) -> int:
-    removed = 0
-    rows = (
-        db.query(EvaluationListPdfItem)
-        .filter(EvaluationListPdfItem.exercise_id == int(exercise_id))
-        .all()
-    )
-    for item in rows:
-        uk = _resolve_unit_key(item.unit_level_key or "", db)
-        if uk in active_unit_keys:
-            continue
-        if parse_ibank_eval_storage_relpath(item.pdf_relpath) is None:
-            continue
-        if item.pdf_relpath:
-            _unlink_eval_list_copy(item.pdf_relpath)
-        db.delete(item)
-        removed += 1
-    if removed:
-        db.flush()
-    return removed
+    """قاعدة: لا سحب تلقائي. لا تُحذف قوائم التقييم عند تغيّر قائمة المحكمين."""
+    return 0
 
 
 def sync_evaluation_lists_for_exercise_roster(
@@ -1186,7 +1201,7 @@ def sync_evaluation_lists_for_exercise_roster(
     phase_keys: list[str] | None = None,
     ibank_index: dict[tuple[str, str], list[dict]] | None = None,
 ) -> dict[str, int]:
-    """نسخ تلقائي من بنك المعلومات عند حفظ المحكمين: مرحلة × مستوى وحدة → قوائم التقييم."""
+    """تحديث فهرس الملفات المتاحة من البنك عند حفظ المحكمين — دون سحب قوائم منشورة."""
     active_units = roster_judge_unit_keys(db, int(exercise_id))
     phases = list(phase_keys or effective_eval_list_phase_keys(db, roster_units=active_units))
     totals = {
@@ -1212,12 +1227,10 @@ def sync_evaluation_lists_for_exercise_roster(
                 unit_label=label,
                 allowed_unit_keys=active_units,
                 sources=file_sources,
+                allow_remove=False,
             )
             for k in ("added", "updated", "removed", "sources"):
                 totals[k] += int(stats.get(k, 0))
-    totals["removed"] += prune_ibank_evaluation_lists_not_in_roster(
-        db, exercise_id=int(exercise_id), active_unit_keys=active_units
-    )
     return totals
 
 
@@ -1228,8 +1241,12 @@ def publish_evaluation_lists_from_ibank(
     phase_key: str,
     unit_key: str,
     selected_node_ids: set[int] | None = None,
+    allow_remove: bool = False,
 ) -> dict[str, int]:
-    """نشر صريح: نسخ قوائم Excel من بنك المعلومات → التمرين (مرحلة × مستوى وحدة)."""
+    """نشر صريح: نسخ قوائم Excel من بنك المعلومات → التمرين (مرحلة × مستوى وحدة).
+
+    النشر لا يسحب قوائم غير محددة. السحب فقط إذا allow_remove=True.
+    """
     uk = _resolve_unit_key(unit_key, db)
     pk = _resolve_phase_key(phase_key, db)
     if not uk or not pk:
@@ -1249,6 +1266,7 @@ def publish_evaluation_lists_from_ibank(
         unit_key=uk,
         unit_label=label,
         sources=sources,
+        allow_remove=allow_remove,
     )
     stats["sources_available"] = avail
     return stats
@@ -1320,7 +1338,7 @@ def withdraw_single_eval_list_from_ibank(
     unit_key: str,
     node_id: int,
 ) -> dict[str, int]:
-    """سحب نشر قائمة واحدة (إزالتها من التمرين)."""
+    """سحب نشر قائمة واحدة إن لم تكن مستخدمة (بدون نتائج). القوائم ذات النتائج تبقى."""
     uk = resolve_ibank_eval_publish_unit_key(
         db, node_id=int(node_id), fallback_unit_key=unit_key
     )
@@ -1337,6 +1355,7 @@ def withdraw_single_eval_list_from_ibank(
         phase_key=phase_key,
         unit_key=uk,
         selected_node_ids=selected,
+        allow_remove=True,
     )
 
 
@@ -1346,10 +1365,10 @@ def withdraw_all_evaluation_lists_for_phase(
     exercise_id: int,
     phase_key: str,
 ) -> dict[str, int]:
-    """سحب نشر كل قوائم التقييم المنشورة لمرحلة التمرين المحددة."""
+    """سحب نشر القوائم غير المستخدمة لهذه المرحلة. القوائم ذات النتائج تبقى."""
     prepare_dilemma_eval_ibank_tree(db)
     active_units = roster_eval_display_unit_keys(db, int(exercise_id))
-    totals = {"removed": 0, "units": 0}
+    totals = {"removed": 0, "units": 0, "skipped_with_results": 0}
     for uk in sorted(active_units):
         stats = publish_evaluation_lists_from_ibank(
             db,
@@ -1357,9 +1376,11 @@ def withdraw_all_evaluation_lists_for_phase(
             phase_key=phase_key,
             unit_key=uk,
             selected_node_ids=set(),
+            allow_remove=True,
         )
         totals["units"] += 1
         totals["removed"] += int(stats.get("removed", 0))
+        totals["skipped_with_results"] += int(stats.get("skipped_with_results", 0))
     return totals
 
 
@@ -1408,10 +1429,7 @@ def publish_all_evaluation_lists_from_ibank(
     *,
     exercise_id: int,
 ) -> dict[str, int]:
-    """نسخ الكل من البنك: تحديث الفهرس وإلغاء نشر جميع القوائم (بدون نسخ للتمرين).
-
-    النشر الفعلي يتم لاحقاً عبر «نشر القوائم» بعد تحديد الـ checkbox.
-    """
+    """تحديث فهرس بنك المعلومات فقط. لا سحب تلقائي — السحب يدوي عبر أزرار سحب النشر."""
     prepare_dilemma_eval_ibank_tree(db)
     active_units = roster_eval_display_unit_keys(db, int(exercise_id))
     phases = effective_eval_list_phase_keys(db, roster_units=active_units)
@@ -1425,20 +1443,44 @@ def publish_all_evaluation_lists_from_ibank(
     }
     for uk in sorted(active_units):
         for pk in phases:
-            stats = publish_evaluation_lists_from_ibank(
-                db,
-                exercise_id=int(exercise_id),
-                phase_key=pk,
-                unit_key=uk,
-                selected_node_ids=set(),
+            sources = collect_ibank_eval_files_for_phase_unit(
+                db, phase_key=pk, unit_key=uk
             )
+            n = len(sources)
             totals["groups"] += 1
-            for k in ("added", "updated", "removed", "sources", "sources_available"):
-                totals[k] += int(stats.get(k, 0))
-    totals["removed"] += prune_ibank_evaluation_lists_not_in_roster(
-        db, exercise_id=int(exercise_id), active_unit_keys=active_units
-    )
+            totals["sources"] += n
+            totals["sources_available"] += n
     return totals
+
+
+def delete_published_evaluation_list_item(
+    db: Session, *, exercise_id: int, item_id: int
+) -> bool:
+    """حذف يدوي لإدارة النظام: يزيل القائمة ونتائجها حتى لو كانت معتمدة."""
+    from app.eval_criterion_media import unlink_criterion_media_file
+
+    item = db.get(EvaluationListPdfItem, int(item_id))
+    if item is None or int(item.exercise_id or 0) != int(exercise_id):
+        return False
+    media_rows = (
+        db.query(EvaluationCriterionMedia)
+        .filter(EvaluationCriterionMedia.evaluation_list_item_id == int(item.id))
+        .all()
+    )
+    for m in media_rows:
+        unlink_criterion_media_file((getattr(m, "file_relpath", None) or "").strip())
+        db.delete(m)
+    db.query(JudgeIncompleteTaskStatus).filter(
+        JudgeIncompleteTaskStatus.evaluation_item_id == int(item.id)
+    ).delete(synchronize_session=False)
+    db.query(EvaluationListSavedResult).filter(
+        EvaluationListSavedResult.evaluation_item_id == int(item.id)
+    ).delete(synchronize_session=False)
+    if item.pdf_relpath:
+        _unlink_eval_list_copy(item.pdf_relpath)
+    db.delete(item)
+    db.flush()
+    return True
 
 
 def _unit_folder_ids_for_phase_unit(

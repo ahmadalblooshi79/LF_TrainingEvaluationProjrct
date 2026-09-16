@@ -342,6 +342,9 @@ def build_dilemma_criteria_distribution(
     ex0 = _current_workspace_exercise(db, user)
     if ex0 is None:
         return {"has_exercise": False}
+    from app.action_eval_ibank_sync import remigrate_action_eval_slots_to_ibank_day_phases
+
+    remigrate_action_eval_slots_to_ibank_day_phases(db, exercise_id=int(ex0.id))
     ex = db.query(Exercise).filter(Exercise.id == ex0.id).first()
     if ex is None:
         return {"has_exercise": False}

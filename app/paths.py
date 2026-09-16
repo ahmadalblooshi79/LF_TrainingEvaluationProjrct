@@ -48,6 +48,7 @@ def ensure_data_directories(root: Path) -> None:
         "instance/chat_uploads",
         "instance/visual_docs",
         "instance/eval_criterion_media",
+        "instance/judge_signatures",
         "instance/information_bank",
         "instance/library",
         "instance/planner_flow_bundles",

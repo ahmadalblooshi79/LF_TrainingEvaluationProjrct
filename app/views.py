@@ -918,6 +918,13 @@ def _ctx(user=None, **extra):
     return d
 
 
+def _safe_local_next(default: str = "/") -> str:
+    raw = (request.form.get("next") or request.args.get("next") or "").strip()
+    if raw.startswith("/") and not raw.startswith("//") and "\\" not in raw:
+        return raw
+    return default
+
+
 def _judge_assignment_for_current_exercise(db, user: User, ex: Exercise | None) -> JudgeTraineeAssignment | None:
     """تخصيص هذا المحكم للتمرين الحالي (إن وجد)."""
     if ex is None:
@@ -1549,10 +1556,16 @@ def _sync_evaluation_list_item_phase(
         )
 
 
+def _acquired_is_na(acq) -> bool:
+    s = ("" if acq is None else str(acq)).strip().lower()
+    return s in {"na", "n/a", "لا ينطبق"}
+
+
 def _evaluation_grade_from_payload_rows(rows: list) -> tuple[float | None, str]:
     """
     نسبة إجمالية: مجموع المكتسبة ÷ مجموع القصوى (البنود ذات قصوى > 0 فقط)،
     يطابق «مجموع العلامات المكتسبة / مجموع علامات القصوى» في الواجهة.
+    بنود «لا ينطبق» تُستثنى من القصوى والمكتسبة.
     للحمولات القديمة دون row_kind يُحتفظ بمتوسط نسب الصفوف كسلوك سابق.
     """
     safe = [r for r in rows[:2000] if isinstance(r, dict)]
@@ -1569,25 +1582,32 @@ def _evaluation_grade_from_payload_rows(rows: list) -> tuple[float | None, str]:
             return None, ""
         total_pct = sum(pcts) / len(pcts)
         return total_pct, grade_label_from_percent(total_pct)
-    sum_acq = 0.0
-    sum_max = 0.0
-    any_acquired = False
-    for r in safe:
-        if str(r.get("row_kind") or "").strip().lower() == "section":
-            continue
-        sum_max += _eval_row_positive_max(r)
-        acq = r.get("acquired")
-        acq_s = ("" if acq is None else str(acq)).strip().lower()
-        if acq_s and acq_s != "na":
-            try:
-                sum_acq += float(str(acq).replace(",", "."))
-                any_acquired = True
-            except (TypeError, ValueError):
-                pass
+    sum_max, sum_acq, any_acquired = _evaluation_payload_mark_totals_ex(safe)
     if sum_max <= 0 or not any_acquired:
         return None, ""
     total_pct = (sum_acq / sum_max) * 100.0
     return total_pct, grade_label_from_percent(total_pct)
+
+
+def _evaluation_payload_mark_totals_ex(rows: list) -> tuple[float, float, bool]:
+    sum_max = 0.0
+    sum_acquired = 0.0
+    any_acquired = False
+    for r in rows:
+        if str(r.get("row_kind") or "").strip().lower() == "section":
+            continue
+        if _acquired_is_na(r.get("acquired")):
+            continue
+        sum_max += _eval_row_positive_max(r)
+        acq = r.get("acquired")
+        acq_s = ("" if acq is None else str(acq)).strip()
+        if acq_s:
+            try:
+                sum_acquired += float(str(acq).replace(",", "."))
+                any_acquired = True
+            except (TypeError, ValueError):
+                pass
+    return sum_max, sum_acquired, any_acquired
 
 
 def _evaluation_payload_mark_totals(rows: list) -> tuple[float, float]:
@@ -1595,19 +1615,7 @@ def _evaluation_payload_mark_totals(rows: list) -> tuple[float, float]:
     safe = [r for r in rows[:2000] if isinstance(r, dict)]
     if not safe:
         return 0.0, 0.0
-    sum_max = 0.0
-    sum_acquired = 0.0
-    for r in safe:
-        if str(r.get("row_kind") or "").strip().lower() == "section":
-            continue
-        sum_max += _eval_row_positive_max(r)
-        acq = r.get("acquired")
-        acq_s = ("" if acq is None else str(acq)).strip().lower()
-        if acq_s and acq_s != "na":
-            try:
-                sum_acquired += float(str(acq).replace(",", "."))
-            except (TypeError, ValueError):
-                pass
+    sum_max, sum_acquired, _any = _evaluation_payload_mark_totals_ex(safe)
     return sum_max, sum_acquired
 
 
@@ -1629,7 +1637,7 @@ def _evaluation_list_judge_sum_totals(
 ) -> tuple[float, float]:
     """
     مجموع القصوى والمكتسبة كما في صفحة المحكم (eval-sum-max / eval-sum-acquired):
-    - القصوى: مجموع max_num لكل بند score من قالب Excel.
+    - القصوى: مجموع max_num لكل بند score غير «لا ينطبق».
     - المكتسبة: مجموع acquired المحفوظة (أو الأولية من Excel) لكل بند غير «لا ينطبق».
     """
     saved_rows = [r for r in (saved_rows or [])[:2000] if isinstance(r, dict)]
@@ -1646,19 +1654,21 @@ def _evaluation_list_judge_sum_totals(
             rk = str(trow.get("row_kind") or "score").strip().lower()
             if rk == "section":
                 continue
+            saved_row = saved_rows[idx] if idx < len(saved_rows) else {}
+            acq = saved_row.get("acquired") if isinstance(saved_row, dict) else None
+            if isinstance(saved_row, dict) and "acquired" in saved_row:
+                acq_s = ("" if acq is None else str(acq)).strip()
+            else:
+                acq = trow.get("acquired_initial")
+                acq_s = ("" if acq is None else str(acq)).strip()
+            if _acquired_is_na(acq_s):
+                continue
             mx = trow.get("max_num")
             if mx is None:
                 mx = parse_max_cell(trow.get("max_val"))
             if mx is not None and float(mx) > 0:
                 sum_max += float(mx)
-            saved_row = saved_rows[idx] if idx < len(saved_rows) else {}
-            acq = saved_row.get("acquired") if isinstance(saved_row, dict) else None
-            if isinstance(saved_row, dict) and "acquired" in saved_row:
-                acq_s = ("" if acq is None else str(acq)).strip().lower()
-            else:
-                acq = trow.get("acquired_initial")
-                acq_s = ("" if acq is None else str(acq)).strip().lower()
-            if acq_s and acq_s != "na":
+            if acq_s:
                 try:
                     sum_acquired += float(str(acq).replace(",", "."))
                     any_acquired = True
@@ -1675,12 +1685,14 @@ def _evaluation_list_judge_sum_totals(
     for r in saved_rows:
         if str(r.get("row_kind") or "").strip().lower() == "section":
             continue
+        acq = r.get("acquired")
+        if _acquired_is_na(acq):
+            continue
         mx = parse_max_cell(r.get("max_val"))
         if mx is not None and mx > 0:
             sum_max += float(mx)
-        acq = r.get("acquired")
-        acq_s = ("" if acq is None else str(acq)).strip().lower()
-        if acq_s and acq_s != "na":
+        acq_s = ("" if acq is None else str(acq)).strip()
+        if acq_s:
             try:
                 sum_acquired += float(str(acq).replace(",", "."))
                 any_acquired = True
@@ -2574,6 +2586,14 @@ def _evaluation_commit_payload_save(
     rows = payload.get("rows") or []
     if not isinstance(rows, list):
         abort(400)
+    if payload_rows_missing_required_notes(rows):
+        abort(
+            400,
+            description=(
+                "لا يمكن الحفظ: يوجد بند نتيجته «مقبول» أو «راسب» — "
+                "اكتب ملاحظات لهذا الصف في خانة الملاحظات."
+            ),
+        )
     total_pct, grade = _evaluation_grade_from_payload_rows(rows)
     saved = _evaluation_canonical_saved_row(db, current_exercise.id, item.id)
     if saved is not None and not eval_judge_can_edit(saved):
@@ -2649,6 +2669,14 @@ def _planner_bundle_eval_commit_payload_save(
     rows = payload.get("rows") or []
     if not isinstance(rows, list):
         abort(400)
+    if payload_rows_missing_required_notes(rows):
+        abort(
+            400,
+            description=(
+                "لا يمكن الحفظ: يوجد بند نتيجته «مقبول» أو «راسب» — "
+                "اكتب ملاحظات لهذا الصف في خانة الملاحظات."
+            ),
+        )
     total_pct, grade = _evaluation_grade_from_payload_rows(rows)
     saved = _planner_bundle_eval_canonical_saved(
         db, current_exercise.id, action_row.id
@@ -2851,12 +2879,38 @@ def _evaluation_saved_allows_judge_approve(saved) -> bool:
 
 def _eval_list_viewer_ctx(user: User, saved) -> dict:
     """سياق مشترك لعرض/تعديل قائمة تقييم (محكم أو كبير محكمين)."""
+    from flask import g
+
+    from app.judge_signature import (
+        SNAPSHOT_KIND_EVAL_LIST,
+        SNAPSHOT_KIND_PLANNER,
+        get_master,
+        master_png_bytes,
+        snapshot_png,
+    )
+    from app.models.domain import EvaluationListSavedResult
+
     grade_blocks_approve = bool(
         saved is not None
         and can_approve_evaluation_results(user)
         and eval_judge_can_approve(saved)
         and not _evaluation_saved_allows_judge_approve(saved)
     )
+    master = get_master(g.db, getattr(user, "id", None)) if user else None
+    has_master = bool(master_png_bytes(master))
+    snap = snapshot_png(saved) if saved is not None else None
+    sig_url = ""
+    if snap and saved is not None and getattr(saved, "id", None):
+        kind = (
+            SNAPSHOT_KIND_EVAL_LIST
+            if isinstance(saved, EvaluationListSavedResult)
+            else SNAPSHOT_KIND_PLANNER
+        )
+        sig_url = url_for(
+            "views.eval_saved_signature_png",
+            kind=kind,
+            saved_id=int(saved.id),
+        )
     return {
         "saved_is_approved": eval_judge_approved(saved),
         "saved_approved_at": getattr(saved, "approved_at", None) if saved else None,
@@ -2882,7 +2936,25 @@ def _eval_list_viewer_ctx(user: User, saved) -> dict:
         "show_chief_reopen": bool(
             can_chief_reopen_evaluation_for_judge(user) and eval_chief_can_reopen(saved)
         ),
+        "judge_has_master_signature": has_master,
+        "eval_signature_url": sig_url,
+        "eval_signature_version": getattr(saved, "signature_version", None) if saved else None,
+        "eval_approve_no_signature": request.args.get("eval_approve_no_signature", type=int) == 1,
+        "eval_approve_signature_mismatch": request.args.get(
+            "eval_approve_signature_mismatch", type=int
+        )
+        == 1,
     }
+
+
+def _web_signed_judge_approve(db, user: User, saved) -> None:
+    from app.judge_signature import attach_signature_snapshot, resolve_approval_png
+
+    png, version = resolve_approval_png(db, user)
+    apply_judge_approve(saved, getattr(user, "id", None))
+    attach_signature_snapshot(
+        saved, user_id=int(user.id), png_bytes=png, version=version
+    )
 
 
 def _eval_crit_media_sheet_ctx(
@@ -8169,7 +8241,7 @@ def _enrich_judge_action_eval_groups(
                         **flow_qs,
                     ),
                 )
-                rows.append({**row, **eval_row})
+                rows.append({**row, **eval_row, "slot_id": slot_id})
             if rows:
                 folders.append({**folder, "rows": rows})
         out.append({**group, "list_folder_groups": folders})
@@ -8243,7 +8315,7 @@ def _render_judge_action_eval_lists_workspace(
     )
     parent_home = url_for(home_endpoint)
     page_title = (
-        "اعتماد قوائم تقييم الإجراءات (مجرى الأحداث والمعاضل)"
+        "اعتماد قوائم تقييم المعاضل"
         if chief_mode
         else "قوائم تقييم المعاضل"
     )
@@ -8881,6 +8953,15 @@ def judge_planner_flow_materials_action_save_results(slot: int):
         return redirect(eval_url)
     if len(raw) > 250_000:
         abort(400)
+    if _evaluation_save_payload_missing_row_notes(raw):
+        return redirect(
+            url_for(
+                "views.judge_planner_flow_materials_action_evaluate",
+                slot=int(slot),
+                eval_save_notes_required=1,
+                **pf_qs,
+            )
+        )
     _planner_bundle_eval_commit_payload_save(
         db,
         user=user,
@@ -8953,8 +9034,28 @@ def judge_planner_flow_materials_action_approve(slot: int):
                 **pf_qs,
             )
         )
-    apply_judge_approve(saved, getattr(user, "id", None))
-    db.commit()
+    try:
+        _web_signed_judge_approve(db, user, saved)
+        db.commit()
+    except Exception as exc:
+        from app.judge_signature import JudgeSignatureError
+
+        db.rollback()
+        if isinstance(exc, JudgeSignatureError):
+            q = (
+                {"eval_approve_no_signature": 1}
+                if exc.code == "no_signature"
+                else {"eval_approve_signature_mismatch": 1}
+            )
+            return redirect(
+                url_for(
+                    "views.judge_planner_flow_materials_action_evaluate",
+                    slot=int(slot),
+                    **q,
+                    **pf_qs,
+                )
+            )
+        raise
     return redirect(
         url_for(
             "views.judge_planner_flow_materials_action_evaluate",
@@ -9087,8 +9188,8 @@ def judge_planner_flow_materials_action_chief_reopen(slot: int):
 # مساحة التخطيط — عناصر الشريط (المعرّف، العنوان، أيقونة Font Awesome)
 PLANNER_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("new-flow", "مجرى الأحداث والمعاضل", "fa-diagram-project"),
-    ("new-action-eval-lists", "إنشاء قوائم تقييم المعاضل", "fa-file-excel"),
-    ("new-evaluation-list", "إنشاء قوائم التقييم", "fa-file-circle-plus"),
+    ("new-action-eval-lists", "قوائم تقييم المعاضل", "fa-file-excel"),
+    ("new-evaluation-list", "قوائم تقييم الإجراءات", "fa-file-circle-plus"),
     ("incomplete-tasks", "موقف المهام غير المكتملة", "fa-hourglass-half"),
     ("battle-overview", "الصورة العامة للمعركة", "fa-map"),
     ("assign-task", "إسناد مهمة جديدة", "fa-user-plus"),
@@ -9149,6 +9250,9 @@ def _render_planner_action_eval_lists(db, user: User):
 
     if current_exercise is not None:
         ex_id = int(current_exercise.id)
+        from app.action_eval_ibank_sync import remigrate_action_eval_slots_to_ibank_day_phases
+
+        remigrate_action_eval_slots_to_ibank_day_phases(db, exercise_id=ex_id)
         judge_roster = summarize_judge_roster_for_eval_lists(db, ex_id)
         judge_unit_count = len(roster_judge_unit_keys(db, ex_id))
         roster_unit_count = len(roster_eval_display_unit_keys(db, ex_id))
@@ -9238,7 +9342,10 @@ def planner_action_eval_lists_publish_phase():
         abort(403)
     from flask import g
 
-    from app.action_eval_ibank_sync import publish_phase_action_eval_lists_from_ibank
+    from app.action_eval_ibank_sync import (
+        publish_phase_action_eval_lists_from_ibank,
+        remigrate_action_eval_slots_to_ibank_day_phases,
+    )
 
     db = g.db
     ex = _current_workspace_exercise(db, user)
@@ -9248,17 +9355,26 @@ def planner_action_eval_lists_publish_phase():
         return _action_eval_lists_redirect(err="لا يوجد تمرين حالي.")
     if not phase_key:
         return _action_eval_lists_redirect(err="لا توجد مرحلة تمرين مرتبطة بالمجرى.")
+    remigrate_action_eval_slots_to_ibank_day_phases(db, exercise_id=int(ex.id))
     selections = _parse_eval_list_publish_selections(request.form)
     dilemmas = _parse_eval_list_publish_dilemmas(request.form)
-    stats = publish_phase_action_eval_lists_from_ibank(
-        db,
-        exercise_id=int(ex.id),
-        phase_key=phase_key,
-        selections_by_unit=selections,
-        dilemma_by_unit_node=dilemmas or None,
-        flow_day_id=flow_day_id or None,
-    )
-    db.commit()
+    try:
+        stats = publish_phase_action_eval_lists_from_ibank(
+            db,
+            exercise_id=int(ex.id),
+            phase_key=phase_key,
+            selections_by_unit=selections,
+            dilemma_by_unit_node=dilemmas or None,
+            flow_day_id=flow_day_id or None,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        current_app.logger.exception("action-eval publish-phase failed")
+        return _action_eval_lists_redirect(
+            flow_day_id=flow_day_id,
+            err="تعذّر نشر القوائم للمحكمين. أعد المحاولة بعد التحقق من مرحلة اليوم في بنك المعلومات.",
+        )
     n = int(stats.get("added", 0)) + int(stats.get("updated", 0))
     skipped = int(stats.get("skipped", 0))
     if n <= 0 and skipped > 0:
@@ -9342,7 +9458,7 @@ def planner_action_eval_lists_withdraw_one(unit_key: str, node_id: int):
         abort(403)
     from flask import g
 
-    from app.action_eval_ibank_sync import withdraw_single_action_eval_from_ibank
+    from app.action_eval_ibank_sync import     withdraw_single_action_eval_from_ibank
 
     db = g.db
     ex = _current_workspace_exercise(db, user)
@@ -9350,7 +9466,7 @@ def planner_action_eval_lists_withdraw_one(unit_key: str, node_id: int):
     flow_day_id = (request.form.get("flow_day_id") or "").strip()
     if ex is None:
         return _action_eval_lists_redirect(err="لا يوجد تمرين حالي.")
-    withdraw_single_action_eval_from_ibank(
+    stats = withdraw_single_action_eval_from_ibank(
         db,
         exercise_id=int(ex.id),
         phase_key=phase_key or default_exercise_phase_key(),
@@ -9358,7 +9474,13 @@ def planner_action_eval_lists_withdraw_one(unit_key: str, node_id: int):
         node_id=int(node_id),
     )
     db.commit()
-    return _action_eval_lists_redirect(flow_day_id=flow_day_id, ok="تم سحب النشر.")
+    if int(stats.get("removed") or 0):
+        ok = "تم سحب نشر القائمة."
+    elif int(stats.get("skipped_with_results") or 0):
+        ok = "لم يُسحب: القائمة تحتوي على نتائج أو علامات محفوظة."
+    else:
+        ok = "القائمة غير منشورة أو سبق سحبها."
+    return _action_eval_lists_redirect(flow_day_id=flow_day_id, ok=ok)
 
 
 @bp.route("/planner/action-eval-lists/pull-from-flow", methods=["POST"])
@@ -9422,7 +9544,7 @@ def planner_action_eval_lists_sync_all():
     db.commit()
     return _action_eval_lists_redirect(
         flow_day_id=flow_day_id,
-        ok="تم تحديث الفهرس من البنك وإلغاء نشر الكل — حدّد القوائم ثم انشر.",
+        ok="تم تحديث الفهرس من البنك — حدّد القوائم ثم انشر. لم يُسحب أي منشور.",
     )
 
 
@@ -9453,8 +9575,13 @@ def planner_action_eval_lists_withdraw_all():
     )
     db.commit()
     removed = int(stats.get("removed") or 0)
+    kept = int(stats.get("skipped_with_results") or 0)
     if removed:
-        ok = f"تم سحب نشر {removed} قائمة لهذا اليوم."
+        ok = f"تم سحب نشر {removed} قائمة غير مستخدمة لهذا اليوم."
+        if kept:
+            ok += f" بقيت {kept} قائمة ذات نتائج."
+    elif kept:
+        ok = "لا توجد قوائم غير مستخدمة لسحبها. القوائم ذات النتائج بقيت."
     else:
         ok = "لا توجد قوائم منشورة لسحبها في هذا اليوم."
     return _action_eval_lists_redirect(flow_day_id=flow_day_id, ok=ok)
@@ -9747,6 +9874,7 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
                 **_evaluation_list_phase_url_kwargs(phase_key),
             ),
             eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
+            eval_save_notes_required=request.args.get("eval_save_notes_required", type=int) == 1,
             subpage_close_fallback=_evaluation_list_unit_href(
                 "views.planner_evaluation_lists", unit_key, phase_key
             ),
@@ -9786,6 +9914,14 @@ def planner_evaluation_list_save_results(unit_key: str, item_id: int):
         )
     if len(raw) > 250_000:
         abort(400)
+    if _evaluation_save_payload_missing_row_notes(raw):
+        return _evaluation_list_viewer_redirect(
+            "views.planner_evaluation_list_file_viewer",
+            unit_key,
+            item_id,
+            item,
+            eval_save_notes_required=1,
+        )
     _evaluation_commit_payload_save(db, user=user, item=item, current_exercise=current_exercise, raw=raw)
     return _evaluation_list_viewer_redirect(
         "views.planner_evaluation_list_file_viewer", unit_key, item_id, item, eval_saved=1
@@ -9860,6 +9996,7 @@ def _send_eval_xlsx_file(
     current_exercise,
     saved_payload: dict | None,
     ev: dict,
+    saved_row=None,
 ):
     """يبني ملف Excel من مسار القائمة ويرسله للتنزيل — عنوان من سطرين في B1."""
     unit = _require_unit_level_row(unit_key) if unit_key else None
@@ -9902,6 +10039,7 @@ def _send_eval_xlsx_file(
         export_download_filename,
         export_eval_doc_banner_title,
     )
+    from app.judge_signature import snapshot_png
 
     doc_title = export_eval_doc_banner_title(
         excel_title=(ev.get("eval_doc_title") or "").strip(),
@@ -9918,6 +10056,8 @@ def _send_eval_xlsx_file(
             judge_name=judge_name or "",
             eval_rows=ev.get("eval_rows") or [],
             saved_rows=(saved_payload.get("rows") or []) if saved_payload else [],
+            signature_png=snapshot_png(saved_row),
+            approved_at=getattr(saved_row, "approved_at", None) if saved_row else None,
         )
     except Exception:
         abort(500)
@@ -9976,6 +10116,7 @@ def _send_evaluation_list_export_xlsx(
         current_exercise=current_exercise,
         saved_payload=saved_payload,
         ev=ev,
+        saved_row=canon,
     )
 
 
@@ -10099,6 +10240,7 @@ def judge_planner_flow_action_eval_export(slot: int):
         current_exercise=ex,
         saved_payload=saved_payload,
         ev=ev,
+        saved_row=canon,
     )
 
 
@@ -10106,7 +10248,7 @@ def judge_planner_flow_action_eval_export(slot: int):
 JUDGE_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("planner-flow-materials", "مجرى الأحداث والمعاضل", "fa-table-list"),
     ("dilemmas", "قوائم تقييم المعاضل", "fa-file-excel"),
-    ("evaluation-lists", "قوائم التقييم", "fa-file-excel"),
+    ("evaluation-lists", "قوائم تقييم الإجراءات", "fa-file-excel"),
     ("positives-negatives", "الإيجابيات والسلبيات", "fa-plus-minus"),
     ("visual-documentation", "التوثيق المرئي", "fa-photo-film"),
     ("incomplete-tasks", "مهام غير مكتملة", "fa-clipboard-list"),
@@ -12141,6 +12283,7 @@ def _control_exercise_performance_report(db, user: User) -> dict:
             "unit_detail_rows": [],
             "unit_detail_phase_headers": [],
             "unit_detail_phase_max_dots": [],
+            "unit_detail_total_slots": 1,
             "unit_detail_list_number_row": [],
             "grade_legend": _control_report_grade_legend(),
             "detail_source_legend": _control_report_detail_source_legend(),
@@ -12482,6 +12625,7 @@ def _control_exercise_performance_report(db, user: User) -> dict:
     )
     unit_detail_phase_max_dots = _control_phase_max_dot_counts(unit_detail_rows)
     unit_detail_list_number_row = _control_build_list_number_row(unit_detail_phase_max_dots)
+    unit_detail_total_slots = sum(int(n or 0) for n in unit_detail_phase_max_dots) or 1
 
     return {
         "exercise": ex,
@@ -12503,6 +12647,7 @@ def _control_exercise_performance_report(db, user: User) -> dict:
         "unit_detail_rows": unit_detail_rows,
         "unit_detail_phase_headers": [lbl for _, lbl in unit_detail_phase_columns],
         "unit_detail_phase_max_dots": unit_detail_phase_max_dots,
+        "unit_detail_total_slots": unit_detail_total_slots,
         "unit_detail_list_number_row": unit_detail_list_number_row,
         "grade_legend": _control_report_grade_legend(),
         "detail_source_legend": _control_report_detail_source_legend(),
@@ -12894,6 +13039,33 @@ def control_hub_section(slug: str):
             section_icon=_control_section_icon(slug_norm),
             **_control_hub_back_ctx_always(),
         ),
+    )
+
+
+@bp.route("/control/evaluation-results/export.pdf")
+def control_evaluation_results_export_pdf():
+    """تصدير الرسوم الثلاثة لتقرير النتائج في ملف PDF واحد بحجم A3 (ثلاث صفحات)."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/control/evaluation-results/export.pdf")
+    if not can_access_control_hub(user):
+        abort(403)
+    from flask import g
+
+    from app.control_results_charts_pdf import build_control_results_report_a3_pdf
+
+    report = _control_exercise_performance_report(g.db, user)
+    try:
+        data = build_control_results_report_a3_pdf(report)
+    except Exception as exc:
+        current_app.logger.exception("control results report pdf failed: %s", exc)
+        flash("تعذّر تصدير نتائج التقييم إلى PDF.", "error")
+        return redirect(url_for("views.control_hub_section", slug="evaluation-results"))
+    return send_file(
+        io.BytesIO(data),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name="عرض_نتائج_التقييم.pdf",
     )
 
 
@@ -13534,6 +13706,37 @@ def _exercise_roster_page(roster_kind: str):
                 [r for r in exercise.roster_rows if r.roster_kind == roster_kind],
                 key=lambda r: (r.sort_order, r.id),
             )
+        judge_signature_rows: list[dict] = []
+        if roster_kind == ExerciseRosterKind.JUDGE.value:
+            from app.judge_signature import get_master, signature_public_meta
+
+            judges = (
+                db.query(User)
+                .filter(User.role_key == RoleKey.JUDGE.value)
+                .order_by(User.id)
+                .all()
+            )
+            asg_by_uid: dict[int, JudgeTraineeAssignment] = {}
+            if exercise is not None:
+                for a in (
+                    db.query(JudgeTraineeAssignment)
+                    .filter(JudgeTraineeAssignment.exercise_id == exercise.id)
+                    .all()
+                ):
+                    asg_by_uid[int(a.judge_user_id)] = a
+            for j in judges:
+                sig_meta = signature_public_meta(get_master(db, int(j.id)))
+                asg = asg_by_uid.get(int(j.id))
+                uk = (asg.unit_level_key or "").strip() if asg is not None else ""
+                judge_signature_rows.append(
+                    {
+                        "user_id": int(j.id),
+                        "full_name": (j.full_name or "").strip() or j.username,
+                        "username": j.username,
+                        "unit_label": label_for_unit_level_key(uk, db=db) or uk or "—",
+                        "registered": bool(sig_meta.get("registered")),
+                    }
+                )
         return render_template(
             "admin_exercise_unit_roster.html",
             **_ctx(
@@ -13545,6 +13748,7 @@ def _exercise_roster_page(roster_kind: str):
                 roster_meta=meta,
                 roster_rows=rows_f,
                 unit_levels=UNIT_LEVELS,
+                judge_signature_rows=judge_signature_rows,
             ),
         )
 
@@ -14629,8 +14833,27 @@ def judge_evaluation_list_approve(unit_key: str, item_id: int):
             item,
             eval_approve_grade_blocked=1,
         )
-    apply_judge_approve(saved, getattr(user, "id", None))
-    db.commit()
+    try:
+        _web_signed_judge_approve(db, user, saved)
+        db.commit()
+    except Exception as exc:
+        from app.judge_signature import JudgeSignatureError
+
+        db.rollback()
+        if isinstance(exc, JudgeSignatureError):
+            extra = (
+                {"eval_approve_no_signature": 1}
+                if exc.code == "no_signature"
+                else {"eval_approve_signature_mismatch": 1}
+            )
+            return _evaluation_list_viewer_redirect(
+                "views.judge_evaluation_list_file_viewer",
+                unit_key,
+                item_id,
+                item,
+                **extra,
+            )
+        raise
     return _evaluation_list_viewer_redirect(
         "views.judge_evaluation_list_file_viewer", unit_key, item_id, item
     )
@@ -14656,6 +14879,53 @@ def eval_criterion_media_stream(media_id: int):
     dl_name = Path(m.file_relpath or "").name
     mime = ((m.mime_type or "").strip() or mimetypes.guess_type(dl_name)[0] or "").strip()
     return send_file(abs_p, mimetype=mime or None)
+
+
+@bp.route("/eval-results/<kind>/<int:saved_id>/signature.png", methods=["GET"])
+def eval_saved_signature_png(kind: str, saved_id: int):
+    """لقطة توقيع الاعتماد — PNG شفاف كما حُفظ وقت الاعتماد."""
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    from flask import g
+
+    from app.judge_signature import (
+        SNAPSHOT_KIND_EVAL_LIST,
+        SNAPSHOT_KIND_PLANNER,
+        snapshot_png,
+    )
+    from app.models.domain import EvaluationListSavedResult, PlannerFlowBundleEvalSavedResult
+
+    db = g.db
+    k = (kind or "").strip().lower()
+    saved = None
+    if k == SNAPSHOT_KIND_EVAL_LIST:
+        saved = db.get(EvaluationListSavedResult, int(saved_id))
+    elif k == SNAPSHOT_KIND_PLANNER:
+        saved = db.get(PlannerFlowBundleEvalSavedResult, int(saved_id))
+    else:
+        abort(404)
+    if saved is None:
+        abort(404)
+    png = snapshot_png(saved)
+    if not png:
+        abort(404)
+    if not (
+        is_system_admin(user)
+        or can_access_judge_hub(user)
+        or can_access_chief_judge_hub(user)
+        or can_access_control_hub(user)
+        or can_access_planner_hub(user)
+        or can_access_analyst_hub(user)
+    ):
+        abort(403)
+    return send_file(
+        io.BytesIO(png),
+        mimetype="image/png",
+        as_attachment=False,
+        download_name=f"judge-signature-{int(saved_id)}.png",
+        max_age=0,
+    )
 
 
 @bp.route("/eval-criterion-media/upload", methods=["POST"])
@@ -14806,12 +15076,12 @@ def eval_criterion_media_delete(media_id: int):
 CHIEF_JUDGE_ONLY_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     (
         "evaluation-lists-chief",
-        "اعتماد قوائم التقييم",
+        "اعتماد قوائم تقييم الإجراءات",
         "fa-diagram-project",
     ),
     (
         "planner-flow-bundle-overview",
-        "اعتماد قوائم تقييم الإجراءات (مجرى الأحداث والمعاضل)",
+        "اعتماد قوائم تقييم المعاضل",
         "fa-file-excel",
     ),
 )
@@ -14917,7 +15187,7 @@ def chief_judge_evaluation_lists_home():
             phase_tabs=phase_tabs,
             active_phase_key=_evaluation_list_home_active_phase(phase_tabs),
             unit_list_endpoint="views.chief_judge_evaluation_lists",
-            page_title="قوائم التقييم — اعتماد كبير المحكمين",
+            page_title="قوائم تقييم الإجراءات — اعتماد كبير المحكمين",
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -15442,6 +15712,11 @@ def admin_evaluation_lists_withdraw_one_from_ibank(unit_key: str, node_id: int):
         )
     db.commit()
     if int(stats.get("removed", 0)) == 0:
+        if int(stats.get("skipped_with_results", 0)):
+            return _eval_lists_redirect(
+                phase_key=phase_key,
+                ok="لم يُسحب: القائمة تحتوي على نتائج أو علامات محفوظة.",
+            )
         return _eval_lists_redirect(
             phase_key=phase_key,
             err="القائمة غير منشورة أو تعذّر سحبها.",
@@ -15539,18 +15814,15 @@ def admin_evaluation_lists_publish_all_from_ibank():
         )
     db.commit()
     avail = int(stats.get("sources_available", 0))
-    removed = int(stats.get("removed", 0))
     if avail == 0:
         return _eval_lists_redirect(
             phase_key=phase_key,
             err="لا توجد ملفات مطابقة في بنك المعلومات. تحقق من المراحل ومستويات الوحدة.",
         )
     ok_parts = [
-        f"تم تحديث {avail} قائمة من بنك المعلومات — جميعها غير منشورة.",
-        "حدّد القوائم ثم اضغط «نشر القوائم».",
+        f"تم تحديث فهرس {avail} قائمة من بنك المعلومات.",
+        "حدّد القوائم ثم اضغط «نشر القوائم». لم يُسحب أي منشور.",
     ]
-    if removed:
-        ok_parts.insert(1, f"أُلغي نشر {removed} قائمة سابقة.")
     return _eval_lists_redirect(
         phase_key=phase_key,
         ok=" ".join(ok_parts),
@@ -15581,11 +15853,66 @@ def admin_evaluation_lists_withdraw_all_from_ibank():
     )
     db.commit()
     removed = int(stats.get("removed") or 0)
+    kept = int(stats.get("skipped_with_results") or 0)
     if removed:
-        ok = f"تم سحب نشر {removed} قائمة لهذه المرحلة."
+        ok = f"تم سحب نشر {removed} قائمة غير مستخدمة لهذه المرحلة."
+        if kept:
+            ok += f" بقيت {kept} قائمة ذات نتائج."
+    elif kept:
+        ok = "لا توجد قوائم غير مستخدمة لسحبها. القوائم ذات النتائج بقيت."
     else:
         ok = "لا توجد قوائم منشورة لسحبها في هذه المرحلة."
     return _eval_lists_redirect(phase_key=phase_key, ok=ok)
+
+
+@bp.route("/admin/published-eval-lists/<int:item_id>/delete", methods=["POST"])
+def admin_delete_published_eval_list(item_id: int):
+    user = get_current_user_optional()
+    nxt = _safe_local_next("/judge/evaluation-lists")
+    if not user:
+        return redirect(f"/login?next={nxt}")
+    if not is_system_admin(user):
+        abort(403)
+    from flask import g
+
+    from app.evaluation_list_ibank_sync import delete_published_evaluation_list_item
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    if ex is None:
+        abort(404)
+    ok = delete_published_evaluation_list_item(
+        db, exercise_id=int(ex.id), item_id=int(item_id)
+    )
+    if not ok:
+        abort(404)
+    db.commit()
+    return redirect(nxt)
+
+
+@bp.route("/admin/published-action-eval/<int:slot_id>/delete", methods=["POST"])
+def admin_delete_published_action_eval_slot(slot_id: int):
+    user = get_current_user_optional()
+    nxt = _safe_local_next("/judge/dilemmas")
+    if not user:
+        return redirect(f"/login?next={nxt}")
+    if not is_system_admin(user):
+        abort(403)
+    from flask import g
+
+    from app.action_eval_ibank_sync import delete_published_action_eval_slot
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    if ex is None:
+        abort(404)
+    ok = delete_published_action_eval_slot(
+        db, exercise_id=int(ex.id), slot_id=int(slot_id)
+    )
+    if not ok:
+        abort(404)
+    db.commit()
+    return redirect(nxt)
 
 
 @bp.route("/admin/evaluation-lists", methods=["GET"])
@@ -19242,6 +19569,8 @@ def admin_users():
     user_errors = {
         "duplicate_username": "اسم المستخدم مستخدم مسبقاً. اختر اسماً آخر.",
     }
+    from app.judge_signature import registered_user_ids
+
     return render_template(
         "admin_users.html",
         **_ctx(
@@ -19252,7 +19581,74 @@ def admin_users():
             has_exercise=ex is not None,
             trainee_choices=trainee_choices,
             user_error=user_errors.get(err_key, ""),
+            signature_user_ids=registered_user_ids(db),
         ),
+    )
+
+
+@bp.route("/admin/users/<int:uid>/signature", methods=["GET"])
+def admin_user_signature(uid: int):
+    user = get_current_user_optional()
+    if not user or not can_manage_users(user):
+        abort(403)
+    from flask import g
+
+    from app.judge_signature import get_master, master_png_bytes, signature_public_meta
+
+    db = g.db
+    target = db.get(User, int(uid))
+    if target is None:
+        abort(404)
+    row = get_master(db, int(uid))
+    meta = signature_public_meta(row)
+    has_png = bool(master_png_bytes(row))
+    unit_label = "—"
+    ex = _admin_current_workspace_exercise(db, user)
+    if ex is not None:
+        asg = (
+            db.query(JudgeTraineeAssignment)
+            .filter(
+                JudgeTraineeAssignment.exercise_id == ex.id,
+                JudgeTraineeAssignment.judge_user_id == int(uid),
+            )
+            .first()
+        )
+        if asg is not None:
+            uk = (asg.unit_level_key or "").strip()
+            unit_label = label_for_unit_level_key(uk, db=db) or uk or "—"
+    rdefs = {r.role_key: r for r in db.query(RoleDef).all()}
+    return render_template(
+        "admin_judge_signature.html",
+        **_ctx(
+            user,
+            target=target,
+            signature_meta=meta,
+            signature_has_png=has_png,
+            signature_unit_label=unit_label,
+            role_title=(rdefs.get(target.role_key).title_ar if target.role_key in rdefs else ""),
+        ),
+    )
+
+
+@bp.route("/admin/users/<int:uid>/signature.png", methods=["GET"])
+def admin_user_signature_png(uid: int):
+    user = get_current_user_optional()
+    if not user or not can_manage_users(user):
+        abort(403)
+    from flask import g
+
+    from app.judge_signature import get_master, master_png_bytes
+
+    row = get_master(g.db, int(uid))
+    png = master_png_bytes(row)
+    if not png:
+        abort(404)
+    return send_file(
+        io.BytesIO(png),
+        mimetype="image/png",
+        as_attachment=False,
+        download_name=f"judge-{int(uid)}-signature.png",
+        max_age=0,
     )
 
 

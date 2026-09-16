@@ -17,7 +17,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
     required this.pageTitle,
     this.pageSubtitle,
     this.onBack,
-    this.showLogout = true,
+    this.showLogout = false,
     this.showSettings = true,
     this.showOnlineChip = true,
     this.showUtilityActions = true,
@@ -73,9 +73,11 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
       child: SafeArea(
         bottom: false,
         child: Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: phone ? 8 : 10,
-            vertical: phone ? 6 : 8,
+          padding: EdgeInsets.fromLTRB(
+            phone ? 8 : 10,
+            phone ? 6 : 8,
+            phone ? 8 : 0,
+            phone ? 6 : 8,
           ),
           decoration: const BoxDecoration(
             border:
@@ -155,109 +157,118 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                   textDirection: TextDirection.ltr,
                   child: SizedBox(
                     height: 88,
-                    child: Row(
+                    child: Stack(
+                      alignment: Alignment.center,
                       children: [
-                        SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: landscapeActions,
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: landscapeActions,
+                            ),
                           ),
                         ),
-                        Expanded(
-                          flex: 4,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
+                        Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              pageTitle,
+                              style: AppTextStyles.cairo(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.olive,
+                              ),
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (judgeName.isNotEmpty)
                               Text(
-                                pageTitle,
+                                judgeName,
                                 style: AppTextStyles.cairo(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.olive,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.goldDark,
                                 ),
                                 textAlign: TextAlign.center,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
-                              if (judgeName.isNotEmpty)
-                                Text(
-                                  judgeName,
-                                  style: AppTextStyles.cairo(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.goldDark,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              if (unit.isNotEmpty)
-                                Text(
-                                  unit,
-                                  style: AppTextStyles.cairo(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.muted,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                            ],
-                          ),
-                        ),
-                        Flexible(
-                          flex: 3,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
+                            if (unit.isNotEmpty)
                               Text(
-                                'التحكيم الذكي',
+                                unit,
                                 style: AppTextStyles.cairo(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
                                   color: AppColors.goldDark,
                                 ),
+                                textAlign: TextAlign.center,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.right,
                               ),
-                              Text(
-                                'نظام إدارة التمارين',
-                                style: AppTextStyles.cairo(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.olive,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.right,
-                              ),
-                              if (line3.isNotEmpty)
-                                Text(
-                                  line3,
-                                  style: AppTextStyles.cairo(
-                                    fontSize: 10,
-                                    color: AppColors.muted,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.right,
-                                ),
-                            ],
-                          ),
+                          ],
                         ),
-                        const SizedBox(width: 8),
-                        Image.asset(
-                          'assets/images/uae_mod.png',
-                          height: 52,
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => const Icon(
-                            Icons.shield,
-                            size: 40,
-                            color: AppColors.gold,
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Padding(
+                            padding: const EdgeInsets.only(right: 18.9),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      'التحكيم الذكي',
+                                      style: AppTextStyles.cairo(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppColors.goldDark,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.right,
+                                    ),
+                                    Text(
+                                      'نظام إدارة التمارين',
+                                      style: AppTextStyles.cairo(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.olive,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.right,
+                                    ),
+                                    if (line3.isNotEmpty)
+                                      Text(
+                                        line3,
+                                        style: AppTextStyles.cairo(
+                                          fontSize: 10,
+                                          color: AppColors.muted,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        textAlign: TextAlign.right,
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(width: 8),
+                                Image.asset(
+                                  'assets/images/uae_mod.png',
+                                  height: 52,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (_, __, ___) => const Icon(
+                                    Icons.shield,
+                                    size: 40,
+                                    color: AppColors.gold,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],

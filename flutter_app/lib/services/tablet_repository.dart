@@ -13,6 +13,7 @@ import '../models/objective.dart';
 import '../models/polarity_note.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
+import 'eval_cache_merge.dart';
 import 'health_service.dart';
 import 'library_pdf_cache.dart';
 import 'media_upload_service.dart';
@@ -194,6 +195,23 @@ class TabletRepository {
 
   /// بعد الدخول: تنزيل كامل لبيانات المحكم للعمل دون شبكة.
   Future<void> prefetchForOffline() async {
+    final expected = AuthService.instance.currentUserId;
+    if (expected != null && expected > 0) {
+      try {
+        final reachable = await HealthService.instance.check();
+        if (reachable) {
+          final me = await ApiClient.instance.get(
+            '/api/tablet/me',
+            timeout: const Duration(seconds: 8),
+          );
+          if (!AuthService.instance.serverPayloadMatchesSession(me)) {
+            return;
+          }
+        }
+      } on ApiException catch (e) {
+        if (e.status == 401 || e.status == 403) return;
+      } catch (_) {}
+    }
     try {
       await fetchBootstrap();
     } catch (_) {}
@@ -360,48 +378,26 @@ class TabletRepository {
     final scopedKey = _scoped(cacheKey);
     final status = await OfflineStore.instance.cacheSyncStatus(scopedKey);
     final existing = await _cacheGetScoped(cacheKey);
-    final hasLocalEdits = status == SyncStatuses.pending ||
-        status == SyncStatuses.failed ||
-        (existing != null &&
-            (existing['locally_modified'] == true ||
-                existing['locally_approved'] == true));
-    if (hasLocalEdits && existing != null) {
-      // لا تمسح تعديلات معلّقة عند Update My Data
-      final merged = Map<String, dynamic>.from(data);
-      final serverWf = data['workflow'];
-      final serverReopened =
-          serverWf is Map && serverWf['reopened'] == true;
-      if (serverReopened) {
-        // كبير المحكمين أعاد القائمة — ألغِ الاعتماد المحلي المتقادم
-        merged['locally_approved'] = false;
-        merged['locally_modified'] = existing['locally_modified'] == true;
-        if (existing['locally_modified'] == true) {
-          if (existing['saved_payload'] is Map) {
-            merged['saved_payload'] = existing['saved_payload'];
-          }
-          if (existing['saved_rows'] != null) {
-            merged['saved_rows'] = existing['saved_rows'];
-          }
-        }
-      } else {
-        merged['locally_modified'] = existing['locally_modified'] == true;
-        merged['locally_approved'] = existing['locally_approved'] == true;
-        if (existing['saved_payload'] is Map) {
-          merged['saved_payload'] = existing['saved_payload'];
-        }
-        if (existing['saved_rows'] != null) {
-          merged['saved_rows'] = existing['saved_rows'];
-        }
-      }
+    Map<String, dynamic> toStore;
+    var syncStatus = SyncStatuses.synced;
+    if (existing != null && cacheHasLocalJudgeWork(existing, status)) {
+      toStore = mergeServerCacheWithLocal(
+        server: data,
+        local: existing,
+        cacheStatus: status,
+      );
+      syncStatus = mergeResultSyncStatus(
+        local: existing,
+        server: data,
+        cacheStatus: status,
+      );
       await OfflineStore.instance.cacheSet(
         scopedKey,
-        merged,
-        syncStatus: serverReopened && existing['locally_modified'] != true
-            ? SyncStatuses.synced
-            : SyncStatuses.pending,
+        toStore,
+        syncStatus: syncStatus,
       );
     } else {
-      var toStore = data;
+      toStore = data;
       if (_isListAggregateCacheKey(cacheKey)) {
         toStore = await _overlayApprovedStatuses(Map<String, dynamic>.from(data));
       }
@@ -410,10 +406,10 @@ class TabletRepository {
     if (cacheKey.startsWith('flow:')) {
       final active = (data['active_day_id'] ?? '').toString();
       if (active.isNotEmpty && cacheKey == 'flow:') {
-        await _cacheSetScoped('flow:$active', data);
+        await _cacheSetScoped('flow:$active', toStore);
       }
     }
-    return data;
+    return Map<String, dynamic>.from(toStore);
   }
 
   Set<int> collectPdfNodeIds(dynamic root) => _collectPdfNodeIds(root);
@@ -441,42 +437,19 @@ class TabletRepository {
     final scopedKey = OfflineStore.userKey(userId, cacheKey);
     final status = await OfflineStore.instance.cacheSyncStatus(scopedKey);
     final existing = await OfflineStore.instance.cacheGet(scopedKey);
-    final hasLocalEdits = status == SyncStatuses.pending ||
-        status == SyncStatuses.failed ||
-        (existing != null &&
-            (existing['locally_modified'] == true ||
-                existing['locally_approved'] == true));
     Map<String, dynamic> toStore;
     var syncStatus = SyncStatuses.synced;
-    if (hasLocalEdits && existing != null) {
-      final merged = Map<String, dynamic>.from(data);
-      final serverWf = data['workflow'];
-      final serverReopened = serverWf is Map && serverWf['reopened'] == true;
-      if (serverReopened) {
-        merged['locally_approved'] = false;
-        merged['locally_modified'] = existing['locally_modified'] == true;
-        if (existing['locally_modified'] == true) {
-          if (existing['saved_payload'] is Map) {
-            merged['saved_payload'] = existing['saved_payload'];
-          }
-          if (existing['saved_rows'] != null) {
-            merged['saved_rows'] = existing['saved_rows'];
-          }
-        }
-      } else {
-        merged['locally_modified'] = existing['locally_modified'] == true;
-        merged['locally_approved'] = existing['locally_approved'] == true;
-        if (existing['saved_payload'] is Map) {
-          merged['saved_payload'] = existing['saved_payload'];
-        }
-        if (existing['saved_rows'] != null) {
-          merged['saved_rows'] = existing['saved_rows'];
-        }
-      }
-      toStore = merged;
-      syncStatus = serverReopened && existing['locally_modified'] != true
-          ? SyncStatuses.synced
-          : SyncStatuses.pending;
+    if (existing != null && cacheHasLocalJudgeWork(existing, status)) {
+      toStore = mergeServerCacheWithLocal(
+        server: data,
+        local: existing,
+        cacheStatus: status,
+      );
+      syncStatus = mergeResultSyncStatus(
+        local: existing,
+        server: data,
+        cacheStatus: status,
+      );
     } else {
       toStore = data;
       if (_isListAggregateCacheKey(cacheKey)) {
@@ -762,9 +735,20 @@ class TabletRepository {
     return false;
   }
 
-  Future<bool> approveActionEval(int slot, {String? gradeLabel}) async {
+  Future<bool> approveActionEval(
+    int slot, {
+    String? gradeLabel,
+    required int signatureUserId,
+    required int signatureVersion,
+    required String signaturePngB64,
+  }) async {
     final key = 'action_eval_detail:$slot';
-    await _markLocallyApproved(key);
+    await _markLocallyApproved(
+      key,
+      signatureUserId: signatureUserId,
+      signatureVersion: signatureVersion,
+      signaturePngB64: signaturePngB64,
+    );
     await _propagateListRowStatus(
       matchActionSlot: slot,
       approved: true,
@@ -774,7 +758,11 @@ class TabletRepository {
       id: newClientOpId('approve-ae-$slot'),
       method: 'POST',
       path: '/api/tablet/action-eval/$slot/approve',
-      body: const {},
+      body: {
+        'signature_user_id': signatureUserId,
+        'signature_version': signatureVersion,
+        'signature_png_b64': signaturePngB64,
+      },
       kind: 'اعتماد تقييم إجراءات #$slot',
       opType: 'approve',
       listId: key,
@@ -861,9 +849,17 @@ class TabletRepository {
     String unitKey,
     int itemId, {
     String? gradeLabel,
+    required int signatureUserId,
+    required int signatureVersion,
+    required String signaturePngB64,
   }) async {
     final key = 'evaluation_list_detail:$unitKey:$itemId';
-    await _markLocallyApproved(key);
+    await _markLocallyApproved(
+      key,
+      signatureUserId: signatureUserId,
+      signatureVersion: signatureVersion,
+      signaturePngB64: signaturePngB64,
+    );
     await _propagateListRowStatus(
       matchItemId: itemId,
       matchUnitKey: unitKey,
@@ -874,7 +870,11 @@ class TabletRepository {
       id: newClientOpId('approve-el-$itemId'),
       method: 'POST',
       path: '/api/tablet/evaluation-lists/$unitKey/$itemId/approve',
-      body: const {},
+      body: {
+        'signature_user_id': signatureUserId,
+        'signature_version': signatureVersion,
+        'signature_png_b64': signaturePngB64,
+      },
       kind: 'اعتماد قائمة تقييم #$itemId',
       opType: 'approve',
       listId: key,
@@ -904,7 +904,12 @@ class TabletRepository {
     );
   }
 
-  Future<void> _markLocallyApproved(String cacheKey) async {
+  Future<void> _markLocallyApproved(
+    String cacheKey, {
+    int? signatureUserId,
+    int? signatureVersion,
+    String? signaturePngB64,
+  }) async {
     final cached = await _cacheGetScoped(cacheKey) ??
         <String, dynamic>{};
     cached['is_approved'] = true;
@@ -912,6 +917,16 @@ class TabletRepository {
     cached['can_approve'] = false;
     cached['locally_approved'] = true;
     cached['approval_sync_status'] = SyncStatuses.pending;
+    if (signaturePngB64 != null &&
+        signaturePngB64.isNotEmpty &&
+        signatureUserId != null) {
+      cached['approval_signature'] = {
+        'user_id': signatureUserId,
+        'version': signatureVersion,
+        'png_b64': signaturePngB64,
+        'approved_at': DateTime.now().toUtc().toIso8601String(),
+      };
+    }
     cached['workflow'] = {
       ...(cached['workflow'] is Map
           ? Map<String, dynamic>.from(cached['workflow'] as Map)

@@ -1,4 +1,11 @@
-"""مزامنة قوائم تقييم الإجراءات من بنك المعلومات (action_eval) إلى حزم المجرى."""
+"""مزامنة قوائم تقييم الإجراءات من بنك المعلومات (action_eval) إلى حزم المجرى.
+
+قاعدة السحب (صريحة): لا سحب تلقائي لقوائم تقييم المعاضل بأي شكل.
+السحب يدوي فقط عبر أزرار «سحب» / «سحب القوائم» في مساحة التخطيط.
+القوائم ذات النتائج أو العلامات لا تُسحب حتى عند الطلب اليدوي.
+القوائم غير المستخدمة (بدون نتائج) تُسحب عند الطلب اليدوي فقط.
+لا سحب عند حفظ المجرى، حفظ المحكمين، مزامنة البنك، أو اختفاء عقدة.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -264,13 +271,40 @@ def _title_belongs_to_flow_day(db: Session, title: str, want_day: str) -> bool:
     return _flow_days_match(db, inferred, want)
 
 
-def _slot_has_saved_result(db: Session, slot_id: int) -> bool:
+def _slot_has_saved_result(db: Session, slot_id: int | None) -> bool:
+    if slot_id is None:
+        return False
+    try:
+        sid = int(slot_id)
+    except (TypeError, ValueError):
+        return False
     row = (
         db.query(PlannerFlowBundleEvalSavedResult.id)
-        .filter(PlannerFlowBundleEvalSavedResult.bundle_action_eval_id == int(slot_id))
+        .filter(PlannerFlowBundleEvalSavedResult.bundle_action_eval_id == sid)
         .first()
     )
     return row is not None
+
+
+def _saved_dup_blocks_new_publish(
+    db: Session,
+    *,
+    existing: ExercisePlannerFlowBundleActionEval,
+    want_key: tuple[str, str],
+    want_day: str,
+) -> bool:
+    """لا تُمنع قائمة يوم لاحق لمجرد أن نفس النص له نتيجة في يوم آخر."""
+    if getattr(existing, "id", None) is None:
+        return False
+    if not _slot_has_saved_result(db, existing.id):
+        return False
+    if _published_slot_dup_key(existing) != want_key:
+        return False
+    if not (want_day or "").strip():
+        return True
+    nid = parse_action_eval_storage_relpath(existing.file_relpath)
+    node = db.get(InformationBankTreeNode, int(nid)) if nid is not None else None
+    return _published_item_matches_day(db, want_day, slot=existing, node=node)
 
 
 def _title_dup_key(title: str) -> tuple[str, str]:
@@ -1153,6 +1187,211 @@ def _unlink_bundle_action_file(relpath: str | None) -> None:
         pass
 
 
+def _safe_bundle_file_path(relpath: str | None) -> Path | None:
+    norm = (relpath or "").replace("\\", "/").strip()
+    if not norm or any(part == ".." for part in norm.split("/")):
+        return None
+    root = PLANNER_FLOW_BUNDLE_DIR.resolve()
+    out = (root / norm).resolve()
+    try:
+        out.relative_to(root)
+    except ValueError:
+        return None
+    return out
+
+
+def _relocate_bundle_action_file(old_rel: str | None, new_rel: str | None) -> None:
+    src = _safe_bundle_file_path(old_rel)
+    dest = _safe_bundle_file_path(new_rel)
+    if dest is None or src == dest:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if src is None or not src.is_file():
+        return
+    if dest.is_file():
+        try:
+            dest.unlink()
+        except OSError:
+            pass
+    try:
+        shutil.move(str(src), str(dest))
+    except OSError:
+        try:
+            shutil.copy2(src, dest)
+            src.unlink()
+        except OSError:
+            pass
+
+
+def _refresh_bundle_dilemma_count(db: Session, bundle: ExercisePlannerFlowBundle) -> None:
+    bundle.dilemma_count = (
+        db.query(ExercisePlannerFlowBundleActionEval)
+        .filter(ExercisePlannerFlowBundleActionEval.bundle_id == int(bundle.id))
+        .count()
+    )
+    bundle.updated_at = __import__("datetime").datetime.utcnow()
+
+
+def _slot_flow_day_id(
+    db: Session,
+    slot: ExercisePlannerFlowBundleActionEval,
+    node: InformationBankTreeNode | None = None,
+) -> str:
+    inferred = _infer_flow_day_id_from_slot_title(db, slot.title or "")
+    if inferred:
+        return inferred
+    if node is None:
+        nid = parse_action_eval_storage_relpath(slot.file_relpath)
+        node = db.get(InformationBankTreeNode, int(nid)) if nid is not None else None
+    if node is not None:
+        return _flow_day_id_for_node(db, node)
+    return ""
+
+
+def _move_action_eval_slot_to_bundle(
+    db: Session,
+    slot: ExercisePlannerFlowBundleActionEval,
+    dest: ExercisePlannerFlowBundle,
+    *,
+    preferred_index: int | None = None,
+) -> bool:
+    """نقل خانة منشورة إلى حزمة مرحلة أخرى مع الملف ونتيجة المحكم إن وُجدت."""
+    if dest is None or int(slot.bundle_id) == int(dest.id):
+        return False
+    if slot.id is None:
+        db.flush()
+    nid = parse_action_eval_storage_relpath(slot.file_relpath)
+    dest_by_node = _published_slots_by_node(db, dest)
+    if nid is not None and int(nid) in dest_by_node:
+        existing = dest_by_node[int(nid)]
+        if int(existing.id) == int(slot.id):
+            return False
+        src_has = _slot_has_saved_result(db, slot.id)
+        dst_has = _slot_has_saved_result(db, existing.id)
+        if dst_has and not src_has:
+            _unlink_bundle_action_file(slot.file_relpath)
+            db.delete(slot)
+            db.flush()
+            return False
+        if src_has and dst_has:
+            return False
+        _unlink_bundle_action_file(existing.file_relpath)
+        db.delete(existing)
+        db.flush()
+
+    occupied = {
+        int(s.slot_index)
+        for s in (
+            db.query(ExercisePlannerFlowBundleActionEval)
+            .filter(ExercisePlannerFlowBundleActionEval.bundle_id == int(dest.id))
+            .all()
+        )
+        if s.slot_index is not None
+    }
+    want = int(preferred_index or slot.slot_index or 1)
+    if want in occupied or want <= 0:
+        want = (max(occupied) if occupied else 0) + 1
+
+    old_bundle_id = int(slot.bundle_id)
+    slot.bundle_id = int(dest.id)
+    slot.slot_index = want
+    if nid is not None:
+        new_rel = action_eval_storage_relpath(int(dest.id), int(nid))
+        old_rel = (slot.file_relpath or "").replace("\\", "/")
+        if old_rel != new_rel:
+            _relocate_bundle_action_file(old_rel, new_rel)
+            slot.file_relpath = new_rel
+    saved = (
+        db.query(PlannerFlowBundleEvalSavedResult)
+        .filter(PlannerFlowBundleEvalSavedResult.bundle_action_eval_id == int(slot.id))
+        .first()
+    )
+    if saved is not None:
+        saved.exercise_phase = dest.exercise_phase or saved.exercise_phase
+        if dest.unit_level_key:
+            saved.unit_level_key = dest.unit_level_key
+    db.flush()
+    old_b = db.get(ExercisePlannerFlowBundle, old_bundle_id)
+    if old_b is not None:
+        _refresh_bundle_dilemma_count(db, old_b)
+    _refresh_bundle_dilemma_count(db, dest)
+    return True
+
+
+def remigrate_action_eval_slots_for_flow_day(
+    db: Session,
+    *,
+    flow_day_id: str,
+    new_phase_key: str,
+    exercise_id: int | None = None,
+) -> dict[str, int]:
+    """ترحيل القوائم المنشورة ليوم مجرى إلى حزم المرحلة الجديدة."""
+    want_day = (flow_day_id or "").strip()
+    pk = _resolve_phase_key(new_phase_key, db) or normalize_exercise_phase(new_phase_key)
+    if not want_day or not pk:
+        return {"moved": 0, "skipped": 0, "units": 0}
+    dest_keys = _phase_match_keys(pk) or {pk}
+    q = db.query(ExercisePlannerFlowBundle)
+    if exercise_id is not None:
+        q = q.filter(ExercisePlannerFlowBundle.exercise_id == int(exercise_id))
+    moved = skipped = 0
+    units: set[tuple[int, str]] = set()
+    for bundle in q.order_by(ExercisePlannerFlowBundle.id).all():
+        bundle_pk = (
+            _resolve_phase_key(bundle.exercise_phase, db)
+            or normalize_exercise_phase(bundle.exercise_phase)
+            or (bundle.exercise_phase or "").strip()
+        )
+        if bundle_pk in dest_keys:
+            continue
+        uk = _resolve_unit_key(bundle.unit_level_key, db) or normalize_unit_level_key(
+            bundle.unit_level_key
+        )
+        if not uk:
+            continue
+        for nid, slot in list(_published_slots_by_node(db, bundle).items()):
+            node = db.get(InformationBankTreeNode, int(nid))
+            if not _published_item_matches_day(db, want_day, slot=slot, node=node):
+                continue
+            dest = _get_or_create_bundle(
+                db,
+                exercise_id=int(bundle.exercise_id),
+                phase_key=pk,
+                unit_key=uk,
+                unit_label=label_for_unit_level_key(uk, db=db) or uk,
+            )
+            if _move_action_eval_slot_to_bundle(db, slot, dest):
+                moved += 1
+                units.add((int(bundle.exercise_id), uk))
+            else:
+                skipped += 1
+    return {"moved": moved, "skipped": skipped, "units": len(units)}
+
+
+def remigrate_action_eval_slots_to_ibank_day_phases(
+    db: Session, *, exercise_id: int | None = None
+) -> dict[str, int]:
+    """مطابقة حزم النشر مع مرحلة كل يوم في مجرى بنك المعلومات."""
+    from app.analyst_flow_day_phase_link import ibank_flow_day_phase_map
+    from app.info_bank_tree import ibank_event_flow_days
+
+    mapping = ibank_flow_day_phase_map(ibank_event_flow_days(db))
+    totals = {"moved": 0, "skipped": 0, "units": 0, "days": 0}
+    for day_id, pk in mapping.items():
+        if not (day_id or "").strip() or not (pk or "").strip():
+            continue
+        stats = remigrate_action_eval_slots_for_flow_day(
+            db, flow_day_id=day_id, new_phase_key=pk, exercise_id=exercise_id
+        )
+        totals["days"] += 1
+        totals["moved"] += int(stats.get("moved") or 0)
+        totals["skipped"] += int(stats.get("skipped") or 0)
+        totals["units"] += int(stats.get("units") or 0)
+    if totals["moved"]:
+        db.commit()
+    return totals
+
+
 def _normalize_flow_rows(raw_rows) -> list[dict]:
     if not isinstance(raw_rows, list):
         return []
@@ -1653,8 +1892,13 @@ def publish_action_eval_lists_from_ibank(
     selected_node_ids: set[int],
     dilemma_by_node: dict[int, int] | None = None,
     flow_day_id: str | None = None,
+    allow_remove: bool = False,
 ) -> dict[str, int]:
-    """نشر قوائم مختارة إلى حزمة المجرى (مرحلة × مستوى وحدة)."""
+    """نشر قوائم مختارة إلى حزمة المجرى (مرحلة × مستوى وحدة).
+
+    النشر لا يسحب قوائم غير محددة. السحب فقط إذا allow_remove=True (طلب يدوي).
+    القوائم ذات النتائج لا تُحذف حتى عند السحب اليدوي.
+    """
     uk = _resolve_unit_key(unit_key, db) or normalize_unit_level_key(unit_key)
     pk = _resolve_phase_key(phase_key, db) or normalize_exercise_phase(phase_key)
     if not uk or not pk:
@@ -1673,9 +1917,36 @@ def publish_action_eval_lists_from_ibank(
     by_node = _published_slots_by_node(db, bundle)
     root = PLANNER_FLOW_BUNDLE_DIR.resolve()
     root.mkdir(parents=True, exist_ok=True)
-    added = updated = removed = skipped = 0
+    added = updated = removed = skipped = skipped_with_results = 0
     dilemma_map = dilemma_by_node or {}
     want_day = (flow_day_id or "").strip()
+
+    # قوائم اليوم على حزمة مرحلة قديمة (بعد تغيير مرحلة اليوم في بنك المعلومات)
+    other_bundles = (
+        db.query(ExercisePlannerFlowBundle)
+        .filter(
+            ExercisePlannerFlowBundle.exercise_id == int(exercise_id),
+            ExercisePlannerFlowBundle.unit_level_key == uk,
+            ExercisePlannerFlowBundle.id != int(bundle.id),
+        )
+        .all()
+    )
+    moved_from_other = 0
+    for ob in other_bundles:
+        for nid, slot in list(_published_slots_by_node(db, ob).items()):
+            if selected_node_ids and int(nid) not in selected_node_ids:
+                continue
+            node = db.get(InformationBankTreeNode, int(nid))
+            if want_day and not _published_item_matches_day(
+                db, want_day, slot=slot, node=node
+            ):
+                continue
+            if _move_action_eval_slot_to_bundle(db, slot, bundle):
+                moved_from_other += 1
+                updated += 1
+    if moved_from_other:
+        db.flush()
+        by_node = _published_slots_by_node(db, bundle)
 
     # إن كان التحديد قوائم جديدة فقط (بدون أي منشور حالي)، ادمجه مع المنشور
     # حتى لا يُسحب بالخطأ عند «نشر القوائم» الجزئي. مسار السحب يمرّر المنشور المتبقي صراحةً.
@@ -1694,30 +1965,29 @@ def publish_action_eval_lists_from_ibank(
         else:
             selected_node_ids = set(selected_node_ids) | published_ids
 
-    for nid, slot in list(by_node.items()):
-        if int(nid) in selected_node_ids:
-            continue
-        # النتائج المدخلة لا تُحذف أبداً — حتى لو اختفت عقدة البنك أو أُلغي التحديد.
-        if _slot_has_saved_result(db, int(slot.id)):
-            continue
-        node = db.get(InformationBankTreeNode, int(nid))
-        if node is None:
-            # عقدة مفقودة: أبقِ المنشور (يتيم) ولا تسحبه تلقائياً.
-            continue
-        if want_day:
-            inferred = _infer_flow_day_id_from_slot_title(db, slot.title or "")
-            if inferred and not _flow_days_match(db, inferred, want_day):
-                _unlink_bundle_action_file(slot.file_relpath)
-                db.delete(slot)
-                removed += 1
+    if allow_remove:
+        for nid, slot in list(by_node.items()):
+            if int(nid) in selected_node_ids:
                 continue
-            if not _published_item_matches_day(
-                db, want_day, slot=slot, node=node
-            ):
+            # النتائج المدخلة لا تُحذف أبداً بالسحب — حتى لو أُلغي التحديد أو اختفت العقدة.
+            if _slot_has_saved_result(db, slot.id):
+                skipped_with_results += 1
                 continue
-        _unlink_bundle_action_file(slot.file_relpath)
-        db.delete(slot)
-        removed += 1
+            node = db.get(InformationBankTreeNode, int(nid))
+            if node is None:
+                # عقدة مفقودة: أبقِ المنشور (يتيم) ولا تسحبه تلقائياً.
+                continue
+            if want_day:
+                inferred = _infer_flow_day_id_from_slot_title(db, slot.title or "")
+                if inferred and not _flow_days_match(db, inferred, want_day):
+                    continue
+                if not _published_item_matches_day(
+                    db, want_day, slot=slot, node=node
+                ):
+                    continue
+            _unlink_bundle_action_file(slot.file_relpath)
+            db.delete(slot)
+            removed += 1
     db.flush()
     by_node = _published_slots_by_node(db, bundle)
     occupied_slot_indexes: set[int] = {
@@ -1814,14 +2084,15 @@ def publish_action_eval_lists_from_ibank(
             skipped += 1
             continue
         slot = by_node.get(int(nid))
-        if slot is not None and _slot_has_saved_result(db, int(slot.id)):
+        if slot is not None and _slot_has_saved_result(db, slot.id):
             skipped += 1
             continue
         if slot is None:
             want_key = _title_dup_key(title)
             if any(
-                _slot_has_saved_result(db, int(s.id))
-                and _published_slot_dup_key(s) == want_key
+                _saved_dup_blocks_new_publish(
+                    db, existing=s, want_key=want_key, want_day=want_day
+                )
                 for s in by_node.values()
             ):
                 skipped += 1
@@ -1847,6 +2118,7 @@ def publish_action_eval_lists_from_ibank(
                 title=title,
             )
             db.add(slot)
+            db.flush()
             added += 1
             by_node[int(nid)] = slot
         else:
@@ -1876,6 +2148,7 @@ def publish_action_eval_lists_from_ibank(
         "sources": len(sources),
         "sources_available": len(source_by_id),
         "skipped": skipped,
+        "skipped_with_results": skipped_with_results,
     }
 
 
@@ -1944,6 +2217,7 @@ def withdraw_single_action_eval_from_ibank(
         phase_key=phase_key,
         unit_key=uk,
         selected_node_ids=selected,
+        allow_remove=True,
     )
 
 
@@ -1971,7 +2245,7 @@ def withdraw_all_action_eval_for_day(
         uk = (bundle.unit_level_key or "").strip()
         if uk:
             units.add(uk)
-    totals = {"removed": 0, "units": 0}
+    totals = {"removed": 0, "units": 0, "skipped_with_results": 0}
     for uk in sorted(units):
         stats = publish_action_eval_lists_from_ibank(
             db,
@@ -1980,9 +2254,11 @@ def withdraw_all_action_eval_for_day(
             unit_key=uk,
             selected_node_ids=set(),
             flow_day_id=want_day or None,
+            allow_remove=True,
         )
         totals["units"] += 1
         totals["removed"] += int(stats.get("removed", 0))
+        totals["skipped_with_results"] += int(stats.get("skipped_with_results", 0))
     return totals
 
 
@@ -2142,23 +2418,9 @@ def _default_action_eval_storage_phase(db: Session) -> str:
 
 
 def sync_all_action_eval_from_ibank(db: Session, *, exercise_id: int) -> dict[str, int]:
-    """تحديث الفهرس من البنك وسحب كل المنشور (بدون نسخ)."""
+    """تحديث فهرس بنك المعلومات فقط. لا سحب تلقائي — السحب يدوي عبر أزرار سحب النشر."""
     prepare_action_eval_ibank_tree(db)
-    active_units = roster_eval_display_unit_keys(db, int(exercise_id))
-    phases = effective_action_eval_phase_keys(db, roster_units=active_units)
-    totals = {"added": 0, "updated": 0, "removed": 0, "units": 0}
-    for pk in phases:
-        for uk in sorted(active_units):
-            stats = publish_action_eval_lists_from_ibank(
-                db,
-                exercise_id=int(exercise_id),
-                phase_key=pk,
-                unit_key=uk,
-                selected_node_ids=set(),
-            )
-            totals["units"] += 1
-            totals["removed"] += int(stats.get("removed", 0))
-    return totals
+    return {"added": 0, "updated": 0, "removed": 0, "units": 0}
 
 
 def _unit_folder_ids_for_phase_unit(
@@ -2364,6 +2626,25 @@ def _build_action_eval_branch_group(
         .first()
     )
     published_by_node = _published_slots_by_node(db, bundle) if bundle is not None else {}
+    if flow_day_id:
+        want_day = (flow_day_id or "").strip()
+        others = (
+            db.query(ExercisePlannerFlowBundle)
+            .filter(
+                ExercisePlannerFlowBundle.exercise_id == int(exercise_id),
+                ExercisePlannerFlowBundle.unit_level_key == uk,
+            )
+            .all()
+        )
+        for other in others:
+            if bundle is not None and int(other.id) == int(bundle.id):
+                continue
+            for nid, slot in _published_slots_by_node(db, other).items():
+                if nid in published_by_node:
+                    continue
+                node = db.get(InformationBankTreeNode, int(nid))
+                if _published_item_matches_day(db, want_day, slot=slot, node=node):
+                    published_by_node[nid] = slot
     pl = exercise_phase_label(pk) or pk
     return {
         "phase_key": pk,
@@ -2539,7 +2820,9 @@ def collect_published_action_eval_unit_map(
     q = db.query(ExercisePlannerFlowBundle).filter(
         ExercisePlannerFlowBundle.exercise_id == int(exercise_id)
     )
-    if phase_key:
+    # عند تحديد يوم: ابحث في كل المراحل — مرحلة اليوم قد تتغير في بنك المعلومات
+    # بينما تبقى الحزم على المرحلة القديمة إلى أن يُرحَّل النشر.
+    if phase_key and not want_day:
         pk = _resolve_phase_key(phase_key, db) or normalize_exercise_phase(phase_key)
         if pk:
             phase_keys = _phase_match_keys(pk) or {pk}
@@ -3166,40 +3449,40 @@ def withdraw_action_eval_for_units_removed_from_flow(
     phase_key: str,
     flow_day_id: str | None = None,
 ) -> int:
-    """سحب نشر القوائم لمستويات لم تعد موجودة في عمود المكلف بالمجرى."""
-    flow_units = collect_flow_assignee_units_for_phase(
-        db,
-        exercise_id=int(exercise_id),
-        phase_key=phase_key,
-        flow_day_id=flow_day_id,
-    )
-    active_uk = set(flow_units.keys())
-    pk = normalize_exercise_phase(phase_key)
-    phase_db_keys = _phase_match_keys(pk)
-    withdrawn = 0
-    bundles = (
-        db.query(ExercisePlannerFlowBundle)
-        .filter(
-            ExercisePlannerFlowBundle.exercise_id == int(exercise_id),
-            ExercisePlannerFlowBundle.exercise_phase.in_(phase_db_keys),
-        )
+    """قاعدة: لا سحب تلقائي. السحب يدوي فقط عبر أزرار سحب النشر."""
+    return 0
+
+
+def delete_published_action_eval_slot(
+    db: Session, *, exercise_id: int, slot_id: int
+) -> bool:
+    """حذف يدوي لإدارة النظام: يزيل الخانة ونتائجها حتى لو كانت معتمدة."""
+    from app.eval_criterion_media import unlink_criterion_media_file
+    from app.models import EvaluationCriterionMedia
+
+    slot = db.get(ExercisePlannerFlowBundleActionEval, int(slot_id))
+    if slot is None:
+        return False
+    bundle = db.get(ExercisePlannerFlowBundle, int(slot.bundle_id))
+    if bundle is None or int(bundle.exercise_id or 0) != int(exercise_id):
+        return False
+    media_rows = (
+        db.query(EvaluationCriterionMedia)
+        .filter(EvaluationCriterionMedia.bundle_action_eval_id == int(slot.id))
         .all()
     )
-    for bundle in bundles:
-        uk = (bundle.unit_level_key or "").strip()
-        if not uk or uk in active_uk:
-            continue
-        if not published_action_eval_node_ids_for_bundle(db, bundle):
-            continue
-        publish_action_eval_lists_from_ibank(
-            db,
-            exercise_id=int(exercise_id),
-            phase_key=pk,
-            unit_key=uk,
-            selected_node_ids=set(),
-        )
-        withdrawn += 1
-    return withdrawn
+    for m in media_rows:
+        unlink_criterion_media_file((getattr(m, "file_relpath", None) or "").strip())
+        db.delete(m)
+    _unlink_bundle_action_file(slot.file_relpath)
+    db.delete(slot)
+    db.flush()
+    bundle.dilemma_count = (
+        db.query(ExercisePlannerFlowBundleActionEval)
+        .filter(ExercisePlannerFlowBundleActionEval.bundle_id == bundle.id)
+        .count()
+    )
+    return True
 
 
 def sync_action_eval_units_from_flow(

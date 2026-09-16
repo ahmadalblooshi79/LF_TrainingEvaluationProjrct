@@ -4,7 +4,13 @@
 {% block content %}
 <div class="page-header page-header--control-report">
   <h1><i class="fa-solid {{ section_icon | default('fa-square-poll-vertical') }} fa-icon-title" aria-hidden="true"></i> {{ section_title }}</h1>
-  <div class="page-header__nav">{% include 'partials/subpage_close.html' %}</div>
+  <div class="page-header__nav">
+    <a class="btn cr-report-pdf-btn" href="{{ url_for('views.control_evaluation_results_export_pdf') }}">
+      <i class="fa-solid fa-file-pdf" aria-hidden="true"></i>
+      تصدير PDF (A3)
+    </a>
+    {% include 'partials/subpage_close.html' %}
+  </div>
   {% if report.meta %}
   <p class="muted control-report__meta">
     {% for item in report.meta %}
@@ -40,31 +46,53 @@
   <div class="control-report-tab-panels">
     <div class="control-report-tab-panel is-active" role="tabpanel" id="cr-panel-detail" aria-labelledby="cr-tab-btn-detail">
       <article class="control-panel control-panel--detail control-panel--tabbed">
-        <h2>أداء الوحدات التفصيلي حسب قوائم التقييم (مراحل التمرين)</h2>
+        <div class="cr-detail-toolbar">
+          {% if report.unit_detail_rows | default([]) %}
+          <div class="cr-detail-toolbar__opts">
+            <div class="cr-detail-style-switch" role="radiogroup" aria-label="نوع عرض النتائج">
+              <label class="cr-detail-opt cr-detail-opt--radio">
+                <input type="radio" name="cr-view-style" id="cr-view-style-1" value="1" checked>
+                <span>النوع/1</span>
+              </label>
+              <label class="cr-detail-opt cr-detail-opt--radio">
+                <input type="radio" name="cr-view-style" id="cr-view-style-2" value="2">
+                <span>النوع/2</span>
+              </label>
+            </div>
+            <label class="cr-detail-opt" for="cr-hide-pct">
+              <input type="checkbox" id="cr-hide-pct">
+              <span>إخفاء النسبة المئوية</span>
+            </label>
+          </div>
+          {% endif %}
+          <h2>أداء الوحدات التفصيلي حسب قوائم التقييم (مراحل التمرين)</h2>
+        </div>
         <div class="control-table-wrap">
           {% if report.unit_detail_rows | default([]) %}
           {% set phase_max_dots = report.get('unit_detail_phase_max_dots', [1, 1, 1]) %}
-          <table class="cr-detail-table cr-detail-table--phase-even" dir="rtl" style="--cr-phase-count: {{ phase_max_dots | length }};">
+          {% set total_slots = report.get('unit_detail_total_slots', 1) or 1 %}
+          <table class="cr-detail-table cr-detail-table--slot-even" dir="rtl" id="cr-detail-table" style="--cr-total-slots: {{ total_slots }};">
+            <colgroup>
+              <col class="cr-detail-col-unit">
+              {% for _ in range(total_slots | int) %}
+              <col class="cr-detail-col-slot">
+              {% endfor %}
+            </colgroup>
             <thead>
               <tr>
-                <th scope="col">الوحدة</th>
+                <th scope="col" class="cr-detail-table__unit-head"{% if report.unit_detail_list_number_row | default([]) %} rowspan="2"{% endif %}>الوحدة</th>
                 {% for header in report.unit_detail_phase_headers | default([]) %}
-                <th scope="col" class="cr-detail-table__phase" style="--phase-max-dots: {{ phase_max_dots[loop.index0] | default(1) }};">{{ header }}</th>
+                <th scope="col" class="cr-detail-table__phase" colspan="{{ phase_max_dots[loop.index0] | default(1) }}">{{ header }}</th>
                 {% endfor %}
               </tr>
               {% if report.unit_detail_list_number_row | default([]) %}
               <tr class="cr-detail-table__list-nums">
-                <th scope="col" class="cr-detail-table__list-nums-unit muted">ت</th>
                 {% for phase_nums in report.unit_detail_list_number_row %}
-                <th scope="col" class="cr-detail-table__phase cr-detail-table__list-nums-phase" style="--phase-max-dots: {{ phase_nums.max_dots | default(1) }};">
-                  <div class="cr-detail-cell" aria-hidden="true">
-                    {% for num in phase_nums.slots %}
-                    <span class="cr-detail-slot">
-                      <span class="cr-detail-list-num">{{ num }}</span>
-                    </span>
-                    {% endfor %}
-                  </div>
+                {% for num in phase_nums.slots %}
+                <th scope="col" class="cr-detail-table__slot-head{% if loop.first %} cr-detail-table__slot-head--phase-start{% endif %}">
+                  <span class="cr-detail-list-num">{{ num }}</span>
                 </th>
+                {% endfor %}
                 {% endfor %}
               </tr>
               {% endif %}
@@ -75,29 +103,25 @@
                 <th scope="row" class="cr-detail-table__unit" title="{{ urow.unit_label }}">{{ urow.unit_label }}</th>
                 {% for phase in urow.phases %}
                 {% set phase_slot_count = phase_max_dots[loop.index0] | default(1) %}
-                <td class="cr-detail-table__cell cr-detail-table__phase-cell" style="--phase-max-dots: {{ phase_slot_count }};">
-                  <div class="cr-detail-cell" aria-label="{{ phase.label }} — {{ urow.unit_label }}">
-                    {% for slot_i in range(phase_slot_count) %}
-                    <span class="cr-detail-slot{% if slot_i >= phase.dots | length %} cr-detail-slot--empty{% endif %}">
-                      {% if slot_i < phase.dots | length %}
-                      {% set dot = phase.dots[slot_i] %}
-                      {% set is_pf = (dot.source | default('judge_eval')) == 'planner_flow' %}
-                      <span class="cr-detail-dot-wrap{% if is_pf %} cr-detail-dot-wrap--planner-flow{% endif %}">
-                        <button
-                          type="button"
-                          class="cr-detail-dot{% if is_pf %} cr-detail-dot--planner-flow{% endif %}"
-                          style="background-color: {{ dot.color }};"
-                          data-href="{{ dot.view_url }}"
-                          title="{% if is_pf %}المجرى وتقييم الإجراءات{% else %}قائمة التقييم{% endif %}: {{ dot.list_title }}&#10;المحكم: {{ dot.judge_name }}&#10;{{ dot.approval_location }}"
-                          aria-label="{{ dot.list_title }} — {{ dot.pct }}%"
-                        ></button>
-                        <span class="cr-detail-dot-pct">{{ dot.pct }}%</span>
-                      </span>
-                      {% endif %}
-                    </span>
-                    {% endfor %}
-                  </div>
+                {% for slot_i in range(phase_slot_count) %}
+                <td class="cr-detail-table__cell cr-detail-table__slot{% if slot_i == 0 %} cr-detail-table__slot--phase-start{% endif %}{% if slot_i >= phase.dots | length %} cr-detail-table__slot--empty{% endif %}"{% if slot_i < phase.dots | length %} style="--cr-slot-color: {{ phase.dots[slot_i].color }};"{% endif %}>
+                  {% if slot_i < phase.dots | length %}
+                  {% set dot = phase.dots[slot_i] %}
+                  {% set is_pf = (dot.source | default('judge_eval')) == 'planner_flow' %}
+                  <span class="cr-detail-dot-wrap{% if is_pf %} cr-detail-dot-wrap--planner-flow{% endif %}">
+                    <button
+                      type="button"
+                      class="cr-detail-dot{% if is_pf %} cr-detail-dot--planner-flow{% endif %}"
+                      style="background-color: {{ dot.color }};"
+                      data-href="{{ dot.view_url }}"
+                      title="{% if is_pf %}المجرى وتقييم الإجراءات{% else %}قائمة التقييم{% endif %}: {{ dot.list_title }}&#10;المحكم: {{ dot.judge_name }}&#10;{{ dot.approval_location }}"
+                      aria-label="{{ dot.list_title }} — {{ dot.pct }}%"
+                    ></button>
+                    <span class="cr-detail-dot-pct">{{ dot.pct }}%</span>
+                  </span>
+                  {% endif %}
                 </td>
+                {% endfor %}
                 {% endfor %}
               </tr>
               {% endfor %}
@@ -205,6 +229,50 @@
       if (href) window.location.href = href;
     });
   });
+
+  var table = document.getElementById("cr-detail-table");
+  var hidePct = document.getElementById("cr-hide-pct");
+  var styleRadios = [].slice.call(document.querySelectorAll('input[name="cr-view-style"]'));
+  if (table) {
+    var hideKey = "lf.control.evalResults.hidePct";
+    var styleKey = "lf.control.evalResults.viewStyle";
+    function applyHidePct() {
+      var on = !!(hidePct && hidePct.checked);
+      table.classList.toggle("cr-detail-table--hide-pct", on);
+      try {
+        localStorage.setItem(hideKey, on ? "1" : "0");
+      } catch (err) {}
+    }
+    function applyViewStyle() {
+      var styleVal = "1";
+      styleRadios.forEach(function (r) {
+        if (r.checked) styleVal = r.value;
+      });
+      table.classList.toggle("cr-detail-table--style-2", styleVal === "2");
+      try {
+        localStorage.setItem(styleKey, styleVal);
+      } catch (err) {}
+    }
+    if (hidePct) {
+      try {
+        hidePct.checked = localStorage.getItem(hideKey) === "1";
+      } catch (err) {}
+      hidePct.addEventListener("change", applyHidePct);
+    }
+    try {
+      var savedStyle = localStorage.getItem(styleKey);
+      if (savedStyle === "1" || savedStyle === "2") {
+        styleRadios.forEach(function (r) {
+          r.checked = r.value === savedStyle;
+        });
+      }
+    } catch (err) {}
+    styleRadios.forEach(function (r) {
+      r.addEventListener("change", applyViewStyle);
+    });
+    applyHidePct();
+    applyViewStyle();
+  }
 
   var tablist = document.querySelector(".control-report-tabs");
   if (!tablist) return;
