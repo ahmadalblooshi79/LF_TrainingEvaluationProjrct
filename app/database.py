@@ -493,6 +493,59 @@ def ensure_dilemma_criteria_phase_flow_day_column() -> None:
         )
 
 
+def ensure_analyst_criteria_unit_phase_totals_table() -> None:
+    """جدول علامات المراحل اليدوية في توزيع معايير التقييم + عمود النسبة للبنود."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS analyst_evaluation_criteria_unit_phase_totals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    exercise_id INTEGER NOT NULL,
+                    criteria_unit_id INTEGER NOT NULL,
+                    phase_key VARCHAR(32) DEFAULT '',
+                    allocated_mark FLOAT,
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    FOREIGN KEY(exercise_id) REFERENCES exercises (id) ON DELETE CASCADE,
+                    FOREIGN KEY(criteria_unit_id) REFERENCES analyst_evaluation_criteria_units (id) ON DELETE CASCADE,
+                    UNIQUE (exercise_id, criteria_unit_id, phase_key)
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_analyst_criteria_unit_phase_total_ex "
+                "ON analyst_evaluation_criteria_unit_phase_totals (exercise_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_analyst_criteria_unit_phase_total_unit "
+                "ON analyst_evaluation_criteria_unit_phase_totals (criteria_unit_id, phase_key)"
+            )
+        )
+    try:
+        insp = inspect(engine)
+        tables = set(insp.get_table_names())
+    except Exception:
+        return
+    if "analyst_evaluation_criteria_phase_items" not in tables:
+        return
+    cols = {c["name"] for c in insp.get_columns("analyst_evaluation_criteria_phase_items")}
+    if "allocated_pct" not in cols:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "ALTER TABLE analyst_evaluation_criteria_phase_items "
+                    "ADD COLUMN allocated_pct FLOAT"
+                )
+            )
+
+
 def ensure_analyst_criteria_unit_suppressions_table() -> None:
     """منع إعادة إدراج وحدات حُذفت يدوياً من توزيع معايير التقييم."""
     if not DATABASE_URL.startswith("sqlite"):

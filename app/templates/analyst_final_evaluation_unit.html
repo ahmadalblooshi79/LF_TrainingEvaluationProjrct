@@ -45,14 +45,18 @@
         <tr class="final-eval-criteria-merged-row">
           <td>{{ loop.index }}</td>
           <td class="final-eval-criteria-merged-label">{{ item.criteria_text or "—" }}</td>
-          <td class="final-eval-criteria-merged-max" title="من معايير التقييم — العلامة المخصصة">
-            {% if item.allocated_mark is number %}{{ item.allocated_mark|round(2) }}{% else %}—{% endif %}
+          <td class="final-eval-criteria-merged-max" title="من معايير التقييم — أو من قائمة المحكم عند غياب التوزيع">
+            {% if item.allocated_mark is number %}{{ item.allocated_mark|round(2) }}
+            {% elif item.evaluation_list_max_mark is number %}{{ item.evaluation_list_max_mark|round(2) }}
+            {% else %}—{% endif %}
           </td>
           <td class="final-eval-criteria-merged-acquired">
             {% if item.allocated_acquired_mark is number %}
               {% if item.allocated_acquired_mark > 0 %}{{ item.allocated_acquired_mark|round(2) }}{% else %}0{% endif %}
             {% elif item.allocated_pct is not none and item.allocated_mark is number and item.allocated_mark > 0 %}
               {{ ((item.allocated_pct / 100.0) * item.allocated_mark)|round(2) }}
+            {% elif item.evaluation_list_acquired_mark is number %}
+              {% if item.evaluation_list_acquired_mark > 0 %}{{ item.evaluation_list_acquired_mark|round(2) }}{% else %}0{% endif %}
             {% else %}—{% endif %}
           </td>
           <td class="final-eval-criteria-merged-pct">
@@ -104,8 +108,8 @@
         <tr class="final-report-summary-row final-eval-criteria-total-row">
           <td class="muted">—</td>
           <th scope="row">الإجمالي</th>
-          <td class="final-eval-criteria-total-max">{% if criteria_total > 0 %}{{ criteria_total|round(2) }}{% else %}—{% endif %}</td>
-          <td class="final-eval-criteria-total-acquired">{% if criteria_allocated_acquired_total > 0 %}{{ criteria_allocated_acquired_total|round(2) }}{% elif criteria_allocated_acquired_total is number %}0{% else %}—{% endif %}</td>
+          <td class="final-eval-criteria-total-max">{% if criteria_total > 0 %}{{ criteria_total|round(2) }}{% elif criteria_eval_max_total > 0 %}{{ criteria_eval_max_total|round(2) }}{% else %}—{% endif %}</td>
+          <td class="final-eval-criteria-total-acquired">{% if criteria_allocated_acquired_total > 0 %}{{ criteria_allocated_acquired_total|round(2) }}{% elif criteria_acquired_total > 0 %}{{ criteria_acquired_total|round(2) }}{% elif criteria_allocated_acquired_total is number and criteria_total > 0 %}0{% else %}—{% endif %}</td>
           <td class="final-eval-criteria-total-pct">{% if criteria_allocated_pct is not none %}{{ criteria_allocated_pct|round(2) }}%{% else %}—{% endif %}</td>
           <td class="final-eval-criteria-total-grade">{{ criteria_allocated_grade|default('—') }}</td>
           <td>{% if criteria_eval_max_total > 0 %}{{ criteria_eval_max_total|round(2) }}{% else %}—{% endif %}</td>

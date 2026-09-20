@@ -30,6 +30,7 @@ from app.database import (
     ensure_analyst_flow_day_phase_links_table,
     ensure_dilemma_criteria_phase_flow_day_column,
     ensure_analyst_criteria_unit_suppressions_table,
+    ensure_analyst_criteria_unit_phase_totals_table,
     ensure_ai_settings_table,
     ensure_ai_report_library_tables,
     ensure_ai_agentic_foundation_tables,
@@ -98,6 +99,7 @@ def create_app() -> Flask:
         ensure_analyst_flow_day_phase_links_table()
         ensure_dilemma_criteria_phase_flow_day_column()
         ensure_analyst_criteria_unit_suppressions_table()
+        ensure_analyst_criteria_unit_phase_totals_table()
         ensure_ai_settings_table()
         ensure_ai_report_library_tables()
         ensure_ai_agentic_foundation_tables()

@@ -49,10 +49,15 @@
             </select>
             <button
               type="submit"
+              name="submit_action"
+              value="add_unit"
               class="btn btn-primary btn-sm-compact"
               {% if not (available_unit_levels|default([])) %}disabled{% endif %}
               title="{% if available_unit_levels|default([]) %}إضافة الوحدة المختارة إلى الجدول{% else %}لا توجد وحدات متاحة للإضافة من كتالوج التخطيط{% endif %}">
               <i class="fa-solid fa-plus" aria-hidden="true"></i> إضافة
+            </button>
+            <button type="submit" name="submit_action" value="save" class="btn btn-primary btn-sm-compact analyst-criteria-add-unit__save">
+              <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ
             </button>
             {% if not (available_unit_levels|default([])) %}
             <span class="muted analyst-criteria-add-unit__hint">جميع وحدات التخطيط المدرجة موجودة في الجدول، أو لا توجد وحدات مدرجة في التمرين.</span>
@@ -76,7 +81,7 @@
                 {% for row in distribution_rows %}
                 {% set total_mark = row.total_mark|default(none) %}
                 {% set allocated_pct = row.allocated_pct|default(none) %}
-                <tr>
+                <tr class="analyst-criteria-dist-row" data-unit-id="{{ row.unit_id }}">
                   <td class="analyst-criteria-seq">{{ loop.index }}</td>
                   <th scope="row" class="analyst-criteria-unit-cell">
                     <input type="hidden" name="unit_ids" value="{{ row.unit_id }}">
@@ -85,10 +90,21 @@
                   </th>
                   {% for phase_key, phase_label in criteria_phases %}
                   {% set phase_total = (row.phase_totals or {}).get(phase_key) %}
-                  <td>{% if phase_total is number %}{{ phase_total|round(2) }}{% else %}—{% endif %}</td>
+                  <td class="analyst-criteria-num-cell">
+                    <input
+                      class="unit-level-select analyst-criteria-phase-mark-input"
+                      type="number"
+                      name="phase_mark__{{ row.unit_id }}__{{ phase_key }}"
+                      min="0"
+                      step="0.01"
+                      inputmode="decimal"
+                      data-phase-key="{{ phase_key }}"
+                      aria-label="{{ phase_label }} — {{ row.unit_label }}"
+                      value="{% if phase_total is number %}{{ phase_total|round(2) }}{% endif %}">
+                  </td>
                   {% endfor %}
-                  <td>{% if total_mark is number %}{{ total_mark|round(2) }}{% else %}—{% endif %}</td>
-                  <td>{% if allocated_pct is number %}{{ allocated_pct|round(2) }}%{% else %}—{% endif %}</td>
+                  <td class="analyst-criteria-num-cell analyst-criteria-row-total">{% if total_mark is number %}{{ total_mark|round(2) }}{% else %}—{% endif %}</td>
+                  <td class="analyst-criteria-num-cell analyst-criteria-row-pct">{% if allocated_pct is number %}{{ allocated_pct|round(2) }}%{% else %}—{% endif %}</td>
                   <td class="analyst-criteria-actions-cell">
                     <div class="analyst-criteria-actions">
                       <label class="sr-only" for="criteria-phase-select-{{ row.unit_id }}">تفاصيل المرحلة</label>
@@ -117,13 +133,12 @@
                   <td class="analyst-criteria-seq muted">—</td>
                   <th scope="row">الإجمالي</th>
                   {% for phase_key, phase_label in criteria_phases %}
-                  <td>—</td>
+                  {% set col_total = (phase_column_totals|default({})).get(phase_key) %}
+                  <td class="analyst-criteria-num-cell analyst-criteria-phase-col-total" data-phase-key="{{ phase_key }}">{% if col_total is number %}{{ col_total|round(2) }}{% else %}—{% endif %}</td>
                   {% endfor %}
-                  <td>{% if grand_total is number %}{{ grand_total|round(2) }}{% else %}—{% endif %}</td>
-                  <td>{% if grand_total is number %}100%{% else %}—{% endif %}</td>
-                  <td>
-                    <button type="submit" class="btn btn-primary btn-sm-compact"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ</button>
-                  </td>
+                  <td class="analyst-criteria-num-cell" id="analyst-criteria-grand-total">{% if grand_total is number %}{{ grand_total|round(2) }}{% else %}—{% endif %}</td>
+                  <td class="analyst-criteria-num-cell" id="analyst-criteria-grand-pct">{% if grand_total is number %}100%{% else %}—{% endif %}</td>
+                  <td class="muted">—</td>
                 </tr>
               </tfoot>
             </table>
@@ -335,6 +350,76 @@
   }
   bindDelete("analyst-criteria-distribution-form");
   bindDelete("analyst-dilemma-criteria-distribution-form");
+
+  (function bindPhasesDistributionRecalc() {
+    var form = document.getElementById("analyst-criteria-distribution-form");
+    if (!form) return;
+    function fmt(n) {
+      if (!Number.isFinite(n)) return "—";
+      return (Math.round(n * 100) / 100).toString();
+    }
+    function parseMark(input) {
+      var raw = String((input && input.value) || "").replace(",", ".").trim();
+      if (!raw) return null;
+      var n = Number.parseFloat(raw);
+      return Number.isFinite(n) && n >= 0 ? n : null;
+    }
+    function recalc() {
+      var rows = Array.from(form.querySelectorAll(".analyst-criteria-dist-row"));
+      var phaseKeys = [];
+      form.querySelectorAll(".analyst-criteria-phase-col-total").forEach(function (cell) {
+        var pk = cell.getAttribute("data-phase-key");
+        if (pk && phaseKeys.indexOf(pk) < 0) phaseKeys.push(pk);
+      });
+      var phaseSums = {};
+      phaseKeys.forEach(function (pk) { phaseSums[pk] = 0; var has = false; phaseSums["__has_" + pk] = false; });
+      var grand = 0;
+      var any = false;
+      rows.forEach(function (row) {
+        var rowTotal = 0;
+        var rowAny = false;
+        row.querySelectorAll(".analyst-criteria-phase-mark-input").forEach(function (input) {
+          var pk = input.getAttribute("data-phase-key") || "";
+          var v = parseMark(input);
+          if (v === null) return;
+          rowAny = true;
+          any = true;
+          rowTotal += v;
+          if (pk) {
+            phaseSums[pk] = (phaseSums[pk] || 0) + v;
+            phaseSums["__has_" + pk] = true;
+          }
+        });
+        var totalCell = row.querySelector(".analyst-criteria-row-total");
+        var pctCell = row.querySelector(".analyst-criteria-row-pct");
+        if (totalCell) totalCell.textContent = rowAny ? fmt(rowTotal) : "—";
+        row._rowTotal = rowAny ? rowTotal : null;
+        if (rowAny) grand += rowTotal;
+        if (pctCell) pctCell._pending = true;
+      });
+      rows.forEach(function (row) {
+        var pctCell = row.querySelector(".analyst-criteria-row-pct");
+        if (!pctCell) return;
+        if (row._rowTotal == null || grand <= 0) {
+          pctCell.textContent = "—";
+        } else {
+          pctCell.textContent = fmt((row._rowTotal / grand) * 100) + "%";
+        }
+      });
+      form.querySelectorAll(".analyst-criteria-phase-col-total").forEach(function (cell) {
+        var pk = cell.getAttribute("data-phase-key") || "";
+        cell.textContent = phaseSums["__has_" + pk] ? fmt(phaseSums[pk] || 0) : "—";
+      });
+      var grandEl = document.getElementById("analyst-criteria-grand-total");
+      var pctEl = document.getElementById("analyst-criteria-grand-pct");
+      if (grandEl) grandEl.textContent = any ? fmt(grand) : "—";
+      if (pctEl) pctEl.textContent = any ? "100%" : "—";
+    }
+    form.querySelectorAll(".analyst-criteria-phase-mark-input").forEach(function (input) {
+      input.addEventListener("input", recalc);
+    });
+    recalc();
+  })();
 
   var dilemmaPhaseSel = document.querySelector("[data-dilemma-phase-select]");
   if (dilemmaPhaseSel) {

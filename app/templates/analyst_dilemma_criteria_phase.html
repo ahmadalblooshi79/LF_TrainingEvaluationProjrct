@@ -50,7 +50,7 @@
             <tr>
               <td class="analyst-criteria-seq criteria-seq-cell">{{ loop.index }}</td>
               <td class="criteria-text-cell">
-                <span class="criteria-text-from-eval-list" title="من قوائم تقييم المعاضل — يُدخل المحلل العلامة يدوياً أو عبر ملء تلقائي">{{ item.criteria_text }}</span>
+                <span class="criteria-text-from-eval-list" title="قائمة تقييم المعاضل مع رقم/نص المعضلة — صف لكل معضلة دون دمج">{{ item.criteria_text }}</span>
                 <input type="hidden" name="criteria_text" value="{{ item.criteria_text }}">
               </td>
               <td><input class="unit-level-select mark-input" style="max-width:9rem;" type="number" name="allocated_mark" min="0" step="0.01" value="{% if allocated_mark is number %}{{ allocated_mark|round(2) }}{% endif %}"></td>

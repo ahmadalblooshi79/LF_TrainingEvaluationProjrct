@@ -62,6 +62,7 @@ from app.models import (
     AnalystEvaluationCriteriaUnit,
     AnalystEvaluationCriteriaUnitSuppression,
     AnalystEvaluationCriteriaPhaseItem,
+    AnalystEvaluationCriteriaUnitPhaseTotal,
     AnalystDilemmaCriteriaUnit,
     AnalystFinalEvaluationAllocatedMax,
     AnalystFinalEvaluationPhaseAllocatedMax,
@@ -1917,11 +1918,10 @@ def _final_eval_phase_manual_max_map(db, exercise_id: int) -> dict[tuple[str, st
 
 
 def _analyst_criteria_phase_max_map(db, exercise_id: int) -> dict[tuple[str, str], float]:
-    """يبني خريطة (unit_level_key, phase_key) → مجموع 'القصوى' المُدخل في
-    «مساحة المحللين / معايير التقييم / جدول توزيع النسبة المئوية الإجمالية للتقييم».
+    """يبني خريطة (unit_level_key, phase_key) → العلامة المخصصة من جدول التوزيع الرئيسي.
 
-    تُستخدم في التقرير النهائي لتعبئة عمود «القصوى» تلقائياً عندما لا تتوفر قيمة
-    يدوية محفوظة في AnalystFinalEvaluationPhaseAllocatedMax.
+    المصدر الأساسي: AnalystEvaluationCriteriaUnitPhaseTotal (إدخال يدوي في الجدول الرئيسي).
+    احتياطي قديم: مجموع allocated_mark لبنود تفاصيل المرحلة.
     """
     criteria_units = (
         db.query(AnalystEvaluationCriteriaUnit)
@@ -1936,23 +1936,144 @@ def _analyst_criteria_phase_max_map(db, exercise_id: int) -> dict[tuple[str, str
     if not unit_id_to_level:
         return {}
 
+    out: dict[tuple[str, str], float] = {}
+    phase_totals = (
+        db.query(AnalystEvaluationCriteriaUnitPhaseTotal)
+        .filter(AnalystEvaluationCriteriaUnitPhaseTotal.exercise_id == int(exercise_id))
+        .all()
+    )
+    for row in phase_totals:
+        if row.allocated_mark is None:
+            continue
+        uk = unit_id_to_level.get(int(row.criteria_unit_id or 0), "")
+        pk = _normalized_exercise_phase(row.phase_key or "")
+        if not uk or not pk:
+            continue
+        out[(uk, pk)] = float(row.allocated_mark)
+
+    # احتياطي: بيانات قديمة كانت تُجمّع من بنود التفاصيل فقط
     phase_items = (
         db.query(AnalystEvaluationCriteriaPhaseItem)
         .filter(AnalystEvaluationCriteriaPhaseItem.exercise_id == int(exercise_id))
         .all()
     )
-    out: dict[tuple[str, str], float] = {}
     for item in phase_items:
         if item.allocated_mark is None:
             continue
         cu_id = int(item.criteria_unit_id or 0)
         uk = unit_id_to_level.get(cu_id, "")
         pk = _normalized_exercise_phase(item.phase_key or "")
-        if not uk or not pk:
+        if not uk or not pk or (uk, pk) in out:
             continue
         out[(uk, pk)] = out.get((uk, pk), 0.0) + float(item.allocated_mark)
     return out
 
+
+def _criteria_unit_phase_total_mark(
+    db, *, exercise_id: int, criteria_unit_id: int, phase_key: str
+) -> float | None:
+    """العلامة المخصصة للوحدة+المرحلة من الجدول الرئيسي (مع احتياطي مجموع البنود)."""
+    storage_keys = _analyst_criteria_phase_db_keys(
+        _resolve_analyst_criteria_phase_key(phase_key) or (phase_key or "").strip()
+    )
+    row = (
+        db.query(AnalystEvaluationCriteriaUnitPhaseTotal)
+        .filter(
+            AnalystEvaluationCriteriaUnitPhaseTotal.exercise_id == int(exercise_id),
+            AnalystEvaluationCriteriaUnitPhaseTotal.criteria_unit_id == int(criteria_unit_id),
+            AnalystEvaluationCriteriaUnitPhaseTotal.phase_key.in_(storage_keys),
+        )
+        .first()
+    )
+    if row is not None and row.allocated_mark is not None:
+        return float(row.allocated_mark)
+    marks = [
+        float(item.allocated_mark)
+        for item in (
+            db.query(AnalystEvaluationCriteriaPhaseItem)
+            .filter(
+                AnalystEvaluationCriteriaPhaseItem.exercise_id == int(exercise_id),
+                AnalystEvaluationCriteriaPhaseItem.criteria_unit_id == int(criteria_unit_id),
+                AnalystEvaluationCriteriaPhaseItem.phase_key.in_(storage_keys),
+            )
+            .all()
+        )
+        if item.allocated_mark is not None
+    ]
+    if not marks:
+        return None
+    return sum(marks)
+
+
+def _mark_from_pct_and_phase_total(pct: float | None, phase_total: float | None) -> float | None:
+    if pct is None or phase_total is None:
+        return None
+    try:
+        return max(0.0, (float(pct) / 100.0) * float(phase_total))
+    except (TypeError, ValueError):
+        return None
+
+
+def _upsert_criteria_unit_phase_total(
+    db,
+    *,
+    exercise_id: int,
+    criteria_unit_id: int,
+    phase_key: str,
+    mark: float | None,
+) -> None:
+    storage_key = _resolve_analyst_criteria_phase_key(phase_key) or (phase_key or "").strip()
+    if not storage_key:
+        return
+    phase_db_keys = _analyst_criteria_phase_db_keys(storage_key)
+    row = (
+        db.query(AnalystEvaluationCriteriaUnitPhaseTotal)
+        .filter(
+            AnalystEvaluationCriteriaUnitPhaseTotal.exercise_id == int(exercise_id),
+            AnalystEvaluationCriteriaUnitPhaseTotal.criteria_unit_id == int(criteria_unit_id),
+            AnalystEvaluationCriteriaUnitPhaseTotal.phase_key.in_(phase_db_keys),
+        )
+        .first()
+    )
+    if mark is None:
+        if row is not None:
+            db.delete(row)
+        return
+    if row is None:
+        row = AnalystEvaluationCriteriaUnitPhaseTotal(
+            exercise_id=int(exercise_id),
+            criteria_unit_id=int(criteria_unit_id),
+            phase_key=storage_key,
+        )
+        db.add(row)
+    row.allocated_mark = float(mark)
+    row.phase_key = storage_key
+    row.criteria_unit_id = int(criteria_unit_id)
+
+
+def _recompute_criteria_phase_item_marks_from_pcts(
+    db, *, exercise_id: int, criteria_unit_id: int, phase_key: str, phase_total: float | None
+) -> None:
+    """بعد تغيير علامة المرحلة في الجدول الرئيسي: أعد حساب علامات البنود من النسب المحفوظة."""
+    phase_db_keys = _analyst_criteria_phase_db_keys(
+        _resolve_analyst_criteria_phase_key(phase_key) or (phase_key or "").strip()
+    )
+    items = (
+        db.query(AnalystEvaluationCriteriaPhaseItem)
+        .filter(
+            AnalystEvaluationCriteriaPhaseItem.exercise_id == int(exercise_id),
+            AnalystEvaluationCriteriaPhaseItem.criteria_unit_id == int(criteria_unit_id),
+            AnalystEvaluationCriteriaPhaseItem.phase_key.in_(phase_db_keys),
+        )
+        .all()
+    )
+    for item in items:
+        pct = float(item.allocated_pct) if item.allocated_pct is not None else None
+        if pct is None and item.allocated_mark is not None and phase_total and phase_total > 0:
+            # ترحيل قديم: اشتق النسبة من العلامة السابقة مرة واحدة
+            pct = (float(item.allocated_mark) / float(phase_total)) * 100.0
+            item.allocated_pct = pct
+        item.allocated_mark = _mark_from_pct_and_phase_total(pct, phase_total)
 
 def _upsert_final_eval_report_phase_max(
     db,
@@ -2260,6 +2381,24 @@ def _criteria_items_eval_list_acquired_total(items: list[dict]) -> float:
         for item in (items or [])
         if item.get("evaluation_list_acquired_mark") is not None
     )
+
+
+def _criteria_items_report_max_total(items: list[dict]) -> float:
+    """قصوى صف المرحلة في التقرير: توزيع المعايير، وإلا مجموع قصوى قوائم التقييم."""
+    alloc = _criteria_items_allocated_total(items)
+    if alloc > 0:
+        return alloc
+    return _criteria_items_eval_list_max_total(items)
+
+
+def _criteria_items_report_acquired_total(items: list[dict]) -> float:
+    """مكتسبة صف المرحلة: من توزيع المعايير إن وُجد، وإلا من قوائم التقييم."""
+    has_alloc = any(
+        item.get("allocated_mark") is not None for item in (items or [])
+    )
+    if has_alloc:
+        return _criteria_items_allocated_acquired_total(items)
+    return _criteria_items_eval_list_acquired_total(items)
 
 
 def _criteria_items_eval_list_footer_pct(items: list[dict]) -> float | None:
@@ -3661,30 +3800,57 @@ def _build_analyst_evaluation_criteria_distribution(db, user: User) -> dict:
         return {"has_exercise": False}
 
     criteria_units = _sync_analyst_criteria_units_from_planner(db, ex)
-    phase_items = (
-        db.query(AnalystEvaluationCriteriaPhaseItem)
-        .filter(AnalystEvaluationCriteriaPhaseItem.exercise_id == ex.id)
+    phase_order = tuple(_analyst_criteria_phases_for_display(True)) or tuple(
+        EXERCISE_PHASE_OPTIONS
+    )
+    totals_rows = (
+        db.query(AnalystEvaluationCriteriaUnitPhaseTotal)
+        .filter(AnalystEvaluationCriteriaUnitPhaseTotal.exercise_id == ex.id)
         .all()
     )
-    marks_by_unit_phase: dict[tuple[int, str], list[float]] = {}
-    for item in phase_items:
-        if item.allocated_mark is None:
+    totals_by_unit_phase: dict[tuple[int, str], float] = {}
+    for row in totals_rows:
+        if row.allocated_mark is None:
             continue
-        marks_by_unit_phase.setdefault(
-            (int(item.criteria_unit_id), item.phase_key or ""),
-            [],
-        ).append(float(item.allocated_mark))
+        pk = _resolve_analyst_criteria_phase_key(row.phase_key or "") or (
+            row.phase_key or ""
+        ).strip()
+        if not pk:
+            continue
+        totals_by_unit_phase[(int(row.criteria_unit_id), pk)] = float(row.allocated_mark)
+
+    # احتياطي قديم: مجموع بنود التفاصيل إن لم تُحفظ علامة المرحلة بعد
+    if not totals_by_unit_phase:
+        phase_items = (
+            db.query(AnalystEvaluationCriteriaPhaseItem)
+            .filter(AnalystEvaluationCriteriaPhaseItem.exercise_id == ex.id)
+            .all()
+        )
+        for item in phase_items:
+            if item.allocated_mark is None:
+                continue
+            pk = _resolve_analyst_criteria_phase_key(item.phase_key or "") or (
+                item.phase_key or ""
+            ).strip()
+            if not pk:
+                continue
+            key = (int(item.criteria_unit_id), pk)
+            totals_by_unit_phase[key] = totals_by_unit_phase.get(key, 0.0) + float(
+                item.allocated_mark
+            )
 
     rows: list[dict] = []
     grand_total = 0.0
+    phase_column_totals: dict[str, float] = {pk: 0.0 for pk, _ in phase_order}
     for unit in criteria_units:
         phase_totals: dict[str, float | None] = {}
-        phase_order = tuple(_analyst_criteria_phases_for_display(True)) or tuple(
-            EXERCISE_PHASE_OPTIONS
-        )
         for phase_key, _label in phase_order:
-            marks = marks_by_unit_phase.get((unit.id, phase_key), [])
-            phase_totals[phase_key] = sum(marks) if marks else None
+            val = totals_by_unit_phase.get((unit.id, phase_key))
+            phase_totals[phase_key] = val
+            if val is not None:
+                phase_column_totals[phase_key] = phase_column_totals.get(phase_key, 0.0) + float(
+                    val
+                )
         parts = [x for x in phase_totals.values() if x is not None]
         total_mark = sum(parts) if parts else None
         if total_mark is not None:
@@ -3700,7 +3866,8 @@ def _build_analyst_evaluation_criteria_distribution(db, user: User) -> dict:
                 "preparation_total": phase_totals.get("preparation"),
                 "evaluation_tracks_total": phase_totals.get("evaluation_tracks"),
                 "opening_total": phase_totals.get("opening"),
-                "operations_total": phase_totals.get("main"),
+                "operations_total": phase_totals.get("main")
+                or phase_totals.get("battle_exposure"),
                 "total_mark": total_mark,
                 "allocated_pct": None,
             }
@@ -3721,14 +3888,32 @@ def _build_analyst_evaluation_criteria_distribution(db, user: User) -> dict:
         "exercise": ex,
         "distribution_rows": rows,
         "grand_total": grand_total if grand_total > 0 else None,
+        "phase_column_totals": {
+            pk: (v if v > 0 else None) for pk, v in phase_column_totals.items()
+        },
         "criteria_phases": _analyst_criteria_phases_for_display(bool(rows)),
         "available_unit_levels": available_unit_levels,
         "planner_unit_levels": list(UNIT_LEVELS),
     }
 
 
-def _build_analyst_final_evaluation_report(db, user: User) -> dict:
-    """ملخص نهائي من مساحة المحكمين/قوائم التقييم، سواء كانت النتيجة محفوظة أو معتمدة."""
+def _build_analyst_final_evaluation_report(
+    db,
+    user: User,
+    *,
+    only_unit_key: str | None = None,
+    include_unit_details: bool = True,
+) -> dict:
+    """ملخص نهائي من مساحة المحكمين/قوائم التقييم، سواء كانت النتيجة محفوظة أو معتمدة.
+
+    only_unit_key: عند التعيين تُبنى تفاصيل وحدة واحدة فقط (صفحة تفاصيل الوحدة).
+    include_unit_details: False لصفحة الملخص — بدون حمولات التفاصيل الثقيلة لكل وحدة.
+    """
+    from app.planning_catalog_sync import sync_planning_catalogs_from_db
+
+    # ضمان امتلاء كتالوج الوحدات قبل التقرير (وإلا تُستبعد كل القوائم)
+    sync_planning_catalogs_from_db(db)
+
     ex0 = _current_workspace_exercise(db, user)
     if ex0 is None and is_system_admin(user):
         ex0 = db.query(Exercise).order_by(Exercise.id.desc()).first()
@@ -3738,6 +3923,7 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
     if ex is None:
         return {"has_exercise": False}
 
+    only_uk = (only_unit_key or "").strip()
     eval_items = (
         db.query(EvaluationListPdfItem)
         .filter(EvaluationListPdfItem.exercise_id == ex.id)
@@ -3768,11 +3954,16 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
     # إدخال قيمة يدوية في AnalystFinalEvaluationPhaseAllocatedMax.
     criteria_phase_max_map = _analyst_criteria_phase_max_map(db, int(ex.id))
     included_unit_keys = planning_included_unit_keys()
+    unit_label_cache: dict[str, str] = {}
+
+    def _unit_label(uk: str) -> str:
+        if uk not in unit_label_cache:
+            unit_label_cache[uk] = label_for_unit_level_key(uk, db) or uk or "—"
+        return unit_label_cache[uk]
 
     phase_acquired_totals: dict[tuple[str, str], dict] = {}
     unit_phase_slots: dict[tuple[str, str], dict] = {}
     list_rows_by_unit_phase: dict[tuple[str, str], list[dict]] = {}
-    template_rows_cache: dict[str, list[dict]] = {}
     for item in eval_items:
         unit_key = (item.unit_level_key or "").strip()
         if unit_key and unit_key not in included_unit_keys:
@@ -3783,7 +3974,7 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
                 (unit_key, phase_key),
                 {
                     "unit_key": unit_key,
-                    "unit_label": label_for_unit_level_key(unit_key, db) or unit_key or "—",
+                    "unit_label": _unit_label(unit_key),
                     "phase_key": phase_key,
                     "phase_label": _phase_label_ar(phase_key),
                     "acquired_mark": 0.0,
@@ -3808,12 +3999,10 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
             has_saved_payload = True
             rows = _parse_saved_eval_rows(saved.payload_json)
             _payload_max, acquired_mark = _evaluation_payload_mark_totals(rows)
-            relpath = (item.pdf_relpath or "").strip()
-            if relpath not in template_rows_cache:
-                template_rows_cache[relpath] = _evaluation_list_template_rows(item)
+            # بدون قراءة ملفات Excel — الحمولة المحفوظة كافية للتقرير النهائي
             footer = _evaluation_list_page_footer_stats(
                 rows,
-                template_rows_cache.get(relpath) or [],
+                [],
                 saved_total_pct=getattr(saved, "total_pct", None),
                 saved_grade=getattr(saved, "grade_label", None),
             )
@@ -3855,7 +4044,7 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
                 (unit_key, phase_key),
                 {
                     "unit_key": unit_key,
-                    "unit_label": label_for_unit_level_key(unit_key, db) or unit_key or "—",
+                    "unit_label": _unit_label(unit_key),
                     "phase_key": phase_key,
                     "phase_label": _phase_label_ar(phase_key),
                     "acquired_mark": 0.0,
@@ -3867,7 +4056,7 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
         list_rows_by_unit_phase.setdefault((unit_key, phase_key), []).append(
             {
                 "unit_key": unit_key,
-                "unit_label": label_for_unit_level_key(unit_key, db) or unit_key or "—",
+                "unit_label": _unit_label(unit_key),
                 "phase_key": phase_key,
                 "phase_label": _phase_label_ar(phase_key),
                 "list_label": list_label,
@@ -3895,7 +4084,7 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
         if uk and uk in included_unit_keys:
             units_in_exercise.add(uk)
     for unit_key in units_in_exercise:
-        unit_label = label_for_unit_level_key(unit_key, db) or unit_key or "—"
+        unit_label = _unit_label(unit_key)
         for phase_key in exercise_phase_keys():
             unit_phase_slots.setdefault(
                 (unit_key, phase_key),
@@ -3985,7 +4174,12 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
     for row in UNIT_LEVELS:
         key = (row.get("key") or "").strip()
         if key and key not in unit_keys:
+            if only_uk and key != only_uk:
+                continue
             unit_keys.append(key)
+    # عند طلب وحدة واحدة غير موجودة في الكتالوج — أدرجها إن كانت في التمرين
+    if only_uk and only_uk not in unit_keys and only_uk in units_in_exercise:
+        unit_keys.append(only_uk)
 
     rows_by_unit: dict[str, list[dict]] = {}
     for row in final_rows:
@@ -3996,7 +4190,7 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
     final_rows_all: list[dict] = []
     for idx, unit_key in enumerate(unit_keys):
         anchor = f"final-unit-{idx + 1}"
-        unit_label = label_for_unit_level_key(unit_key, db) or unit_key or "—"
+        unit_label = _unit_label(unit_key)
         unit_phase_rows = _ensure_unit_phase_rows_for_all_phases(
             unit_key, unit_label, rows_by_unit.get(unit_key) or []
         )
@@ -4103,19 +4297,21 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
         reorg_allocated_grade = _criteria_items_eval_list_footer_grade(
             reorg_criteria_items, reorg_allocated_pct
         )
+        # صفوف الملخص: إن لم تُعبَّأ قصوى التوزيع نستخدم قصوى/مكتسبة قوائم التقييم
+        # (نفس أرقام تفاصيل الوحدة) حتى تظهر النسبة والتقدير.
         _apply_criteria_totals_to_phase_rows(
             unit_phase_rows,
             criteria_max_by_phase={
-                "preparation": preparation_criteria_total,
-                "opening": opening_criteria_total,
-                "main": main_criteria_total,
-                "reorg": reorg_criteria_total,
+                "preparation": _criteria_items_report_max_total(preparation_criteria_items),
+                "opening": _criteria_items_report_max_total(opening_criteria_items),
+                "main": _criteria_items_report_max_total(main_criteria_items),
+                "reorg": _criteria_items_report_max_total(reorg_criteria_items),
             },
             criteria_acquired_by_phase={
-                "preparation": preparation_allocated_acquired,
-                "opening": opening_allocated_acquired,
-                "main": main_allocated_acquired,
-                "reorg": reorg_allocated_acquired,
+                "preparation": _criteria_items_report_acquired_total(preparation_criteria_items),
+                "opening": _criteria_items_report_acquired_total(opening_criteria_items),
+                "main": _criteria_items_report_acquired_total(main_criteria_items),
+                "reorg": _criteria_items_report_acquired_total(reorg_criteria_items),
             },
             criteria_pct_by_phase={
                 "preparation": preparation_allocated_pct,
@@ -4134,88 +4330,102 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
         for row in unit_phase_rows:
             row["unit_anchor"] = anchor
             final_rows_all.append(row)
-        report_units.append(
-            {
-                "unit_key": unit_key,
-                "unit_label": unit_label,
-                "anchor": anchor,
-                "show_evaluation_tracks": unit_key in FINAL_EVALUATION_TRACK_UNIT_KEYS,
-                "phase_rows": phase_rows,
-                "phase_summary": _final_report_phase_summary(phase_rows),
-                "preparation_detail_rows": preparation_detail_rows,
-                "preparation_criteria_items": preparation_criteria_items,
-                "preparation_criteria_total": preparation_criteria_total,
-                "preparation_criteria_eval_max_total": _criteria_items_eval_list_max_total(
-                    preparation_criteria_items
-                ),
-                "preparation_criteria_allocated_acquired_total": preparation_allocated_acquired,
-                "preparation_criteria_acquired_total": _criteria_items_eval_list_acquired_total(
-                    preparation_criteria_items
-                ),
-                "preparation_criteria_allocated_pct": preparation_allocated_pct,
-                "preparation_criteria_allocated_grade": preparation_allocated_grade,
-                "opening_detail_rows": opening_detail_rows,
-                "opening_criteria_items": opening_criteria_items,
-                "opening_criteria_total": opening_criteria_total,
-                "opening_criteria_eval_max_total": _criteria_items_eval_list_max_total(
-                    opening_criteria_items
-                ),
-                "opening_criteria_allocated_acquired_total": opening_allocated_acquired,
-                "opening_criteria_acquired_total": _criteria_items_eval_list_acquired_total(
-                    opening_criteria_items
-                ),
-                "opening_criteria_allocated_pct": opening_allocated_pct,
-                "opening_criteria_allocated_grade": opening_allocated_grade,
-                "main_detail_rows": main_detail_rows,
-                "main_criteria_items": main_criteria_items,
-                "main_criteria_total": main_criteria_total,
-                "main_criteria_eval_max_total": _criteria_items_eval_list_max_total(
-                    main_criteria_items
-                ),
-                "main_criteria_allocated_acquired_total": main_allocated_acquired,
-                "main_criteria_acquired_total": _criteria_items_eval_list_acquired_total(
-                    main_criteria_items
-                ),
-                "main_criteria_allocated_pct": main_allocated_pct,
-                "main_criteria_allocated_grade": main_allocated_grade,
-                "reorg_detail_rows": reorg_detail_rows,
-                "reorg_criteria_items": reorg_criteria_items,
-                "reorg_criteria_total": reorg_criteria_total,
-                "reorg_criteria_eval_max_total": _criteria_items_eval_list_max_total(
-                    reorg_criteria_items
-                ),
-                "reorg_criteria_allocated_acquired_total": reorg_allocated_acquired,
-                "reorg_criteria_acquired_total": _criteria_items_eval_list_acquired_total(
-                    reorg_criteria_items
-                ),
-                "reorg_criteria_allocated_pct": reorg_allocated_pct,
-                "reorg_criteria_allocated_grade": reorg_allocated_grade,
-                "evaluation_tracks_detail_rows": evaluation_tracks_detail_rows,
-                "evaluation_tracks_criteria_items": evaluation_tracks_criteria_items,
-                "evaluation_tracks_criteria_total": _criteria_items_allocated_total(
-                    evaluation_tracks_criteria_items
-                ),
-                "evaluation_tracks_criteria_eval_max_total": _criteria_items_eval_list_max_total(
-                    evaluation_tracks_criteria_items
-                ),
-                "evaluation_tracks_criteria_allocated_acquired_total": _criteria_items_allocated_acquired_total(
-                    evaluation_tracks_criteria_items
-                ),
-                "evaluation_tracks_criteria_acquired_total": _criteria_items_eval_list_acquired_total(
-                    evaluation_tracks_criteria_items
-                ),
-                "evaluation_tracks_criteria_allocated_pct": _criteria_items_eval_list_footer_pct(
-                    evaluation_tracks_criteria_items
-                ),
-                "evaluation_tracks_criteria_allocated_grade": _criteria_items_eval_list_footer_grade(
-                    evaluation_tracks_criteria_items,
-                    _criteria_items_eval_list_footer_pct(evaluation_tracks_criteria_items),
-                ),
-            }
-        )
+        if include_unit_details:
+            report_units.append(
+                {
+                    "unit_key": unit_key,
+                    "unit_label": unit_label,
+                    "anchor": anchor,
+                    "show_evaluation_tracks": unit_key in FINAL_EVALUATION_TRACK_UNIT_KEYS,
+                    "phase_rows": phase_rows,
+                    "phase_summary": _final_report_phase_summary(phase_rows),
+                    "preparation_detail_rows": preparation_detail_rows,
+                    "preparation_criteria_items": preparation_criteria_items,
+                    "preparation_criteria_total": _criteria_items_report_max_total(
+                        preparation_criteria_items
+                    ),
+                    "preparation_criteria_eval_max_total": _criteria_items_eval_list_max_total(
+                        preparation_criteria_items
+                    ),
+                    "preparation_criteria_allocated_acquired_total": _criteria_items_report_acquired_total(
+                        preparation_criteria_items
+                    ),
+                    "preparation_criteria_acquired_total": _criteria_items_eval_list_acquired_total(
+                        preparation_criteria_items
+                    ),
+                    "preparation_criteria_allocated_pct": preparation_allocated_pct,
+                    "preparation_criteria_allocated_grade": preparation_allocated_grade,
+                    "opening_detail_rows": opening_detail_rows,
+                    "opening_criteria_items": opening_criteria_items,
+                    "opening_criteria_total": _criteria_items_report_max_total(
+                        opening_criteria_items
+                    ),
+                    "opening_criteria_eval_max_total": _criteria_items_eval_list_max_total(
+                        opening_criteria_items
+                    ),
+                    "opening_criteria_allocated_acquired_total": _criteria_items_report_acquired_total(
+                        opening_criteria_items
+                    ),
+                    "opening_criteria_acquired_total": _criteria_items_eval_list_acquired_total(
+                        opening_criteria_items
+                    ),
+                    "opening_criteria_allocated_pct": opening_allocated_pct,
+                    "opening_criteria_allocated_grade": opening_allocated_grade,
+                    "main_detail_rows": main_detail_rows,
+                    "main_criteria_items": main_criteria_items,
+                    "main_criteria_total": _criteria_items_report_max_total(main_criteria_items),
+                    "main_criteria_eval_max_total": _criteria_items_eval_list_max_total(
+                        main_criteria_items
+                    ),
+                    "main_criteria_allocated_acquired_total": _criteria_items_report_acquired_total(
+                        main_criteria_items
+                    ),
+                    "main_criteria_acquired_total": _criteria_items_eval_list_acquired_total(
+                        main_criteria_items
+                    ),
+                    "main_criteria_allocated_pct": main_allocated_pct,
+                    "main_criteria_allocated_grade": main_allocated_grade,
+                    "reorg_detail_rows": reorg_detail_rows,
+                    "reorg_criteria_items": reorg_criteria_items,
+                    "reorg_criteria_total": _criteria_items_report_max_total(reorg_criteria_items),
+                    "reorg_criteria_eval_max_total": _criteria_items_eval_list_max_total(
+                        reorg_criteria_items
+                    ),
+                    "reorg_criteria_allocated_acquired_total": _criteria_items_report_acquired_total(
+                        reorg_criteria_items
+                    ),
+                    "reorg_criteria_acquired_total": _criteria_items_eval_list_acquired_total(
+                        reorg_criteria_items
+                    ),
+                    "reorg_criteria_allocated_pct": reorg_allocated_pct,
+                    "reorg_criteria_allocated_grade": reorg_allocated_grade,
+                    "evaluation_tracks_detail_rows": evaluation_tracks_detail_rows,
+                    "evaluation_tracks_criteria_items": evaluation_tracks_criteria_items,
+                    "evaluation_tracks_criteria_total": _criteria_items_report_max_total(
+                        evaluation_tracks_criteria_items
+                    ),
+                    "evaluation_tracks_criteria_eval_max_total": _criteria_items_eval_list_max_total(
+                        evaluation_tracks_criteria_items
+                    ),
+                    "evaluation_tracks_criteria_allocated_acquired_total": _criteria_items_report_acquired_total(
+                        evaluation_tracks_criteria_items
+                    ),
+                    "evaluation_tracks_criteria_acquired_total": _criteria_items_eval_list_acquired_total(
+                        evaluation_tracks_criteria_items
+                    ),
+                    "evaluation_tracks_criteria_allocated_pct": _criteria_items_eval_list_footer_pct(
+                        evaluation_tracks_criteria_items
+                    ),
+                    "evaluation_tracks_criteria_allocated_grade": _criteria_items_eval_list_footer_grade(
+                        evaluation_tracks_criteria_items,
+                        _criteria_items_eval_list_footer_pct(evaluation_tracks_criteria_items),
+                    ),
+                }
+            )
 
     # وحدتان تجميعيّتان من قوائم تقييم المعاضل — حسب مرحلة الأيام (دون المساس بصفوف المراحل).
     dilemma_reaction_sort: dict[str, int] = {}
+    skip_dilemma_agg = bool(only_uk) and not str(only_uk).startswith("fe_dilemma_reaction_")
     try:
         from app.dilemma_reaction_final_eval import (
             DILEMMA_REACTION_UNIT_SORT,
@@ -4223,10 +4433,15 @@ def _build_analyst_final_evaluation_report(db, user: User) -> dict:
         )
 
         dilemma_reaction_sort = dict(DILEMMA_REACTION_UNIT_SORT)
-        dilemma_agg_rows = build_dilemma_reaction_final_eval_rows(db, int(ex.id))
-        for drow in dilemma_agg_rows:
-            drow["unit_anchor"] = f"final-dilemma-{drow.get('unit_key') or 'x'}"
-            final_rows_all.append(drow)
+        if not skip_dilemma_agg:
+            dilemma_agg_rows = build_dilemma_reaction_final_eval_rows(
+                db,
+                int(ex.id),
+                include_detail_rows=bool(include_unit_details),
+            )
+            for drow in dilemma_agg_rows:
+                drow["unit_anchor"] = f"final-dilemma-{drow.get('unit_key') or 'x'}"
+                final_rows_all.append(drow)
     except Exception:
         current_app.logger.exception("analyst final eval dilemma-reaction aggregate failed")
 
@@ -4530,6 +4745,7 @@ def _save_analyst_evaluation_criteria_distribution(db, user: User, ex: Exercise)
         for x in request.form.getlist("unit_ids")
         if (x or "").strip().isdigit()
     ]
+    phase_keys = [pk for pk, _ in _analyst_criteria_phases_for_display(True)]
     for uid in ordered_ids:
         row = existing.get(uid)
         if row is None:
@@ -4559,6 +4775,9 @@ def _save_analyst_evaluation_criteria_distribution(db, user: User, ex: Exercise)
             db.query(AnalystEvaluationCriteriaPhaseItem).filter(
                 AnalystEvaluationCriteriaPhaseItem.criteria_unit_id == uid
             ).delete(synchronize_session=False)
+            db.query(AnalystEvaluationCriteriaUnitPhaseTotal).filter(
+                AnalystEvaluationCriteriaUnitPhaseTotal.criteria_unit_id == uid
+            ).delete(synchronize_session=False)
             db.delete(row)
             continue
         unit_key = (request.form.get(f"unit_level_key__{uid}") or "").strip()
@@ -4566,6 +4785,23 @@ def _save_analyst_evaluation_criteria_distribution(db, user: User, ex: Exercise)
             catalog_label = label_for_unit_level_key(unit_key, db=db)
             if catalog_label:
                 row.label = catalog_label[:300]
+        for phase_key in phase_keys:
+            raw = request.form.get(f"phase_mark__{uid}__{phase_key}")
+            mark = _parse_mark_form_value(raw)
+            _upsert_criteria_unit_phase_total(
+                db,
+                exercise_id=int(ex.id),
+                criteria_unit_id=int(uid),
+                phase_key=phase_key,
+                mark=mark,
+            )
+            _recompute_criteria_phase_item_marks_from_pcts(
+                db,
+                exercise_id=int(ex.id),
+                criteria_unit_id=int(uid),
+                phase_key=phase_key,
+                phase_total=mark,
+            )
     # إضافة يدوية: فقط من مستويات الوحدة المدرجة في التخطيط (نفس مصدر التقرير النهائي).
     new_key = normalize_unit_level_key(request.form.get("new_unit_level_key"))
     included = planning_included_unit_keys()
@@ -4887,6 +5123,9 @@ def _criteria_phase_items_for_unit(
     phase_key: str,
 ) -> list[dict]:
     phase_db_keys = _analyst_criteria_phase_db_keys(phase_key)
+    phase_total = _criteria_unit_phase_total_mark(
+        db, exercise_id=int(ex.id), criteria_unit_id=int(unit.id), phase_key=phase_key
+    )
     rows = (
         db.query(AnalystEvaluationCriteriaPhaseItem)
         .filter(
@@ -4902,15 +5141,23 @@ def _criteria_phase_items_for_unit(
     )
     saved: list[dict] = []
     for row in rows:
+        pct = float(row.allocated_pct) if row.allocated_pct is not None else None
         mark = float(row.allocated_mark) if row.allocated_mark is not None else None
+        if pct is None and mark is not None and phase_total and phase_total > 0:
+            pct = (mark / float(phase_total)) * 100.0
+        if mark is None and pct is not None:
+            mark = _mark_from_pct_and_phase_total(pct, phase_total)
+        elif pct is not None and phase_total is not None:
+            mark = _mark_from_pct_and_phase_total(pct, phase_total)
         saved.append(
             {
                 "criteria_text": (row.criteria_text or "").strip(),
                 "allocated_mark": mark,
+                "allocated_pct": pct,
             }
         )
     return _merge_criteria_items_with_evaluation_lists(
-        db, ex, unit, phase_key, saved_items=saved
+        db, ex, unit, phase_key, saved_items=saved, phase_total=phase_total
     )
 
 
@@ -4921,64 +5168,68 @@ def _merge_criteria_items_with_evaluation_lists(
     criteria_phase_key: str,
     *,
     saved_items: list[dict],
+    phase_total: float | None = None,
 ) -> list[dict]:
     """دمج علامات المعايير المحفوظة مع عناوين قوائم التقييم من التخطيط."""
     list_titles = _evaluation_list_titles_for_criteria_unit(
         db, ex, unit, criteria_phase_key
     )
-    if not list_titles:
-        total_mark = sum(
-            float(item["allocated_mark"] or 0)
-            for item in saved_items
-            if item.get("allocated_mark") is not None
+    if phase_total is None:
+        phase_total = _criteria_unit_phase_total_mark(
+            db,
+            exercise_id=int(ex.id),
+            criteria_unit_id=int(unit.id),
+            phase_key=criteria_phase_key,
         )
+
+    def _finalize_row(text: str, mark: float | None, pct: float | None, from_list: bool) -> dict:
+        if pct is None and mark is not None and phase_total and phase_total > 0:
+            pct = (float(mark) / float(phase_total)) * 100.0
+        if pct is not None and phase_total is not None:
+            mark = _mark_from_pct_and_phase_total(pct, phase_total)
+        return {
+            "criteria_text": text,
+            "allocated_mark": mark,
+            "allocated_pct": pct,
+            "from_evaluation_list": from_list,
+        }
+
+    if not list_titles:
         out: list[dict] = []
         for item in saved_items:
-            mark = item.get("allocated_mark")
-            pct = (
-                (float(mark) / total_mark * 100.0)
-                if mark is not None and total_mark > 0
-                else None
-            )
             out.append(
-                {
-                    "criteria_text": item.get("criteria_text") or "",
-                    "allocated_mark": mark,
-                    "allocated_pct": pct,
-                    "from_evaluation_list": False,
-                }
+                _finalize_row(
+                    item.get("criteria_text") or "",
+                    item.get("allocated_mark"),
+                    item.get("allocated_pct"),
+                    False,
+                )
             )
         return out
 
     marks_by_text: dict[str, float | None] = {}
+    pcts_by_text: dict[str, float | None] = {}
     marks_by_index: list[float | None] = []
+    pcts_by_index: list[float | None] = []
     for item in saved_items:
         text = (item.get("criteria_text") or "").strip()
         mark = item.get("allocated_mark")
+        pct = item.get("allocated_pct")
         marks_by_index.append(mark)
+        pcts_by_index.append(pct)
         if text and text not in marks_by_text:
             marks_by_text[text] = mark
+            pcts_by_text[text] = pct
 
     merged: list[dict] = []
     for idx, title in enumerate(list_titles):
         mark = marks_by_text.get(title)
+        pct = pcts_by_text.get(title)
         if mark is None and idx < len(marks_by_index):
             mark = marks_by_index[idx]
-        merged.append(
-            {
-                "criteria_text": title,
-                "allocated_mark": mark,
-                "from_evaluation_list": True,
-            }
-        )
-    total_mark = sum(float(m or 0) for m in (r["allocated_mark"] for r in merged) if m is not None)
-    for row in merged:
-        mark = row.get("allocated_mark")
-        row["allocated_pct"] = (
-            (float(mark) / total_mark * 100.0)
-            if mark is not None and total_mark > 0
-            else None
-        )
+        if pct is None and idx < len(pcts_by_index):
+            pct = pcts_by_index[idx]
+        merged.append(_finalize_row(title, mark, pct, True))
     return merged
 
 
@@ -4996,18 +5247,28 @@ def _save_criteria_phase_items_for_unit(
     ).delete(synchronize_session=False)
     storage_key = _resolve_analyst_criteria_phase_key(phase_key) or phase_key
     list_titles = _evaluation_list_titles_for_criteria_unit(db, ex, unit, phase_key)
+    pcts = request.form.getlist("allocated_pct")
+    # توافق خلفي إن وُجدت علامات فقط بدون نسب
     marks = request.form.getlist("allocated_mark")
+    phase_total = _criteria_unit_phase_total_mark(
+        db, exercise_id=int(ex.id), criteria_unit_id=int(unit.id), phase_key=phase_key
+    )
     if list_titles:
         criteria_texts = list_titles
     else:
         criteria_texts = [
             (t or "").strip()[:1000] for t in request.form.getlist("criteria_text")
         ]
-    n = max(len(criteria_texts), len(marks))
+    n = max(len(criteria_texts), len(pcts), len(marks))
     for idx in range(n):
         text_value = (criteria_texts[idx] if idx < len(criteria_texts) else "").strip()[:1000]
+        pct = _parse_mark_form_value(pcts[idx] if idx < len(pcts) else "")
         mark = _parse_mark_form_value(marks[idx] if idx < len(marks) else "")
-        if not text_value and mark is None:
+        if pct is None and mark is not None and phase_total and phase_total > 0:
+            pct = (float(mark) / float(phase_total)) * 100.0
+        if pct is not None:
+            mark = _mark_from_pct_and_phase_total(pct, phase_total)
+        if not text_value and pct is None and mark is None:
             continue
         db.add(
             AnalystEvaluationCriteriaPhaseItem(
@@ -5017,6 +5278,7 @@ def _save_criteria_phase_items_for_unit(
                 sort_order=idx,
                 criteria_text=text_value,
                 allocated_mark=mark,
+                allocated_pct=pct,
             )
         )
     db.commit()
@@ -5415,6 +5677,7 @@ def analyst_hub_section(slug: str):
                 active_tab=active_tab,
                 distribution_rows=dist["distribution_rows"],
                 grand_total=dist["grand_total"],
+                phase_column_totals=dist.get("phase_column_totals") or {},
                 criteria_phases=criteria_phases,
                 available_unit_levels=dist.get("available_unit_levels") or [],
                 dilemma_distribution_rows=dilemma_dist.get("distribution_rows") or [],
@@ -5841,11 +6104,13 @@ def analyst_hub_section(slug: str):
         ex0 = _current_workspace_exercise(db, user)
         if ex0 is None and is_system_admin(user):
             ex0 = db.query(Exercise).order_by(Exercise.id.desc()).first()
-        report = _build_analyst_final_evaluation_report(db, user)
+        report = _build_analyst_final_evaluation_report(
+            db, user, include_unit_details=False
+        )
         if not report.get("has_exercise"):
             return render_template(
                 "analyst_final_evaluation.html",
-                **_actx( section_title=title, has_exercise=False),
+                **_actx(section_title=title, has_exercise=False),
             )
         return render_template(
             "analyst_final_evaluation.html",
@@ -5996,16 +6261,18 @@ def analyst_final_evaluation_unit_detail(unit_key: str):
                 saved=1,
             )
         )
-    report = _build_analyst_final_evaluation_report(db, user)
-    if not report.get("has_exercise"):
-        abort(404)
-
     from app.dilemma_reaction_final_eval import (
         build_dilemma_reaction_report_unit,
         is_dilemma_reaction_unit_key,
     )
 
     if is_dilemma_reaction_unit_key(unit_key_norm):
+        # لوحدة رد الفعل لا حاجة لبناء تفاصيل كل الوحدات
+        report = _build_analyst_final_evaluation_report(
+            db, user, include_unit_details=False
+        )
+        if not report.get("has_exercise"):
+            abort(404)
         unit = build_dilemma_reaction_report_unit(
             db, int(report["exercise"].id), unit_key_norm
         )
@@ -6023,6 +6290,12 @@ def analyst_final_evaluation_unit_detail(unit_key: str):
                 ),
             ),
         )
+
+    report = _build_analyst_final_evaluation_report(
+        db, user, only_unit_key=unit_key_norm, include_unit_details=True
+    )
+    if not report.get("has_exercise"):
+        abort(404)
 
     unit = next(
         (u for u in report.get("report_units", []) if (u.get("unit_key") or "").strip() == unit_key_norm),
@@ -6221,10 +6494,13 @@ def analyst_evaluation_criteria_phase(unit_id: int, phase_key: str):
     eval_list_titles = _evaluation_list_titles_for_criteria_unit(db, ex, unit, phase_key)
     eval_list_driven = bool(eval_list_titles)
     unit_level_key = _resolve_unit_level_key_for_criteria_label(unit.label or "")
-    total_mark = sum(
-        float(item["allocated_mark"] or 0)
+    phase_total = _criteria_unit_phase_total_mark(
+        db, exercise_id=int(ex.id), criteria_unit_id=int(unit.id), phase_key=phase_key
+    )
+    total_pct = sum(
+        float(item["allocated_pct"])
         for item in items
-        if item.get("allocated_mark") is not None
+        if item.get("allocated_pct") is not None
     )
     autofill_url = url_for(
         "views.analyst_evaluation_criteria_phase_autofill",
@@ -6245,7 +6521,9 @@ def analyst_evaluation_criteria_phase(unit_id: int, phase_key: str):
             eval_list_driven=eval_list_driven,
             eval_list_count=len(eval_list_titles),
             criteria_unit_level_key=unit_level_key,
-            total_mark=total_mark if total_mark > 0 else None,
+            phase_total=phase_total,
+            total_mark=phase_total if phase_total is not None else None,
+            total_pct=total_pct if items else None,
             ok_msg="تم حفظ جدول المرحلة." if request.args.get("ok") else "",
             autofill_url=autofill_url,
             **_subpage_close_ctx(

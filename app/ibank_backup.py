@@ -390,49 +390,42 @@ def _extract_sources_from_zip(zf: zipfile.ZipFile) -> list[str]:
     return restored
 
 
-def _delete_ibank_tree_nodes(db: Session) -> None:
+def _delete_ibank_tree_nodes(
+    db: Session, *, reserve_ids: set[int] | None = None
+) -> None:
+    """حذف عقد بنك المعلومات؛ وإن وُجدت معرّفات للاستعادة تُحذف أي صفوف متعارضة أيضاً."""
     kinds = tuple(INFO_BANK_TREE_KINDS)
-    for _ in range(64):
-        ids = [
-            int(r[0])
-            for r in db.query(InformationBankTreeNode.id)
-            .filter(InformationBankTreeNode.kind.in_(kinds))
-            .all()
-        ]
-        if not ids:
-            break
-        child_count = (
-            db.query(InformationBankTreeNode)
-            .filter(
-                InformationBankTreeNode.kind.in_(kinds),
-                InformationBankTreeNode.parent_id.in_(ids),
+    # حذف مباشر عبر SQL — أوثق من الحذف الطبقي عند تعطيل المفاتيح الأجنبية
+    placeholders = ", ".join(f":k{i}" for i in range(len(kinds)))
+    params = {f"k{i}": k for i, k in enumerate(kinds)}
+    db.execute(
+        text(
+            f"DELETE FROM information_bank_tree_nodes WHERE kind IN ({placeholders})"
+        ),
+        params,
+    )
+    if reserve_ids:
+        # إزالة تعارض UNIQUE مع عقد المكتبة أو أي بقايا بنفس الـ id
+        id_list = sorted({int(i) for i in reserve_ids if i is not None})
+        chunk = 400
+        for start in range(0, len(id_list), chunk):
+            part = id_list[start : start + chunk]
+            if not part:
+                continue
+            ph = ", ".join(f":i{j}" for j in range(len(part)))
+            db.execute(
+                text(f"DELETE FROM information_bank_tree_nodes WHERE id IN ({ph})"),
+                {f"i{j}": int(v) for j, v in enumerate(part)},
             )
-            .count()
-        )
-        if child_count:
-            (
-                db.query(InformationBankTreeNode)
-                .filter(
-                    InformationBankTreeNode.kind.in_(kinds),
-                    InformationBankTreeNode.parent_id.in_(ids),
-                )
-                .delete(synchronize_session=False)
-            )
-            db.flush()
-            continue
-        (
-            db.query(InformationBankTreeNode)
-            .filter(InformationBankTreeNode.kind.in_(kinds))
-            .delete(synchronize_session=False)
-        )
-        db.flush()
-        break
+    db.flush()
 
 
-def _wipe_ibank_tables(db: Session) -> None:
+def _wipe_ibank_tables(
+    db: Session, *, tree_reserve_ids: set[int] | None = None
+) -> None:
     with ibank_section_bypass():
         db.query(InformationBankDilemmaListUnit).delete(synchronize_session=False)
-        _delete_ibank_tree_nodes(db)
+        _delete_ibank_tree_nodes(db, reserve_ids=tree_reserve_ids)
         db.query(InformationBankEventFlowTable).delete(synchronize_session=False)
         db.query(InfoBankEventFlowPdf).delete(synchronize_session=False)
         db.query(InfoBankActionEvalXlsx).delete(synchronize_session=False)
@@ -448,6 +441,9 @@ def _wipe_ibank_tables(db: Session) -> None:
         except Exception:
             pass
         db.flush()
+        # بعد الحذف بـ synchronize_session=False يجب إفراغ الجلسة
+        # وإلا تتعارض الكائنات القديمة مع INSERT بنفس الـ id
+        db.expunge_all()
 
 
 def _insert_suppressions(db: Session, rows: list[dict[str, Any]]) -> int:
@@ -514,14 +510,23 @@ def restore_information_bank_from_zip(
     file_count = 0
     with zipfile.ZipFile(zip_path, "r") as zf:
         data = _read_zip_json(zf, DATA_NAME)
+        tree_rows_raw = data.get("information_bank_tree_nodes") or []
+        tree_reserve_ids: set[int] = set()
+        for r in tree_rows_raw:
+            if (r.get("kind") or "").strip() not in INFO_BANK_TREE_KINDS:
+                continue
+            try:
+                tree_reserve_ids.add(int(r["id"]))
+            except (TypeError, ValueError, KeyError):
+                pass
         bind = db.get_bind()
         is_sqlite = bind is not None and bind.dialect.name == "sqlite"
         if is_sqlite:
             db.execute(text("PRAGMA foreign_keys=OFF"))
         try:
             with ibank_section_bypass():
-                _wipe_ibank_tables(db)
-                _clear_ibank_files_dir()
+                # مسح الجداول أولاً — لا تُمسح الملفات إلا بعد نجاح الإدراج
+                _wipe_ibank_tables(db, tree_reserve_ids=tree_reserve_ids)
 
                 for name, model, _filt in _ORM_TABLE_SPECS:
                     rows = data.get(name) or []
@@ -554,6 +559,8 @@ def restore_information_bank_from_zip(
                     ):
                         _restore_sqlite_identity(db, tbl)
 
+                # الملفات بعد نجاح الجداول حتى لا تُفقد عند فشل الإدراج
+                _clear_ibank_files_dir()
                 file_count = _extract_files_from_zip(zf)
                 _extract_sources_from_zip(zf)
                 db.commit()

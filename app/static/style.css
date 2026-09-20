@@ -11726,6 +11726,31 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   padding: 0.14rem 0.38rem;
   min-height: 0;
 }
+.analyst-criteria-phase-table .pct-input {
+  padding: 0.14rem 0.38rem;
+  min-height: 0;
+  max-width: 9rem;
+}
+.analyst-criteria-phase-table .mark-display {
+  display: inline-block;
+  min-width: 3.5rem;
+  font-variant-numeric: tabular-nums;
+}
+.analyst-criteria-phase-table #total-pct-cell.is-pct-complete {
+  color: #1b6b3a;
+  font-weight: 700;
+}
+.analyst-criteria-phase-table #total-pct-cell.is-pct-incomplete {
+  color: #9a3412;
+  font-weight: 700;
+}
+.analyst-criteria-distribution-table .analyst-criteria-phase-mark-input {
+  width: 100%;
+  max-width: 7.5rem;
+  padding: 0.14rem 0.38rem;
+  min-height: 0;
+  font-variant-numeric: tabular-nums;
+}
 .analyst-criteria-phase-table .btn-ghost.delete-row-btn {
   padding: 0.14rem 0.38rem;
   min-height: 0;
@@ -11772,6 +11797,9 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   gap: 0.55rem 0.75rem;
   margin: 0 0 0.75rem;
   flex-shrink: 0;
+}
+.analyst-criteria-add-unit__save {
+  margin-inline-start: auto;
 }
 .analyst-criteria-add-unit__label {
   font-weight: 700;

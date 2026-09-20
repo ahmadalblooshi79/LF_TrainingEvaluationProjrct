@@ -756,6 +756,34 @@ class AnalystEvaluationCriteriaPhaseItem(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     criteria_text: Mapped[str] = mapped_column(String(1000), default="")
     allocated_mark: Mapped[float | None] = mapped_column(Float, nullable=True)
+    allocated_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AnalystEvaluationCriteriaUnitPhaseTotal(Base):
+    """العلامة المخصصة لوحدة+مرحلة في جدول توزيع النسبة المئوية (إدخال يدوي)."""
+
+    __tablename__ = "analyst_evaluation_criteria_unit_phase_totals"
+    __table_args__ = (
+        UniqueConstraint(
+            "exercise_id",
+            "criteria_unit_id",
+            "phase_key",
+            name="uq_analyst_criteria_unit_phase_total",
+        ),
+        Index("ix_analyst_criteria_unit_phase_total_ex", "exercise_id"),
+        Index("ix_analyst_criteria_unit_phase_total_unit", "criteria_unit_id", "phase_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    exercise_id: Mapped[int] = mapped_column(ForeignKey("exercises.id", ondelete="CASCADE"), index=True)
+    criteria_unit_id: Mapped[int] = mapped_column(
+        ForeignKey("analyst_evaluation_criteria_units.id", ondelete="CASCADE"),
+        index=True,
+    )
+    phase_key: Mapped[str] = mapped_column(String(32), default="", index=True)
+    allocated_mark: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

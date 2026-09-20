@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.analyst_dilemma_criteria import unit_keys_for_action_eval_flow_day
 from app.analyst_flow_day_phase_link import (
     _normalize_phase_key,
     build_dilemma_reaction_table_for_unit_phase,
@@ -121,7 +120,17 @@ def _unit_keys_and_days_for_phase(
     day_to_phase: dict[str, str],
     flow_days: list[dict],
 ) -> tuple[set[str], list[str], set[str]]:
+    from app.action_eval_ibank_sync import (
+        _published_item_matches_day,
+        _published_slots_by_node,
+        _resolve_unit_key,
+    )
     from app.exercise_phase_catalog import normalize_exercise_phase
+    from app.models.domain import (
+        ExercisePlannerFlowBundle,
+        InformationBankTreeNode,
+    )
+    from app.unit_levels_catalog import normalize_unit_level_key
 
     pk = normalize_exercise_phase(phase_key) or phase_key
     match_keys = _dilemma_phase_match_keys(pk)
@@ -147,16 +156,37 @@ def _unit_keys_and_days_for_phase(
                 seen_d.add(did)
                 day_ids.append(did)
 
+    want_days = set(day_ids)
     unit_keys: set[str] = set()
-    for did in day_ids:
-        for uk in unit_keys_for_action_eval_flow_day(
-            db,
-            int(exercise_id),
-            phase_key=pk,
-            flow_day_id=did,
-        ):
-            if uk:
-                unit_keys.add(uk)
+    if want_days:
+        bundles = (
+            db.query(ExercisePlannerFlowBundle)
+            .filter(ExercisePlannerFlowBundle.exercise_id == int(exercise_id))
+            .all()
+        )
+        node_cache: dict[int, InformationBankTreeNode | None] = {}
+        for bundle in bundles:
+            uk = _resolve_unit_key(bundle.unit_level_key, db) or normalize_unit_level_key(
+                bundle.unit_level_key
+            )
+            if not uk:
+                continue
+            published = _published_slots_by_node(db, bundle)
+            if not published:
+                continue
+            for nid, slot in published.items():
+                nid_i = int(nid)
+                if nid_i not in node_cache:
+                    node_cache[nid_i] = db.get(InformationBankTreeNode, nid_i)
+                node = node_cache[nid_i]
+                matched = False
+                for did in want_days:
+                    if _published_item_matches_day(db, did, slot=slot, node=node):
+                        matched = True
+                        break
+                if matched:
+                    unit_keys.add(uk)
+                    break
     return unit_keys, day_ids, match_keys
 
 
@@ -168,9 +198,24 @@ def _reaction_list_totals_for_units(
     *,
     day_to_phase: dict[str, str],
     flow_days: list[dict],
+    include_detail_rows: bool = True,
 ) -> tuple[float, float, list[dict]]:
     """(مجموع مكتسبة القوائم, مجموع قصوى القوائم, صفوف التفاصيل) — للتحويل إلى مقياس التوزيع فقط."""
+    from app.action_eval_ibank_sync import parse_action_eval_storage_relpath
+    from app.analyst_flow_day_phase_link import (
+        _normalize_phase_key,
+        _payload_mark_totals,
+    )
+    from app.ibank_action_eval_dilemma_tree import build_action_eval_dilemma_judge_tree
+    from app.models.domain import (
+        ExercisePlannerFlowBundle,
+        ExercisePlannerFlowBundleActionEval,
+        PlannerFlowBundleEvalSavedResult,
+    )
     from app.unit_levels_catalog import label_for_unit_level_key
+
+    if not unit_keys:
+        return 0.0, 0.0, []
 
     day_order: dict[str, int] = {}
     for idx, day in enumerate(flow_days or []):
@@ -178,50 +223,160 @@ def _reaction_list_totals_for_units(
         if did and did not in day_order:
             day_order[did] = idx
 
+    want_phase = _normalize_phase_key(phase_key)
+    days_for_phase: list[dict] = []
+    seen_day: set[str] = set()
+    for d in flow_days or []:
+        did = str(d.get("id") or "").strip()
+        if not did or did in seen_day:
+            continue
+        dpk = _normalize_phase_key(str(day_to_phase.get(did) or ""))
+        if dpk != want_phase:
+            # توافق main ↔ battle_exposure
+            if not (
+                (want_phase == "main" and dpk == "battle_exposure")
+                or (want_phase == "battle_exposure" and dpk == "main")
+            ):
+                continue
+        seen_day.add(did)
+        days_for_phase.append(d)
+    if not days_for_phase:
+        return 0.0, 0.0, []
+
+    tree = build_action_eval_dilemma_judge_tree(db, exercise_id=int(exercise_id))
+
+    bundles = (
+        db.query(ExercisePlannerFlowBundle)
+        .filter(
+            ExercisePlannerFlowBundle.exercise_id == int(exercise_id),
+            ExercisePlannerFlowBundle.unit_level_key.in_(sorted(unit_keys)),
+        )
+        .all()
+    )
+    bundle_ids = [int(b.id) for b in bundles]
+    slots_by_unit: dict[str, list[ExercisePlannerFlowBundleActionEval]] = {
+        uk: [] for uk in unit_keys
+    }
+    all_slots: list[ExercisePlannerFlowBundleActionEval] = []
+    if bundle_ids:
+        all_slots = (
+            db.query(ExercisePlannerFlowBundleActionEval)
+            .filter(ExercisePlannerFlowBundleActionEval.bundle_id.in_(bundle_ids))
+            .all()
+        )
+        bundle_unit = {int(b.id): (b.unit_level_key or "").strip() for b in bundles}
+        for slot in all_slots:
+            uk = bundle_unit.get(int(slot.bundle_id), "")
+            if uk in slots_by_unit:
+                slots_by_unit[uk].append(slot)
+
+    slot_ids = [int(s.id) for s in all_slots]
+    saved_by_slot: dict[int, PlannerFlowBundleEvalSavedResult] = {}
+    if slot_ids:
+        for saved in (
+            db.query(PlannerFlowBundleEvalSavedResult)
+            .filter(
+                PlannerFlowBundleEvalSavedResult.bundle_action_eval_id.in_(slot_ids)
+            )
+            .all()
+        ):
+            sid = int(getattr(saved, "bundle_action_eval_id", 0) or 0)
+            if sid and sid not in saved_by_slot:
+                saved_by_slot[sid] = saved
+
     detail_rows: list[dict] = []
     list_acq = 0.0
     list_max = 0.0
     for uk in sorted(unit_keys):
-        reaction = build_dilemma_reaction_table_for_unit_phase(
-            db,
-            exercise_id=int(exercise_id),
-            unit_level_key=uk,
-            phase_key=phase_key,
-            day_to_phase=day_to_phase,
-            flow_days=flow_days,
-        )
-        acq = reaction.get("total_acquired")
-        mx = reaction.get("total_max")
-        if acq is not None:
-            list_acq += float(acq)
-        if mx is not None:
-            list_max += float(mx)
-        for r in reaction.get("rows") or []:
-            detail_rows.append(
-                {
-                    **r,
-                    "unit_key": uk,
-                    "unit_label": label_for_unit_level_key(uk, db=db) or uk,
-                }
-            )
+        slot_by_node: dict[int, dict] = {}
+        for slot in slots_by_unit.get(uk) or []:
+            nid = parse_action_eval_storage_relpath(slot.file_relpath)
+            if nid is None:
+                continue
+            saved = saved_by_slot.get(int(slot.id))
+            mx = acq = 0.0
+            pct = None
+            if saved is not None and (getattr(saved, "payload_json", None) or "").strip():
+                mx, acq = _payload_mark_totals(saved.payload_json)
+                if mx > 0:
+                    pct = round((acq / mx) * 100.0, 2)
+            slot_by_node[int(nid)] = {
+                "acquired": acq if acq > 0 or mx > 0 else None,
+                "max_mark": mx if mx > 0 else None,
+                "pct": pct,
+            }
 
-    # المعضلة/1 لليوم/1 ثم المعضلة/1 لليوم/2… ثم المعضلة/2 لليوم/1… وهكذا
-    detail_rows.sort(
-        key=lambda r: (
-            int(r.get("dilemma_no") or 0),
-            day_order.get(str(r.get("day_id") or "").strip(), 10_000),
-            str(r.get("unit_label") or r.get("unit_key") or ""),
-            str(r.get("list_title") or ""),
+        unit_acq = 0.0
+        unit_max = 0.0
+        for day in days_for_phase:
+            day_id = str(day.get("id") or "").strip()
+            day_label = str(day.get("label") or day_id).strip() or day_id
+            for d in list(tree.get(day_id) or []):
+                dno = int(d.get("dilemma_no") or d.get("num") or 0)
+                dtext = str(d.get("text") or f"المعضلة/{dno}").strip()
+                seen_nodes: set[int] = set()
+                for j in d.get("judges") or []:
+                    juk = str(j.get("unit_key") or "").strip()
+                    for fmeta in j.get("files") or []:
+                        nid = int(fmeta.get("node_id") or 0)
+                        if not nid or nid in seen_nodes:
+                            continue
+                        if juk == uk or (not juk and nid in slot_by_node):
+                            seen_nodes.add(nid)
+                        else:
+                            continue
+                        if nid not in slot_by_node:
+                            continue
+                        score = slot_by_node[nid]
+                        acq_v = score.get("acquired")
+                        max_v = score.get("max_mark")
+                        pct_v = score.get("pct")
+                        if isinstance(acq_v, (int, float)):
+                            unit_acq += float(acq_v)
+                        if isinstance(max_v, (int, float)):
+                            unit_max += float(max_v)
+                        if include_detail_rows:
+                            title_list = (
+                                (fmeta.get("procedure_title") or "").strip()
+                                or (fmeta.get("name") or "").strip()
+                                or "قائمة تقييم إجراءات"
+                            )
+                            detail_rows.append(
+                                {
+                                    "day_id": day_id,
+                                    "day_label": day_label,
+                                    "dilemma_no": dno,
+                                    "dilemma_text": dtext,
+                                    "list_title": title_list,
+                                    "acquired": acq_v,
+                                    "max_mark": max_v,
+                                    "pct": pct_v,
+                                    "unit_key": uk,
+                                    "unit_label": label_for_unit_level_key(uk, db=db) or uk,
+                                }
+                            )
+        list_acq += unit_acq
+        list_max += unit_max
+
+    if include_detail_rows:
+        detail_rows.sort(
+            key=lambda r: (
+                int(r.get("dilemma_no") or 0),
+                day_order.get(str(r.get("day_id") or "").strip(), 10_000),
+                str(r.get("unit_label") or r.get("unit_key") or ""),
+                str(r.get("list_title") or ""),
+            )
         )
-    )
-    for seq, row in enumerate(detail_rows, start=1):
-        row["seq"] = seq
+        for seq, row in enumerate(detail_rows, start=1):
+            row["seq"] = seq
     return list_acq, list_max, detail_rows
 
 
 def build_dilemma_reaction_final_eval_rows(
     db: Session,
     exercise_id: int,
+    *,
+    include_detail_rows: bool = True,
 ) -> list[dict]:
     """صفوف وحدتين تجميعيّتين للتقرير النهائي.
 
@@ -267,6 +422,7 @@ def build_dilemma_reaction_final_eval_rows(
             unit_keys,
             day_to_phase=day_to_phase,
             flow_days=flow_days,
+            include_detail_rows=include_detail_rows,
         )
 
         list_pct: float | None = None

@@ -67,6 +67,81 @@ def dilemma_item_belongs_to_day(
     return bool(legacy) and want == legacy
 
 
+def _strip_eval_list_filename_ext(title: str) -> str:
+    s = (title or "").strip()
+    low = s.casefold()
+    for ext in (".xlsx", ".xls", ".pdf"):
+        if low.endswith(ext):
+            return s[: -len(ext)].strip()
+    return s
+
+
+def _format_dilemma_criteria_row_label(row: dict) -> str:
+    """عنوان صف فريد: القائمة + المعضلة (لا يُدمج صفّان لنفس اسم القائمة)."""
+    list_title = _strip_eval_list_filename_ext(str(row.get("list_title") or "").strip())
+    if list_title.casefold().startswith("تقييم "):
+        list_title = list_title[6:].strip() or list_title
+    dno = row.get("dilemma_no")
+    dtext = str(row.get("dilemma_text") or "").strip()
+    # إن كان نص المعضلة يبدأ بـ «معضلة/N» لا نكرّر الرقم
+    if dtext:
+        return f"{list_title} — {dtext}"[:1000]
+    if dno not in (None, "", 0):
+        return f"{list_title} — معضلة/{int(dno)}"[:1000]
+    return (list_title or "—")[:1000]
+
+
+def _dilemma_reaction_row_identity(row: dict) -> str:
+    """مفتاح تمييز صف المعضلة/القائمة دون دمج العناوين المتشابهة."""
+    nid = int(row.get("node_id") or 0)
+    if nid > 0:
+        return f"node:{nid}"
+    day_id = str(row.get("day_id") or "").strip()
+    dno = row.get("dilemma_no")
+    title = _strip_eval_list_filename_ext(str(row.get("list_title") or "").strip())
+    return f"{day_id}|{dno}|{title}"
+
+
+def _resolve_dilemma_criteria_unit_key(
+    db: Session, ex: Exercise, unit: AnalystDilemmaCriteriaUnit
+) -> str:
+    """مفتاح مستوى الوحدة لوحدة تبويب المعاضل — من الكتالوج أو حزم التخطيط."""
+    from app.views import (
+        _norm_unit_label_for_match,
+        _resolve_unit_level_key_for_criteria_label,
+    )
+
+    label = (unit.label or "").strip()
+    uk = _resolve_unit_level_key_for_criteria_label(label)
+    if uk:
+        return uk
+    norm = _norm_unit_label_for_match(label)
+    if not norm:
+        return ""
+    best_key = ""
+    best_len = 0
+    bundles = (
+        db.query(ExercisePlannerFlowBundle)
+        .filter(ExercisePlannerFlowBundle.exercise_id == int(ex.id))
+        .all()
+    )
+    for b in bundles:
+        bkey = (b.unit_level_key or "").strip()
+        if not bkey:
+            continue
+        blabel = (b.unit_level_label or "").strip() or label_for_unit_level_key(bkey, db=db)
+        bnorm = _norm_unit_label_for_match(blabel)
+        if not bnorm:
+            continue
+        if bnorm == norm:
+            return bkey
+        if norm in bnorm or bnorm in norm:
+            if len(bnorm) > best_len:
+                best_key = bkey
+                best_len = len(bnorm)
+    return best_key
+
+
 def sync_dilemma_criteria_units_from_planner(db: Session, ex: Exercise) -> list[AnalystDilemmaCriteriaUnit]:
     from app.views import (
         _planner_unit_keys_for_exercise,
@@ -634,17 +709,14 @@ def dilemma_criteria_phase_items_for_unit(
     *,
     flow_day_id: str | None = None,
 ) -> tuple[list[dict], list[str]]:
-    """عناصر تفاصيل المرحلة ليوم محدد + تسميات الأيام — مثل قوائم التقييم (المراحل):
+    """عناصر تفاصيل المرحلة ليوم محدد + تسميات الأيام.
 
-    العناوين من قوائم المجرى/المعاضل لذلك اليوم، والعلامات من المحفوظ يدوياً فقط
-    (بدون سحب تلقائي للمكتسبة من المحكم).
+    صف لكل معضلة/قائمة منشورة (لا دمج عند تكرار اسم القائمة).
+    العلامات من المحفوظ يدوياً فقط (بدون سحب تلقائي للمكتسبة من المحكم).
     """
-    from app.views import (
-        _analyst_criteria_phase_db_keys,
-        _resolve_unit_level_key_for_criteria_label,
-    )
+    from app.views import _analyst_criteria_phase_db_keys
 
-    unit_level_key = _resolve_unit_level_key_for_criteria_label(unit.label or "")
+    unit_level_key = _resolve_dilemma_criteria_unit_key(db, ex, unit)
     day_to_phase = load_analyst_day_phase_map(db, int(ex.id))
     flow_days = ibank_event_flow_days(db)
     want_day = (flow_day_id or "").strip()
@@ -693,25 +765,38 @@ def dilemma_criteria_phase_items_for_unit(
         if text and text not in marks_by_text:
             marks_by_text[text] = mark
 
-    list_titles: list[str] = []
-    seen: set[str] = set()
+    list_rows: list[dict] = []
+    seen_ids: set[str] = set()
     for r in reaction.get("rows") or []:
-        title = (r.get("list_title") or "").strip()
-        if not title or title == "—" or title in seen:
+        identity = _dilemma_reaction_row_identity(r)
+        if not identity or identity in seen_ids:
             continue
-        seen.add(title)
-        list_titles.append(title[:1000])
+        title = _format_dilemma_criteria_row_label(r)
+        if not title or title == "—":
+            continue
+        seen_ids.add(identity)
+        list_rows.append(
+            {
+                "criteria_text": title,
+                "list_title": (r.get("list_title") or "").strip(),
+                "dilemma_no": r.get("dilemma_no"),
+                "dilemma_text": (r.get("dilemma_text") or "").strip(),
+                "node_id": r.get("node_id"),
+                "day_id": r.get("day_id"),
+                "day_label": r.get("day_label"),
+            }
+        )
 
-    if not list_titles and saved_rows:
+    if not list_rows and saved_rows:
         for row in saved_rows:
             title = (row.criteria_text or "").strip()
-            if title and title not in seen:
-                seen.add(title)
-                list_titles.append(title[:1000])
+            if not title:
+                continue
+            list_rows.append({"criteria_text": title[:1000]})
 
-    # مثل المراحل: العلامة من المحفوظ فقط — لا تعبئة تلقائية من مكتسبة المحكم
     merged: list[dict] = []
-    for idx, title in enumerate(list_titles):
+    for idx, meta in enumerate(list_rows):
+        title = (meta.get("criteria_text") or "").strip()
         mark = marks_by_text.get(title)
         if mark is None and idx < len(marks_by_index):
             mark = marks_by_index[idx]
@@ -720,6 +805,11 @@ def dilemma_criteria_phase_items_for_unit(
                 "criteria_text": title,
                 "allocated_mark": mark,
                 "from_evaluation_list": True,
+                "dilemma_no": meta.get("dilemma_no"),
+                "dilemma_text": meta.get("dilemma_text"),
+                "node_id": meta.get("node_id"),
+                "day_id": meta.get("day_id"),
+                "day_label": meta.get("day_label"),
             }
         )
 
@@ -744,10 +834,8 @@ def collect_dilemma_acquired_for_unit_phase(
     *,
     flow_day_id: str | None = None,
 ) -> list[dict]:
-    """مكتسبة قوائم تقييم المعاضل/الإجراءات لملء تلقائي (مثل autofill في المراحل)."""
-    from app.views import _resolve_unit_level_key_for_criteria_label
-
-    unit_level_key = _resolve_unit_level_key_for_criteria_label(unit.label or "")
+    """مكتسبة قوائم تقييم المعاضل/الإجراءات لملء تلقائي — صف لكل معضلة."""
+    unit_level_key = _resolve_dilemma_criteria_unit_key(db, ex, unit)
     day_to_phase = load_analyst_day_phase_map(db, int(ex.id))
     flow_days = ibank_event_flow_days(db)
     want_day = (flow_day_id or "").strip()
@@ -761,12 +849,15 @@ def collect_dilemma_acquired_for_unit_phase(
         flow_day_id=want_day or None,
     )
     out: list[dict] = []
-    seen: set[str] = set()
+    seen_ids: set[str] = set()
     for r in reaction.get("rows") or []:
-        title = (r.get("list_title") or "").strip()
-        if not title or title == "—" or title in seen:
+        identity = _dilemma_reaction_row_identity(r)
+        if not identity or identity in seen_ids:
             continue
-        seen.add(title)
+        title = _format_dilemma_criteria_row_label(r)
+        if not title or title == "—":
+            continue
+        seen_ids.add(identity)
         acq = r.get("acquired")
         mx = r.get("max_mark")
         out.append(

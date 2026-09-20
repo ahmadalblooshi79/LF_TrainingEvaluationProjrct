@@ -176,8 +176,8 @@ class TabletRepository {
     }
 
     if (reachable) {
-      try {
-        final data = await ApiClient.instance.get(path, query: query);
+    try {
+      final data = await ApiClient.instance.get(path, query: query);
         await _cacheSetScoped(cacheKey, data);
         return Fetched(Map<String, dynamic>.from(data), false);
       } catch (_) {
@@ -648,10 +648,10 @@ class TabletRepository {
     if (reachable) {
       try {
         final data = await _downloadAndStore(
-          '/api/tablet/action-eval',
-          key,
-          query: day != null && day.isNotEmpty ? {'day': day} : null,
-        );
+      '/api/tablet/action-eval',
+      key,
+      query: day != null && day.isNotEmpty ? {'day': day} : null,
+    );
         final overlaid =
             await _overlayApprovedStatuses(Map<String, dynamic>.from(data));
         await _cacheSetScoped(key, overlaid);
@@ -796,9 +796,9 @@ class TabletRepository {
     if (reachable) {
       try {
         final data = await ApiClient.instance.get(
-          '/api/tablet/evaluation-lists',
-          query: query.isEmpty ? null : query,
-        );
+      '/api/tablet/evaluation-lists',
+      query: query.isEmpty ? null : query,
+    );
         final map = Map<String, dynamic>.from(data);
         await _mirrorEvalListsCache(
           map,
@@ -1167,9 +1167,9 @@ class TabletRepository {
         await _overlayApprovedStatuses(Map<String, dynamic>.from(r.data));
     final tasks =
         ((overlaid['tasks'] as List?) ?? overlaid['incomplete_tasks'] as List? ?? [])
-            .whereType<Map>()
-            .map((e) => ListRow.fromJson(e.cast<String, dynamic>()))
-            .toList();
+        .whereType<Map>()
+        .map((e) => ListRow.fromJson(e.cast<String, dynamic>()))
+        .toList();
     return Fetched(tasks, r.fromCache);
   }
 
