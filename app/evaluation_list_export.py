@@ -9,8 +9,10 @@ from typing import Any
 
 from app.evaluation_list_columns import (
     EVAL_IMPORT_COL_ACQUIRED,
+    EVAL_IMPORT_COL_GRADE,
     EVAL_IMPORT_COL_MAX,
     EVAL_IMPORT_COL_NOTES,
+    EVAL_IMPORT_COL_PCT,
     compose_eval_doc_banner_text,
     eval_doc_title_first_line,
     grade_label_from_percent,
@@ -23,7 +25,12 @@ from app.evaluation_sheet_parser import _find_rubric_subheader_row_index, _pad_g
 from app.xlsx_grid_preview import _cell_to_str
 
 
-def export_download_filename(item_title: str | None, fallback: str = "قائمة_التقييم.xlsx") -> str:
+def export_download_filename(
+    item_title: str | None,
+    fallback: str = "قائمة_التقييم.xlsx",
+    *,
+    ext: str | None = None,
+) -> str:
     """اسم ملف التنزيل من عنوان القائمة الظاهر في الصفحة."""
     name = (item_title or "").strip() or fallback
     name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name)
@@ -31,8 +38,16 @@ def export_download_filename(item_title: str | None, fallback: str = "قائمة
     if not name:
         name = fallback
     low = name.lower()
-    if not (low.endswith(".xlsx") or low.endswith(".xlsm") or low.endswith(".xls")):
+    if not (
+        low.endswith(".xlsx")
+        or low.endswith(".xlsm")
+        or low.endswith(".xls")
+        or low.endswith(".pdf")
+    ):
         name = f"{name}.xlsx"
+    if ext:
+        stem = re.sub(r"\.(xlsx|xlsm|xls|pdf)$", "", name, flags=re.I).strip() or "قائمة_التقييم"
+        name = f"{stem}.{str(ext).lstrip('.')}"
     return name
 
 
@@ -125,6 +140,173 @@ def _writable_cell(ws, row: int, col: int):
 
 def _set_cell_value(ws, row: int, col: int, value: Any) -> None:
     _writable_cell(ws, row, col).value = value
+
+
+def _is_marks_header_cell(value: Any) -> bool:
+    t = _footer_label_key(_cell_to_str(value))
+    if not t:
+        return False
+    return any(
+        k in t
+        for k in ("قصوى", "مكتسب", "علام", "عناصر", "نتيج", "نسبه", "نسبة", "ملاحظ")
+    )
+
+
+def _set_meta_if_not_header(ws, row: int, col: int, value: Any) -> None:
+    cell = _writable_cell(ws, row, col)
+    if _is_marks_header_cell(cell.value):
+        return
+    cell.value = value
+
+
+def _export_number(value: float) -> int | float:
+    if value == int(value):
+        return int(value)
+    return round(value, 2)
+
+
+def _is_na_acquired(value: Any) -> bool:
+    s = ("" if value is None else str(value)).strip().lower()
+    return s in {"na", "n/a", "لا ينطبق"}
+
+
+def _row_acquired_and_max(
+    trow: dict[str, Any],
+    srow: dict[str, Any],
+    *,
+    excel_max: float | None,
+) -> tuple[Any, float | None]:
+    aq = None
+    if isinstance(srow, dict) and "acquired" in srow:
+        aq = _acquired_export_value(srow.get("acquired"))
+    elif trow.get("acquired_initial"):
+        aq = _acquired_export_value(trow.get("acquired_initial"))
+    mx = trow.get("max_num")
+    if mx is None:
+        mx = parse_max_cell(trow.get("max_val"))
+    if mx is None:
+        mx = excel_max
+    try:
+        mx_f = float(mx) if mx is not None else None
+    except (TypeError, ValueError):
+        mx_f = None
+    return aq, mx_f
+
+
+_GRADE_FILL_HEX = {
+    "na": "FFFFFF",
+    "fail": "FECACA",
+    "mid": "FED7AA",
+    "good": "FEF08A",
+    "vgood": "BAE6FD",
+    "excellent": "BBF7D0",
+}
+
+
+def _grade_fill_hex(pct: float | None) -> str:
+    if pct is None:
+        return _GRADE_FILL_HEX["na"]
+    if pct < 60:
+        return _GRADE_FILL_HEX["fail"]
+    if pct < 70:
+        return _GRADE_FILL_HEX["mid"]
+    if pct < 80:
+        return _GRADE_FILL_HEX["good"]
+    if pct < 90:
+        return _GRADE_FILL_HEX["vgood"]
+    return _GRADE_FILL_HEX["excellent"]
+
+
+def _apply_grade_fill(cell, pct: float | None) -> None:
+    """خلفية خلية النتيجة بنفس ألوان صفحة القائمة."""
+    try:
+        from openpyxl.styles import PatternFill  # type: ignore
+    except Exception:
+        return
+    argb = "FF" + _grade_fill_hex(pct)
+    cell.fill = PatternFill(patternType="solid", fgColor=argb)
+
+
+def _sqref_targets_grade_colors(sqref: str) -> bool:
+    token = (sqref or "").upper().replace("$", "").replace(",", " ")
+    for part in token.split():
+        if not part:
+            continue
+        if part.startswith("E19") or part.endswith("E19") or ":E19" in part:
+            return True
+        if part.startswith("H") and any(ch.isdigit() for ch in part):
+            return True
+    return False
+
+
+def _remove_grade_conditional_formatting(ws) -> None:
+    """يحذف تنسيق القالب الشرطي لعمود النتيجة حتى تظهر ألوان النظام."""
+    cf = getattr(ws, "conditional_formatting", None)
+    rules = getattr(cf, "_cf_rules", None) if cf is not None else None
+    if not rules:
+        return
+    for fmt in list(rules.keys()):
+        sqref = str(getattr(fmt, "sqref", "") or "")
+        if _sqref_targets_grade_colors(sqref):
+            try:
+                del rules[fmt]
+            except Exception:
+                pass
+
+
+def _write_system_pct_grade(ws, excel_r: int, pct: float | None) -> None:
+    """يكتب النسبة والتقدير من النظام ويستبدل صيغ القالب."""
+    g_cell = _writable_cell(ws, excel_r, EVAL_IMPORT_COL_PCT + 1)
+    h_cell = _writable_cell(ws, excel_r, EVAL_IMPORT_COL_GRADE + 1)
+    if pct is None:
+        g_cell.value = "—"
+        h_cell.value = "غير محسوب"
+        _apply_grade_fill(h_cell, None)
+        return
+    g_cell.value = round(pct / 100.0, 6)
+    g_cell.number_format = "0%"
+    h_cell.value = grade_label_from_percent(pct)
+    _apply_grade_fill(h_cell, pct)
+
+
+def _fill_footer_system_totals(
+    ws,
+    *,
+    sum_max: float,
+    sum_acq: float,
+    any_acquired: bool,
+    start_row: int,
+    max_row: int,
+    max_col: int,
+) -> None:
+    """يكتب إجمالي/نسبة/تقدير من بيانات النظام بدل صيغ Excel غير المحسوبة."""
+    overall_pct = (sum_acq / sum_max * 100.0) if (any_acquired and sum_max > 0) else None
+    overall_grade = grade_label_from_percent(overall_pct) if overall_pct is not None else ""
+    scan_to = max(int(start_row), 1)
+    for r in range(scan_to, int(max_row) + 1):
+        blob_parts: list[str] = []
+        for c in range(1, min(int(max_col), 12) + 1):
+            blob_parts.append(_cell_to_str(_writable_cell(ws, r, c).value))
+        key = _footer_label_key(" ".join(blob_parts))
+        if not key:
+            continue
+        if "إجمالي" in key or "اجمالي" in key:
+            if sum_max > 0:
+                _set_cell_value(ws, r, EVAL_IMPORT_COL_MAX + 1, _export_number(sum_max))
+            if any_acquired:
+                _set_cell_value(ws, r, EVAL_IMPORT_COL_ACQUIRED + 1, _export_number(sum_acq))
+            continue
+        if "النسبة" in key and "عام" in key:
+            if overall_pct is not None:
+                cell = _writable_cell(ws, r, EVAL_IMPORT_COL_MAX + 1)
+                cell.value = round(overall_pct / 100.0, 6)
+                cell.number_format = "0.00%"
+            continue
+        if "التقدير" in key and "عام" in key:
+            if overall_grade:
+                cell = _writable_cell(ws, r, EVAL_IMPORT_COL_MAX + 1)
+                cell.value = overall_grade
+                _apply_grade_fill(cell, overall_pct)
 
 
 def _normalize_export_banner_title(raw: str) -> str:
@@ -314,10 +496,13 @@ def build_evaluation_list_xlsx_bytes(
     saved_rows: list[dict[str, Any]] | None,
     signature_png: bytes | None = None,
     approved_at: Any | None = None,
+    materialize_computed: bool = False,
 ) -> bytes:
     """
     ينسخ ملف المصدر، يحدّث العنوان والبيانات الوصفية وعلامات المحكم،
     ويحذف أي ورقة إضافية غير ورقة التقييم.
+    ``materialize_computed`` يكتب النسبة/النتيجة والإجمالي من بيانات النظام
+    (لتصدير PDF مطابق للقوائم دون الاعتماد على صيغ Excel).
     """
     try:
         from openpyxl import load_workbook  # type: ignore
@@ -339,20 +524,7 @@ def build_evaluation_list_xlsx_bytes(
             if name != keep:
                 del wb[name]
         ws = wb[keep] if keep else wb.active
-
-        title = _normalize_export_banner_title(doc_title or "")
-        if title:
-            _set_cell_value(ws, 1, 2, title)  # B1 — سطران في نفس الخلية المدمجة
-            _apply_title_wrap(ws, 1, 2, title)
-
-        if unit_label and unit_label != "—":
-            _set_cell_value(ws, 2, 3, unit_label)  # C2
-        if date_str:
-            _set_cell_value(ws, 2, 6, date_str)  # F2
-        if commander_name and commander_name != "—":
-            _set_cell_value(ws, 3, 3, commander_name)  # C3
-        if judge_name and judge_name != "—":
-            _set_cell_value(ws, 3, 6, judge_name)  # F3
+        _remove_grade_conditional_formatting(ws)
 
         mr = int(getattr(ws, "max_row", None) or 1)
         mc = int(getattr(ws, "max_column", None) or 1)
@@ -360,14 +532,34 @@ def build_evaluation_list_xlsx_bytes(
         rubric_i = _find_rubric_subheader_row_index(grid)
         start_excel = (rubric_i + 2) if rubric_i is not None else 2
 
+        title = _normalize_export_banner_title(doc_title or "")
+        if title:
+            _set_cell_value(ws, 1, 2, title)  # B1 — سطران في نفس الخلية المدمجة
+            _apply_title_wrap(ws, 1, 2, title)
+
+        # لا تُكتب البيانات الوصفية فوق عناوين أعمدة العلامات (القصوى/المكتسبة/…)
+        if unit_label and unit_label != "—":
+            _set_meta_if_not_header(ws, 2, 3, unit_label)
+        if date_str:
+            _set_meta_if_not_header(ws, 2, 6, date_str)
+        if commander_name and commander_name != "—":
+            _set_meta_if_not_header(ws, 3, 3, commander_name)
+        if judge_name and judge_name != "—":
+            _set_meta_if_not_header(ws, 3, 6, judge_name)
+
         template_rows = eval_rows or []
         saved = saved_rows or []
         ti = 0
+        sum_max = 0.0
+        sum_acq = 0.0
+        any_acquired = False
+        footer_start = mr + 1
         for excel_r in range(start_excel, mr + 1):
             cells = list(grid[excel_r - 1]) if excel_r - 1 < len(grid) else []
             while len(cells) < mc:
                 cells.append("")
             if is_evaluation_import_footer_stop_row(cells):
+                footer_start = excel_r
                 break
             if should_skip_evaluation_import_row(cells, excel_row_1based=excel_r):
                 continue
@@ -380,11 +572,10 @@ def build_evaluation_list_xlsx_bytes(
             if (trow.get("row_kind") or "score") == "section":
                 continue
 
-            aq = None
-            if isinstance(srow, dict) and "acquired" in srow:
-                aq = _acquired_export_value(srow.get("acquired"))
-            elif trow.get("acquired_initial"):
-                aq = _acquired_export_value(trow.get("acquired_initial"))
+            excel_max = parse_max_cell(
+                cells[EVAL_IMPORT_COL_MAX] if len(cells) > EVAL_IMPORT_COL_MAX else ""
+            )
+            aq, mx = _row_acquired_and_max(trow, srow, excel_max=excel_max)
             if aq is not None:
                 _set_cell_value(ws, excel_r, EVAL_IMPORT_COL_ACQUIRED + 1, aq)
 
@@ -396,23 +587,46 @@ def build_evaluation_list_xlsx_bytes(
             if notes:
                 _set_cell_value(ws, excel_r, EVAL_IMPORT_COL_NOTES + 1, notes)
 
-            # قيم اختيارية للنسبة/النتيجة إن فُرغت الصيغ
-            mx = parse_max_cell(
-                cells[EVAL_IMPORT_COL_MAX] if len(cells) > EVAL_IMPORT_COL_MAX else ""
-            )
-            if aq is not None and aq != "لا ينطبق" and mx is not None and float(mx) > 0:
+            na = _is_na_acquired(aq)
+            if not na and mx is not None and float(mx) > 0:
+                sum_max += float(mx)
+            if na:
+                _write_system_pct_grade(ws, excel_r, None)
+            elif aq is not None:
                 try:
                     aq_f = float(aq)
-                    pct = (aq_f / float(mx)) * 100.0
-                    g_cell = _writable_cell(ws, excel_r, 7)
-                    h_cell = _writable_cell(ws, excel_r, 8)
-                    # أبقِ الصيغ إن وُجدت؛ وإلا اكتب قيماً
-                    if g_cell.value is None or not str(g_cell.value).startswith("="):
-                        g_cell.value = round(pct / 100.0, 4)
-                    if h_cell.value is None or not str(h_cell.value).startswith("="):
-                        h_cell.value = grade_label_from_percent(pct)
                 except (TypeError, ValueError):
-                    pass
+                    aq_f = None
+                if aq_f is not None:
+                    sum_acq += aq_f
+                    any_acquired = True
+                    if mx is not None and float(mx) > 0:
+                        _write_system_pct_grade(ws, excel_r, (aq_f / float(mx)) * 100.0)
+                    else:
+                        _write_system_pct_grade(ws, excel_r, None)
+                else:
+                    _write_system_pct_grade(ws, excel_r, None)
+
+        # الإجمالي كصفحة النظام: بنود «لا ينطبق» خارج مجموع القصوى والمكتسبة
+        _fill_footer_system_totals(
+            ws,
+            sum_max=sum_max,
+            sum_acq=sum_acq,
+            any_acquired=any_acquired,
+            start_row=footer_start,
+            max_row=mr,
+            max_col=mc,
+        )
+        if materialize_computed:
+            try:
+                ws.page_setup.paperSize = getattr(ws.page_setup, "PAPERSIZE_A4", 9)
+                ws.page_setup.orientation = "portrait"
+                ws.page_setup.fitToPage = True
+                ws.page_setup.fitToWidth = 1
+                ws.page_setup.fitToHeight = 1
+                ws.sheet_properties.pageSetUpPr.fitToPage = True
+            except Exception:
+                pass
 
         # صف التذييل «المحكم» — اسم المحكم من صفحة قائمة التقييم
         _fill_footer_judge_name(ws, judge_name, max_row=mr, max_col=mc)

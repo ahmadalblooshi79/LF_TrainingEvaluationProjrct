@@ -10275,8 +10275,9 @@ def _send_eval_xlsx_file(
     saved_payload: dict | None,
     ev: dict,
     saved_row=None,
+    as_pdf: bool = False,
 ):
-    """يبني ملف Excel من مسار القائمة ويرسله للتنزيل — عنوان من سطرين في B1."""
+    """يبني ملف Excel (أو PDF مطابق) من مسار القائمة ويرسله للتنزيل."""
     unit = _require_unit_level_row(unit_key) if unit_key else None
     unit_label = (unit.get("label") or "").strip() if isinstance(unit, dict) else ""
     shown_date = getattr(current_exercise, "planned_start", None) or getattr(
@@ -10324,6 +10325,7 @@ def _send_eval_xlsx_file(
         exercise_subtitle=(ev.get("eval_doc_subtitle") or "").strip(),
         item_title_fallback=item_title,
     )
+    sig_png = snapshot_png(saved_row)
     try:
         data = build_evaluation_list_xlsx_bytes(
             source_path,
@@ -10334,11 +10336,28 @@ def _send_eval_xlsx_file(
             judge_name=judge_name or "",
             eval_rows=ev.get("eval_rows") or [],
             saved_rows=(saved_payload.get("rows") or []) if saved_payload else [],
-            signature_png=snapshot_png(saved_row),
+            signature_png=sig_png,
             approved_at=getattr(saved_row, "approved_at", None) if saved_row else None,
+            materialize_computed=True,
         )
     except Exception:
         abort(500)
+
+    if as_pdf:
+        from app.evaluation_list_pdf import build_evaluation_list_pdf_bytes
+
+        try:
+            pdf = build_evaluation_list_pdf_bytes(data, signature_png=sig_png)
+        except Exception:
+            abort(500)
+        if not pdf:
+            abort(500)
+        return send_file(
+            io.BytesIO(pdf),
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=export_download_filename(item_title or doc_title, ext="pdf"),
+        )
 
     return send_file(
         io.BytesIO(data),
@@ -10356,8 +10375,9 @@ def _send_evaluation_list_export_xlsx(
     item_id: int,
     current_exercise,
     enforce_judge_scope: bool = False,
+    as_pdf: bool = False,
 ):
-    """يبني ملف Excel من ملف القائمة المخزّن في النظام ويرسله للتنزيل."""
+    """يبني ملف Excel أو PDF من ملف القائمة المخزّن في النظام ويرسله للتنزيل."""
     _require_unit_level_row(unit_key)
     row = db.get(EvaluationListPdfItem, item_id)
     if (
@@ -10395,6 +10415,7 @@ def _send_evaluation_list_export_xlsx(
         saved_payload=saved_payload,
         ev=ev,
         saved_row=canon,
+        as_pdf=as_pdf,
     )
 
 
@@ -10419,6 +10440,31 @@ def planner_evaluation_list_export(unit_key: str, item_id: int):
         unit_key=unit_key,
         item_id=item_id,
         current_exercise=current_exercise,
+    )
+
+
+@bp.route(
+    "/planner/evaluation-lists/<unit_key>/view/<int:item_id>/export.pdf",
+    methods=["GET"],
+)
+def planner_evaluation_list_export_pdf(unit_key: str, item_id: int):
+    """تصدير قائمة التقييم إلى PDF مطابق للنظام — مساحة التخطيط."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/planner/evaluation-lists/{unit_key}/view/{item_id}/export.pdf")
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    current_exercise = _admin_current_workspace_exercise(db, user)
+    return _send_evaluation_list_export_xlsx(
+        db=db,
+        user=user,
+        unit_key=unit_key,
+        item_id=item_id,
+        current_exercise=current_exercise,
+        as_pdf=True,
     )
 
 
@@ -10448,6 +10494,32 @@ def judge_evaluation_list_export(unit_key: str, item_id: int):
 
 
 @bp.route(
+    "/judge/evaluation-lists/<unit_key>/view/<int:item_id>/export.pdf",
+    methods=["GET"],
+)
+def judge_evaluation_list_export_pdf(unit_key: str, item_id: int):
+    """تصدير قائمة التقييم إلى PDF مطابق للنظام — مساحة المحكمين."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/judge/evaluation-lists/{unit_key}/view/{item_id}/export.pdf")
+    if not can_access_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    current_exercise = _current_workspace_exercise(db, user)
+    return _send_evaluation_list_export_xlsx(
+        db=db,
+        user=user,
+        unit_key=unit_key,
+        item_id=item_id,
+        current_exercise=current_exercise,
+        enforce_judge_scope=True,
+        as_pdf=True,
+    )
+
+
+@bp.route(
     "/admin/evaluation-lists/<unit_key>/view/<int:item_id>/export.xlsx",
     methods=["GET"],
 )
@@ -10467,6 +10539,30 @@ def admin_evaluation_list_export(unit_key: str, item_id: int):
         unit_key=unit_key,
         item_id=item_id,
         current_exercise=current_exercise,
+    )
+
+
+@bp.route(
+    "/admin/evaluation-lists/<unit_key>/view/<int:item_id>/export.pdf",
+    methods=["GET"],
+)
+def admin_evaluation_list_export_pdf(unit_key: str, item_id: int):
+    """تصدير قائمة التقييم إلى PDF مطابق للنظام — إدارة/كتالوج التخطيط."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect(f"/login?next=/admin/evaluation-lists/{unit_key}/view/{item_id}/export.pdf")
+    _require_planner_hub_catalog_access(user)
+    from flask import g
+
+    db = g.db
+    current_exercise = _admin_current_workspace_exercise(db, user)
+    return _send_evaluation_list_export_xlsx(
+        db=db,
+        user=user,
+        unit_key=unit_key,
+        item_id=item_id,
+        current_exercise=current_exercise,
+        as_pdf=True,
     )
 
 
@@ -10519,6 +10615,59 @@ def judge_planner_flow_action_eval_export(slot: int):
         saved_payload=saved_payload,
         ev=ev,
         saved_row=canon,
+    )
+
+
+@bp.route(
+    "/judge/planner-flow-materials/action/<int:slot>/export.pdf",
+    methods=["GET"],
+)
+def judge_planner_flow_action_eval_export_pdf(slot: int):
+    """تصدير قائمة تقييم المعاضل إلى PDF مطابق للنظام — مساحة المحكمين."""
+    user = get_current_user_optional()
+    if not user:
+        return redirect(
+            f"/login?next=/judge/planner-flow-materials/action/{int(slot)}/export.pdf"
+        )
+    if not can_access_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    pair = _judge_planner_flow_action_bundle_row(db, user, ex, slot)
+    if pair is None or ex is None:
+        abort(404)
+    bundle, action_row = pair
+    path = _planner_bundle_file_abspath(action_row.file_relpath)
+    if path is None:
+        abort(404)
+    ev = _evaluation_sheet_view_context(path, exercise=ex)
+    canon = _planner_bundle_eval_canonical_saved(db, ex.id, action_row.id)
+    saved_payload: dict = {}
+    if canon is not None and (canon.payload_json or "").strip():
+        try:
+            p = json.loads(canon.payload_json)
+            if isinstance(p, dict):
+                saved_payload = p
+        except Exception:
+            saved_payload = {}
+    saved_payload = _saved_payload_aligned_with_eval_rows(saved_payload, ev.get("eval_rows"))
+    item_title = _planner_blob_display_filename(
+        stored_title=action_row.title or "",
+        relpath=action_row.file_relpath or "",
+        fallback=f"قائمة تقييم إجراءات — {slot}",
+    ).strip()
+    return _send_eval_xlsx_file(
+        db=db,
+        source_path=path,
+        item_title=item_title,
+        unit_key=bundle.unit_level_key or "",
+        current_exercise=ex,
+        saved_payload=saved_payload,
+        ev=ev,
+        saved_row=canon,
+        as_pdf=True,
     )
 
 

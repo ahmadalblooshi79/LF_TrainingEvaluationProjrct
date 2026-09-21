@@ -213,6 +213,68 @@ class JudgeElectronicSignatureTests(unittest.TestCase):
         self.assertTrue(png_is_rgba(png))
         validate_transparent_signature_png(png)
 
+    def test_excel_export_writes_acquired_marks(self):
+        from openpyxl import Workbook, load_workbook
+
+        from app.evaluation_list_export import build_evaluation_list_xlsx_bytes
+        from app.evaluation_sheet_parser import read_evaluation_list_sheet
+
+        with TemporaryDirectory() as td:
+            src = Path(td) / "src.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "قائمة التقييم"
+            ws["B1"] = "عنوان القائمة"
+            ws["B2"] = "عناصــــــر التقييـــــم"
+            ws["E2"] = "العلامـــــــات"
+            ws["I2"] = "ملاحظــــــات"
+            ws["E3"] = "القصوى"
+            ws["F3"] = "المكتسبة"
+            ws["G3"] = "النسبة"
+            ws["H3"] = "النتيجة"
+            ws["B4"] = "( أ )"
+            ws["E4"] = "(ب)"
+            ws["F4"] = "(جـ)"
+            for i in range(1, 9):
+                r = 4 + i
+                ws[f"B{r}"] = f"{i}. بند"
+                ws[f"E{r}"] = 5
+                ws[f"F{r}"] = "أدخل العلامة"
+                ws[f"G{r}"] = f"=IFERROR(F{r}/E{r},\"\")"
+            ws["B13"] = "إجمالي العلامات"
+            ws["E13"] = "=SUM(E5:E12)"
+            ws["F13"] = "=SUM(F5:F12)"
+            ws["E20"] = "المحكم:"
+            ws["G20"] = "أدخل اسم المحكم"
+            ws["E21"] = "التوقيع:"
+            wb.save(src)
+            wb.close()
+            eval_rows = read_evaluation_list_sheet(src).get("eval_rows") or []
+            saved = [
+                {"acquired": "4", "notes": "", "row_kind": "score"}
+                for _ in eval_rows
+            ]
+            data = build_evaluation_list_xlsx_bytes(
+                src,
+                doc_title="عنوان القائمة",
+                unit_label="وحدة",
+                date_str="2026-09-07",
+                commander_name="قائد",
+                judge_name="أحمد",
+                eval_rows=eval_rows,
+                saved_rows=saved,
+            )
+        wb2 = load_workbook(io.BytesIO(data))
+        try:
+            ws2 = wb2.active
+            self.assertEqual(ws2["F3"].value, "المكتسبة")
+            self.assertGreaterEqual(len(eval_rows), 8)
+            self.assertEqual(ws2["F5"].value, 4)
+            self.assertEqual(ws2["F7"].value, 4)
+            self.assertEqual(ws2["G20"].value, "أحمد")
+        finally:
+            wb2.close()
+
 
 if __name__ == "__main__":
     unittest.main()

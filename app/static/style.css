@@ -5641,6 +5641,23 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   background: #155c35;
   color: #fff !important;
 }
+.btn--eval-export-pdf {
+  padding: 0.24rem 0.65rem !important;
+  font-size: 0.82rem !important;
+  background: #b42318;
+  color: #fff !important;
+  border: 1px solid #912018;
+  border-radius: 6px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+.btn--eval-export-pdf:hover {
+  background: #912018;
+  color: #fff !important;
+}
 .eval-doc-title-banner {
   margin: 0 0 0.35rem;
   padding: 0.55rem 0.85rem;

@@ -20,11 +20,7 @@
         <h1 class="dilemma-viewer-title"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ item_title }}</h1>
       </div>
       <div class="dilemma-viewer-toolbar__actions">
-        {% if ns.export_href %}
-        <a class="btn btn--eval-export" href="{{ ns.export_href }}" title="تصدير قائمة التقييم إلى Excel">
-          <i class="fa-solid fa-file-excel" aria-hidden="true"></i> تصدير إلى Excel
-        </a>
-        {% endif %}
+        {% include 'partials/eval_export_buttons.html' %}
         {% include 'partials/subpage_close.html' %}
       </div>
     </div>
@@ -96,11 +92,7 @@
       <h1 class="dilemma-viewer-title"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ item_title }}</h1>
     </div>
     <div class="dilemma-viewer-toolbar__actions">
-      {% if ns.export_href %}
-      <a class="btn btn--eval-export" href="{{ ns.export_href }}" title="تصدير قائمة التقييم إلى Excel">
-        <i class="fa-solid fa-file-excel" aria-hidden="true"></i> تصدير إلى Excel
-      </a>
-      {% endif %}
+      {% include 'partials/eval_export_buttons.html' %}
       {% include 'partials/subpage_close.html' %}
     </div>
   </div>

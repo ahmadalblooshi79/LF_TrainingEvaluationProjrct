@@ -372,7 +372,11 @@ def should_skip_evaluation_import_row(
 ) -> bool:
     """صفوف/تذييل يُستبعد من استيراد قائمة التقييم."""
     if excel_row_1based in EVAL_IMPORT_SKIP_ROWS_1BASED:
-        return True
+        mx = parse_max_cell(
+            cells[EVAL_IMPORT_COL_MAX] if len(cells) > EVAL_IMPORT_COL_MAX else ""
+        )
+        if mx is None:
+            return True
     if is_evaluation_import_footer_stop_row(cells):
         return True
     label_blob = _row_text_in_label_columns(cells)

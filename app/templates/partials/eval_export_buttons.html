@@ -1,0 +1,9 @@
+{% if ns.export_href %}
+{% set ns.export_pdf_href = ns.export_href.replace('/export.xlsx', '/export.pdf') %}
+<a class="btn btn--eval-export" href="{{ ns.export_href }}" title="تصدير قائمة التقييم إلى Excel">
+  <i class="fa-solid fa-file-excel" aria-hidden="true"></i> تصدير إلى Excel
+</a>
+<a class="btn btn--eval-export-pdf" href="{{ ns.export_pdf_href }}" title="تصدير قائمة التقييم إلى PDF مطابق للنظام">
+  <i class="fa-solid fa-file-pdf" aria-hidden="true"></i> تصدير PDF
+</a>
+{% endif %}
