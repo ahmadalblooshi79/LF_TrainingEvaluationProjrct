@@ -5,7 +5,7 @@ from io import BytesIO
 from pathlib import Path
 
 try:
-    from reportlab.lib.colors import HexColor, white
+    from reportlab.lib.colors import HexColor
     from reportlab.lib.enums import TA_CENTER, TA_RIGHT
     from reportlab.lib.pagesizes import A3, landscape
     from reportlab.lib.styles import ParagraphStyle
@@ -30,15 +30,11 @@ _FONTS_REGISTERED = False
 
 _HEADERS = [
     "ت",
-    "التوقيت الحقيقي",
-    "توقيت نظام كورا",
-    "من",
-    "إلى",
-    "أنظمة التبليغ",
-    "وصف المعضلة/الحدث",
+    "الوقت",
+    "وصف الحدث/ المعضلة",
     "المكلف بالإجراء والمتابعة",
+    "أسلوب فرض المعضلة",
     "رد الفعل المتوقع",
-    "الملاحظات",
 ]
 
 
@@ -147,7 +143,7 @@ def build_planner_flow_table_pdf(
         fontSize=6.5,
         leading=9,
         alignment=TA_CENTER,
-        textColor=white,
+        textColor=HexColor("#1a1510"),
     )
     merged_style = ParagraphStyle(
         "pfPdfMerged",
@@ -179,31 +175,27 @@ def build_planner_flow_table_pdf(
             merged = [_cell(text, merged_style)] + [""] * (n_cols - 1)
             data.append(merged)
             span_cmds.append(("SPAN", (0, ridx), (-1, ridx)))
-            color = "#fff9c4" if kind == "event" else "#ffcdd2"
+            color = "#ffff00" if kind == "event" else "#e5b8b7"
             bg_cmds.append(("BACKGROUND", (0, ridx), (-1, ridx), HexColor(color)))
             continue
         seq += 1
         values = [
             str(seq),
             str((item or {}).get("time") or ""),
-            str((item or {}).get("time_kora") or ""),
-            str((item or {}).get("time_from") or ""),
-            str((item or {}).get("time_to") or ""),
-            str((item or {}).get("report_systems") or ""),
             str((item or {}).get("description") or ""),
             str((item or {}).get("assignee") or ""),
+            str((item or {}).get("method") or ""),
             str((item or {}).get("reaction") or ""),
-            str((item or {}).get("notes") or ""),
         ]
         data.append([_cell(v, cell_style) for v in reversed(values)])
 
     usable = page[0] - 1.4 * cm
-    widths = [usable * x for x in (0.09, 0.11, 0.13, 0.16, 0.12, 0.07, 0.06, 0.08, 0.10, 0.08)]
+    widths = [usable * x for x in (0.16, 0.18, 0.22, 0.22, 0.16, 0.06)]
     table = Table(data, colWidths=widths, repeatRows=1)
     style_cmds = [
         ("FONTNAME", (0, 0), (-1, 0), _FONT_BOLD),
-        ("BACKGROUND", (0, 0), (-1, 0), HexColor("#6b5344")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), white),
+        ("BACKGROUND", (0, 0), (-1, 0), HexColor("#fbd4b4")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), HexColor("#1a1510")),
         ("ALIGN", (0, 0), (-1, 0), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("GRID", (0, 0), (-1, -1), 0.4, HexColor("#8a7a6c")),

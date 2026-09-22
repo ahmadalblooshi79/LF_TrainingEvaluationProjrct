@@ -192,10 +192,13 @@ from app.information_bank_catalog import (
 from app.evaluation_list_columns import (
     acquired_select_options,
     display_grade_label,
+    eval_header_fields_from_payload,
     grade_allows_judge_approve,
     grade_label_from_percent,
+    merge_eval_narrative_into_payload,
     parse_max_cell,
     payload_rows_missing_required_notes,
+    resolve_eval_narrative_from_payload,
 )
 from app.evaluation_sheet_parser import read_evaluation_list_sheet
 from app.roster_import import parse_roster_rows_from_upload
@@ -284,6 +287,8 @@ def _evaluation_sheet_view_context(fspath: Path, exercise=None) -> dict:
         "sheet_title": sheet.get("sheet_title") or "",
         "eval_doc_title": eval_doc_title_first_line(sheet.get("eval_doc_title") or ""),
         "eval_doc_subtitle": format_eval_exercise_subtitle_from_exercise(exercise),
+        "eval_dilemma_description": str(sheet.get("eval_dilemma_description") or ""),
+        "eval_dilemma_requirements": str(sheet.get("eval_dilemma_requirements") or ""),
         "header_row": sheet.get("header_row") or [],
         "body_rows": sheet.get("body_rows") or [],
         "eval_structured": es,
@@ -299,12 +304,13 @@ def _saved_payload_aligned_with_eval_rows(
     saved_payload: dict | None, eval_rows: list | None
 ) -> dict:
     """يتجاهل حفظاً قديماً بعدد صفوف لا يطابق القالب الحالي (يمنع انحراف المكتسبة والمجاميع)."""
+    header = eval_header_fields_from_payload(saved_payload)
     if not saved_payload or not isinstance(saved_payload, dict):
-        return {}
+        return header
     rows = saved_payload.get("rows") or []
     template = eval_rows or []
     if not template or len(rows) != len(template):
-        return {}
+        return header
     return saved_payload
 
 
@@ -2748,7 +2754,10 @@ def _evaluation_commit_payload_save(
             is_approved=False,
         )
         db.add(saved)
-    saved.payload_json = raw
+    saved.payload_json = json.dumps(
+        merge_eval_narrative_into_payload(payload, saved.payload_json),
+        ensure_ascii=False,
+    )
     saved.total_pct = total_pct
     saved.grade_label = grade
     saved.saved_by_id = getattr(user, "id", None)
@@ -2833,7 +2842,10 @@ def _planner_bundle_eval_commit_payload_save(
             is_approved=False,
         )
         db.add(saved)
-    saved.payload_json = raw
+    saved.payload_json = json.dumps(
+        merge_eval_narrative_into_payload(payload, saved.payload_json),
+        ensure_ascii=False,
+    )
     saved.total_pct = total_pct
     saved.grade_label = grade
     saved.saved_by_id = getattr(user, "id", None)
@@ -9850,18 +9862,19 @@ def planner_action_eval_lists_withdraw_all():
         exercise_id=int(ex.id),
         phase_key=phase_key,
         flow_day_id=flow_day_id,
+        keep_by_unit=_parse_eval_list_publish_selections(request.form),
     )
     db.commit()
     removed = int(stats.get("removed") or 0)
     kept = int(stats.get("skipped_with_results") or 0)
     if removed:
-        ok = f"تم سحب نشر {removed} قائمة غير مستخدمة لهذا اليوم."
+        ok = f"تم سحب نشر {removed} قائمة غير محددة لهذا اليوم."
         if kept:
             ok += f" بقيت {kept} قائمة ذات نتائج."
     elif kept:
-        ok = "لا توجد قوائم غير مستخدمة لسحبها. القوائم ذات النتائج بقيت."
+        ok = "لا توجد قوائم غير محددة بدون نتائج لسحبها. القوائم ذات النتائج بقيت."
     else:
-        ok = "لا توجد قوائم منشورة لسحبها في هذا اليوم."
+        ok = "لا توجد قوائم غير محددة لسحبها في هذا اليوم."
     return _action_eval_lists_redirect(flow_day_id=flow_day_id, ok=ok)
 
 
@@ -10325,6 +10338,11 @@ def _send_eval_xlsx_file(
         exercise_subtitle=(ev.get("eval_doc_subtitle") or "").strip(),
         item_title_fallback=item_title,
     )
+    dilemma_description, dilemma_requirements = resolve_eval_narrative_from_payload(
+        saved_payload,
+        excel_description=(ev.get("eval_dilemma_description") or ""),
+        excel_requirements=(ev.get("eval_dilemma_requirements") or ""),
+    )
     sig_png = snapshot_png(saved_row)
     try:
         data = build_evaluation_list_xlsx_bytes(
@@ -10336,6 +10354,8 @@ def _send_eval_xlsx_file(
             judge_name=judge_name or "",
             eval_rows=ev.get("eval_rows") or [],
             saved_rows=(saved_payload.get("rows") or []) if saved_payload else [],
+            dilemma_description=dilemma_description,
+            dilemma_requirements=dilemma_requirements,
             signature_png=sig_png,
             approved_at=getattr(saved_row, "approved_at", None) if saved_row else None,
             materialize_computed=True,
@@ -16277,18 +16297,19 @@ def admin_evaluation_lists_withdraw_all_from_ibank():
         db,
         exercise_id=int(ex.id),
         phase_key=phase_key,
+        keep_by_unit=_parse_eval_list_publish_selections(request.form),
     )
     db.commit()
     removed = int(stats.get("removed") or 0)
     kept = int(stats.get("skipped_with_results") or 0)
     if removed:
-        ok = f"تم سحب نشر {removed} قائمة غير مستخدمة لهذه المرحلة."
+        ok = f"تم سحب نشر {removed} قائمة غير محددة لهذه المرحلة."
         if kept:
             ok += f" بقيت {kept} قائمة ذات نتائج."
     elif kept:
-        ok = "لا توجد قوائم غير مستخدمة لسحبها. القوائم ذات النتائج بقيت."
+        ok = "لا توجد قوائم غير محددة بدون نتائج لسحبها. القوائم ذات النتائج بقيت."
     else:
-        ok = "لا توجد قوائم منشورة لسحبها في هذه المرحلة."
+        ok = "لا توجد قوائم غير محددة لسحبها في هذه المرحلة."
     return _eval_lists_redirect(phase_key=phase_key, ok=ok)
 
 
@@ -19183,9 +19204,12 @@ def _apply_exercise_workspace_form(ex: Exercise) -> None:
         ex.specific_idea_text = join_idea_paragraphs(specific_paras)
     else:
         ex.specific_idea_text = (request.form.get("specific_idea_text") or "").strip()
-    ex.program_text = (request.form.get("program_text") or "").strip()
-    ex.program_table_json = (request.form.get("program_table_json") or "").strip()
-    ex.map_text = (request.form.get("map_text") or "").strip()
+    if "program_text" in request.form:
+        ex.program_text = (request.form.get("program_text") or "").strip()
+    if "program_table_json" in request.form:
+        ex.program_table_json = (request.form.get("program_table_json") or "").strip()
+    if "map_text" in request.form:
+        ex.map_text = (request.form.get("map_text") or "").strip()
 
 
 @bp.route("/exercises/<int:eid>", methods=["GET", "POST"])
@@ -19252,6 +19276,12 @@ def exercise_detail(eid):
             general_idea_paragraphs=general_idea_paragraphs,
             specific_idea_paragraphs=specific_idea_paragraphs,
             exercise_import_pptx_url=url_for("views.exercise_import_pptx", eid=int(eid)),
+            program_image_url=_workspace_image_view_url(
+                int(eid), "program", getattr(ex, "program_image_relpath", None) or ""
+            ),
+            map_image_url=_workspace_image_view_url(
+                int(eid), "map", getattr(ex, "map_image_relpath", None) or ""
+            ),
             exercise_papers_kind=papers_kind,
             exercise_papers_tree=build_tree_payload(db, papers_kind),
             library_kind_title=library_kind_title,
@@ -19287,6 +19317,98 @@ def exercise_import_pptx(eid: int):
     if not parsed.get("ok"):
         return jsonify(parsed), 400
     return jsonify(parsed)
+
+
+def _workspace_image_view_url(eid: int, kind: str, relpath: str) -> str:
+    if not (relpath or "").strip():
+        return ""
+    return url_for(
+        "views.exercise_workspace_image",
+        eid=int(eid),
+        kind=kind,
+        v=(relpath or "").replace("\\", "/"),
+    )
+
+
+@bp.route("/exercises/<int:eid>/workspace-image/<kind>", methods=["GET", "POST"])
+def exercise_workspace_image(eid: int, kind: str):
+    from app.exercise_workspace_images import (
+        WORKSPACE_IMAGE_KINDS,
+        delete_workspace_image,
+        save_workspace_image,
+        send_workspace_image,
+    )
+
+    k = (kind or "").strip().lower()
+    if k not in WORKSPACE_IMAGE_KINDS:
+        abort(404)
+    user = get_current_user_optional()
+    if not user:
+        if request.method == "POST":
+            return jsonify({"ok": False, "error": "auth"}), 401
+        abort(401)
+    from flask import g
+
+    db = g.db
+    ex = db.query(Exercise).filter(Exercise.id == eid).first()
+    if not ex:
+        if request.method == "POST":
+            return jsonify({"ok": False, "error": "not_found"}), 404
+        abort(404)
+    attr = f"{k}_image_relpath"
+    if request.method == "GET":
+        return send_workspace_image(
+            getattr(ex, attr, None) or "",
+            download_name=f"{k}.jpg",
+        )
+    if not can_plan_exercises(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    up = request.files.get("image_file")
+    if up is None or not (up.filename or "").strip():
+        return jsonify({"ok": False, "error": "no_file"}), 400
+    raw = up.read()
+    if not raw:
+        return jsonify({"ok": False, "error": "empty_file"}), 400
+    try:
+        rel = save_workspace_image(int(eid), k, up.filename or "", raw)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": "bad_image", "message": str(exc)}), 400
+    old = (getattr(ex, attr, None) or "").strip()
+    if old and old != rel:
+        delete_workspace_image(old)
+    setattr(ex, attr, rel)
+    db.commit()
+    return jsonify({"ok": True, "relpath": rel, "tab": k})
+
+
+@bp.route("/exercises/<int:eid>/workspace-image/<kind>/delete", methods=["POST"])
+def exercise_workspace_image_delete(eid: int, kind: str):
+    from app.exercise_workspace_images import (
+        WORKSPACE_IMAGE_KINDS,
+        delete_workspace_image,
+    )
+
+    k = (kind or "").strip().lower()
+    if k not in WORKSPACE_IMAGE_KINDS:
+        abort(404)
+    user = get_current_user_optional()
+    if not user:
+        return jsonify({"ok": False, "error": "auth"}), 401
+    if not can_plan_exercises(user):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+    from flask import g
+
+    db = g.db
+    ex = db.query(Exercise).filter(Exercise.id == eid).first()
+    if not ex:
+        return jsonify({"ok": False, "error": "not_found"}), 404
+    attr = f"{k}_image_relpath"
+    old = (getattr(ex, attr, None) or "").strip()
+    if old:
+        delete_workspace_image(old)
+    setattr(ex, attr, "")
+    db.commit()
+    return jsonify({"ok": True, "tab": k})
 
 
 def _exercise_papers_redirect(eid: int, *, ok: str = "", err: str = ""):

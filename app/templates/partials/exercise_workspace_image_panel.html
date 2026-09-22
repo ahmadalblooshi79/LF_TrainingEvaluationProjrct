@@ -1,0 +1,24 @@
+{# إدراج صورة PNG/JPG لتبويب البرنامج أو الخريطة — يتوقع: img_kind, img_label, img_url #}
+<div class="exercise-workspace-image-panel" data-image-kind="{{ img_kind }}" data-upload-url="{{ url_for('views.exercise_workspace_image', eid=ex.id, kind=img_kind) }}" data-delete-url="{{ url_for('views.exercise_workspace_image_delete', eid=ex.id, kind=img_kind) }}">
+  {% if can_plan %}
+  <div class="exercise-workspace-image-bar">
+    <button type="button" class="btn btn-sm-compact exercise-workspace-image-pick">
+      <i class="fa-solid fa-image" aria-hidden="true"></i> إدراج صورة
+    </button>
+    <input type="file" class="exercise-workspace-image-input" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden>
+    {% if img_url %}
+    <button type="button" class="btn btn-ghost btn-sm-compact exercise-workspace-image-delete">
+      <i class="fa-solid fa-trash" aria-hidden="true"></i> حذف الصورة
+    </button>
+    {% endif %}
+    <span class="muted exercise-workspace-image-status" role="status" aria-live="polite"></span>
+  </div>
+  {% endif %}
+  {% if img_url %}
+  <figure class="exercise-workspace-image-figure">
+    <img src="{{ img_url }}" alt="{{ img_label }}">
+  </figure>
+  {% else %}
+  <p class="muted exercise-workspace-empty">لا توجد صورة مدرجة بعد. أدرج ملف PNG أو JPG.</p>
+  {% endif %}
+</div>

@@ -220,6 +220,7 @@ class TabletRepository {
     } catch (_) {}
     try {
       await _downloadAndStore('/api/tablet/exercise-details', 'exercise_details');
+      await cacheExerciseWorkspaceImages();
     } catch (_) {}
     try {
       await _downloadAndStore('/api/tablet/polarity-notes', 'polarity_notes');
@@ -561,6 +562,51 @@ class TabletRepository {
     return _readLocalFirst('/api/tablet/exercise-details', 'exercise_details');
   }
 
+  Future<void> cacheExerciseWorkspaceImages({
+    Map<String, dynamic>? details,
+    String Function(String kind)? pathForKind,
+  }) async {
+    Map<String, dynamic>? data = details;
+    data ??= await _cacheGetScoped('exercise_details');
+    final ex = data?['exercise'];
+    if (ex is! Map) return;
+    for (final kind in const ['program', 'map']) {
+      if (ex['has_$kind'] != true) continue;
+      try {
+        final path = pathForKind != null
+            ? pathForKind(kind)
+            : '/api/tablet/exercise-details/image/$kind';
+        final bytes = await ApiClient.instance.getBytes(
+          path,
+          timeout: const Duration(seconds: 60),
+        );
+        if (bytes.isNotEmpty) {
+          await LibraryPdfCache.putNamed('exercise_image_$kind', bytes);
+        }
+      } catch (_) {}
+    }
+  }
+
+  Future<List<int>?> fetchExerciseWorkspaceImage(String kind) async {
+    final cacheName = 'exercise_image_$kind';
+    final cached = await LibraryPdfCache.getNamed(cacheName);
+    try {
+      final reachable = await HealthService.instance.check();
+      if (reachable) {
+        final bytes = await ApiClient.instance.getBytes(
+          '/api/tablet/exercise-details/image/$kind',
+          timeout: const Duration(seconds: 60),
+        );
+        if (bytes.isNotEmpty) {
+          await LibraryPdfCache.putNamed(cacheName, bytes);
+          return bytes;
+        }
+      }
+    } catch (_) {}
+    if (cached != null && cached.isNotEmpty) return cached;
+    return null;
+  }
+
   /// عرض PDF من المخزون المحلي أولاً؛ التنزيل من السيرفر فقط إن لم يُحفظ بعد.
   Future<List<int>> fetchLibraryPdf(int nodeId) async {
     final cached = await LibraryPdfCache.get(nodeId);
@@ -717,15 +763,30 @@ class TabletRepository {
     return Fetched(EvalSheetDetail.fromJson(r.data), r.fromCache);
   }
 
-  Future<bool> saveActionEvalResults(int slot, List<EvalRowInput> rows) async {
+  Future<bool> saveActionEvalResults(
+    int slot,
+    List<EvalRowInput> rows, {
+    String dilemmaDescription = '',
+    String dilemmaRequirements = '',
+  }) async {
     final key = 'action_eval_detail:$slot';
-    await _patchCachedSheet(key, rows, syncStatus: SyncStatuses.pending);
+    await _patchCachedSheet(
+      key,
+      rows,
+      syncStatus: SyncStatuses.pending,
+      dilemmaDescription: dilemmaDescription,
+      dilemmaRequirements: dilemmaRequirements,
+    );
     await SyncService.instance.enqueueLocalFirst(
       id: newClientOpId('save-ae-$slot'),
       method: 'PUT',
       path: '/api/tablet/action-eval/$slot/results',
       body: {
-        'payload': {'rows': rows.map((r) => r.toJson()).toList()},
+        'payload': {
+          'rows': rows.map((r) => r.toJson()).toList(),
+          'dilemma_description': dilemmaDescription,
+          'dilemma_requirements': dilemmaRequirements,
+        },
       },
       kind: 'حفظ نتائج تقييم إجراءات #$slot',
       opType: 'save_results',
@@ -826,16 +887,28 @@ class TabletRepository {
   Future<bool> saveEvaluationListResults(
     String unitKey,
     int itemId,
-    List<EvalRowInput> rows,
-  ) async {
+    List<EvalRowInput> rows, {
+    String dilemmaDescription = '',
+    String dilemmaRequirements = '',
+  }) async {
     final key = 'evaluation_list_detail:$unitKey:$itemId';
-    await _patchCachedSheet(key, rows, syncStatus: SyncStatuses.pending);
+    await _patchCachedSheet(
+      key,
+      rows,
+      syncStatus: SyncStatuses.pending,
+      dilemmaDescription: dilemmaDescription,
+      dilemmaRequirements: dilemmaRequirements,
+    );
     await SyncService.instance.enqueueLocalFirst(
       id: newClientOpId('save-el-$itemId'),
       method: 'PUT',
       path: '/api/tablet/evaluation-lists/$unitKey/$itemId/results',
       body: {
-        'payload': {'rows': rows.map((r) => r.toJson()).toList()},
+        'payload': {
+          'rows': rows.map((r) => r.toJson()).toList(),
+          'dilemma_description': dilemmaDescription,
+          'dilemma_requirements': dilemmaRequirements,
+        },
       },
       kind: 'حفظ نتائج قائمة تقييم #$itemId',
       opType: 'save_results',
@@ -887,13 +960,23 @@ class TabletRepository {
     String cacheKey,
     List<EvalRowInput> rows, {
     String syncStatus = SyncStatuses.pending,
+    String dilemmaDescription = '',
+    String dilemmaRequirements = '',
   }) async {
     final cached = await _cacheGetScoped(cacheKey) ??
         <String, dynamic>{};
+    final existingPayload = cached['saved_payload'] is Map
+        ? Map<String, dynamic>.from(cached['saved_payload'] as Map)
+        : <String, dynamic>{};
     cached['saved_rows'] = rows.map((r) => r.toJson()).toList();
     cached['saved_payload'] = {
+      ...existingPayload,
       'rows': rows.map((r) => r.toJson()).toList(),
+      'dilemma_description': dilemmaDescription,
+      'dilemma_requirements': dilemmaRequirements,
     };
+    cached['eval_dilemma_description'] = dilemmaDescription;
+    cached['eval_dilemma_requirements'] = dilemmaRequirements;
     cached['locally_modified'] = true;
     cached['can_approve'] = true;
     cached['can_edit'] = true;

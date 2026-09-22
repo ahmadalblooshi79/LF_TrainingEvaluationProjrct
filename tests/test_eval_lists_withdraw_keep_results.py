@@ -8,18 +8,21 @@ from app.action_eval_ibank_sync import (
     delete_published_action_eval_slot,
     publish_action_eval_lists_from_ibank,
     withdraw_action_eval_for_units_removed_from_flow,
+    withdraw_all_action_eval_for_day,
 )
 from app.database import Base
 from app.evaluation_list_ibank_sync import (
     delete_published_evaluation_list_item,
     prune_ibank_evaluation_lists_not_in_roster,
     sync_evaluation_lists_from_ibank,
+    withdraw_all_evaluation_lists_for_phase,
 )
 from app.models import (
     EvaluationListPdfItem,
     EvaluationListSavedResult,
     ExercisePlannerFlowBundle,
     ExercisePlannerFlowBundleActionEval,
+    InformationBankTreeNode,
     PlannerFlowBundleEvalSavedResult,
     RoleKey,
     User,
@@ -112,6 +115,45 @@ class EvalListWithdrawKeepResultsTests(unittest.TestCase):
         self.assertEqual(int(stats.get("removed") or 0), 0)
         self.assertIsNotNone(self.db.get(EvaluationListPdfItem, int(item.id)))
 
+    def test_withdraw_unselected_keeps_checked_and_drops_unchecked(self):
+        keep = self._add_item(node_id=31, text="تبقى")
+        drop = self._add_item(node_id=32, text="تُسحب")
+        stats = withdraw_all_evaluation_lists_for_phase(
+            self.db,
+            exercise_id=1,
+            phase_key="preparation",
+            keep_by_unit={"ul_mech2_bn_c1": {31}},
+        )
+        self.db.flush()
+        self.assertEqual(int(stats.get("removed") or 0), 1)
+        self.assertIsNotNone(self.db.get(EvaluationListPdfItem, int(keep.id)))
+        self.assertIsNone(self.db.get(EvaluationListPdfItem, int(drop.id)))
+
+    def test_withdraw_unselected_keeps_unchecked_item_with_results(self):
+        keep = self._add_item(node_id=33, text="تبقى")
+        blocked = self._add_item(node_id=34, text="نتائج")
+        self.db.add(
+            EvaluationListSavedResult(
+                evaluation_item_id=int(blocked.id),
+                exercise_id=1,
+                exercise_phase="preparation",
+                unit_level_key="ul_mech2_bn_c1",
+                payload_json="{}",
+            )
+        )
+        self.db.flush()
+        stats = withdraw_all_evaluation_lists_for_phase(
+            self.db,
+            exercise_id=1,
+            phase_key="preparation",
+            keep_by_unit={"ul_mech2_bn_c1": {33}},
+        )
+        self.db.flush()
+        self.assertEqual(int(stats.get("removed") or 0), 0)
+        self.assertGreaterEqual(int(stats.get("skipped_with_results") or 0), 1)
+        self.assertIsNotNone(self.db.get(EvaluationListPdfItem, int(keep.id)))
+        self.assertIsNotNone(self.db.get(EvaluationListPdfItem, int(blocked.id)))
+
     def test_prune_roster_is_noop(self):
         item = self._add_item(node_id=13)
         removed = prune_ibank_evaluation_lists_not_in_roster(
@@ -165,16 +207,28 @@ class ActionEvalWithdrawKeepResultsTests(unittest.TestCase):
     def tearDown(self):
         self.db.close()
 
-    def _add_slot(self, *, node_id: int) -> ExercisePlannerFlowBundleActionEval:
+    def _add_slot(self, *, node_id: int, slot_index: int = 1) -> ExercisePlannerFlowBundleActionEval:
         slot = ExercisePlannerFlowBundleActionEval(
             bundle_id=int(self.bundle.id),
-            slot_index=1,
+            slot_index=int(slot_index),
             title="قائمة معضلة",
             file_relpath=f"{int(self.bundle.id)}/ibn_{int(node_id)}.xlsx",
         )
         self.db.add(slot)
         self.db.flush()
         return slot
+
+    def _add_tree_file(self, node_id: int) -> None:
+        self.db.add(
+            InformationBankTreeNode(
+                id=int(node_id),
+                kind="action_eval",
+                name=f"list {node_id}",
+                is_folder=False,
+                catalog_unit_key="ul_brigade_grp_cmd",
+            )
+        )
+        self.db.flush()
 
     def test_withdraw_keeps_slot_with_saved_result(self):
         slot = self._add_slot(node_id=21)
@@ -237,6 +291,42 @@ class ActionEvalWithdrawKeepResultsTests(unittest.TestCase):
             .filter(PlannerFlowBundleEvalSavedResult.bundle_action_eval_id == slot_id)
             .first()
         )
+
+    def test_withdraw_unselected_keeps_checked_and_drops_unchecked(self):
+        self._add_tree_file(41)
+        self._add_tree_file(42)
+        keep = self._add_slot(node_id=41, slot_index=1)
+        drop = self._add_slot(node_id=42, slot_index=2)
+        stats = publish_action_eval_lists_from_ibank(
+            self.db,
+            exercise_id=1,
+            phase_key="preparation",
+            unit_key="ul_brigade_grp_cmd",
+            selected_node_ids={41},
+            allow_remove=True,
+            withdraw_only=True,
+        )
+        self.db.flush()
+        self.assertEqual(int(stats.get("removed") or 0), 1)
+        self.assertIsNotNone(self.db.get(ExercisePlannerFlowBundleActionEval, int(keep.id)))
+        self.assertIsNone(self.db.get(ExercisePlannerFlowBundleActionEval, int(drop.id)))
+
+    def test_withdraw_all_for_day_honors_keep_by_unit(self):
+        self._add_tree_file(51)
+        self._add_tree_file(52)
+        keep = self._add_slot(node_id=51, slot_index=1)
+        drop = self._add_slot(node_id=52, slot_index=2)
+        stats = withdraw_all_action_eval_for_day(
+            self.db,
+            exercise_id=1,
+            phase_key="preparation",
+            flow_day_id="",
+            keep_by_unit={"ul_brigade_grp_cmd": {51}},
+        )
+        self.db.flush()
+        self.assertEqual(int(stats.get("removed") or 0), 1)
+        self.assertIsNotNone(self.db.get(ExercisePlannerFlowBundleActionEval, int(keep.id)))
+        self.assertIsNone(self.db.get(ExercisePlannerFlowBundleActionEval, int(drop.id)))
 
 
 class AdminDeleteRoutePermissionTests(unittest.TestCase):

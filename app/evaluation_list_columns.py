@@ -1,6 +1,7 @@
 """مطابقة أعمدة ورقة تقييم Excel وخيارات عمود «المكتسبة»."""
 from __future__ import annotations
 
+import json
 from typing import Any
 
 
@@ -238,6 +239,141 @@ def extract_eval_doc_title_from_grid(grid: list[list[str]]) -> str:
         if t:
             return t
     return ""
+
+
+EVAL_NARRATIVE_DESC_LABEL = "وصف المعضلة"
+EVAL_NARRATIVE_REQ_LABEL = "متطلبات تنفيذ المعضلة"
+EVAL_NARRATIVE_PAYLOAD_KEYS = ("dilemma_description", "dilemma_requirements")
+
+
+def _grid_row_blob(grid: list[list[str]], row_index: int) -> str:
+    if row_index < 0 or row_index >= len(grid):
+        return ""
+    row = grid[row_index] or []
+    parts: list[str] = []
+    for ci in range(EVAL_IMPORT_COL_ELEMENTS, min(len(row), 10)):
+        t = normalize_ar_header(row[ci] or "")
+        if t:
+            parts.append(t)
+    return " ".join(parts).strip()
+
+
+def _looks_like_eval_column_header_text(text: str) -> bool:
+    t = normalize_ar_header(text or "")
+    if not t:
+        return False
+    if "قصوى" in t or "مكتسب" in t:
+        return True
+    return "عناصر" in t and "تقييم" in t
+
+
+def _strip_eval_narrative_label(raw: str, label: str) -> str:
+    text = (raw or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return ""
+    compact = normalize_ar_header(text)
+    compact_label = normalize_ar_header(label)
+    if compact.startswith(compact_label):
+        # أزل التسمية من بداية النص مع النقطتين إن وُجدت
+        idx = text.find(":")
+        idx2 = text.find("：")
+        cut = -1
+        if idx >= 0:
+            cut = idx
+        if idx2 >= 0 and (cut < 0 or idx2 < cut):
+            cut = idx2
+        if cut >= 0 and normalize_ar_header(text[:cut]) == compact_label:
+            return text[cut + 1 :].lstrip()
+        if compact == compact_label:
+            return ""
+    return text
+
+
+def format_eval_narrative_cell(label: str, body: str | None) -> str:
+    """خلية صف 2 أو 3: التسمية ثم النص."""
+    text = (body or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return f"{label}:"
+    compact = normalize_ar_header(text)
+    compact_label = normalize_ar_header(label)
+    if compact.startswith(compact_label):
+        return text
+    if "\n" in text:
+        return f"{label}:\n{text}"
+    return f"{label}: {text}"
+
+
+def extract_eval_header_narrative(grid: list[list[str]]) -> tuple[str, str]:
+    """
+    صف 2 = وصف المعضلة، صف 3 = متطلبات تنفيذ المعضلة — إن وُجدت التسميات.
+    لا يلتقط صف الوحدة/التاريخ ولا صف عناوين الأعمدة.
+    """
+    desc = ""
+    req = ""
+    if len(grid) >= 2:
+        raw2 = ""
+        row1 = grid[1] or []
+        if len(row1) > EVAL_IMPORT_COL_ELEMENTS:
+            raw2 = str(row1[EVAL_IMPORT_COL_ELEMENTS] or "")
+        blob2 = _grid_row_blob(grid, 1)
+        if EVAL_NARRATIVE_DESC_LABEL in blob2 and not _looks_like_eval_column_header_text(blob2):
+            desc = _strip_eval_narrative_label(raw2 or blob2, EVAL_NARRATIVE_DESC_LABEL)
+    if len(grid) >= 3:
+        raw3 = ""
+        row2 = grid[2] or []
+        if len(row2) > EVAL_IMPORT_COL_ELEMENTS:
+            raw3 = str(row2[EVAL_IMPORT_COL_ELEMENTS] or "")
+        blob3 = _grid_row_blob(grid, 2)
+        if EVAL_NARRATIVE_REQ_LABEL in blob3 and not _looks_like_eval_column_header_text(blob3):
+            req = _strip_eval_narrative_label(raw3 or blob3, EVAL_NARRATIVE_REQ_LABEL)
+    return desc, req
+
+
+def resolve_eval_narrative_from_payload(
+    saved_payload: dict | None,
+    *,
+    excel_description: str = "",
+    excel_requirements: str = "",
+) -> tuple[str, str]:
+    """النص المحفوظ يتقدّم على Excel؛ المفتاح الغائب يُستبدل بقيمة الملف."""
+    desc = excel_description or ""
+    req = excel_requirements or ""
+    if isinstance(saved_payload, dict):
+        if "dilemma_description" in saved_payload:
+            desc = str(saved_payload.get("dilemma_description") or "")
+        if "dilemma_requirements" in saved_payload:
+            req = str(saved_payload.get("dilemma_requirements") or "")
+    return desc, req
+
+
+def merge_eval_narrative_into_payload(
+    incoming: dict, existing_raw: str | None
+) -> dict:
+    """يحافظ على صفّي الوصف/المتطلبات إن أرسل التابلت حمولات بلا هذه المفاتيح."""
+    out = dict(incoming or {})
+    existing: dict[str, Any] = {}
+    if existing_raw and str(existing_raw).strip():
+        try:
+            parsed = json.loads(existing_raw)
+            if isinstance(parsed, dict):
+                existing = parsed
+        except Exception:
+            existing = {}
+    for key in EVAL_NARRATIVE_PAYLOAD_KEYS:
+        if key not in out and key in existing:
+            out[key] = existing.get(key) or ""
+    return out
+
+
+def eval_header_fields_from_payload(saved_payload: dict | None) -> dict[str, str]:
+    if not saved_payload or not isinstance(saved_payload, dict):
+        return {}
+    out: dict[str, str] = {}
+    for key in EVAL_NARRATIVE_PAYLOAD_KEYS:
+        if key in saved_payload:
+            out[key] = str(saved_payload.get(key) or "")
+    return out
+
 
 EVAL_IMPORT_SKIP_ROWS_1BASED = frozenset({1, 2, 3, 4, 7})
 

@@ -11,6 +11,7 @@ from app.evaluation_list_columns import (
     annotate_evaluation_row_kinds,
     build_structured_rows,
     extract_eval_doc_title_from_grid,
+    extract_eval_header_narrative,
     import_body_end_row_index,
     normalize_ar_header,
     parse_max_cell,
@@ -182,6 +183,8 @@ def read_evaluation_list_sheet(path: Path, *, sheet_index: int = 0) -> dict[str,
     out: dict[str, Any] = {
         "sheet_title": base.get("sheet_title") or "",
         "eval_doc_title": "",
+        "eval_dilemma_description": "",
+        "eval_dilemma_requirements": "",
         "grid_rows": base.get("grid_rows") or [],
         "header_row": [],
         "body_rows": [],
@@ -209,6 +212,9 @@ def read_evaluation_list_sheet(path: Path, *, sheet_index: int = 0) -> dict[str,
     out["header_row"] = grid[0]
     out["body_rows"] = grid[1:] if len(grid) > 1 else []
     out["eval_doc_title"] = extract_eval_doc_title_from_grid(grid)
+    desc, req = extract_eval_header_narrative(grid)
+    out["eval_dilemma_description"] = desc
+    out["eval_dilemma_requirements"] = req
 
     rubric_i = _find_rubric_subheader_row_index(grid)
 

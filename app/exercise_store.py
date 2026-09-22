@@ -345,7 +345,9 @@ def exercise_to_export_dict(ex: Exercise, db: Session) -> dict[str, Any]:
             "specific_idea_text": getattr(ex, "specific_idea_text", None) or "",
             "program_text": getattr(ex, "program_text", None) or "",
             "program_table_json": getattr(ex, "program_table_json", None) or "",
+            "program_image_relpath": getattr(ex, "program_image_relpath", None) or "",
             "map_text": getattr(ex, "map_text", None) or "",
+            "map_image_relpath": getattr(ex, "map_image_relpath", None) or "",
             "status": ex.status or "",
             "owner_id": ex.owner_id,
             "planned_start": _iso(ex.planned_start),
@@ -2468,7 +2470,9 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
         specific_idea_text=str(exj.get("specific_idea_text") or ""),
         program_text=str(exj.get("program_text") or ""),
         program_table_json=str(exj.get("program_table_json") or ""),
+        program_image_relpath="",
         map_text=str(exj.get("map_text") or ""),
+        map_image_relpath="",
         status=status,
         owner_id=mapped_owner,
         planned_start=_parse_dt(exj.get("planned_start")),
@@ -2479,6 +2483,24 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
     )
     db.add(ex)
     db.flush()
+
+    try:
+        from app.exercise_workspace_images import (
+            save_workspace_image,
+            workspace_image_abspath,
+        )
+
+        for kind, key in (("program", "program_image_relpath"), ("map", "map_image_relpath")):
+            src = workspace_image_abspath(str(exj.get(key) or ""))
+            if src is None:
+                continue
+            setattr(
+                ex,
+                key,
+                save_workspace_image(int(ex.id), kind, src.name, src.read_bytes()),
+            )
+    except Exception:
+        pass
 
     # استخدم المالك الفعلي للتمرين كمرجع احتياطي لربط المعرّفات
     owner_id = mapped_owner

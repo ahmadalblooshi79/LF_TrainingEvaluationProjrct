@@ -20,6 +20,7 @@
     </div>
 
     {% include 'partials/eval_doc_title_banner.html' %}
+    {% include 'partials/eval_dilemma_header_fields.html' %}
 
     <div class="eval-top-messages eval-banner-row--compact" dir="ltr">
       {% if saved_is_approved %}
@@ -90,6 +91,8 @@
   {% if preview_error %}
   <p class="form-error-banner" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> {{ preview_error }}</p>
   {% endif %}
+
+  {% include 'partials/eval_dilemma_header_fields.html' %}
 
   {% if header_row %}
   <section class="card eval-info-card" dir="rtl" style="margin:0 0 0.75rem;">

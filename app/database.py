@@ -58,6 +58,8 @@ def ensure_exercise_extended_columns() -> None:
         ("program_text", "TEXT"),
         ("program_table_json", "TEXT"),
         ("map_text", "TEXT"),
+        ("program_image_relpath", "VARCHAR(500)"),
+        ("map_image_relpath", "VARCHAR(500)"),
     ]
     stmts = [
         f"ALTER TABLE exercises ADD COLUMN {name} {typ} DEFAULT ''"

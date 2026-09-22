@@ -1,9 +1,9 @@
 """مزامنة قوائم تقييم الإجراءات من بنك المعلومات (action_eval) إلى حزم المجرى.
 
 قاعدة السحب (صريحة): لا سحب تلقائي لقوائم تقييم المعاضل بأي شكل.
-السحب يدوي فقط عبر أزرار «سحب» / «سحب القوائم» في مساحة التخطيط.
+السحب يدوي فقط عبر أزرار «سحب» / «سحب غير المحددة» في مساحة التخطيط.
 القوائم ذات النتائج أو العلامات لا تُسحب حتى عند الطلب اليدوي.
-القوائم غير المستخدمة (بدون نتائج) تُسحب عند الطلب اليدوي فقط.
+زر «سحب غير المحددة» يسحب القوائم المنشورة غير المؤشَّر عليها فقط.
 لا سحب عند حفظ المجرى، حفظ المحكمين، مزامنة البنك، أو اختفاء عقدة.
 """
 from __future__ import annotations
@@ -1893,11 +1893,13 @@ def publish_action_eval_lists_from_ibank(
     dilemma_by_node: dict[int, int] | None = None,
     flow_day_id: str | None = None,
     allow_remove: bool = False,
+    withdraw_only: bool = False,
 ) -> dict[str, int]:
     """نشر قوائم مختارة إلى حزمة المجرى (مرحلة × مستوى وحدة).
 
     النشر لا يسحب قوائم غير محددة. السحب فقط إذا allow_remove=True (طلب يدوي).
     القوائم ذات النتائج لا تُحذف حتى عند السحب اليدوي.
+    withdraw_only: يسحب غير الموجودة في selected_node_ids دون نشر أي قائمة جديدة.
     """
     uk = _resolve_unit_key(unit_key, db) or normalize_unit_level_key(unit_key)
     pk = _resolve_phase_key(phase_key, db) or normalize_exercise_phase(phase_key)
@@ -1932,40 +1934,42 @@ def publish_action_eval_lists_from_ibank(
         .all()
     )
     moved_from_other = 0
-    for ob in other_bundles:
-        for nid, slot in list(_published_slots_by_node(db, ob).items()):
-            if selected_node_ids and int(nid) not in selected_node_ids:
-                continue
-            node = db.get(InformationBankTreeNode, int(nid))
-            if want_day and not _published_item_matches_day(
-                db, want_day, slot=slot, node=node
-            ):
-                continue
-            if _move_action_eval_slot_to_bundle(db, slot, bundle):
-                moved_from_other += 1
-                updated += 1
-    if moved_from_other:
-        db.flush()
-        by_node = _published_slots_by_node(db, bundle)
+    if not withdraw_only:
+        for ob in other_bundles:
+            for nid, slot in list(_published_slots_by_node(db, ob).items()):
+                if selected_node_ids and int(nid) not in selected_node_ids:
+                    continue
+                node = db.get(InformationBankTreeNode, int(nid))
+                if want_day and not _published_item_matches_day(
+                    db, want_day, slot=slot, node=node
+                ):
+                    continue
+                if _move_action_eval_slot_to_bundle(db, slot, bundle):
+                    moved_from_other += 1
+                    updated += 1
+        if moved_from_other:
+            db.flush()
+            by_node = _published_slots_by_node(db, bundle)
 
     # إن كان التحديد قوائم جديدة فقط (بدون أي منشور حالي)، ادمجه مع المنشور
     # حتى لا يُسحب بالخطأ عند «نشر القوائم» الجزئي. مسار السحب يمرّر المنشور المتبقي صراحةً.
     published_ids = set(by_node.keys())
-    if selected_node_ids and published_ids and not (selected_node_ids & published_ids):
-        if want_day:
-            same_day_ids: set[int] = set()
-            for nid in published_ids:
-                slot = by_node.get(int(nid))
-                node = db.get(InformationBankTreeNode, int(nid))
-                if _published_item_matches_day(
-                    db, want_day, slot=slot, node=node
-                ):
-                    same_day_ids.add(int(nid))
-            selected_node_ids = set(selected_node_ids) | same_day_ids
-        else:
-            selected_node_ids = set(selected_node_ids) | published_ids
+    if not withdraw_only:
+        if selected_node_ids and published_ids and not (selected_node_ids & published_ids):
+            if want_day:
+                same_day_ids: set[int] = set()
+                for nid in published_ids:
+                    slot = by_node.get(int(nid))
+                    node = db.get(InformationBankTreeNode, int(nid))
+                    if _published_item_matches_day(
+                        db, want_day, slot=slot, node=node
+                    ):
+                        same_day_ids.add(int(nid))
+                selected_node_ids = set(selected_node_ids) | same_day_ids
+            else:
+                selected_node_ids = set(selected_node_ids) | published_ids
 
-    if allow_remove:
+    if allow_remove or withdraw_only:
         for nid, slot in list(by_node.items()):
             if int(nid) in selected_node_ids:
                 continue
@@ -1988,6 +1992,35 @@ def publish_action_eval_lists_from_ibank(
             _unlink_bundle_action_file(slot.file_relpath)
             db.delete(slot)
             removed += 1
+        if withdraw_only:
+            for ob in other_bundles:
+                for nid, slot in list(_published_slots_by_node(db, ob).items()):
+                    if int(nid) in selected_node_ids:
+                        continue
+                    if _slot_has_saved_result(db, slot.id):
+                        skipped_with_results += 1
+                        continue
+                    node = db.get(InformationBankTreeNode, int(nid))
+                    if node is None:
+                        continue
+                    if want_day and not _published_item_matches_day(
+                        db, want_day, slot=slot, node=node
+                    ):
+                        continue
+                    _unlink_bundle_action_file(slot.file_relpath)
+                    db.delete(slot)
+                    removed += 1
+    if withdraw_only:
+        if removed:
+            db.flush()
+        return {
+            "added": added,
+            "updated": updated,
+            "removed": removed,
+            "sources": 0,
+            "skipped": skipped,
+            "skipped_with_results": skipped_with_results,
+        }
     db.flush()
     by_node = _published_slots_by_node(db, bundle)
     occupied_slot_indexes: set[int] = {
@@ -2227,8 +2260,9 @@ def withdraw_all_action_eval_for_day(
     exercise_id: int,
     phase_key: str,
     flow_day_id: str,
+    keep_by_unit: dict[str, set[int]] | None = None,
 ) -> dict[str, int]:
-    """سحب نشر كل قوائم تقييم المعاضل المنشورة ليوم المجرى المحدد."""
+    """سحب نشر القوائم غير المحددة ليوم المجرى. المحددة تبقى. ذات النتائج لا تُسحب."""
     prepare_action_eval_ibank_tree(db)
     pk = _resolve_phase_key(phase_key, db) or normalize_exercise_phase(phase_key)
     want_day = (flow_day_id or "").strip()
@@ -2245,16 +2279,42 @@ def withdraw_all_action_eval_for_day(
         uk = (bundle.unit_level_key or "").strip()
         if uk:
             units.add(uk)
+    keep_src = dict(keep_by_unit or {})
+    remapped: dict[str, set[int]] = defaultdict(set)
+    orphan_ids = set(keep_src.pop("", set()) or ())
+    for nid in orphan_ids:
+        resolved = resolve_ibank_action_eval_publish_unit_key(
+            db, node_id=int(nid), fallback_unit_key=""
+        )
+        if resolved:
+            remapped[resolved].add(int(nid))
+            units.add(resolved)
+    for form_uk, node_ids in keep_src.items():
+        uk = (form_uk or "").strip()
+        if uk:
+            units.add(uk)
+        for nid in node_ids:
+            resolved = resolve_ibank_action_eval_publish_unit_key(
+                db, node_id=int(nid), fallback_unit_key=uk
+            )
+            if resolved:
+                remapped[resolved].add(int(nid))
+                units.add(resolved)
+            elif uk:
+                remapped[uk].add(int(nid))
     totals = {"removed": 0, "units": 0, "skipped_with_results": 0}
     for uk in sorted(units):
+        if not (uk or "").strip():
+            continue
         stats = publish_action_eval_lists_from_ibank(
             db,
             exercise_id=int(exercise_id),
             phase_key=pk,
             unit_key=uk,
-            selected_node_ids=set(),
+            selected_node_ids=set(remapped.get(uk, set())),
             flow_day_id=want_day or None,
             allow_remove=True,
+            withdraw_only=True,
         )
         totals["units"] += 1
         totals["removed"] += int(stats.get("removed", 0))

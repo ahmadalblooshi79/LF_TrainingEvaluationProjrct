@@ -211,6 +211,11 @@ class PackageSyncService {
           'exercise_details',
           sharedExerciseDetails,
         );
+        await TabletRepository.instance.cacheExerciseWorkspaceImages(
+          details: sharedExerciseDetails,
+          pathForKind: (kind) =>
+              '/api/tablet/device/exercise-details/image/$kind',
+        );
       } catch (e) {
         failures.add('تفاصيل التمرين: $e');
       }
@@ -340,6 +345,11 @@ class PackageSyncService {
                 '/api/tablet/device/judge/$userId/exercise-details',
               );
               await _putJudge(userId, 'exercise_details', ed);
+              await TabletRepository.instance.cacheExerciseWorkspaceImages(
+                details: ed,
+                pathForKind: (kind) =>
+                    '/api/tablet/device/judge/$userId/exercise-details/image/$kind',
+              );
             } catch (e) {
               failures.add('تفاصيل التمرين للمحكم $userId: $e');
             }

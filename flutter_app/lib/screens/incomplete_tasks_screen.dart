@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import '../models/list_row.dart';
 import '../services/api_client.dart';
@@ -61,42 +60,6 @@ class _IncompleteTasksScreenState extends State<IncompleteTasksScreen> {
     }
   }
 
-  void _open(ListRow r) {
-    void onReturn(_) {
-      if (mounted) _load();
-    }
-
-    final href = r.openHref;
-    final actionMatch = RegExp(r'/action/(\d+)/evaluate').firstMatch(href);
-    final listType = r.listType.toLowerCase();
-    final isAction = listType.contains('action') ||
-        listType.contains('planner') ||
-        actionMatch != null ||
-        href.contains('action-eval') ||
-        href.contains('planner-flow');
-
-    if (isAction) {
-      final slot = r.slotId ??
-          r.slotIndex ??
-          (actionMatch != null ? int.tryParse(actionMatch.group(1)!) : null);
-      if (slot != null) {
-        context.push('/action-eval/$slot', extra: r.title).then(onReturn);
-        return;
-      }
-    }
-
-    final itemId =
-        r.itemId ?? (r.id is int ? r.id as int : int.tryParse('${r.id}'));
-    final uk = r.unitKey.trim();
-    if (itemId != null && uk.isNotEmpty) {
-      context.push('/evaluation-lists/$uk/$itemId', extra: r.title).then(onReturn);
-      return;
-    }
-    if (itemId != null) {
-      context.push('/evaluation-lists/_/$itemId', extra: r.title).then(onReturn);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -139,7 +102,6 @@ class _IncompleteTasksScreenState extends State<IncompleteTasksScreen> {
                                   (label: 'مسمى التقييم', flex: 4),
                                   (label: 'نوع القائمة', flex: 2),
                                   (label: 'الموقف', flex: 2),
-                                  (label: 'الإجراء', flex: 2),
                                 ],
                               ),
                               Expanded(
@@ -214,15 +176,6 @@ class _IncompleteTasksScreenState extends State<IncompleteTasksScreen> {
                                                           ? r.statusLabel
                                                           : 'لم ينجز',
                                                       outlineOnly: true,
-                                                    ),
-                                                  ),
-                                                ),
-                                                Expanded(
-                                                  flex: 2,
-                                                  child: Center(
-                                                    child: FigmaOpenButton(
-                                                      onPressed: () =>
-                                                          _open(r),
                                                     ),
                                                   ),
                                                 ),

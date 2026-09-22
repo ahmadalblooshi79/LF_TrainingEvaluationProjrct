@@ -1,9 +1,9 @@
 """مزامنة قوائم التقييم في التخطيط من تبويب «قوائم التقييم» في بنك المعلومات (dilemma_eval).
 
 قاعدة السحب (صريحة): لا سحب تلقائي لقوائم التقييم بأي شكل.
-السحب يدوي فقط عبر أزرار «سحب» / «سحب القوائم» في مساحة التخطيط.
+السحب يدوي فقط عبر أزرار «سحب» / «سحب غير المحددة» في مساحة التخطيط.
 القوائم ذات النتائج أو العلامات لا تُسحب حتى عند الطلب اليدوي.
-القوائم غير المستخدمة (بدون نتائج) تُسحب عند الطلب اليدوي فقط.
+زر «سحب غير المحددة» يسحب القوائم المنشورة غير المؤشَّر عليها فقط.
 لا سحب عند حفظ المجرى، حفظ المحكمين، مزامنة البنك، أو اختفاء عقدة.
 """
 from __future__ import annotations
@@ -1364,23 +1364,60 @@ def withdraw_all_evaluation_lists_for_phase(
     *,
     exercise_id: int,
     phase_key: str,
+    keep_by_unit: dict[str, set[int]] | None = None,
 ) -> dict[str, int]:
-    """سحب نشر القوائم غير المستخدمة لهذه المرحلة. القوائم ذات النتائج تبقى."""
+    """سحب نشر القوائم غير المحددة لهذه المرحلة. المحددة تبقى. ذات النتائج لا تُسحب."""
     prepare_dilemma_eval_ibank_tree(db)
+    pk = _resolve_phase_key(phase_key, db) or normalize_exercise_phase(phase_key)
     active_units = roster_eval_display_unit_keys(db, int(exercise_id))
+    remapped = remap_publish_selections_by_ibank_context(
+        db,
+        kind=INFO_BANK_EVAL_LIST_KIND,
+        phase_key=pk,
+        selections_by_unit=dict(keep_by_unit or {}),
+    )
+    units = set(active_units) | {uk for uk in remapped if (uk or "").strip()}
+    existing_units = (
+        db.query(EvaluationListPdfItem.unit_level_key)
+        .filter(
+            EvaluationListPdfItem.exercise_id == int(exercise_id),
+            EvaluationListPdfItem.exercise_phase.in_(_phase_match_keys(pk) if pk else [phase_key]),
+        )
+        .distinct()
+        .all()
+    )
+    for (uk,) in existing_units:
+        if (uk or "").strip():
+            units.add((uk or "").strip())
     totals = {"removed": 0, "units": 0, "skipped_with_results": 0}
-    for uk in sorted(active_units):
-        stats = publish_evaluation_lists_from_ibank(
-            db,
-            exercise_id=int(exercise_id),
-            phase_key=phase_key,
-            unit_key=uk,
-            selected_node_ids=set(),
-            allow_remove=True,
+    phase_keys = _phase_match_keys(pk) if pk else [phase_key]
+    for uk in sorted(units):
+        if not (uk or "").strip():
+            continue
+        keep = set(remapped.get(uk, set()))
+        items = (
+            db.query(EvaluationListPdfItem)
+            .filter(
+                EvaluationListPdfItem.exercise_id == int(exercise_id),
+                EvaluationListPdfItem.unit_level_key == uk,
+                EvaluationListPdfItem.exercise_phase.in_(phase_keys),
+            )
+            .all()
         )
         totals["units"] += 1
-        totals["removed"] += int(stats.get("removed", 0))
-        totals["skipped_with_results"] += int(stats.get("skipped_with_results", 0))
+        for item in items:
+            nid = parse_ibank_eval_storage_relpath(item.pdf_relpath)
+            if nid is None or int(nid) in keep:
+                continue
+            if _eval_item_has_saved_result(db, int(item.id)):
+                totals["skipped_with_results"] += 1
+                continue
+            if item.pdf_relpath:
+                _unlink_eval_list_copy(item.pdf_relpath)
+            db.delete(item)
+            totals["removed"] += 1
+    if totals["removed"]:
+        db.flush()
     return totals
 
 

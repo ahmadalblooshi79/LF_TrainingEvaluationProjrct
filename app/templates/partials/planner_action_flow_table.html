@@ -1,4 +1,4 @@
-{# جدول مجرى الأحداث والمعاضل — v17 wargame column titles; assignee remains 8th #}
+{# جدول مجرى الأحداث والمعاضل — قالب الجاهزية (6 أعمدة)؛ عمود المكلف كما هو #}
 
 {% macro pf_simple_cell(value, editable, field) %}
 
@@ -20,7 +20,7 @@
 {% endmacro %}
 
 <script type="application/json" id="pf-flow-days-json">{{ flow_table_days | tojson }}</script>
-<section class="card planner-flow-action-table-section" id="pf-flow-table-section" dir="rtl"   data-pf-script-ver="44"
+<section class="card planner-flow-action-table-section" id="pf-flow-table-section" dir="rtl"   data-pf-script-ver="45"
   data-active-day-id="{{ flow_table_active_day_id }}"
   {% if pf_flow_enable_day_phase is defined and pf_flow_enable_day_phase %}data-enable-day-phase="1"{% endif %}
   {% if pf_flow_day_pdf_url_tpl is defined and pf_flow_day_pdf_url_tpl %}data-day-pdf-url-tpl="{{ pf_flow_day_pdf_url_tpl }}"{% endif %}
@@ -113,10 +113,6 @@
       <colgroup>
         <col class="planner-flow-action-col-num">
         <col class="planner-flow-col-time">
-        <col class="planner-flow-col-time">
-        <col class="planner-flow-col-narrow">
-        <col class="planner-flow-col-narrow">
-        <col class="planner-flow-col-equal">
         <col class="planner-flow-col-equal">
         <col class="planner-flow-col-assignee">
         <col class="planner-flow-col-equal">
@@ -129,23 +125,15 @@
 
           <th scope="col" class="planner-flow-action-col-num">ت</th>
 
-          <th scope="col" class="planner-flow-col-time">التوقيت الحقيقي</th>
+          <th scope="col" class="planner-flow-col-time">الوقت</th>
 
-          <th scope="col" class="planner-flow-col-time">توقيت نظام كورا</th>
-
-          <th scope="col" class="planner-flow-col-narrow">من</th>
-
-          <th scope="col" class="planner-flow-col-narrow">إلى</th>
-
-          <th scope="col" class="planner-flow-col-equal">أنظمة التبليغ</th>
-
-          <th scope="col" class="planner-flow-col-equal">وصف المعضلة/الحدث</th>
+          <th scope="col" class="planner-flow-col-equal">وصف الحدث/ المعضلة</th>
 
           <th scope="col" class="planner-flow-col-assignee">المكلف بالإجراء والمتابعة</th>
 
-          <th scope="col" class="planner-flow-col-equal">رد الفعل المتوقع</th>
+          <th scope="col" class="planner-flow-col-equal">أسلوب فرض المعضلة</th>
 
-          <th scope="col" class="planner-flow-col-equal">الملاحظات</th>
+          <th scope="col" class="planner-flow-col-equal">رد الفعل المتوقع</th>
 
         </tr>
 
@@ -159,7 +147,7 @@
 
         <tr class="pf-flow-row pf-flow-row--event" data-kind="event">
 
-          <td colspan="10" class="pf-flow-merged-cell"{% if not readonly_mode %} contenteditable="true" spellcheck="true"{% endif %}>{{ row.text }}</td>
+          <td colspan="6" class="pf-flow-merged-cell"{% if not readonly_mode %} contenteditable="true" spellcheck="true"{% endif %}>{{ row.text }}</td>
 
         </tr>
 
@@ -167,7 +155,7 @@
 
         <tr class="pf-flow-row pf-flow-row--dilemma" data-kind="dilemma">
 
-          <td colspan="10" class="pf-flow-merged-cell"{% if not readonly_mode %} contenteditable="true" spellcheck="true"{% endif %}>{{ row.text }}</td>
+          <td colspan="6" class="pf-flow-merged-cell"{% if not readonly_mode %} contenteditable="true" spellcheck="true"{% endif %}>{{ row.text }}</td>
 
         </tr>
 
@@ -179,21 +167,13 @@
 
           {{ pf_simple_cell(row.time, not readonly_mode, 'time') }}
 
-          {{ pf_simple_cell(row.time_kora, not readonly_mode, 'time_kora') }}
-
-          {{ pf_simple_cell(row.time_from, not readonly_mode, 'time_from') }}
-
-          {{ pf_simple_cell(row.time_to, not readonly_mode, 'time_to') }}
-
-          {{ pf_simple_cell(row.report_systems, not readonly_mode, 'report_systems') }}
-
           {{ pf_simple_cell(row.description, not readonly_mode, 'description') }}
 
           {{ pf_assignee_cell(row.assignee, not readonly_mode) }}
 
-          {{ pf_simple_cell(row.reaction, not readonly_mode, 'reaction') }}
+          {{ pf_simple_cell(row.method, not readonly_mode, 'method') }}
 
-          {{ pf_simple_cell(row.notes, not readonly_mode, 'notes') }}
+          {{ pf_simple_cell(row.reaction, not readonly_mode, 'reaction') }}
 
         </tr>
 

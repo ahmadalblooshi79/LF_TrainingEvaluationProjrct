@@ -52,6 +52,7 @@ def ensure_data_directories(root: Path) -> None:
         "instance/information_bank",
         "instance/library",
         "instance/planner_flow_bundles",
+        "instance/exercise_workspace_images",
         "instance/ai_reports",
         "instance/ai_reports/originals",
         "instance/ai_reports/extracted",

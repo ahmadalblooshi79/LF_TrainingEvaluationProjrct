@@ -209,6 +209,8 @@ class EvalSheetDetail {
   final int? approvalSignatureVersion;
   final String? approvalSignatureAt;
   final int? approvalSignatureUserId;
+  final String dilemmaDescription;
+  final String dilemmaRequirements;
 
   const EvalSheetDetail({
     required this.kind,
@@ -235,6 +237,8 @@ class EvalSheetDetail {
     this.approvalSignatureVersion,
     this.approvalSignatureAt,
     this.approvalSignatureUserId,
+    this.dilemmaDescription = '',
+    this.dilemmaRequirements = '',
   });
 
   factory EvalSheetDetail.fromJson(Map<String, dynamic> json) {
@@ -313,6 +317,14 @@ class EvalSheetDetail {
       sigAt = (sigRaw['approved_at'] ?? '').toString();
       sigUid = (sigRaw['user_id'] as num?)?.toInt();
     }
+    var dilemmaDescription = (json['eval_dilemma_description'] ?? '').toString();
+    var dilemmaRequirements = (json['eval_dilemma_requirements'] ?? '').toString();
+    if (savedPayload.containsKey('dilemma_description')) {
+      dilemmaDescription = (savedPayload['dilemma_description'] ?? '').toString();
+    }
+    if (savedPayload.containsKey('dilemma_requirements')) {
+      dilemmaRequirements = (savedPayload['dilemma_requirements'] ?? '').toString();
+    }
     return EvalSheetDetail(
       kind: (json['kind'] ?? '').toString(),
       slot: (json['slot'] as num?)?.toInt(),
@@ -340,6 +352,55 @@ class EvalSheetDetail {
       approvalSignatureVersion: sigVer,
       approvalSignatureAt: sigAt,
       approvalSignatureUserId: sigUid,
+      dilemmaDescription: dilemmaDescription,
+      dilemmaRequirements: dilemmaRequirements,
+    );
+  }
+
+  EvalSheetDetail copyWith({
+    List<EvalRowInput>? savedRows,
+    bool? canEdit,
+    bool? canApprove,
+    bool? isApproved,
+    bool? locallyApproved,
+    String? approvalSyncStatus,
+    EvalWorkflow? workflow,
+    Uint8List? approvalSignaturePng,
+    int? approvalSignatureVersion,
+    String? approvalSignatureAt,
+    int? approvalSignatureUserId,
+    String? dilemmaDescription,
+    String? dilemmaRequirements,
+  }) {
+    return EvalSheetDetail(
+      kind: kind,
+      slot: slot,
+      slotId: slotId,
+      itemId: itemId,
+      title: title,
+      evalDocTitle: evalDocTitle,
+      evalDocSubtitle: evalDocSubtitle,
+      unitKey: unitKey,
+      unitLabel: unitLabel,
+      phaseKey: phaseKey,
+      evalRows: evalRows,
+      evalStructured: evalStructured,
+      acquiredOptions: acquiredOptions,
+      savedRows: savedRows ?? this.savedRows,
+      canEdit: canEdit ?? this.canEdit,
+      canApprove: canApprove ?? this.canApprove,
+      isApproved: isApproved ?? this.isApproved,
+      locallyApproved: locallyApproved ?? this.locallyApproved,
+      approvalSyncStatus: approvalSyncStatus ?? this.approvalSyncStatus,
+      workflow: workflow ?? this.workflow,
+      approvalSignaturePng: approvalSignaturePng ?? this.approvalSignaturePng,
+      approvalSignatureVersion:
+          approvalSignatureVersion ?? this.approvalSignatureVersion,
+      approvalSignatureAt: approvalSignatureAt ?? this.approvalSignatureAt,
+      approvalSignatureUserId:
+          approvalSignatureUserId ?? this.approvalSignatureUserId,
+      dilemmaDescription: dilemmaDescription ?? this.dilemmaDescription,
+      dilemmaRequirements: dilemmaRequirements ?? this.dilemmaRequirements,
     );
   }
 }

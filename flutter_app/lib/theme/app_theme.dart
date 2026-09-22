@@ -26,8 +26,8 @@ class AppColors {
   static const Color loginCard = Color(0xFF4F545B);
   static const Color loginBg = Color(0xFFC8C1A9);
 
-  static const Color eventRow = Color(0xFFFFF3A8);
-  static const Color dilemmaRow = Color(0xFFF8D7DA);
+  static const Color eventRow = Color(0xFFFFFF00);
+  static const Color dilemmaRow = Color(0xFFE5B8B7);
 
   static const Color doneGreen = Color(0xFF2E8B3A);
   static const Color doneGreenBg = Color(0xFFE8F5E9);

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../services/api_client.dart';
@@ -204,24 +206,16 @@ class _ExerciseDetailsScreenState extends State<ExerciseDetailsScreen> {
                               paragraphs: _paras('specific_idea_paragraphs'),
                             ),
                           if (_tab == 'program')
-                            FigmaPanel(
-                              padding: const EdgeInsets.all(16),
-                              child: Text(
-                                (_ex['has_program'] == true)
-                                    ? 'البرنامج متوفر في النظام على الكمبيوتر (عرض فقط من صفحة التمرين).'
-                                    : 'لا يوجد برنامج مسجّل بعد.',
-                                style: AppTextStyles.cairo(color: AppColors.muted),
-                              ),
+                            _WorkspaceImagePane(
+                              kind: 'program',
+                              hasImage: _ex['has_program'] == true,
+                              emptyLabel: 'لا توجد صورة برنامج مدرجة بعد.',
                             ),
                           if (_tab == 'map')
-                            FigmaPanel(
-                              padding: const EdgeInsets.all(16),
-                              child: Text(
-                                (_ex['has_map'] == true)
-                                    ? 'الخريطة متوفرة في النظام على الكمبيوتر (عرض فقط من صفحة التمرين).'
-                                    : 'لا توجد خريطة مسجّلة بعد.',
-                                style: AppTextStyles.cairo(color: AppColors.muted),
-                              ),
+                            _WorkspaceImagePane(
+                              kind: 'map',
+                              hasImage: _ex['has_map'] == true,
+                              emptyLabel: 'لا توجد صورة خريطة مدرجة بعد.',
                             ),
                         ],
                       ),
@@ -494,6 +488,103 @@ class _IdeaPanel extends StatelessWidget {
                   ),
                 ),
         ],
+      ),
+    );
+  }
+}
+
+class _WorkspaceImagePane extends StatefulWidget {
+  const _WorkspaceImagePane({
+    required this.kind,
+    required this.hasImage,
+    required this.emptyLabel,
+  });
+
+  final String kind;
+  final bool hasImage;
+  final String emptyLabel;
+
+  @override
+  State<_WorkspaceImagePane> createState() => _WorkspaceImagePaneState();
+}
+
+class _WorkspaceImagePaneState extends State<_WorkspaceImagePane> {
+  Uint8List? _bytes;
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _WorkspaceImagePane oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.kind != widget.kind || oldWidget.hasImage != widget.hasImage) {
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    if (!widget.hasImage) {
+      setState(() {
+        _bytes = null;
+        _loading = false;
+        _error = null;
+      });
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final bytes = await TabletRepository.instance.fetchExerciseWorkspaceImage(widget.kind);
+      if (!mounted) return;
+      setState(() {
+        _bytes = bytes == null ? null : Uint8List.fromList(bytes);
+        _loading = false;
+        if (_bytes == null || _bytes!.isEmpty) {
+          _error = widget.emptyLabel;
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'تعذّر عرض الصورة.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.hasImage) {
+      return FigmaPanel(
+        padding: const EdgeInsets.all(16),
+        child: Text(widget.emptyLabel, style: AppTextStyles.cairo(color: AppColors.muted)),
+      );
+    }
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(child: CircularProgressIndicator(color: AppColors.goldDark)),
+      );
+    }
+    if (_bytes == null || _bytes!.isEmpty) {
+      return FigmaPanel(
+        padding: const EdgeInsets.all(16),
+        child: Text(_error ?? widget.emptyLabel, style: AppTextStyles.cairo(color: AppColors.muted)),
+      );
+    }
+    return FigmaPanel(
+      padding: const EdgeInsets.all(8),
+      child: InteractiveViewer(
+        minScale: 0.6,
+        maxScale: 4,
+        child: Image.memory(_bytes!, fit: BoxFit.contain),
       ),
     );
   }

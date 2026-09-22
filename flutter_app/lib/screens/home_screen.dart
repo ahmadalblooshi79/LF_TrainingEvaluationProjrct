@@ -550,7 +550,6 @@ class _IncompleteTable extends StatelessWidget {
           Expanded(flex: 4, child: Text('مسمى التقييم', style: _h, textAlign: TextAlign.right)),
           Expanded(flex: 2, child: Text('نوع القائمة', style: _h, textAlign: TextAlign.center)),
           Expanded(flex: 2, child: Text('الموقف', style: _h, textAlign: TextAlign.center)),
-          Expanded(flex: 2, child: Text('الإجراء', style: _h, textAlign: TextAlign.center)),
         ],
       ),
     );
@@ -616,12 +615,6 @@ class _IncompleteTable extends StatelessWidget {
                 ),
               ),
             ),
-            Expanded(
-              flex: 2,
-              child: Center(
-                child: FigmaOpenButton(onPressed: () => _open(context, r)),
-              ),
-            ),
           ],
         ),
       );
@@ -673,40 +666,5 @@ class _IncompleteTable extends StatelessWidget {
   }
 
   static final _h = AppTextStyles.cairo(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.olive);
-
-  void _open(BuildContext context, ListRow r) {
-    void onReturn(_) {
-      onRefresh?.call();
-    }
-
-    final href = r.openHref;
-    final actionMatch = RegExp(r'/action/(\d+)/evaluate').firstMatch(href);
-    final listType = r.listType.toLowerCase();
-    final isAction = listType.contains('action') ||
-        listType.contains('planner') ||
-        actionMatch != null ||
-        href.contains('action-eval') ||
-        href.contains('planner-flow');
-
-    if (isAction) {
-      final slot = r.slotId ??
-          r.slotIndex ??
-          (actionMatch != null ? int.tryParse(actionMatch.group(1)!) : null);
-      if (slot != null) {
-        context.push('/action-eval/$slot', extra: r.title).then(onReturn);
-        return;
-      }
-    }
-
-    final itemId = r.itemId ?? (r.id is int ? r.id as int : int.tryParse('${r.id}'));
-    final uk = r.unitKey.trim();
-    if (itemId != null && uk.isNotEmpty) {
-      context.push('/evaluation-lists/$uk/$itemId', extra: r.title).then(onReturn);
-      return;
-    }
-    if (itemId != null) {
-      context.push('/evaluation-lists/_/$itemId', extra: r.title).then(onReturn);
-    }
-  }
 }
 

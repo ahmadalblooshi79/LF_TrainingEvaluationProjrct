@@ -1,0 +1,41 @@
+{# صف 2 وصف المعضلة وصف 3 متطلبات التنفيذ — بين العنوان وصف الوحدة/التاريخ #}
+{% set nar = namespace(
+  desc=eval_dilemma_description|default(''),
+  req=eval_dilemma_requirements|default('')
+) %}
+{% if saved_payload is mapping %}
+  {% if 'dilemma_description' in saved_payload %}
+    {% set nar.desc = saved_payload.get('dilemma_description') or '' %}
+  {% endif %}
+  {% if 'dilemma_requirements' in saved_payload %}
+    {% set nar.req = saved_payload.get('dilemma_requirements') or '' %}
+  {% endif %}
+{% endif %}
+<section class="eval-narrative-rows" dir="rtl" aria-label="وصف المعضلة ومتطلبات التنفيذ">
+  <div class="eval-narrative-row">
+    <label class="eval-narrative-row__label" for="eval-dilemma-description">وصف المعضلة</label>
+    <textarea
+      class="eval-narrative-row__input"
+      id="eval-dilemma-description"
+      name="dilemma_description"
+      rows="2"
+      dir="rtl"
+      spellcheck="true"
+      placeholder="أدخل وصف المعضلة"
+      {% if not eval_can_edit|default(false) %}disabled{% endif %}
+    >{{ nar.desc }}</textarea>
+  </div>
+  <div class="eval-narrative-row">
+    <label class="eval-narrative-row__label" for="eval-dilemma-requirements">متطلبات تنفيذ المعضلة</label>
+    <textarea
+      class="eval-narrative-row__input"
+      id="eval-dilemma-requirements"
+      name="dilemma_requirements"
+      rows="3"
+      dir="rtl"
+      spellcheck="true"
+      placeholder="أدخل متطلبات تنفيذ المعضلة"
+      {% if not eval_can_edit|default(false) %}disabled{% endif %}
+    >{{ nar.req }}</textarea>
+  </div>
+</section>

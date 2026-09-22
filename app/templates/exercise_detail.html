@@ -27,7 +27,7 @@
     {% endfor %}
   </nav>
 
-  {% if can_plan and active_workspace_tab != 'papers' %}
+  {% if can_plan and active_workspace_tab not in ('papers', 'program', 'map') %}
   <div class="exercise-workspace-import-bar">
     <button type="button" class="btn btn-ghost btn-sm-compact" id="exercise-import-pptx-btn" title="استيراد من PowerPoint (.pptx)">
       <i class="fa-solid fa-file-import" aria-hidden="true"></i> استيراد PowerPoint
@@ -37,7 +37,7 @@
   </div>
   {% endif %}
 
-  <form method="post" action="{{ url_for('views.exercise_detail', eid=ex.id, tab=active_workspace_tab) }}" class="exercise-workspace-form" id="exercise-workspace-form"{% if active_workspace_tab == 'papers' %} hidden{% endif %}>
+  <form method="post" action="{{ url_for('views.exercise_detail', eid=ex.id, tab=active_workspace_tab) }}" class="exercise-workspace-form" id="exercise-workspace-form"{% if active_workspace_tab in ('papers', 'program', 'map') %} hidden{% endif %}>
     <div class="exercise-workspace-panes">
       <div class="exercise-workspace-pane{% if active_workspace_tab == 'info' %} is-active{% endif %}"
            id="exercise-pane-info"
@@ -237,52 +237,34 @@
           {% endif %}
         </div>
       </div>
-
-      <div class="exercise-workspace-pane{% if active_workspace_tab == 'program' %} is-active{% endif %}"
-           id="exercise-pane-program"
-           role="tabpanel"
-           aria-labelledby="exercise-tab-program"
-           {% if active_workspace_tab != 'program' %}hidden{% endif %}>
-        <div class="form-group exercise-program-panel">
-          <input type="hidden" name="program_table_json" id="program_table_json" value="{{ ex.program_table_json or '' }}">
-          <div id="exercise-program-table-preview" class="exercise-program-table-preview" aria-live="polite">
-            {% if program_table_html %}
-            {{ program_table_html|safe }}
-            {% else %}
-            <p class="muted exercise-program-empty-hint">لا يوجد جدول برنامج — استورد من PowerPoint لعرض الجدول.</p>
-            {% endif %}
-          </div>
-          {% if can_plan %}
-          <label for="program_text" class="sr-only">ملاحظات البرنامج</label>
-          <textarea id="program_text" name="program_text" rows="3" class="exercise-workspace-textarea exercise-program-notes" placeholder="ملاحظات إضافية (اختياري)">{{ ex.program_text or '' }}</textarea>
-          {% elif ex.program_text %}
-          <div class="exercise-workspace-readonly exercise-program-notes-readonly">{{ ex.program_text }}</div>
-          {% endif %}
-        </div>
-      </div>
-
-      <div class="exercise-workspace-pane{% if active_workspace_tab == 'map' %} is-active{% endif %}"
-           id="exercise-pane-map"
-           role="tabpanel"
-           aria-labelledby="exercise-tab-map"
-           {% if active_workspace_tab != 'map' %}hidden{% endif %}>
-        <div class="form-group">
-          <label for="map_text" class="sr-only">الخريطة</label>
-          {% if can_plan %}
-          <textarea id="map_text" name="map_text" rows="14" class="exercise-workspace-textarea exercise-workspace-textarea--tall" placeholder="وصف الخريطة أو ملاحظاتها">{{ ex.map_text or '' }}</textarea>
-          {% else %}
-          <div class="exercise-workspace-readonly exercise-workspace-readonly--tall">{{ ex.map_text or '—' }}</div>
-          {% endif %}
-        </div>
-      </div>
     </div>
 
-    {% if can_plan and active_workspace_tab != 'papers' %}
+    {% if can_plan and active_workspace_tab not in ('papers', 'program', 'map') %}
     <div class="exercise-workspace-actions">
       <button type="submit" class="btn"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ</button>
     </div>
     {% endif %}
   </form>
+
+  <div class="exercise-workspace-pane exercise-image-wrap{% if active_workspace_tab == 'program' %} is-active{% endif %}"
+       id="exercise-pane-program"
+       role="tabpanel"
+       aria-labelledby="exercise-tab-program"
+       {% if active_workspace_tab != 'program' %}hidden{% endif %}>
+    {% with img_kind='program', img_label='البرنامج', img_url=program_image_url %}
+    {% include 'partials/exercise_workspace_image_panel.html' %}
+    {% endwith %}
+  </div>
+
+  <div class="exercise-workspace-pane exercise-image-wrap{% if active_workspace_tab == 'map' %} is-active{% endif %}"
+       id="exercise-pane-map"
+       role="tabpanel"
+       aria-labelledby="exercise-tab-map"
+       {% if active_workspace_tab != 'map' %}hidden{% endif %}>
+    {% with img_kind='map', img_label='الخريطة', img_url=map_image_url %}
+    {% include 'partials/exercise_workspace_image_panel.html' %}
+    {% endwith %}
+  </div>
 
   <div class="exercise-workspace-pane exercise-papers-wrap{% if active_workspace_tab == 'papers' %} is-active{% endif %}"
        id="exercise-pane-papers"
@@ -394,9 +376,6 @@
   var input = document.getElementById("exercise-import-pptx-input");
   var statusEl = document.getElementById("exercise-import-pptx-status");
 
-  var programTableJsonEl = document.getElementById("program_table_json");
-  var programPreviewEl = document.getElementById("exercise-program-table-preview");
-
   var errMap = {
     auth: "يجب تسجيل الدخول.",
     forbidden: "ليس لديك صلاحية الاستيراد.",
@@ -404,8 +383,9 @@
     no_file: "لم يُختر ملف.",
     empty_file: "الملف فارغ.",
     bad_pptx: "يُقبل ملف PowerPoint (.pptx) فقط.",
+    bad_image: "يُقبل ملف PNG أو JPG فقط.",
     invalid_pptx: "ملف PowerPoint غير صالح.",
-    no_content: "لم يُعثر على أقسام مطابقة (القصد، المشاركون، الفكرة العامة، الفكرة الخاصة، البرنامج، الخريطة).",
+    no_content: "لم يُعثر على أقسام مطابقة (القصد، المشاركون، الفكرة العامة، الفكرة الخاصة).",
     missing_dependency: "مكتبة الاستيراد غير متوفرة على الخادم."
   };
 
@@ -413,16 +393,6 @@
     if (!statusEl) return;
     statusEl.textContent = msg || "";
     statusEl.classList.toggle("is-error", !!isErr);
-  }
-
-  function updateProgramTablePreview(htmlStr) {
-    if (!programPreviewEl) return;
-    var html = (htmlStr || "").trim();
-    if (html) {
-      programPreviewEl.innerHTML = html;
-      return;
-    }
-    programPreviewEl.innerHTML = '<p class="muted exercise-program-empty-hint">لا يوجد جدول برنامج — استورد من PowerPoint لعرض الجدول.</p>';
   }
 
   if (btn && input && importUrl) {
@@ -480,14 +450,6 @@
           if (typeof fields.specific_idea_text === "string") {
             fillIdeaBox("specific-idea-box", fields.specific_idea_text);
           }
-          fillTextField("map_text", fields.map_text);
-          fillTextField("program_text", fields.program_text);
-          if (programTableJsonEl && typeof fields.program_table_json === "string") {
-            programTableJsonEl.value = fields.program_table_json;
-          }
-          if (typeof res.body.program_table_html === "string") {
-            updateProgramTablePreview(res.body.program_table_html);
-          }
           var warn = (res.body.warnings || []).join(" ");
           setStatus("تم الاستيراد — راجع التبويبات ثم اضغط «حفظ»." + (warn ? " " + warn : ""), false);
         })
@@ -497,6 +459,71 @@
         .finally(function () { btn.disabled = false; });
     });
   }
+
+  document.querySelectorAll(".exercise-workspace-image-panel").forEach(function (panel) {
+    var pick = panel.querySelector(".exercise-workspace-image-pick");
+    var fileInput = panel.querySelector(".exercise-workspace-image-input");
+    var delBtn = panel.querySelector(".exercise-workspace-image-delete");
+    var imgStatus = panel.querySelector(".exercise-workspace-image-status");
+    var uploadUrl = panel.getAttribute("data-upload-url") || "";
+    var deleteUrl = panel.getAttribute("data-delete-url") || "";
+
+    function setImgStatus(msg, isErr) {
+      if (!imgStatus) return;
+      imgStatus.textContent = msg || "";
+      imgStatus.classList.toggle("is-error", !!isErr);
+    }
+
+    if (pick && fileInput && uploadUrl) {
+      pick.addEventListener("click", function () { fileInput.click(); });
+      fileInput.addEventListener("change", function () {
+        var file = fileInput.files && fileInput.files[0];
+        fileInput.value = "";
+        if (!file) return;
+        if (!/\.(png|jpe?g)$/i.test(file.name || "")) {
+          setImgStatus(errMap.bad_image, true);
+          return;
+        }
+        setImgStatus("جاري رفع الصورة…", false);
+        pick.disabled = true;
+        var fd = new FormData();
+        fd.append("image_file", file);
+        fetch(uploadUrl, { method: "POST", body: fd, credentials: "same-origin" })
+          .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+          .then(function (res) {
+            if (!res.ok || !res.body || !res.body.ok) {
+              var code = (res.body && res.body.error) || "bad_image";
+              throw new Error((res.body && res.body.message) || errMap[code] || "تعذّر رفع الصورة.");
+            }
+            window.location.reload();
+          })
+          .catch(function (err) {
+            setImgStatus(err.message || "تعذّر رفع الصورة.", true);
+          })
+          .finally(function () { pick.disabled = false; });
+      });
+    }
+
+    if (delBtn && deleteUrl) {
+      delBtn.addEventListener("click", function () {
+        if (!window.confirm("حذف الصورة المدرجة؟")) return;
+        setImgStatus("جاري الحذف…", false);
+        delBtn.disabled = true;
+        fetch(deleteUrl, { method: "POST", credentials: "same-origin" })
+          .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+          .then(function (res) {
+            if (!res.ok || !res.body || !res.body.ok) {
+              throw new Error("تعذّر حذف الصورة.");
+            }
+            window.location.reload();
+          })
+          .catch(function (err) {
+            setImgStatus(err.message || "تعذّر حذف الصورة.", true);
+            delBtn.disabled = false;
+          });
+      });
+    }
+  });
 })();
 </script>
 {% endif %}

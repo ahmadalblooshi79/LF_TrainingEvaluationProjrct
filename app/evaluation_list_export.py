@@ -13,8 +13,11 @@ from app.evaluation_list_columns import (
     EVAL_IMPORT_COL_MAX,
     EVAL_IMPORT_COL_NOTES,
     EVAL_IMPORT_COL_PCT,
+    EVAL_NARRATIVE_DESC_LABEL,
+    EVAL_NARRATIVE_REQ_LABEL,
     compose_eval_doc_banner_text,
     eval_doc_title_first_line,
+    format_eval_narrative_cell,
     grade_label_from_percent,
     is_evaluation_import_footer_stop_row,
     normalize_ar_header,
@@ -342,6 +345,111 @@ def _apply_title_wrap(ws, row: int, col: int, title: str) -> None:
     dim.height = max(current, 32.0)
 
 
+def _cell_text(ws, row: int, col: int) -> str:
+    return normalize_ar_header(_cell_to_str(_writable_cell(ws, row, col).value))
+
+
+def _looks_like_marks_header_row(ws, row: int) -> bool:
+    blob_parts: list[str] = []
+    for c in range(2, 10):
+        blob_parts.append(_cell_text(ws, row, c))
+    blob = " ".join(p for p in blob_parts if p)
+    if not blob:
+        return False
+    if "قصوى" in blob or "مكتسب" in blob:
+        return True
+    return "عناصر" in blob and "تقييم" in blob
+
+
+def _looks_like_narrative_header(ws) -> bool:
+    t2 = _cell_text(ws, 2, 2)
+    t3 = _cell_text(ws, 3, 2)
+    return EVAL_NARRATIVE_DESC_LABEL in t2 or EVAL_NARRATIVE_REQ_LABEL in t3
+
+
+def _looks_like_unit_meta_row(ws, row: int) -> bool:
+    blob_parts: list[str] = []
+    for c in range(2, 8):
+        blob_parts.append(_cell_text(ws, row, c))
+    blob = " ".join(p for p in blob_parts if p)
+    if not blob or _looks_like_marks_header_row(ws, row):
+        return False
+    return "الوحدة" in blob or "قائد الوحدة" in blob
+
+
+def _ensure_eval_narrative_header_rows(ws) -> None:
+    """يدرج صفي الوصف/المتطلبات بعد العنوان إن كان صف الوحدة يلي العنوان مباشرة."""
+    if _looks_like_narrative_header(ws):
+        return
+    if _looks_like_marks_header_row(ws, 2) or _looks_like_marks_header_row(ws, 3):
+        return
+    if not (_looks_like_unit_meta_row(ws, 2) or _looks_like_unit_meta_row(ws, 3)):
+        return
+    try:
+        ws.insert_rows(2, 2)
+    except Exception:
+        return
+    try:
+        ws.merge_cells("B2:J2")
+        ws.merge_cells("B3:J3")
+    except Exception:
+        pass
+
+
+def _apply_narrative_wrap(ws, row: int, col: int, text: str) -> None:
+    cell = _writable_cell(ws, row, col)
+    try:
+        from openpyxl.styles import Alignment, Font  # type: ignore
+    except Exception:
+        return
+    prev = getattr(cell, "alignment", None)
+    cell.alignment = Alignment(
+        wrap_text=True,
+        horizontal="right",
+        vertical="top",
+        textRotation=(getattr(prev, "textRotation", None) if prev is not None else None) or 0,
+        indent=(getattr(prev, "indent", None) if prev is not None else None) or 0,
+        readingOrder=(getattr(prev, "readingOrder", None) if prev is not None else None) or 2,
+    )
+    try:
+        prev_font = getattr(cell, "font", None)
+        cell.font = Font(
+            name=(getattr(prev_font, "name", None) or "Arial"),
+            size=(getattr(prev_font, "size", None) or 14),
+            bold=True,
+        )
+    except Exception:
+        pass
+    lines = max(1, str(text or "").count("\n") + 1)
+    dim = ws.row_dimensions[row]
+    current = float(dim.height or 0)
+    dim.height = max(current, 45.0 if lines <= 2 else min(28.0 * lines, 96.0))
+
+
+def _write_eval_narrative_header(
+    ws, *, dilemma_description: str, dilemma_requirements: str
+) -> None:
+    if _looks_like_marks_header_row(ws, 2):
+        return
+    if not _looks_like_narrative_header(ws) and _looks_like_marks_header_row(ws, 3):
+        return
+    desc_cell = format_eval_narrative_cell(EVAL_NARRATIVE_DESC_LABEL, dilemma_description)
+    _set_cell_value(ws, 2, 2, desc_cell)
+    _apply_narrative_wrap(ws, 2, 2, desc_cell)
+    if _looks_like_marks_header_row(ws, 3):
+        return
+    req_cell = format_eval_narrative_cell(EVAL_NARRATIVE_REQ_LABEL, dilemma_requirements)
+    _set_cell_value(ws, 3, 2, req_cell)
+    _apply_narrative_wrap(ws, 3, 2, req_cell)
+
+
+def _eval_meta_row_numbers(ws) -> tuple[int, int]:
+    """صف الوحدة/التاريخ وصف قائد الوحدة/المحكم بعد صفوف الوصف."""
+    if _looks_like_narrative_header(ws) or _looks_like_unit_meta_row(ws, 4):
+        return 4, 5
+    return 2, 3
+
+
 def _fill_footer_judge_name(ws, judge_name: str, *, max_row: int, max_col: int) -> None:
     """
     يملأ صف تذييل «المحكم» باسم المحكم من صفحة قائمة التقييم.
@@ -494,6 +602,8 @@ def build_evaluation_list_xlsx_bytes(
     judge_name: str,
     eval_rows: list[dict[str, Any]] | None,
     saved_rows: list[dict[str, Any]] | None,
+    dilemma_description: str = "",
+    dilemma_requirements: str = "",
     signature_png: bytes | None = None,
     approved_at: Any | None = None,
     materialize_computed: bool = False,
@@ -526,6 +636,8 @@ def build_evaluation_list_xlsx_bytes(
         ws = wb[keep] if keep else wb.active
         _remove_grade_conditional_formatting(ws)
 
+        _ensure_eval_narrative_header_rows(ws)
+
         mr = int(getattr(ws, "max_row", None) or 1)
         mc = int(getattr(ws, "max_column", None) or 1)
         grid = _sheet_grid(ws, mr, mc)
@@ -537,15 +649,22 @@ def build_evaluation_list_xlsx_bytes(
             _set_cell_value(ws, 1, 2, title)  # B1 — سطران في نفس الخلية المدمجة
             _apply_title_wrap(ws, 1, 2, title)
 
+        _write_eval_narrative_header(
+            ws,
+            dilemma_description=dilemma_description or "",
+            dilemma_requirements=dilemma_requirements or "",
+        )
+
+        unit_row, cmd_row = _eval_meta_row_numbers(ws)
         # لا تُكتب البيانات الوصفية فوق عناوين أعمدة العلامات (القصوى/المكتسبة/…)
         if unit_label and unit_label != "—":
-            _set_meta_if_not_header(ws, 2, 3, unit_label)
+            _set_meta_if_not_header(ws, unit_row, 3, unit_label)
         if date_str:
-            _set_meta_if_not_header(ws, 2, 6, date_str)
+            _set_meta_if_not_header(ws, unit_row, 6, date_str)
         if commander_name and commander_name != "—":
-            _set_meta_if_not_header(ws, 3, 3, commander_name)
+            _set_meta_if_not_header(ws, cmd_row, 3, commander_name)
         if judge_name and judge_name != "—":
-            _set_meta_if_not_header(ws, 3, 6, judge_name)
+            _set_meta_if_not_header(ws, cmd_row, 6, judge_name)
 
         template_rows = eval_rows or []
         saved = saved_rows or []

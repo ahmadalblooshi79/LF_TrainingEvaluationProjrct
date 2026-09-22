@@ -29,6 +29,7 @@ class FlowRow {
   final String timeFrom;
   final String timeTo;
   final String reportSystems;
+  final String method;
   final String text;
   final String assignee;
   final String reaction;
@@ -43,6 +44,7 @@ class FlowRow {
     required this.timeFrom,
     required this.timeTo,
     required this.reportSystems,
+    required this.method,
     required this.text,
     required this.assignee,
     required this.reaction,
@@ -58,7 +60,8 @@ class FlowRow {
       timeKora: (json['time_kora'] ?? '').toString(),
       timeFrom: (json['time_from'] ?? '').toString(),
       timeTo: (json['time_to'] ?? '').toString(),
-      reportSystems: (json['report_systems'] ?? json['method'] ?? '').toString(),
+      reportSystems: (json['report_systems'] ?? '').toString(),
+      method: (json['method'] ?? '').toString(),
       text: (json['text'] ?? json['description'] ?? '').toString(),
       assignee: (json['assignee'] ?? '').toString(),
       reaction: (json['reaction'] ?? json['expected'] ?? '').toString(),

@@ -232,6 +232,11 @@
         markEvalDirty();
       }
     });
+    ['eval-dilemma-description', 'eval-dilemma-requirements'].forEach(function (nid) {
+      var nel = document.getElementById(nid);
+      if (!nel) return;
+      nel.addEventListener('input', markEvalDirty);
+    });
   }
 
   function clearAcqIncompleteHighlight() {
@@ -529,6 +534,10 @@
 
   function buildPayload() {
     var out = { rows: [] };
+    var descEl = document.getElementById('eval-dilemma-description');
+    var reqEl = document.getElementById('eval-dilemma-requirements');
+    out.dilemma_description = descEl ? String(descEl.value || '') : '';
+    out.dilemma_requirements = reqEl ? String(reqEl.value || '') : '';
     table.querySelectorAll('.eval-structured-row').forEach(function (tr) {
       var kind = tr.getAttribute('data-row-kind') || 'score';
       var elCell = tr.querySelector('.eval-col--element');

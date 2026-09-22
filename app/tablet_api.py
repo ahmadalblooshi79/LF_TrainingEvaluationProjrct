@@ -730,6 +730,7 @@ def tablet_flow(user: User):
             ).strip(),
             "text": (r.get("text") or r.get("description") or "").strip(),
             "assignee": (r.get("assignee") or "").strip(),
+            "method": (r.get("method") or "").strip(),
             "reaction": (
                 r.get("reaction") or r.get("expected") or r.get("expected_reaction") or ""
             ).strip(),
@@ -930,6 +931,13 @@ def tablet_action_eval_detail(user: User, slot: int):
     saved_payload = _saved_payload_aligned_with_eval_rows(
         saved_payload, ev.get("eval_rows")
     )
+    from app.evaluation_list_columns import resolve_eval_narrative_from_payload
+
+    nar_desc, nar_req = resolve_eval_narrative_from_payload(
+        saved_payload,
+        excel_description=(ev.get("eval_dilemma_description") or ""),
+        excel_requirements=(ev.get("eval_dilemma_requirements") or ""),
+    )
     wf = _planner_flow_eval_list_viewer_ctx(user, canon)
     title = _planner_blob_display_filename(
         stored_title=action_row.title or "",
@@ -952,6 +960,8 @@ def tablet_action_eval_detail(user: User, slot: int):
             "eval_structured": bool(ev.get("eval_structured")),
             "acquired_options": ev.get("acquired_options") or [],
             "saved_payload": saved_payload,
+            "eval_dilemma_description": nar_desc,
+            "eval_dilemma_requirements": nar_req,
             "can_edit": bool(wf.get("eval_can_edit")),
             "can_approve": bool(wf.get("show_eval_approve")),
             "is_approved": bool(wf.get("saved_is_approved")),
@@ -1260,6 +1270,13 @@ def tablet_evaluation_list_detail(user: User, unit_key: str, item_id: int):
     saved_payload = _saved_payload_aligned_with_eval_rows(
         saved_payload, ev.get("eval_rows")
     )
+    from app.evaluation_list_columns import resolve_eval_narrative_from_payload
+
+    nar_desc, nar_req = resolve_eval_narrative_from_payload(
+        saved_payload,
+        excel_description=(ev.get("eval_dilemma_description") or ""),
+        excel_requirements=(ev.get("eval_dilemma_requirements") or ""),
+    )
     wf = _eval_list_viewer_ctx(user, saved)
     return jsonify(
         {
@@ -1276,6 +1293,8 @@ def tablet_evaluation_list_detail(user: User, unit_key: str, item_id: int):
             "eval_structured": bool(ev.get("eval_structured")),
             "acquired_options": ev.get("acquired_options") or [],
             "saved_payload": saved_payload,
+            "eval_dilemma_description": nar_desc,
+            "eval_dilemma_requirements": nar_req,
             "can_edit": bool(wf.get("eval_can_edit")),
             "can_approve": bool(wf.get("show_eval_approve")),
             "is_approved": bool(wf.get("saved_is_approved")),
@@ -1978,11 +1997,28 @@ def tablet_exercise_details(user: User):
                 "objectives": objectives,
                 "has_map": bool((getattr(ex, "map_image_relpath", None) or "").strip()),
                 "has_program": bool(
-                    (getattr(ex, "program_table_json", None) or "").strip()
+                    (getattr(ex, "program_image_relpath", None) or "").strip()
                 ),
             },
         }
     )
+
+
+@bp.get("/exercise-details/image/<kind>")
+@_require_judge_json
+def tablet_exercise_details_image(user: User, kind: str):
+    from app.exercise_workspace_images import WORKSPACE_IMAGE_KINDS, send_workspace_image
+
+    k = (kind or "").strip().lower()
+    if k not in WORKSPACE_IMAGE_KINDS:
+        return _json_error("نوع غير صالح", 404)
+    ex = _exercise_for(user)
+    if ex is None:
+        return _json_error("لا يوجد تمرين حالي", 404)
+    rel = (getattr(ex, f"{k}_image_relpath", None) or "").strip()
+    if not rel:
+        return _json_error("لا توجد صورة", 404)
+    return send_workspace_image(rel, download_name=f"{k}.jpg")
 
 
 def _can_device_package_sync(user: User) -> bool:
@@ -2470,6 +2506,11 @@ def tablet_device_judge_exercise_details(judge_id: int):
     return _with_provision_judge(judge_id, tablet_exercise_details)
 
 
+@bp.get("/device/judge/<int:judge_id>/exercise-details/image/<kind>")
+def tablet_device_judge_exercise_details_image(judge_id: int, kind: str):
+    return _with_provision_judge(judge_id, tablet_exercise_details_image, kind)
+
+
 @bp.get("/device/judge/<int:judge_id>/polarity-notes")
 def tablet_device_judge_polarity_notes(judge_id: int):
     return _with_provision_judge(judge_id, tablet_polarity_notes_list)
@@ -2527,6 +2568,11 @@ def tablet_device_exercise_papers():
 @bp.get("/device/exercise-details")
 def tablet_device_shared_exercise_details():
     return _with_device_setup_handler(tablet_exercise_details)
+
+
+@bp.get("/device/exercise-details/image/<kind>")
+def tablet_device_shared_exercise_details_image(kind: str):
+    return _with_device_setup_handler(tablet_exercise_details_image, kind)
 
 
 @bp.get("/device/files/library/<int:node_id>")

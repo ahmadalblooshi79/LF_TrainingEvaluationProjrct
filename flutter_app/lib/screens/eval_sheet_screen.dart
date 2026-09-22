@@ -11,7 +11,6 @@ import '../services/tablet_repository.dart';
 import '../theme/app_theme.dart';
 import '../theme/device_layout.dart';
 import '../theme/grade_style.dart';
-import '../widgets/app_header.dart';
 import '../widgets/async_state_views.dart';
 import '../widgets/sticky_eval_scaffold.dart';
 import 'media_preview_backend.dart';
@@ -54,11 +53,20 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
   bool _savedThisSession = false;
   String? _hint;
   bool _hintIsError = false;
+  final _dilemmaDescCtrl = TextEditingController();
+  final _dilemmaReqCtrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _dilemmaDescCtrl.dispose();
+    _dilemmaReqCtrl.dispose();
+    super.dispose();
   }
 
   List<EvalRowInput> _rowsFromDetail(EvalSheetDetail detail) {
@@ -92,6 +100,8 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
         _rows = rows;
         _fromCache = result.fromCache;
         _savedThisSession = result.data.canApprove;
+        _dilemmaDescCtrl.text = result.data.dilemmaDescription;
+        _dilemmaReqCtrl.text = result.data.dilemmaRequirements;
       });
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -281,11 +291,18 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
     });
     try {
       await (widget.mode == EvalSheetMode.actionEval
-          ? TabletRepository.instance.saveActionEvalResults(widget.slot!, _rows)
+          ? TabletRepository.instance.saveActionEvalResults(
+              widget.slot!,
+              _rows,
+              dilemmaDescription: _dilemmaDescCtrl.text,
+              dilemmaRequirements: _dilemmaReqCtrl.text,
+            )
           : TabletRepository.instance.saveEvaluationListResults(
               widget.unitKey!,
               widget.itemId!,
               _rows,
+              dilemmaDescription: _dilemmaDescCtrl.text,
+              dilemmaRequirements: _dilemmaReqCtrl.text,
             ));
       if (!mounted) return;
       setState(() {
@@ -293,27 +310,13 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
         _savedThisSession = true;
         final d = _detail;
         if (d != null && !d.isApproved) {
-          _detail = EvalSheetDetail(
-            kind: d.kind,
-            slot: d.slot,
-            slotId: d.slotId,
-            itemId: d.itemId,
-            title: d.title,
-            evalDocTitle: d.evalDocTitle,
-            evalDocSubtitle: d.evalDocSubtitle,
-            unitKey: d.unitKey,
-            unitLabel: d.unitLabel,
-            phaseKey: d.phaseKey,
-            evalRows: d.evalRows,
-            evalStructured: d.evalStructured,
-            acquiredOptions: d.acquiredOptions,
+          _detail = d.copyWith(
             savedRows: List<EvalRowInput>.from(_rows),
             canEdit: true,
             canApprove: true,
             isApproved: false,
-            locallyApproved: d.locallyApproved,
-            approvalSyncStatus: d.approvalSyncStatus,
-            workflow: d.workflow,
+            dilemmaDescription: _dilemmaDescCtrl.text,
+            dilemmaRequirements: _dilemmaReqCtrl.text,
           );
         }
         _hint = 'تم الحفظ';
@@ -418,11 +421,18 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
     try {
       if (detail.canEdit) {
         await (widget.mode == EvalSheetMode.actionEval
-            ? TabletRepository.instance.saveActionEvalResults(widget.slot!, _rows)
+            ? TabletRepository.instance.saveActionEvalResults(
+                widget.slot!,
+                _rows,
+                dilemmaDescription: _dilemmaDescCtrl.text,
+                dilemmaRequirements: _dilemmaReqCtrl.text,
+              )
             : TabletRepository.instance.saveEvaluationListResults(
                 widget.unitKey!,
                 widget.itemId!,
                 _rows,
+                dilemmaDescription: _dilemmaDescCtrl.text,
+                dilemmaRequirements: _dilemmaReqCtrl.text,
               ));
       }
       final grade = gradeFromPct(_totalPct);
@@ -446,20 +456,7 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
       setState(() {
         _approving = false;
         _hint = null;
-        _detail = EvalSheetDetail(
-          kind: detail.kind,
-          slot: detail.slot,
-          slotId: detail.slotId,
-          itemId: detail.itemId,
-          title: detail.title,
-          evalDocTitle: detail.evalDocTitle,
-          evalDocSubtitle: detail.evalDocSubtitle,
-          unitKey: detail.unitKey,
-          unitLabel: detail.unitLabel,
-          phaseKey: detail.phaseKey,
-          evalRows: detail.evalRows,
-          evalStructured: detail.evalStructured,
-          acquiredOptions: detail.acquiredOptions,
+        _detail = detail.copyWith(
           savedRows: List<EvalRowInput>.from(_rows),
           canEdit: false,
           canApprove: false,
@@ -474,6 +471,8 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
           approvalSignatureVersion: recAgain.version,
           approvalSignatureAt: DateTime.now().toIso8601String(),
           approvalSignatureUserId: uid,
+          dilemmaDescription: _dilemmaDescCtrl.text,
+          dilemmaRequirements: _dilemmaReqCtrl.text,
         );
       });
     } on ApiException catch (e) {
@@ -493,27 +492,41 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final pageTitle = widget.mode == EvalSheetMode.actionEval ? 'قوائم تقييم المعاضل' : 'قوائم تقييم الإجراءات';
     final sheetTitle =
         _detail?.title.isNotEmpty == true ? _detail!.title : (widget.fallbackTitle ?? 'ورقة التقييم');
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppHeader(
-        pageTitle: pageTitle,
-        onBack: () => Navigator.of(context).maybePop(),
+      body: SafeArea(
+        child: _loading
+            ? Column(
+                children: [
+                  const Expanded(child: LoadingView()),
+                  _EvalSheetCloseButton(onPressed: () => Navigator.of(context).maybePop()),
+                ],
+              )
+            : _error != null
+                ? Column(
+                    children: [
+                      Expanded(child: ErrorView(message: _error!, onRetry: _load)),
+                      _EvalSheetCloseButton(onPressed: () => Navigator.of(context).maybePop()),
+                    ],
+                  )
+                : _buildBody(sheetTitle),
       ),
-      body: _loading
-          ? const LoadingView()
-          : _error != null
-              ? ErrorView(message: _error!, onRetry: _load)
-              : _buildBody(sheetTitle),
     );
   }
 
   Widget _buildBody(String sheetTitle) {
     final detail = _detail;
-    if (detail == null) return const EmptyView(message: 'لا توجد بيانات');
+    if (detail == null) {
+      return Column(
+        children: [
+          const Expanded(child: EmptyView(message: 'لا توجد بيانات')),
+          _EvalSheetCloseButton(onPressed: () => Navigator.of(context).maybePop()),
+        ],
+      );
+    }
     if (!detail.evalStructured || detail.evalRows.isEmpty) {
       return Column(
         children: [
@@ -523,6 +536,7 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
               message: detail.evalRows.isEmpty ? 'لا توجد بنود تقييم في هذا الملف' : 'تعذّر قراءة قالب التقييم',
             ),
           ),
+          _EvalSheetCloseButton(onPressed: () => Navigator.of(context).maybePop()),
         ],
       );
     }
@@ -567,6 +581,11 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
                 ),
             ],
           ),
+        ),
+        _EvalNarrativeBlock(
+          descCtrl: _dilemmaDescCtrl,
+          reqCtrl: _dilemmaReqCtrl,
+          canEdit: detail.canEdit,
         ),
         Expanded(
           child: StickyEvalScaffold(
@@ -653,6 +672,7 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
                   : 'لا يمكن اعتماد نتائج التقييم النهائي إلا بعد إدخال ملاحظات في الصفوف ذات النتيجة راسب أو مقبول.',
               onSave: _save,
               onApprove: _approve,
+              onClose: () => Navigator.of(context).maybePop(),
             ),
           ),
         ),
@@ -1543,6 +1563,7 @@ class _FooterBar extends StatelessWidget {
     this.blockMessage,
     required this.onSave,
     required this.onApprove,
+    required this.onClose,
   });
 
   final double sumMax;
@@ -1560,6 +1581,7 @@ class _FooterBar extends StatelessWidget {
   final String? blockMessage;
   final VoidCallback onSave;
   final VoidCallback onApprove;
+  final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
@@ -1685,6 +1707,8 @@ class _FooterBar extends StatelessWidget {
                 textAlign: TextAlign.center,
               ),
             ),
+          const SizedBox(height: 8),
+          _EvalSheetCloseButton(onPressed: onClose),
         ],
       ),
     );
@@ -1730,6 +1754,103 @@ class _StatBox extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _EvalSheetCloseButton extends StatelessWidget {
+  const _EvalSheetCloseButton({required this.onPressed});
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          onPressed: onPressed,
+          icon: const Icon(Icons.close),
+          label: const Text('إغلاق قائمة التقييم'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.olive,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            side: const BorderSide(color: AppColors.olive),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EvalNarrativeBlock extends StatelessWidget {
+  const _EvalNarrativeBlock({
+    required this.descCtrl,
+    required this.reqCtrl,
+    required this.canEdit,
+  });
+
+  final TextEditingController descCtrl;
+  final TextEditingController reqCtrl;
+  final bool canEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFFF7F2E8),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      child: Column(
+        children: [
+          _row('وصف المعضلة', descCtrl, 2),
+          const SizedBox(height: 8),
+          _row('متطلبات تنفيذ المعضلة', reqCtrl, 3),
+        ],
+      ),
+    );
+  }
+
+  Widget _row(String label, TextEditingController ctrl, int lines) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 150,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              label,
+              style: AppTextStyles.cairo(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: AppColors.olive,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: TextField(
+            controller: ctrl,
+            enabled: canEdit,
+            minLines: lines,
+            maxLines: 6,
+            textAlign: TextAlign.right,
+            style: AppTextStyles.cairo(fontSize: 13, height: 1.45),
+            decoration: InputDecoration(
+              hintText: 'أدخل $label',
+              filled: true,
+              fillColor: Colors.white,
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+                borderSide: const BorderSide(color: AppColors.divider),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -112,6 +112,9 @@ def _reportlab_from_filled_xlsx(
         title = _display_cell(ws.cell(1, 2))
         for r in range(2, mr + 1):
             element = _display_cell(ws.cell(r, 2))
+            el_norm = " ".join((element or "").split())
+            if "وصف المعضلة" in el_norm or "متطلبات تنفيذ" in el_norm:
+                continue
             mx = _display_cell(ws.cell(r, 5))
             aq = _display_cell(ws.cell(r, 6))
             pct = _display_cell(ws.cell(r, 7))

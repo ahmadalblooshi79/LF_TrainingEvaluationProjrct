@@ -164,6 +164,7 @@ class PlannerFlowDayPdfPageTests(unittest.TestCase):
                     "report_systems": "",
                     "description": "وصف",
                     "assignee": "محكم",
+                    "method": "فرض",
                     "reaction": "",
                     "notes": "",
                 },
@@ -192,6 +193,32 @@ class PlannerFlowDayPdfPageTests(unittest.TestCase):
             )
         self.assertIn("مرحلة التمرين لهذا اليوم", html)
         self.assertNotIn('id="pf-flow-day-pdf-btn"', html)
+
+    def test_table_uses_readiness_six_columns(self):
+        from flask import render_template
+
+        with self.app.test_request_context():
+            html = render_template(
+                "partials/planner_action_flow_table.html",
+                flow_table_days=[
+                    {"id": "day-1", "label": "اليوم/1", "note": "", "rows": []}
+                ],
+                flow_table_active_day_id="day-1",
+                flow_table_rows=[],
+                flow_table_active_day_note="",
+                readonly_mode=False,
+                pf_flow_save_url="/save",
+                pf_flow_import_docx_url="/import",
+            )
+        self.assertIn("الوقت", html)
+        self.assertIn("وصف الحدث/ المعضلة", html)
+        self.assertIn("المكلف بالإجراء والمتابعة", html)
+        self.assertIn("أسلوب فرض المعضلة", html)
+        self.assertIn("رد الفعل المتوقع", html)
+        self.assertNotIn("توقيت نظام كورا", html)
+        self.assertNotIn("أنظمة التبليغ", html)
+        self.assertIn("planner-flow-col-assignee", html)
+        self.assertEqual(html.count("<col "), 6)
 
 
 if __name__ == "__main__":

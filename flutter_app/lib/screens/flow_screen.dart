@@ -11,15 +11,11 @@ import 'library_pdf_screen.dart';
 
 const _flowCols = <({String label, int flex})>[
   (label: 'ت', flex: 1),
-  (label: 'التوقيت الحقيقي', flex: 2),
-  (label: 'توقيت نظام كورا', flex: 2),
-  (label: 'من', flex: 1),
-  (label: 'إلى', flex: 1),
-  (label: 'أنظمة التبليغ', flex: 2),
-  (label: 'وصف المعضلة/الحدث', flex: 3),
-  (label: 'المكلف بالإجراء والمتابعة', flex: 2),
+  (label: 'الوقت', flex: 2),
+  (label: 'وصف الحدث/ المعضلة', flex: 3),
+  (label: 'المكلف بالإجراء والمتابعة', flex: 3),
+  (label: 'أسلوب فرض المعضلة', flex: 2),
   (label: 'رد الفعل المتوقع', flex: 2),
-  (label: 'الملاحظات', flex: 2),
 ];
 
 class FlowScreen extends StatefulWidget {
@@ -165,7 +161,7 @@ class _FlowScreenState extends State<FlowScreen> {
                   Expanded(
                     child: LayoutBuilder(
                       builder: (context, constraints) {
-                        final tableW = constraints.maxWidth < 1180 ? 1180.0 : constraints.maxWidth;
+                        final tableW = constraints.maxWidth < 980 ? 980.0 : constraints.maxWidth;
                         return SingleChildScrollView(
                           scrollDirection: Axis.horizontal,
                           child: SizedBox(
@@ -295,14 +291,10 @@ class _Row extends StatelessWidget {
                 children: [
                   _cell(row.seq > 0 ? '${row.seq}' : '', flex: 1),
                   _cell(row.time, flex: 2),
-                  _cell(row.timeKora, flex: 2),
-                  _cell(row.timeFrom, flex: 1),
-                  _cell(row.timeTo, flex: 1),
-                  _cell(row.reportSystems, flex: 2),
                   _cell(row.text, flex: 3, align: TextAlign.right),
-                  _cell(row.assignee, flex: 2),
+                  _cell(row.assignee, flex: 3),
+                  _cell(row.method, flex: 2, align: TextAlign.right),
                   _cell(row.reaction, flex: 2, align: TextAlign.right),
-                  _cell(row.notes, flex: 2, align: TextAlign.right),
                 ],
               ),
             ),

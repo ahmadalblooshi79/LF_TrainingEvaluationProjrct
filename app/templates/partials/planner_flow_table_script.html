@@ -1,17 +1,20 @@
 <script>
-/* planner-flow-table v44 — PDF tab closes without extra navigation */
+/* planner-flow-table v45 — readiness 6-column layout; assignee unchanged */
 (function () {
   'use strict';
 
   var FLOW_DATA_FIELDS = [
     'time',
+    'description',
+    'assignee',
+    'method',
+    'reaction'
+  ];
+  var FLOW_HIDDEN_FIELDS = [
     'time_kora',
     'time_from',
     'time_to',
     'report_systems',
-    'description',
-    'assignee',
-    'reaction',
     'notes'
   ];
   var FLOW_COLSPAN = FLOW_DATA_FIELDS.length + 1;
@@ -614,24 +617,34 @@
     }
 
     function collectRows() {
+      var prev = [];
+      var di = findDayIndex(activeDayId);
+      if (di >= 0 && Array.isArray(daysState[di].rows)) {
+        prev = daysState[di].rows;
+      }
       var rows = [];
+      var i = 0;
       tbody.querySelectorAll('.pf-flow-row').forEach(function (tr) {
         var kind = tr.getAttribute('data-kind') || 'row';
+        var old = prev[i] && typeof prev[i] === 'object' ? prev[i] : {};
+        i += 1;
         if (kind === 'event' || kind === 'dilemma') {
           rows.push({ kind: kind, text: rowText(tr.querySelector('.pf-flow-merged-cell')) });
         } else {
-          rows.push({
+          var item = {
             kind: 'row',
             time: readCell(fieldCell(tr, 'time')),
-            time_kora: readCell(fieldCell(tr, 'time_kora')),
-            time_from: readCell(fieldCell(tr, 'time_from')),
-            time_to: readCell(fieldCell(tr, 'time_to')),
-            report_systems: readCell(fieldCell(tr, 'report_systems')),
             description: readCell(fieldCell(tr, 'description')),
             assignee: readCell(assigneeTd(tr)),
-            reaction: readCell(fieldCell(tr, 'reaction')),
-            notes: readCell(fieldCell(tr, 'notes'))
-          });
+            method: readCell(fieldCell(tr, 'method')),
+            reaction: readCell(fieldCell(tr, 'reaction'))
+          };
+          if (old.kind === 'row') {
+            FLOW_HIDDEN_FIELDS.forEach(function (field) {
+              item[field] = String(old[field] || '');
+            });
+          }
+          rows.push(item);
         }
       });
       return rows;

@@ -5930,6 +5930,58 @@ main:has(.timeline-word-root) .admin-shell__workspace {
   font-size: 0.82rem;
   line-height: 1.35;
 }
+.eval-narrative-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  margin: 0 0 0.35rem;
+}
+.eval-narrative-row {
+  border: 1px solid #d9cdb8;
+  border-radius: 8px;
+  background: #fbf8f3;
+  padding: 0.35rem 0.55rem 0.4rem;
+}
+.eval-narrative-row__label {
+  display: block;
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: #1a1a2e;
+  margin: 0 0 0.2rem;
+}
+.eval-narrative-row__input {
+  display: block;
+  width: 100%;
+  min-height: 2.5rem;
+  resize: vertical;
+  box-sizing: border-box;
+  border: 1px solid #cfc3ad;
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: #1a1a2e;
+  background: #fff;
+}
+.eval-narrative-row__input:disabled {
+  background: #f3eee6;
+  color: #1a1a2e;
+  opacity: 1;
+}
+.eval-list-page .eval-narrative-rows {
+  margin: 0 0 0.28rem !important;
+}
+.eval-list-page .eval-narrative-row {
+  padding: 0.28rem 0.5rem 0.32rem;
+}
+.eval-list-page .eval-narrative-row__label {
+  font-size: 0.78rem;
+}
+.eval-list-page .eval-narrative-row__input {
+  font-size: 0.8rem;
+  min-height: 2.2rem;
+}
 .eval-info-card__row {
   display: flex;
   flex-wrap: wrap;
@@ -10858,20 +10910,20 @@ main:has(#pf-flow-table-section):not(:has(.ibank-event-flow-panel)) > #pf-flow-t
   position: sticky;
   top: 0;
   z-index: 4;
-  background: var(--surface-muted, #f5f1ec);
+  background: #fbd4b4;
   color: #000;
   box-shadow: 0 2px 5px rgba(80, 65, 55, 0.14);
   border-color: var(--btn-border);
   font-weight: 700;
 }
 .planner-flow-action-table.ibank-table thead th.planner-flow-action-col-num {
-  background: var(--surface-muted, #f5f1ec);
+  background: #fbd4b4;
   color: #000;
 }
 .planner-flow-action-table.ibank-table {
   table-layout: fixed;
   width: 100%;
-  min-width: 88rem;
+  min-width: 64rem;
 }
 .planner-flow-action-table .planner-flow-col-time,
 .planner-flow-action-table .planner-flow-col-assignee {
@@ -11079,10 +11131,10 @@ main:has(#pf-flow-table-section):not(:has(.ibank-event-flow-panel)) > #pf-flow-t
 .planner-flow-action-table.ibank-table tbody tr.pf-flow-row--event:nth-child(even),
 .planner-flow-action-table.ibank-table tbody tr.pf-flow-row--event:nth-child(odd),
 .planner-flow-action-table.ibank-table tbody tr.pf-flow-row--event:hover {
-  background-color: #fff9c4;
+  background-color: #ffff00;
 }
 .planner-flow-action-table.ibank-table tbody tr.pf-flow-row--event > td.pf-flow-merged-cell {
-  background-color: #fff9c4;
+  background-color: #ffff00;
 }
 .planner-flow-action-table.ibank-table tbody tr.pf-flow-row--event > td {
   font-weight: 700;
@@ -11092,10 +11144,10 @@ main:has(#pf-flow-table-section):not(:has(.ibank-event-flow-panel)) > #pf-flow-t
 .planner-flow-action-table.ibank-table tbody tr.pf-flow-row--dilemma:nth-child(even),
 .planner-flow-action-table.ibank-table tbody tr.pf-flow-row--dilemma:nth-child(odd),
 .planner-flow-action-table.ibank-table tbody tr.pf-flow-row--dilemma:hover {
-  background-color: #ffcdd2;
+  background-color: #e5b8b7;
 }
 .planner-flow-action-table.ibank-table tbody tr.pf-flow-row--dilemma > td.pf-flow-merged-cell {
-  background-color: #ffcdd2;
+  background-color: #e5b8b7;
 }
 .planner-flow-action-table.ibank-table tbody tr.pf-flow-row--dilemma > td {
   font-weight: 700;
@@ -11133,10 +11185,10 @@ main:has(#pf-flow-table-section):not(:has(.ibank-event-flow-panel)) > #pf-flow-t
   margin-inline-end: 0.25rem;
 }
 .pf-flow-insert-btn--event {
-  background: #fff9c4;
+  background: #ffff00;
 }
 .pf-flow-insert-btn--dilemma {
-  background: #ffcdd2;
+  background: #e5b8b7;
 }
 .pf-flow-head-actions {
   flex-shrink: 0;
@@ -12739,6 +12791,33 @@ html {
 }
 .exercise-workspace-import-status.is-error {
   color: #a54a3a;
+}
+.exercise-image-wrap {
+  padding: 1rem 1.1rem 1.15rem;
+}
+.exercise-workspace-image-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.85rem;
+}
+.exercise-workspace-image-status.is-error {
+  color: #a54a3a;
+}
+.exercise-workspace-image-figure {
+  margin: 0;
+  border: 1px solid var(--border-soft, #c9bfb5);
+  border-radius: 8px;
+  background: #fff;
+  overflow: auto;
+  max-height: min(78vh, 920px);
+}
+.exercise-workspace-image-figure img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
 }
 .exercise-info-layout {
   display: flex;

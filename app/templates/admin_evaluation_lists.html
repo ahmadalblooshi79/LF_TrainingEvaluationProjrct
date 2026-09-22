@@ -49,12 +49,6 @@
 
 </section>
 
-{% if current_exercise and eval_groups %}
-<form id="eval-lists-withdraw-all-form" method="post" action="{{ url_for('views.admin_evaluation_lists_withdraw_all_from_ibank') }}">
-  <input type="hidden" name="phase_key" value="{{ selected_phase }}">
-</form>
-{% endif %}
-
 {% if eval_groups %}
 
 <form method="post" action="{{ url_for('views.admin_evaluation_lists_publish_phase_from_ibank') }}" class="eval-lists-phase-publish-form" id="eval-lists-phase-form" data-phase="{{ selected_phase }}">
@@ -86,9 +80,13 @@
         نشر المحددة
       </button>
       {% if current_exercise %}
-      <button type="submit" form="eval-lists-withdraw-all-form" class="btn btn-ghost btn-xs eval-lists-toolbar-btn" onclick="return confirm('سحب القوائم غير المستخدمة فقط لهذه المرحلة؟\nالقوائم ذات النتائج أو العلامات ستبقى.');">
+      <button type="submit" class="btn btn-ghost btn-xs eval-lists-toolbar-btn" id="eval-lists-withdraw-btn"
+        formaction="{{ url_for('views.admin_evaluation_lists_withdraw_all_from_ibank') }}"
+        formmethod="post"
+        data-withdraw="1"
+        title="سحب القوائم غير المحددة فقط — المحددة تبقى منشورة">
         <i class="fa-solid fa-cloud-arrow-down" aria-hidden="true"></i>
-        سحب القوائم
+        سحب غير المحددة
       </button>
       {% endif %}
     </div>
@@ -329,6 +327,23 @@
 
   if (form) {
     form.addEventListener("submit", (ev) => {
+      const submitter = ev.submitter;
+      const isWithdraw = submitter && submitter.getAttribute("data-withdraw") === "1";
+      if (isWithdraw) {
+        const targets = [...form.querySelectorAll(".eval-lists-publish-cb")].filter((cb) => {
+          if (cb.checked) return false;
+          return !!cb.closest(".eval-lists-row--published");
+        });
+        if (!targets.length) {
+          ev.preventDefault();
+          window.alert("ألغِ تحديد القوائم المراد سحبها أولاً.");
+          return;
+        }
+        if (!window.confirm("سحب القوائم غير المحددة لهذه المرحلة؟\nالمحددة تبقى منشورة.\nالقوائم ذات النتائج أو العلامات ستبقى.")) {
+          ev.preventDefault();
+        }
+        return;
+      }
       const active = [...form.querySelectorAll(".eval-lists-publish-cb")].filter((cb) => !cb.disabled);
       if (!active.some((cb) => cb.checked)) {
         ev.preventDefault();

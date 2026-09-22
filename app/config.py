@@ -67,6 +67,13 @@ PLANNER_FLOW_BUNDLE_DIR = Path(
         str(_DATA / "instance" / "planner_flow_bundles"),
     )
 ).resolve()
+# صور تبويبي البرنامج والخريطة في معلومات التمرين
+EXERCISE_WORKSPACE_IMAGE_DIR = Path(
+    os.getenv(
+        "EXERCISE_WORKSPACE_IMAGE_DIR",
+        str(_DATA / "instance" / "exercise_workspace_images"),
+    )
+).resolve()
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-insecure-secret-change-in-production")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
