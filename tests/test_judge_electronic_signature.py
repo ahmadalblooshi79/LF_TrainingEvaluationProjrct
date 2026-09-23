@@ -10,10 +10,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
-from app.evaluation_workflow import apply_judge_approve
+from app.evaluation_workflow import apply_judge_approve, apply_other_judge_overwrite
 from app.judge_signature import (
     JudgeSignatureError,
     attach_signature_snapshot,
+    delete_master_for_user_ids,
+    delete_signatures_for_exercise_judges,
     get_master,
     make_sample_signature_png,
     png_is_rgba,
@@ -274,6 +276,84 @@ class JudgeElectronicSignatureTests(unittest.TestCase):
             self.assertEqual(ws2["G20"].value, "أحمد")
         finally:
             wb2.close()
+
+    def test_other_judge_overwrite_clears_approval(self):
+        item = EvaluationListPdfItem(
+            exercise_id=1,
+            exercise_phase="opening",
+            unit_level_key="ul_x",
+            unit_level_label="x",
+            sort_order=0,
+            text="قائمة",
+            pdf_relpath="x.xlsx",
+        )
+        self.db.add(item)
+        self.db.flush()
+        saved = EvaluationListSavedResult(
+            evaluation_item_id=int(item.id),
+            exercise_id=1,
+            payload_json='{"rows":[]}',
+            saved_by_id=int(self.judge_a.id),
+        )
+        self.db.add(saved)
+        self.db.flush()
+        apply_judge_approve(saved, int(self.judge_a.id))
+        attach_signature_snapshot(
+            saved,
+            user_id=int(self.judge_a.id),
+            png_bytes=self.png,
+            version=1,
+        )
+        apply_other_judge_overwrite(saved)
+        self.assertFalse(saved.is_approved)
+        self.assertIsNone(saved.approved_by_id)
+        self.assertIsNone(snapshot_png(saved))
+
+    def test_delete_signatures_for_exercise_judges(self):
+        from app.models import (
+            Exercise,
+            ExerciseRosterKind,
+            ExerciseRosterRow,
+            ExerciseStatus,
+        )
+
+        owner = User(
+            username="admin_sig_wipe",
+            full_name="مدير",
+            password_hash="x",
+            role_key="system_admin",
+        )
+        self.db.add(owner)
+        self.db.flush()
+        ex = Exercise(
+            code="T-SIG-1",
+            title="تمرين تواقيع",
+            owner_id=int(owner.id),
+            status=ExerciseStatus.ACTIVE.value,
+            exercise_type="trial",
+            trained_unit="unit",
+        )
+        self.db.add(ex)
+        self.db.flush()
+        save_or_replace_master(self.db, int(self.judge_a.id), self.png, replace=True)
+        save_or_replace_master(self.db, int(self.judge_b.id), self.png, replace=True)
+        self.db.add(
+            ExerciseRosterRow(
+                exercise_id=int(ex.id),
+                roster_kind=ExerciseRosterKind.JUDGE.value,
+                military_number=self.judge_a.username,
+                full_name=self.judge_a.full_name,
+                unit_level_key="ul_x",
+            )
+        )
+        self.db.commit()
+        delete_signatures_for_exercise_judges(self.db, int(ex.id))
+        self.db.commit()
+        self.assertIsNone(get_master(self.db, int(self.judge_a.id)))
+        self.assertIsNotNone(get_master(self.db, int(self.judge_b.id)))
+        delete_master_for_user_ids(self.db, {int(self.judge_b.id)})
+        self.db.commit()
+        self.assertIsNone(get_master(self.db, int(self.judge_b.id)))
 
 
 if __name__ == "__main__":

@@ -18,7 +18,6 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.config import INFO_BANK_DIR
-from app.information_bank_catalog import INFO_BANK_UNIT_LEVEL_TEMPLATES, TRAINING_PHASES
 from app.models.domain import (
     ExerciseRosterKind,
     ExerciseRosterRow,
@@ -68,7 +67,7 @@ def ibank_event_flow_days(db: Session) -> list[dict[str, str]]:
     import re
 
     from app.information_bank_catalog import training_phase_label
-    from app.models.domain import InformationBankEventFlowTable
+    from app.models.domain import InformationBankEventFlowTable, InformationBankTrainingPhase
 
     aliases = {
         "main": "battle_exposure",
@@ -84,11 +83,19 @@ def ibank_event_flow_days(db: Session) -> list[dict[str, str]]:
 
     def _day(day_id: str, label: str, phase_key: str = "") -> dict[str, str]:
         pk = _phase_key(phase_key)
+        phase_lbl = ""
+        if pk:
+            prow = (
+                db.query(InformationBankTrainingPhase)
+                .filter(InformationBankTrainingPhase.key == pk)
+                .first()
+            )
+            phase_lbl = ((prow.label if prow else "") or training_phase_label(pk) or "").strip()
         return {
             "id": day_id[:64],
             "label": label[:200],
             "phase_key": pk,
-            "phase_label": training_phase_label(pk) if pk else "",
+            "phase_label": phase_lbl,
         }
 
     row = (
@@ -481,19 +488,7 @@ def _phase_rows(db: Session) -> list[InformationBankTrainingPhase]:
         )
         .all()
     )
-    if rows:
-        return rows
-    out: list[InformationBankTrainingPhase] = []
-    for idx, p in enumerate(TRAINING_PHASES):
-        out.append(
-            InformationBankTrainingPhase(
-                key=p["key"],
-                label=p["label"],
-                sort_order=idx,
-                is_system=True,
-            )
-        )
-    return out
+    return rows
 
 
 def _included_phase_rows(db: Session) -> list[InformationBankTrainingPhase]:
@@ -514,19 +509,7 @@ def _unit_rows(db: Session) -> list[InformationBankUnitLevel]:
         )
         .all()
     )
-    if rows:
-        return rows
-    out: list[InformationBankUnitLevel] = []
-    for idx, u in enumerate(INFO_BANK_UNIT_LEVEL_TEMPLATES):
-        out.append(
-            InformationBankUnitLevel(
-                key=u["key"],
-                label=u["label"],
-                sort_order=idx,
-                is_system=True,
-            )
-        )
-    return out
+    return rows
 
 
 def _normalize_tree_label(text: str) -> str:
@@ -1323,14 +1306,8 @@ def ensure_information_bank_tree(db: Session, kind: str, *, backfill: bool = Fal
     else:
         phases = _phase_rows(db)
     units = _unit_rows(db)
-    primary_keys = set(PRIMARY_PHASE_KEYS)
     included_phase_keys = {(ph.key or "").strip() for ph in phases if (ph.key or "").strip()}
     for ph in phases:
-        if ph.is_system and ph.key not in primary_keys and ph.key in {
-            p["key"] for p in TRAINING_PHASES if p["key"] not in PRIMARY_PHASE_KEYS
-        }:
-            # مراحل نظام إضافية (مثل مسارات التقييم) — تُنشأ عند وجودها في الكتالوج
-            pass
         if is_unit_eval_tree_kind(kind):
             _clear_tree_suppression(db, kind=kind, catalog_phase_key=ph.key)
         elif _is_tree_suppressed(db, kind=kind, catalog_phase_key=ph.key):

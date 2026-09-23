@@ -16,10 +16,11 @@ def parse_roster_rows_from_upload(
     file_storage,
     *,
     max_rows: int = 500,
-) -> list[tuple[str, str, str, str]]:
+) -> list[tuple[str, str, str, str, str]]:
     """
-    يعيد قائمة (رقم_عسكري، رتبة، اسم، منصب) لكل صف.
-    يدعم: CSV/TXT (فاصلة أو تاب)، Excel .xlsx (أول ورقة، أربعة أعمدة).
+    يعيد قائمة (رقم_عسكري، رتبة، اسم، منصب، مرحلة) لكل صف.
+    العمود الخامس اختياري (مرحلة التمرين لقائمة المحكمين).
+    يدعم: CSV/TXT (فاصلة أو تاب)، Excel .xlsx (أول ورقة).
     """
     if not file_storage or not getattr(file_storage, "filename", ""):
         return []
@@ -28,7 +29,7 @@ def parse_roster_rows_from_upload(
     if not raw:
         return []
 
-    out: list[tuple[str, str, str, str]] = []
+    out: list[tuple[str, str, str, str, str]] = []
 
     if fn.endswith((".xlsx", ".xlsm")):
         from openpyxl import load_workbook
@@ -38,8 +39,8 @@ def parse_roster_rows_from_upload(
         try:
             ws = wb[wb.sheetnames[0]]
             for row in ws.iter_rows(min_row=1, max_row=max_rows + 5, values_only=True):
-                cells = [_cell_str(c) for c in (row or ())[:4]]
-                while len(cells) < 4:
+                cells = [_cell_str(c) for c in (row or ())[:5]]
+                while len(cells) < 5:
                     cells.append("")
                 if not any(cells):
                     continue
@@ -58,14 +59,14 @@ def parse_roster_rows_from_upload(
     delim = "\t" if "\t" in sample else ","
     reader = csv.reader(io.StringIO(text), delimiter=delim)
     for cells in reader:
-        cells = [(c or "").strip() for c in cells[:4]]
-        while len(cells) < 4:
+        cells = [(c or "").strip() for c in cells[:5]]
+        while len(cells) < 5:
             cells.append("")
         if not any(cells):
             continue
         if _looks_like_header_row(cells):
             continue
-        out.append((cells[0], cells[1], cells[2], cells[3]))
+        out.append((cells[0], cells[1], cells[2], cells[3], cells[4]))
         if len(out) >= max_rows:
             break
     return out
@@ -85,6 +86,8 @@ def _looks_like_header_row(cells: list[str]) -> bool:
         "position",
         "الترقيم",
         "تسلسل",
+        "مرحلة",
+        "phase",
     )
     hits = sum(1 for h in hints if h in joined)
     return hits >= 2 and len(joined) < 120

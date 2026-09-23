@@ -356,6 +356,30 @@ def _unit_key_for(user: User, ex: Exercise | None) -> str:
     return _judge_assigned_unit_key(g.db, user, ex)
 
 
+def _phase_key_for(user: User, ex: Exercise | None) -> str:
+    from app.views import _is_individual_judge_user, _judge_assigned_phase_key
+
+    if not _is_individual_judge_user(user):
+        return ""
+    return (_judge_assigned_phase_key(g.db, user, ex) or "").strip()
+
+
+def _tablet_phase_scope_error(user: User, ex: Exercise | None, item_phase: str | None):
+    from werkzeug.exceptions import Forbidden, HTTPException
+
+    from app.views import _enforce_judge_phase_scope
+
+    try:
+        _enforce_judge_phase_scope(g.db, user, ex, item_phase)
+    except Forbidden:
+        return _json_error("هذه القائمة خارج نطاق مرحلتك", 403)
+    except HTTPException as exc:
+        if int(getattr(exc, "code", 0) or 0) != 403:
+            raise
+        return _json_error("هذه القائمة خارج نطاق مرحلتك", 403)
+    return None
+
+
 def _tablet_scoped_eval_status_rows(user: User, ex: Exercise | None) -> list:
     """صفوف موقف التقييم بنفس نطاق وحدة المحكم المستخدم في القوائم."""
     from app.views import (
@@ -1108,14 +1132,15 @@ def tablet_evaluation_lists(user: User):
     units = _judge_evaluation_list_unit_levels(g.db, user, ex)
     from app.views import _is_individual_judge_user
 
+    assigned_pk = _phase_key_for(user, ex)
     # محكم فردي بلا وحدة: لا تُعرض قوائم كل الوحدات (يسبب عدم تطابق العدد)
     if not units and _is_individual_judge_user(user):
-        phase_empty = normalize_exercise_phase(
+        phase_empty = assigned_pk or normalize_exercise_phase(
             (request.args.get("phase") or "").strip() or default_exercise_phase_key()
         )
-        phase_keys_empty = list(exercise_phase_keys())
+        phase_keys_empty = [assigned_pk] if assigned_pk else list(exercise_phase_keys())
         phase_tabs_empty = [
-            {"key": k, "label": exercise_phase_label(k) or k} for k in phase_keys_empty
+            {"key": k, "label": exercise_phase_label(k) or k} for k in phase_keys_empty if k
         ]
         return jsonify(
             {
@@ -1156,7 +1181,7 @@ def tablet_evaluation_lists(user: User):
     uk = (request.args.get("unit_key") or "").strip()
     if not uk and units:
         uk = units[0]["key"]
-    phase = normalize_exercise_phase(
+    phase = assigned_pk or normalize_exercise_phase(
         (request.args.get("phase") or "").strip() or default_exercise_phase_key()
     )
     q = g.db.query(EvaluationListPdfItem).filter(
@@ -1167,6 +1192,9 @@ def tablet_evaluation_lists(user: User):
     items = q.order_by(EvaluationListPdfItem.sort_order, EvaluationListPdfItem.id).all()
     if phase:
         items = filter_evaluation_items_by_phase(items, phase)
+    from app.views import _eval_items_owned_by_judge
+
+    items = _eval_items_owned_by_judge(g.db, user, ex, items)
     # التبويب الأول دائماً هو الافتراضي — لا ننتقل تلقائياً لمرحلة أخرى
     item_ids = [int(it.id) for it in items]
     canonical_by_item = _evaluation_canonical_map_for_items(g.db, ex.id, item_ids)
@@ -1200,6 +1228,8 @@ def tablet_evaluation_lists(user: User):
 
         roster_units = roster_eval_display_unit_keys(g.db, int(ex.id))
         phase_keys = effective_eval_list_phase_keys(g.db, roster_units=roster_units)
+    if assigned_pk:
+        phase_keys = [assigned_pk]
     phase_tabs = [
         {"key": k, "label": exercise_phase_label(k) or k} for k in phase_keys
     ]
@@ -1255,6 +1285,9 @@ def tablet_evaluation_list_detail(user: User, unit_key: str, item_id: int):
         assigned = (_judge_assigned_unit_key(g.db, user, ex) or "").strip()
         if assigned and effective_uk and assigned != effective_uk:
             return _json_error("هذه القائمة خارج نطاق وحدتك", 403)
+    phase_err = _tablet_phase_scope_error(user, ex, getattr(item, "exercise_phase", None))
+    if phase_err is not None:
+        return phase_err
     path = _evaluation_list_file_abspath((item.pdf_relpath or "").strip())
     if path is None:
         return _json_error("ملف القائمة غير موجود على السيرفر", 404)
@@ -1414,6 +1447,9 @@ def tablet_evaluation_list_approve(user: User, unit_key: str, item_id: int):
         assigned = (_judge_assigned_unit_key(g.db, user, ex) or "").strip()
         if assigned and effective_uk and assigned != effective_uk:
             return _json_error("هذه القائمة خارج نطاق وحدتك", 403)
+    phase_err = _tablet_phase_scope_error(user, ex, getattr(item, "exercise_phase", None))
+    if phase_err is not None:
+        return phase_err
     saved = _evaluation_canonical_saved_row(g.db, ex.id, item.id)
     if saved is None:
         return _json_error("احفظ النتائج قبل الاعتماد", 400)

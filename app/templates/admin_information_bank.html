@@ -107,12 +107,12 @@
                   مدرج في التمرين
                   {% endif %}
                 </th>
-                {% if information_bank_can_manage %}<th scope="col">حذف</th>{% endif %}
+                {% if information_bank_can_manage %}<th scope="col">إجراءات</th>{% endif %}
               </tr>
             </thead>
             <tbody>
               {% for p in training_phases %}
-              <tr data-was-included="{{ '1' if p.included_in_exercise else '0' }}">
+              <tr class="ibank-catalog-row" data-phase-key="{{ p.key }}" data-was-included="{{ '1' if p.included_in_exercise else '0' }}">
                 <td class="ibank-col-num">{{ loop.index }}</td>
                 <th scope="row">{{ p.label }}</th>
                 <td class="ibank-col-included">
@@ -126,13 +126,18 @@
                   {% endif %}
                 </td>
                 {% if information_bank_can_manage %}
-                <td>
-                  <form method="post" action="{{ url_for('views.admin_information_bank_phase_delete') }}" onsubmit="return confirm('حذف هذه المرحلة من بنك المعلومات؟');">
+                <td class="ibank-unit-actions-cell">
+                  <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-phase-edit" data-phase-key="{{ p.key }}" data-phase-label="{{ p.label|e }}" title="تعديل اسم المرحلة — اسحب الصف لترتيب المراحل"><i class="fa-solid fa-pen" aria-hidden="true"></i> تعديل</button>
+                  <form method="post" action="{{ url_for('views.admin_information_bank_phase_delete') }}" class="ibank-unit-delete-inline" onsubmit="return confirm('حذف هذه المرحلة من بنك المعلومات؟');">
                     <input type="hidden" name="phase_key" value="{{ p.key }}">
-                    <button type="submit" class="btn btn-ghost"><i class="fa-solid fa-trash-can" aria-hidden="true"></i> حذف مرحلة</button>
+                    <button type="submit" class="btn btn-ghost btn-sm-compact" title="حذف"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
                   </form>
                 </td>
                 {% endif %}
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="{% if information_bank_can_manage %}4{% else %}3{% endif %}" class="muted" dir="rtl">لا توجد مراحل تمرين. أضف مرحلة من الحقل أعلاه ثم أدرجها في التمرين محلياً.</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -175,6 +180,13 @@
       <form method="post" action="{{ url_for('views.admin_information_bank_unit_move') }}" id="ibank-unit-move-form" class="sr-only" aria-hidden="true">
         <input type="hidden" name="unit_keys" id="ibank-unit-move-keys" value="">
         <input type="hidden" name="brigade_tab" id="ibank-unit-move-tab" value="">
+      </form>
+      <form method="post" action="{{ url_for('views.admin_information_bank_phase_edit') }}" id="ibank-phase-edit-form" class="sr-only" aria-hidden="true">
+        <input type="hidden" name="phase_key" id="ibank-phase-edit-key" value="">
+        <input type="hidden" name="phase_label" id="ibank-phase-edit-label" value="">
+      </form>
+      <form method="post" action="{{ url_for('views.admin_information_bank_phase_move') }}" id="ibank-phase-move-form" class="sr-only" aria-hidden="true">
+        <input type="hidden" name="phase_keys" id="ibank-phase-move-keys" value="">
       </form>
       <form method="post" action="{{ url_for('views.admin_information_bank_designation_edit') }}" id="ibank-desig-edit-form" class="sr-only" aria-hidden="true"></form>
       <form method="post" action="{{ url_for('views.admin_information_bank_designation_alias_edit') }}" id="ibank-desig-alias-edit-form" class="sr-only" aria-hidden="true"></form>
@@ -1912,58 +1924,70 @@
 
     var moveForm = document.getElementById('ibank-unit-move-form');
     var moveUrl = moveForm ? moveForm.getAttribute('action') : '';
+    var unitEditForm = document.getElementById('ibank-unit-edit-form');
+    var unitEditUrl = unitEditForm ? unitEditForm.getAttribute('action') : '';
+    var phaseMoveForm = document.getElementById('ibank-phase-move-form');
+    var phaseMoveUrl = phaseMoveForm ? phaseMoveForm.getAttribute('action') : '';
+    var phaseEditForm = document.getElementById('ibank-phase-edit-form');
+    var phaseEditUrl = phaseEditForm ? phaseEditForm.getAttribute('action') : '';
     var tabbedRoot = card.querySelector('.ibank-tabbed') || card;
-    var unitDragSrc = null;
-    var unitDropHint = null;
+    var catalogDragSrc = null;
+    var catalogDropHint = null;
 
-    function unitRowTbody(row) {
+    function catalogRowKind(row) {
+      if (!row) return '';
+      if (row.hasAttribute('data-phase-key')) return 'phase';
+      if (row.hasAttribute('data-unit-key')) return 'unit';
+      return '';
+    }
+
+    function catalogRowSelector(kind) {
+      return kind === 'phase' ? 'tr[data-phase-key]' : 'tr[data-unit-key]';
+    }
+
+    function catalogRowKey(row) {
+      var kind = catalogRowKind(row);
+      if (kind === 'phase') return row.getAttribute('data-phase-key') || '';
+      if (kind === 'unit') return row.getAttribute('data-unit-key') || '';
+      return '';
+    }
+
+    function catalogRowTbody(row) {
       return row ? row.parentElement : null;
     }
 
-    function unitRowKeys(tbody) {
-      return Array.prototype.map.call(tbody.querySelectorAll('tr[data-unit-key]'), function (tr) {
-        return tr.getAttribute('data-unit-key') || '';
+    function catalogRowKeys(tbody, kind) {
+      return Array.prototype.map.call(tbody.querySelectorAll(catalogRowSelector(kind)), function (tr) {
+        return catalogRowKey(tr);
       }).filter(Boolean);
     }
 
-    function renumberUnitRows(tbody) {
+    function renumberCatalogRows(tbody, kind) {
       if (!tbody) return;
-      Array.prototype.forEach.call(tbody.querySelectorAll('tr[data-unit-key]'), function (tr, i) {
+      Array.prototype.forEach.call(tbody.querySelectorAll(catalogRowSelector(kind)), function (tr, i) {
         var num = tr.querySelector('.ibank-col-num');
         if (num) num.textContent = String(i + 1);
       });
     }
 
-    function applyUnitOrder(tbody, keys) {
+    function applyCatalogOrder(tbody, kind, keys) {
       if (!tbody || !keys || !keys.length) return;
       var byKey = {};
-      Array.prototype.forEach.call(tbody.querySelectorAll('tr[data-unit-key]'), function (tr) {
-        byKey[tr.getAttribute('data-unit-key')] = tr;
+      Array.prototype.forEach.call(tbody.querySelectorAll(catalogRowSelector(kind)), function (tr) {
+        byKey[catalogRowKey(tr)] = tr;
       });
       keys.forEach(function (k) {
         if (byKey[k]) tbody.appendChild(byKey[k]);
       });
-      renumberUnitRows(tbody);
+      renumberCatalogRows(tbody, kind);
     }
 
-    function clearUnitDropHints() {
+    function clearCatalogDropHints() {
       if (!tabbedRoot) return;
-      Array.prototype.forEach.call(tabbedRoot.querySelectorAll('.ibank-unit-row--drop-before, .ibank-unit-row--drop-after'), function (tr) {
-        tr.classList.remove('ibank-unit-row--drop-before', 'ibank-unit-row--drop-after');
+      Array.prototype.forEach.call(tabbedRoot.querySelectorAll('.ibank-catalog-row--drop-before, .ibank-catalog-row--drop-after, .ibank-unit-row--drop-before, .ibank-unit-row--drop-after'), function (tr) {
+        tr.classList.remove('ibank-catalog-row--drop-before', 'ibank-catalog-row--drop-after', 'ibank-unit-row--drop-before', 'ibank-unit-row--drop-after');
       });
-      unitDropHint = null;
-    }
-
-    function setUnitEditButton(row, dragging) {
-      var btn = row && row.querySelector('.js-ibank-unit-edit');
-      if (!btn) return;
-      if (dragging) {
-        btn.innerHTML = '<i class="fa-solid fa-check" aria-hidden="true"></i> تم';
-        btn.setAttribute('title', 'إنهاء التحريك');
-      } else {
-        btn.innerHTML = '<i class="fa-solid fa-pen" aria-hidden="true"></i> تعديل';
-        btn.setAttribute('title', 'تعديل — اسحب الصف لترتيب المستوى');
-      }
+      catalogDropHint = null;
     }
 
     function setRowDraggable(row, on) {
@@ -1984,31 +2008,22 @@
       });
     }
 
-    function exitUnitDrag(row) {
-      if (!row) return;
-      row.classList.remove('ibank-unit-row--editing', 'ibank-unit-row--dragging');
-      setRowDraggable(row, false);
-      setUnitEditButton(row, false);
-      clearUnitDropHints();
+    function enableCatalogRowDrag() {
+      if (!tabbedRoot) return;
+      Array.prototype.forEach.call(tabbedRoot.querySelectorAll('tr[data-unit-key], tr[data-phase-key]'), function (row) {
+        setRowDraggable(row, true);
+      });
     }
 
-    function enterUnitDrag(row) {
-      if (!row) return;
-      var tbody = unitRowTbody(row);
-      if (tbody) {
-        Array.prototype.forEach.call(tbody.querySelectorAll('tr.ibank-unit-row--editing'), function (other) {
-          if (other !== row) exitUnitDrag(other);
-        });
-      }
-      row.classList.add('ibank-unit-row--editing');
-      setRowDraggable(row, true);
-      setUnitEditButton(row, true);
-    }
-
-    function persistUnitOrder(tbody, tab) {
-      if (!moveUrl || !tbody) return Promise.resolve();
-      var keys = unitRowKeys(tbody);
-      return fetch(moveUrl, {
+    function persistCatalogOrder(tbody, kind, extra) {
+      extra = extra || {};
+      var url = kind === 'phase' ? phaseMoveUrl : moveUrl;
+      if (!url || !tbody) return Promise.resolve();
+      var keys = catalogRowKeys(tbody, kind);
+      var body = kind === 'phase'
+        ? { phase_keys: keys.join(',') }
+        : { unit_keys: keys.join(','), brigade_tab: extra.tab || '' };
+      return fetch(url, {
         method: 'POST',
         credentials: 'same-origin',
         headers: {
@@ -2016,10 +2031,7 @@
           'X-Requested-With': 'XMLHttpRequest',
           Accept: 'application/json',
         },
-        body: new URLSearchParams({
-          unit_keys: keys.join(','),
-          brigade_tab: tab || '',
-        }).toString(),
+        body: new URLSearchParams(body).toString(),
       }).then(function (r) {
         return r.json().then(function (j) {
           return { ok: r.ok && j && j.ok, json: j || {} };
@@ -2031,93 +2043,158 @@
           window.alert((res.json && res.json.error) || 'تعذّر حفظ الترتيب.');
           return;
         }
-        applyUnitOrder(tbody, res.json.keys || keys);
+        applyCatalogOrder(tbody, kind, res.json.keys || keys);
       }).catch(function () {
         window.alert('تعذر الاتصال بالخادم.');
       });
     }
 
-    function unitDragFromInteractive(el) {
+    function persistCatalogRename(kind, key, label, extra) {
+      extra = extra || {};
+      var url = kind === 'phase' ? phaseEditUrl : unitEditUrl;
+      if (!url) return Promise.resolve(null);
+      var body = kind === 'phase'
+        ? { phase_key: key, phase_label: label }
+        : { unit_key: key, unit_label: label, brigade_tab: extra.tab || '' };
+      return fetch(url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Requested-With': 'XMLHttpRequest',
+          Accept: 'application/json',
+        },
+        body: new URLSearchParams(body).toString(),
+      }).then(function (r) {
+        return r.json().then(function (j) {
+          return { ok: r.ok && j && j.ok, json: j || {} };
+        }).catch(function () {
+          return { ok: false, json: {} };
+        });
+      }).catch(function () {
+        return { ok: false, json: {} };
+      });
+    }
+
+    function applyCatalogLabel(row, kind, label) {
+      var th = row.querySelector('th[scope="row"]');
+      if (th) th.textContent = label;
+      var btn = row.querySelector(kind === 'phase' ? '.js-ibank-phase-edit' : '.js-ibank-unit-edit');
+      if (btn) {
+        btn.setAttribute(kind === 'phase' ? 'data-phase-label' : 'data-unit-label', label);
+      }
+      var cb = row.querySelector('.ibank-included-cb');
+      if (cb) {
+        cb.setAttribute('aria-label', 'مدرج في التمرين — ' + label);
+      }
+    }
+
+    function promptCatalogRename(kind, row, btn) {
+      var current = (btn.getAttribute(kind === 'phase' ? 'data-phase-label' : 'data-unit-label') || '').trim();
+      var next = window.prompt(kind === 'phase' ? 'اسم مرحلة التمرين:' : 'اسم مستوى الوحدة:', current);
+      if (next === null) return;
+      next = String(next).trim();
+      if (!next) {
+        window.alert('أدخل اسماً صالحاً.');
+        return;
+      }
+      if (next === current) return;
+      persistCatalogRename(kind, catalogRowKey(row), next, {
+        tab: btn.getAttribute('data-brigade-tab') || '',
+      }).then(function (res) {
+        if (!res || !res.ok) {
+          window.alert((res && res.json && res.json.error) || 'تعذّر حفظ التعديل.');
+          return;
+        }
+        applyCatalogLabel(row, kind, (res.json && res.json.label) || next);
+      });
+    }
+
+    function catalogDragFromInteractive(el) {
       return !!(el && el.closest && el.closest('button, input, label, form, a, .ibank-unit-actions-cell'));
     }
 
+    enableCatalogRowDrag();
+
     tabbedRoot.addEventListener('click', function (e) {
-      var editBtn = e.target.closest('.js-ibank-unit-edit');
-      if (!editBtn || !tabbedRoot.contains(editBtn)) return;
+      if (!e.target || !e.target.closest) return;
+      var phaseBtn = e.target.closest('.js-ibank-phase-edit');
+      if (phaseBtn && tabbedRoot.contains(phaseBtn)) {
+        e.preventDefault();
+        e.stopPropagation();
+        var phaseRow = phaseBtn.closest('tr[data-phase-key]');
+        if (phaseRow) promptCatalogRename('phase', phaseRow, phaseBtn);
+        return;
+      }
+      var unitBtn = e.target.closest('.js-ibank-unit-edit');
+      if (!unitBtn || !tabbedRoot.contains(unitBtn)) return;
       e.preventDefault();
       e.stopPropagation();
-      var row = editBtn.closest('tr');
-      if (!row) return;
-      if (row.classList.contains('ibank-unit-row--editing')) {
-        exitUnitDrag(row);
-      } else {
-        enterUnitDrag(row);
-      }
+      var unitRow = unitBtn.closest('tr[data-unit-key]');
+      if (unitRow) promptCatalogRename('unit', unitRow, unitBtn);
     });
 
     tabbedRoot.addEventListener('dragstart', function (e) {
-      var row = e.target.closest && e.target.closest('tr[data-unit-key]');
-      if (!row || !tabbedRoot.contains(row) || !row.classList.contains('ibank-unit-row--editing')) return;
-      if (unitDragFromInteractive(e.target)) {
+      var row = e.target.closest && e.target.closest('tr[data-unit-key], tr[data-phase-key]');
+      if (!row || !tabbedRoot.contains(row)) return;
+      if (catalogDragFromInteractive(e.target)) {
         e.preventDefault();
         return;
       }
-      unitDragSrc = row;
-      row.classList.add('ibank-unit-row--dragging');
+      catalogDragSrc = row;
+      row.classList.add('ibank-catalog-row--dragging', 'ibank-unit-row--dragging');
       try {
         e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', row.getAttribute('data-unit-key') || '');
+        e.dataTransfer.setData('text/plain', catalogRowKey(row));
       } catch (err) {}
     });
 
     tabbedRoot.addEventListener('dragover', function (e) {
-      if (!unitDragSrc) return;
-      var over = e.target.closest && e.target.closest('tr[data-unit-key]');
-      if (!over || !tabbedRoot.contains(over) || over === unitDragSrc) return;
+      if (!catalogDragSrc) return;
+      var kind = catalogRowKind(catalogDragSrc);
+      var over = e.target.closest && e.target.closest(catalogRowSelector(kind));
+      if (!over || !tabbedRoot.contains(over) || over === catalogDragSrc) return;
       e.preventDefault();
       try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
       var rect = over.getBoundingClientRect();
       var before = (e.clientY - rect.top) < rect.height / 2;
-      if (unitDropHint && unitDropHint.row === over && unitDropHint.before === before) return;
-      clearUnitDropHints();
-      over.classList.add(before ? 'ibank-unit-row--drop-before' : 'ibank-unit-row--drop-after');
-      unitDropHint = { row: over, before: before };
+      if (catalogDropHint && catalogDropHint.row === over && catalogDropHint.before === before) return;
+      clearCatalogDropHints();
+      over.classList.add(before ? 'ibank-catalog-row--drop-before' : 'ibank-catalog-row--drop-after');
+      catalogDropHint = { row: over, before: before };
     });
 
     tabbedRoot.addEventListener('drop', function (e) {
-      if (!unitDragSrc) return;
-      var over = e.target.closest && e.target.closest('tr[data-unit-key]');
-      if (!over || !tabbedRoot.contains(over) || over === unitDragSrc) {
-        clearUnitDropHints();
+      if (!catalogDragSrc) return;
+      var kind = catalogRowKind(catalogDragSrc);
+      var over = e.target.closest && e.target.closest(catalogRowSelector(kind));
+      if (!over || !tabbedRoot.contains(over) || over === catalogDragSrc) {
+        clearCatalogDropHints();
         return;
       }
       e.preventDefault();
-      var tbody = unitRowTbody(over);
-      var hint = unitDropHint;
+      var tbody = catalogRowTbody(over);
+      var hint = catalogDropHint;
       var before = hint && hint.row === over ? hint.before : true;
       if (before) {
-        tbody.insertBefore(unitDragSrc, over);
+        tbody.insertBefore(catalogDragSrc, over);
       } else if (over.nextSibling) {
-        tbody.insertBefore(unitDragSrc, over.nextSibling);
+        tbody.insertBefore(catalogDragSrc, over.nextSibling);
       } else {
-        tbody.appendChild(unitDragSrc);
+        tbody.appendChild(catalogDragSrc);
       }
-      clearUnitDropHints();
-      renumberUnitRows(tbody);
-      var tabEl = unitDragSrc.querySelector('.js-ibank-unit-edit');
-      persistUnitOrder(tbody, tabEl ? tabEl.getAttribute('data-brigade-tab') : '');
+      clearCatalogDropHints();
+      renumberCatalogRows(tbody, kind);
+      var tabEl = catalogDragSrc.querySelector('.js-ibank-unit-edit');
+      persistCatalogOrder(tbody, kind, { tab: tabEl ? tabEl.getAttribute('data-brigade-tab') : '' });
     });
 
     tabbedRoot.addEventListener('dragend', function () {
-      if (unitDragSrc) unitDragSrc.classList.remove('ibank-unit-row--dragging');
-      unitDragSrc = null;
-      clearUnitDropHints();
-    });
-
-    tabbedRoot.addEventListener('keydown', function (e) {
-      if (e.key !== 'Escape') return;
-      var editing = tabbedRoot.querySelector('tr.ibank-unit-row--editing');
-      if (editing) exitUnitDrag(editing);
+      if (catalogDragSrc) {
+        catalogDragSrc.classList.remove('ibank-catalog-row--dragging', 'ibank-unit-row--dragging');
+      }
+      catalogDragSrc = null;
+      clearCatalogDropHints();
     });
 
     var desigForm = document.getElementById('ibank-desig-edit-form');

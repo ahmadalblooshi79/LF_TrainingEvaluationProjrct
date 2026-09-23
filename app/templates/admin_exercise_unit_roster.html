@@ -22,6 +22,7 @@
 {% if not current_exercise %}
 <p class="muted">لا يوجد تمرين حالي في المساحة. انتقل إلى <a href="/admin/exercises/create">إنشاء تمرين جديد</a> لإنشاء تمرين أو فتحه من ملف JSON.</p>
 {% else %}
+{% set show_judge_phase = roster_kind == 'judge' %}
 <form method="post" action="{{ roster_meta.form_action }}" enctype="multipart/form-data" id="roster-main-form">
   <fieldset class="objectives-mode-fieldset card">
     <legend class="objectives-mode-legend-inline">
@@ -40,18 +41,21 @@
   </fieldset>
 
   <div id="roster-panel-manual" class="objectives-mode-panel card">
-    <div class="roster-editor-head" role="row" aria-hidden="false">
+    <div class="roster-editor-head{% if show_judge_phase %} roster-editor-head--judge{% endif %}" role="row" aria-hidden="false">
       <span class="roster-editor-head__cell roster-editor-head__cell--num">ت</span>
       <span class="roster-editor-head__cell">الرقم العسكري</span>
       <span class="roster-editor-head__cell">الرتبة</span>
       <span class="roster-editor-head__cell roster-editor-head__cell--grow">الاسم</span>
       <span class="roster-editor-head__cell roster-editor-head__cell--unit">مستوى الوحدة</span>
+      {% if show_judge_phase %}
+      <span class="roster-editor-head__cell roster-editor-head__cell--phase">مرحلة التمرين</span>
+      {% endif %}
       <span class="roster-editor-head__cell roster-editor-head__cell--actions" aria-hidden="true"></span>
     </div>
     <ol class="roster-editor-list" id="roster-editor-list">
       {% if roster_rows %}
         {% for r in roster_rows %}
-        <li class="roster-editor-row">
+        <li class="roster-editor-row{% if show_judge_phase %} roster-editor-row--judge{% endif %}">
           <span class="roster-editor-row__num" aria-hidden="true">{{ loop.index }}</span>
           <input class="roster-editor-row__field" type="text" name="roster_military" value="{{ r.military_number }}" maxlength="128" autocomplete="off" placeholder="الرقم العسكري" aria-label="الرقم العسكري">
           <input class="roster-editor-row__field" type="text" name="roster_rank" value="{{ r.rank_ar }}" maxlength="256" autocomplete="off" placeholder="الرتبة" aria-label="الرتبة">
@@ -62,11 +66,19 @@
             <option value="{{ u.key }}" {% if (r.unit_level_key or '') == u.key %}selected{% elif not r.unit_level_key and (r.position_ar or '') == u.label %}selected{% endif %}>{{ u.label }}</option>
             {% endfor %}
           </select>
+          {% if show_judge_phase %}
+          <select name="roster_exercise_phase" class="roster-editor-row__field roster-editor-row__field--phase" aria-label="مرحلة التمرين">
+            <option value="">— كل المراحل —</option>
+            {% for pk, pl in exercise_phase_options %}
+            <option value="{{ pk }}" {% if (r.exercise_phase or '') == pk %}selected{% endif %}>{{ pl }}</option>
+            {% endfor %}
+          </select>
+          {% endif %}
           <button type="button" class="btn btn-ghost roster-editor-row__del" title="حذف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
         </li>
         {% endfor %}
       {% else %}
-        <li class="roster-editor-row">
+        <li class="roster-editor-row{% if show_judge_phase %} roster-editor-row--judge{% endif %}">
           <span class="roster-editor-row__num" aria-hidden="true">1</span>
           <input class="roster-editor-row__field" type="text" name="roster_military" value="" maxlength="128" autocomplete="off" placeholder="الرقم العسكري" aria-label="الرقم العسكري">
           <input class="roster-editor-row__field" type="text" name="roster_rank" value="" maxlength="256" autocomplete="off" placeholder="الرتبة" aria-label="الرتبة">
@@ -77,6 +89,14 @@
             <option value="{{ u.key }}">{{ u.label }}</option>
             {% endfor %}
           </select>
+          {% if show_judge_phase %}
+          <select name="roster_exercise_phase" class="roster-editor-row__field roster-editor-row__field--phase" aria-label="مرحلة التمرين">
+            <option value="">— كل المراحل —</option>
+            {% for pk, pl in exercise_phase_options %}
+            <option value="{{ pk }}">{{ pl }}</option>
+            {% endfor %}
+          </select>
+          {% endif %}
           <button type="button" class="btn btn-ghost roster-editor-row__del" title="حذف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
         </li>
       {% endif %}
@@ -101,6 +121,8 @@
 </form>
 <script>
 const ROSTER_UNIT_LEVELS = {{ unit_levels | tojson }};
+const ROSTER_PHASES = {{ exercise_phase_options | tojson }};
+const ROSTER_SHOW_PHASE = {{ 'true' if show_judge_phase else 'false' }};
 (() => {
   function escapeHtml(s) {
     return String(s == null ? "" : s)
@@ -119,6 +141,20 @@ const ROSTER_UNIT_LEVELS = {{ unit_levels | tojson }};
     });
     return (
       `<select name="roster_unit_level" class="roster-editor-row__field roster-editor-row__field--unit-level" aria-label="مستوى الوحدة">${opts}</select>`
+    );
+  }
+  function phaseSelectHtml(selectedKey) {
+    if (!ROSTER_SHOW_PHASE) return "";
+    let opts = '<option value="">— كل المراحل —</option>';
+    (ROSTER_PHASES || []).forEach((p) => {
+      const key = Array.isArray(p) ? p[0] : (p && p.key);
+      const label = Array.isArray(p) ? p[1] : (p && p.label);
+      if (!key) return;
+      const sel = key === selectedKey ? " selected" : "";
+      opts += `<option value="${escapeAttr(key)}"${sel}>${escapeHtml(label || key)}</option>`;
+    });
+    return (
+      `<select name="roster_exercise_phase" class="roster-editor-row__field roster-editor-row__field--phase" aria-label="مرحلة التمرين">${opts}</select>`
     );
   }
   const form = document.getElementById("roster-main-form");
@@ -147,7 +183,7 @@ const ROSTER_UNIT_LEVELS = {{ unit_levels | tojson }};
     panelManual.hidden = !isManual;
     panelFile.hidden = isManual;
     rows().forEach((row) => {
-      row.querySelectorAll("input, button").forEach((el) => {
+      row.querySelectorAll("input, button, select").forEach((el) => {
         el.disabled = !isManual;
       });
     });
@@ -161,13 +197,14 @@ const ROSTER_UNIT_LEVELS = {{ unit_levels | tojson }};
       '<input class="roster-editor-row__field" type="text" name="roster_rank" value="" maxlength="256" autocomplete="off" placeholder="الرتبة" aria-label="الرتبة">' +
       '<input class="roster-editor-row__field roster-editor-row__field--grow" type="text" name="roster_full_name" value="" maxlength="256" autocomplete="off" placeholder="الاسم" aria-label="الاسم">' +
       unitLevelSelectHtml("") +
+      phaseSelectHtml("") +
       '<button type="button" class="btn btn-ghost roster-editor-row__del" title="حذف"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>'
     );
   }
 
   function addRow(focus) {
     const li = document.createElement("li");
-    li.className = "roster-editor-row";
+    li.className = "roster-editor-row" + (ROSTER_SHOW_PHASE ? " roster-editor-row--judge" : "");
     li.innerHTML = rowHtml();
     listEl.appendChild(li);
     renumber();
@@ -241,7 +278,7 @@ const ROSTER_UNIT_LEVELS = {{ unit_levels | tojson }};
           <td>{{ row.full_name }} <code>{{ row.username }}</code></td>
           <td>{{ row.unit_label }}</td>
           <td>{% if row.registered %}✓ مسجل{% else %}غير مسجل{% endif %}</td>
-          <td>{% if row.registered %}<a href="/admin/users/{{ row.user_id }}/signature">عرض</a>{% endif %}</td>
+          <td>{% if row.registered and row.user_id %}<a href="/admin/users/{{ row.user_id }}/signature">عرض</a>{% endif %}</td>
         </tr>
       {% endfor %}
       </tbody>

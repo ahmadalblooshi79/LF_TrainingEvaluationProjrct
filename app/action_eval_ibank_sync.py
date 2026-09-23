@@ -2604,15 +2604,12 @@ def build_action_eval_rows_for_group(
 
 
 def _unit_branch_parent_map() -> dict[str, str]:
-    """مفتاح السرية/التفرع → مفتاح قيادة الكتيبة الأم."""
-    from app.information_bank_catalog import INFO_BANK_UNIT_LEVEL_TEMPLATES
+    """مفتاح السرية/التفرع → مفتاح قيادة الكتيبة الأم — من التنظيم المدرج محلياً."""
+    from app.unit_levels_catalog import UNIT_LEVELS
 
-    keys = {(t.get("key") or "").strip() for t in INFO_BANK_UNIT_LEVEL_TEMPLATES}
+    keys = {(t.get("key") or "").strip() for t in UNIT_LEVELS if (t.get("key") or "").strip()}
     parents: dict[str, str] = {}
-    for t in INFO_BANK_UNIT_LEVEL_TEMPLATES:
-        k = (t.get("key") or "").strip()
-        if not k:
-            continue
+    for k in keys:
         parent = ""
         if re.search(r"_bn_c[123]$", k):
             parent = re.sub(r"_c[123]$", "_cmd", k)

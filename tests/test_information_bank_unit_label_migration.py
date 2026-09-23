@@ -31,12 +31,12 @@ class TestInformationBankUnitLabelMigration(unittest.TestCase):
     def tearDown(self):
         self.db.close()
 
-    def test_mech2_cmd_label_migrated_to_12(self):
+    def test_mech2_cmd_label_not_forced_from_builtin_catalog(self):
         changed = apply_information_bank_unit_label_migrations(self.db)
-        self.assertTrue(changed)
+        self.assertFalse(changed)
         row = self.db.query(InformationBankUnitLevel).filter_by(key="ul_mech2_bn_cmd").first()
         self.assertIsNotNone(row)
-        self.assertEqual(row.label, "قيادة كتيبة المشاة الآلية/12")
+        self.assertEqual(row.label, "قيادة كتيبة المشاة الآلية/2")
 
 
 if __name__ == "__main__":

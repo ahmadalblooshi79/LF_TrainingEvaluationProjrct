@@ -123,6 +123,24 @@ def apply_judge_save_after_reopen(saved: SavedRow) -> None:
     clear_signature_snapshot(saved)
 
 
+def apply_other_judge_overwrite(saved: SavedRow) -> None:
+    """محكم ثانٍ حفظ نفس القائمة: الكتابة فوق تقييم المحكم الأول وإلغاء الاعتماد."""
+    saved.is_approved = False
+    saved.approved_by_id = None
+    saved.approved_at = None
+    saved.reopened_for_judge = False
+    saved.is_chief_approved = False
+    saved.chief_approved_by_id = None
+    saved.chief_approved_at = None
+    if hasattr(saved, "is_control_approved"):
+        saved.is_control_approved = False
+        saved.control_approved_by_id = None
+        saved.control_approved_at = None
+    from app.judge_signature import clear_signature_snapshot
+
+    clear_signature_snapshot(saved)
+
+
 def eval_dispatch_status_ar(saved: SavedRow | None) -> tuple[str, str]:
     """
     عمود «إرسال للاعتماد» في جدول قوائم التقييم.
@@ -259,6 +277,8 @@ def evaluation_unit_home_phase_tabs(
     db,
     exercise,
     unit_levels: list[dict],
+    *,
+    item_id_allow: set[int] | None = None,
 ) -> list[dict]:
     """تبويبات مراحل التمرين لصفحة مستويات الوحدات (ديناميكية حسب كتالوج المراحل)."""
     catalog_keys = list(exercise_phase_keys())
@@ -274,6 +294,8 @@ def evaluation_unit_home_phase_tabs(
         ]
 
     items, canonical = _evaluation_home_items_bundle(db, exercise)
+    if item_id_allow is not None:
+        items = [it for it in items if int(getattr(it, "id", 0) or 0) in item_id_allow]
     phase_keys_seen: set[str] = set()
     for it in items:
         pk = normalize_exercise_phase(getattr(it, "exercise_phase", None))

@@ -1,44 +1,23 @@
-"""مراحل التمرين ومستويات الوحدات الثابتة لبنك المعلومات.
+"""مراحل التمرين لبنك المعلومات، والتنظيم يُعرَّف من المستخدم في قاعدة البيانات المحلية.
 
-بنك المعلومات مرجع عام في النظام ولا يُربَط بمعرّف تمرين؛ هذه القوائم تُستخدم
-كفهرس تصنيف للمرفقات والملاحظات فقط.
+بنك المعلومات مرجع عام في النظام ولا يُربَط بمعرّف تمرين.
 """
 
-TRAINING_PHASES: list[dict[str, str]] = [
-    {"key": "preparation", "label": "مرحلة التحضير"},
-    {"key": "reorganization", "label": "مرحلة مسارات التقييم"},
-    {"key": "opening", "label": "مرحلة الانفتاح"},
-    {"key": "battle_exposure", "label": "مرحلة العملية التعرضية"},
-]
-
-# ترتيب ثابت للمراحل (يُستخدم عند ترتيب مفاتيح ظهرت خارج الكتالوج).
-TRAINING_PHASE_ORDER: tuple[str, ...] = tuple(p["key"] for p in TRAINING_PHASES)
+# مراحل التمرين يضيفها المستخدم في بنك المعلومات — لا قائمة افتراضية في الشيفرة.
+TRAINING_PHASES: list[dict[str, str]] = []
+TRAINING_PHASE_ORDER: tuple[str, ...] = ()
 
 
 def ordered_training_phase_keys(keys: list[str] | set[str] | tuple[str, ...]) -> list[str]:
-    """يرتب مفاتيح المراحل حسب التسلسل الرسمي؛ المفاتيح غير المعروفة تُلحق في النهاية."""
-    order = {k: i for i, k in enumerate(TRAINING_PHASE_ORDER)}
-    # مرادفات قديمة → موضع المفتاح الحالي
-    aliases = {
-        "main": "battle_exposure",
-        "reorg": "reorganization",
-        "evaluation_tracks": "reorganization",
-    }
+    """يحافظ على ترتيب المفاتيح المعطى مع حذف التكرار."""
     seen: set[str] = set()
     out: list[str] = []
-    unknown: list[str] = []
     for raw in keys:
         k = (raw or "").strip()
         if not k or k in seen:
             continue
         seen.add(k)
-        canon = aliases.get(k, k)
-        if canon in order:
-            out.append(k)
-        else:
-            unknown.append(k)
-    out.sort(key=lambda x: order.get(aliases.get(x, x), 999))
-    out.extend(sorted(unknown))
+        out.append(k)
     return out
 
 # مجموعات الألوية في بنك المعلومات (تبويب مستويات الوحدات — التنظيم)
@@ -56,67 +35,15 @@ def info_bank_brigade_groups_for_ui() -> list[dict[str, str]]:
     """مجموعات الألوية الظاهرة في تبويبات بنك المعلومات."""
     return list(INFO_BANK_BRIGADE_GROUPS)
 
-INFO_BANK_UNIT_LEVEL_TEMPLATES: list[dict[str, str]] = [
-    {"key": "ul_brigade_grp_cmd", "label": "قيادة مجموعة اللواء"},
-    {"key": "ul_brigade_grp_staff", "label": "هيئة ركن مجموعة اللواء"},
-    {"key": "ul_infantry1_bn_cmd", "label": "قيادة كتيبة المشاة الراجلة/11"},
-    {"key": "ul_infantry1_bn_c1", "label": "كتيبة المشاة الراجلة/11 - السرية/1"},
-    {"key": "ul_infantry1_bn_c2", "label": "كتيبة المشاة الراجلة/11 - السرية/2"},
-    {"key": "ul_infantry1_bn_c3", "label": "كتيبة المشاة الراجلة/11 - السرية/3"},
-    {"key": "ul_mech2_bn_cmd", "label": "قيادة كتيبة المشاة الآلية/12"},
-    {"key": "ul_mech2_bn_c1", "label": "كتيبة المشاة الآلية/12 - السرية/1"},
-    {"key": "ul_mech2_bn_c2", "label": "كتيبة المشاة الآلية/12 - السرية/2"},
-    {"key": "ul_mech2_bn_c3", "label": "كتيبة المشاة الآلية/12 - السرية/3"},
-    {"key": "ul_mech3_bn_cmd", "label": "قيادة كتيبة المشاة الآلية/13"},
-    {"key": "ul_mech3_bn_c1", "label": "كتيبة المشاة الآلية/13 - السرية/1"},
-    {"key": "ul_mech3_bn_c2", "label": "كتيبة المشاة الآلية/13 - السرية/2"},
-    {"key": "ul_mech3_bn_c3", "label": "كتيبة المشاة الآلية/13 - السرية/3"},
-    {"key": "ul_tank4_bn_cmd", "label": "قيادة كتيبة الدبابات/14"},
-    {"key": "ul_tank4_bn_c1", "label": "كتيبة الدبابات/14 - السرية/1"},
-    {"key": "ul_tank4_bn_c2", "label": "كتيبة الدبابات/14 - السرية/2"},
-    {"key": "ul_tank4_bn_c3", "label": "كتيبة الدبابات/14 - السرية/3"},
-    {"key": "ul_recon", "label": "سرية الاستطلاع"},
-    {"key": "ul_at", "label": "سرية الـ م/د"},
-    {"key": "ul_arty_bn_cmd", "label": "قيادة كتيبة المدفعية"},
-    {"key": "ul_arty_bn_cmd_c1", "label": "قيادة كتيبة المدفعية - السرية/1"},
-    {"key": "ul_arty_bn_cmd_c2", "label": "قيادة كتيبة المدفعية - السرية/2"},
-    {"key": "ul_arty_bn_cmd_c3", "label": "قيادة كتيبة المدفعية - السرية/3"},
-    {"key": "ul_mortar", "label": "سرية الهاون"},
-    {"key": "ul_eng", "label": "سرية الهندسة"},
-    {"key": "ul_sig", "label": "سرية الإشارة"},
-    {"key": "ul_c2", "label": "القيادة والسيطرة"},
-    {"key": "ul_ada", "label": "سرية الدفاع الجوي"},
-    {"key": "ul_cbrn", "label": "سرية الدفاع الكيميائي"},
-    {"key": "ul_admin_bn", "label": "كتيبة الإسناد الإداري"},
-    {"key": "ul_medical", "label": "السرية الطبية"},
-    {"key": "ul_maint", "label": "سرية الصيانة"},
-    {"key": "ul_supply", "label": "سرية التزويد والنقل"},
-    {"key": "ul_mp", "label": "فصيل الشرطة العسكرية"},
-    {"key": "ul_ew", "label": "سرية الحرب الإلكترونية"},
-    {"key": "ul_security", "label": "قسم الأمن"},
-    {"key": "ul_nco", "label": "ضباط الصف"},
-]
+# التنظيم يُنشئه المستخدم في بنك المعلومات فقط — لا قائمة افتراضية في الشيفرة.
+INFO_BANK_UNIT_LEVEL_TEMPLATES: list[dict[str, str]] = []
+INFO_BANK_UNIT_OBSOLETE_LABELS: dict[str, frozenset[str]] = {}
+_BUILTIN_SEEDED_UNIT_KEY_PREFIX = "ul_"
 
-# تسميات قديمة تُستبدل تلقائياً بالتسمية الحالية في القالب (مفتاح القالب → تسميات قديمة)
-INFO_BANK_UNIT_OBSOLETE_LABELS: dict[str, frozenset[str]] = {
-    "ul_mech2_bn_cmd": frozenset(
-        {
-            "قيادة كتيبة المشاة الآلية/2",
-        }
-    ),
-    "ul_infantry1_bn_c1": frozenset(
-        {
-            "كتيبة المشاة الراجلة/11- السرية/1",
-            "كتيبة المشاة الراجلة/11-السرية/1",
-        }
-    ),
-    "ul_mech3_bn_c1": frozenset({"كتيبة المشاة الآلية/3 - السرية/1"}),
-    "ul_mech3_bn_c2": frozenset({"كتيبة المشاة الآلية/3 - السرية/2"}),
-    "ul_mech3_bn_c3": frozenset({"كتيبة المشاة الآلية/3 - السرية/3"}),
-    "ul_tank4_bn_c1": frozenset({"كتيبة الدبابات/4 - السرية/1"}),
-    "ul_tank4_bn_c2": frozenset({"كتيبة الدبابات/4 - السرية/2"}),
-    "ul_tank4_bn_c3": frozenset({"كتيبة الدبابات/4 - السرية/3"}),
-}
+
+def is_builtin_seeded_unit_catalog_key(key: str | None) -> bool:
+    """مفاتيح التنظيم القديم المزروع برمجياً (``ul_*``) — ليست تنظيماً يعرّفه المستخدم."""
+    return (key or "").strip().startswith(_BUILTIN_SEEDED_UNIT_KEY_PREFIX)
 
 
 def template_label_for_unit_template_key(template_key: str) -> str:
@@ -128,7 +55,7 @@ def template_label_for_unit_template_key(template_key: str) -> str:
 
 
 def apply_information_bank_unit_label_migrations(db) -> bool:
-    """تحديث تسميات مستويات الوحدات النظامية عند تغيّر الكتالوج البرمجي."""
+    """ترحيل تسميات قديمة — معطّل بعد إلغاء التنظيم الافتراضي."""
     from app.ibank_ui import ibank_brigade_groups_for_page
     from app.models import InformationBankTreeNode, InformationBankUnitLevel
 

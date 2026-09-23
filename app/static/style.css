@@ -3371,6 +3371,9 @@ body.hub-landing-preserve-buttons .btn-finish-exercise:hover {
 .roster-editor-head__cell--unit {
   text-align: center;
 }
+.roster-editor-head__cell--phase {
+  text-align: center;
+}
 .roster-editor-head__cell--actions {
   min-width: 2.2rem;
 }
@@ -3418,6 +3421,15 @@ body.hub-landing-preserve-buttons .btn-finish-exercise:hover {
   min-width: 0;
 }
 .roster-editor-row__field--unit-level {
+  min-width: 0;
+  font-size: 0.8rem;
+  padding-block: 0.22rem;
+}
+.roster-editor-head--judge,
+.roster-editor-row--judge {
+  grid-template-columns: 2rem minmax(4.5rem, 0.7fr) minmax(4.5rem, 0.7fr) minmax(5rem, 1fr) minmax(8rem, 1fr) minmax(7.2rem, 0.95fr) auto;
+}
+.roster-editor-row__field--phase {
   min-width: 0;
   font-size: 0.8rem;
   padding-block: 0.22rem;
@@ -9481,19 +9493,21 @@ main:has(.ibank-tabpane[data-tab-pane="dilemma-lists"].is-active) .ibank-tab-bod
   display: inline;
   margin: 0;
 }
-.ibank-unit-row--editing {
-  background: color-mix(in srgb, var(--accent, #8b6914) 10%, transparent);
+.ibank-catalog-row {
   cursor: grab;
 }
-.ibank-unit-row--editing:active {
+.ibank-catalog-row:active {
   cursor: grabbing;
 }
+.ibank-catalog-row--dragging,
 .ibank-unit-row--dragging {
   opacity: 0.42;
 }
+.ibank-catalog-row--drop-before,
 .ibank-unit-row--drop-before {
   box-shadow: inset 0 3px 0 var(--accent, #8b6914);
 }
+.ibank-catalog-row--drop-after,
 .ibank-unit-row--drop-after {
   box-shadow: inset 0 -3px 0 var(--accent, #8b6914);
 }

@@ -95,6 +95,7 @@ from app.evaluation_workflow import (
     apply_chief_reopen,
     apply_judge_save_after_reopen,
     apply_judge_approve,
+    apply_other_judge_overwrite,
     build_evaluation_list_row,
     build_planner_flow_eval_row,
     evaluation_unit_home_rows,
@@ -179,13 +180,9 @@ from app.unit_levels_catalog import (
     unit_level_row,
 )
 from app.information_bank_catalog import (
-    INFO_BANK_UNIT_LEVEL_TEMPLATES,
-    INFO_BANK_UNIT_LEVELS,
-    apply_information_bank_unit_label_migrations,
     brigade_group_for_tab,
     brigade_tab_for_group,
     unit_catalog_key_for_brigade,
-    TRAINING_PHASES,
     info_bank_unit_label,
     training_phase_label,
 )
@@ -980,6 +977,187 @@ def _judge_assigned_unit_key(db, user: User, ex: Exercise | None) -> str:
     return (jr.unit_level_key or "").strip()
 
 
+def _judge_assigned_phase_key(db, user: User, ex: Exercise | None) -> str:
+    """مرحلة التمرين المخصصة للمحكم — فارغة تعني كل المراحل."""
+    a = _judge_assignment_for_current_exercise(db, user, ex)
+    raw = (getattr(a, "exercise_phase", None) or "").strip() if a else ""
+    pk = normalize_exercise_phase(raw) or raw
+    if pk or ex is None or user is None:
+        return pk
+    mil = (getattr(user, "username", "") or "").strip()
+    if not mil:
+        return ""
+    jr = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == ex.id,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+            ExerciseRosterRow.military_number == mil,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .first()
+    )
+    if jr is None:
+        return ""
+    raw = (jr.exercise_phase or "").strip()
+    return normalize_exercise_phase(raw) or raw
+
+
+def _eval_sheet_judge_display_name(
+    db,
+    *,
+    exercise_id: int,
+    unit_key: str,
+    phase_key: str | None = None,
+    saved=None,
+    fallback_user: User | None = None,
+) -> str:
+    """اسم المحكم المعروض على القائمة: من اعتمد/حفظ، ثم محكم الوحدة+المرحلة."""
+    uid = None
+    if saved is not None:
+        uid = getattr(saved, "approved_by_id", None) or getattr(saved, "saved_by_id", None)
+    if uid is not None:
+        u = db.get(User, int(uid))
+        if u is not None:
+            return (u.full_name or "").strip() or (u.username or "").strip() or f"محكم #{int(uid)}"
+    uk = (unit_key or "").strip()
+    pk_raw = (phase_key or "").strip()
+    pk = normalize_exercise_phase(pk_raw) or pk_raw
+    rows = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == int(exercise_id),
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+            ExerciseRosterRow.unit_level_key == uk,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .all()
+    )
+    if pk:
+        for jr in rows:
+            jr_raw = (jr.exercise_phase or "").strip()
+            jr_pk = normalize_exercise_phase(jr_raw) or jr_raw
+            if jr_pk == pk:
+                name = (jr.full_name or "").strip()
+                if name:
+                    return name
+    for jr in rows:
+        name = (jr.full_name or "").strip()
+        if name:
+            return name
+    if fallback_user is not None:
+        return (
+            (getattr(fallback_user, "full_name", "") or "").strip()
+            or (getattr(fallback_user, "username", "") or "").strip()
+            or f"محكم #{getattr(fallback_user, 'id', '')}"
+        )
+    return "—"
+
+
+def _enforce_judge_phase_scope(db, user: User, ex: Exercise | None, item_phase: str | None) -> None:
+    """المحكم المخصص لمرحلة لا يقيّم قوائم مرحلة أخرى."""
+    if ex is None or not _is_individual_judge_user(user):
+        return
+    assigned = _judge_assigned_phase_key(db, user, ex)
+    if not assigned:
+        return
+    item_raw = (item_phase or "").strip()
+    item_pk = normalize_exercise_phase(item_raw) or item_raw
+    if item_pk and item_pk != assigned:
+        abort(403)
+
+
+def _roster_phase_key(raw: str | None) -> str:
+    v = (raw or "").strip()
+    return normalize_exercise_phase(v) or v
+
+
+def _judge_roster_covers_eval_item(jr: ExerciseRosterRow, item: EvaluationListPdfItem) -> bool:
+    from app.evaluation_workflow import _item_matches_phase
+
+    jr_pk = _roster_phase_key(getattr(jr, "exercise_phase", None))
+    if not jr_pk:
+        return True
+    return _item_matches_phase(item, jr_pk)
+
+
+def _eval_items_owned_by_judge(db, user: User, ex: Exercise | None, items):
+    """توزيع قوائم نفس الوحدة+المرحلة بين المحكمين المعينين لها — كل محكم يرى قوائمه."""
+    if ex is None or not _is_individual_judge_user(user):
+        return list(items)
+    mil = (getattr(user, "username", "") or "").strip()
+    if not mil:
+        return list(items)
+    roster = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == ex.id,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .all()
+    )
+    roster_mils = {(r.military_number or "").strip() for r in roster}
+    if mil not in roster_mils:
+        return list(items)
+    all_items = (
+        db.query(EvaluationListPdfItem)
+        .filter(EvaluationListPdfItem.exercise_id == ex.id)
+        .order_by(
+            EvaluationListPdfItem.sort_order,
+            EvaluationListPdfItem.id,
+        )
+        .all()
+    )
+    owned = []
+    for it in items:
+        uk = (getattr(it, "unit_level_key", None) or "").strip()
+        peers = [
+            r
+            for r in roster
+            if (r.unit_level_key or "").strip() == uk and _judge_roster_covers_eval_item(r, it)
+        ]
+        if len(peers) <= 1:
+            owned.append(it)
+            continue
+        group = [
+            x
+            for x in all_items
+            if (x.unit_level_key or "").strip() == uk
+            and _roster_phase_key(getattr(x, "exercise_phase", None))
+            == _roster_phase_key(getattr(it, "exercise_phase", None))
+        ]
+        group.sort(key=lambda x: (int(getattr(x, "sort_order", 0) or 0), int(x.id)))
+        idx = next((i for i, x in enumerate(group) if int(x.id) == int(it.id)), 0)
+        owner = peers[idx % len(peers)]
+        if (owner.military_number or "").strip() == mil:
+            owned.append(it)
+    return owned
+
+
+def _eval_item_ids_owned_by_judge(db, user: User, ex: Exercise | None) -> set[int] | None:
+    if ex is None or not _is_individual_judge_user(user):
+        return None
+    items = (
+        db.query(EvaluationListPdfItem)
+        .filter(EvaluationListPdfItem.exercise_id == ex.id)
+        .all()
+    )
+    return {int(it.id) for it in _eval_items_owned_by_judge(db, user, ex, items)}
+
+
+def _allow_other_judge_eval_overwrite(user: User, saved) -> bool:
+    if saved is None or eval_judge_can_edit(saved):
+        return False
+    if not _is_individual_judge_user(user):
+        return False
+    uid = getattr(user, "id", None)
+    if not uid:
+        return False
+    prev = getattr(saved, "saved_by_id", None) or getattr(saved, "approved_by_id", None)
+    return prev is None or int(prev) != int(uid)
+
+
 def _judge_effective_unit_key(
     db,
     user: User | None,
@@ -1331,10 +1509,13 @@ def _control_planner_flow_detail_dots(
             relpath=action_row.file_relpath or "",
             fallback=f"قائمة تقييم إجراءات {int(action_row.slot_index)}",
         )
-        jid = getattr(canon, "saved_by_id", None)
-        jname = users_by_id.get(int(jid)) if jid is not None else None
-        if not jname:
-            jname = judge_roster.get(uk, "—")
+        jname = _eval_sheet_judge_display_name(
+            db,
+            exercise_id=int(exercise_id),
+            unit_key=uk,
+            phase_key=ph,
+            saved=canon,
+        )
         pv = int(round(float(pct_f)))
         dots.append(
             {
@@ -1405,10 +1586,13 @@ def _control_build_unit_detail_rows(
         if not uk or not ph:
             continue
         title = (getattr(it, "text", None) or "قائمة تقييم").strip()
-        jid = getattr(sr, "saved_by_id", None)
-        jname = users_by_id.get(int(jid)) if jid is not None else None
-        if not jname:
-            jname = judge_roster.get(uk, "—")
+        jname = _eval_sheet_judge_display_name(
+            db,
+            exercise_id=int(exercise_id),
+            unit_key=uk,
+            phase_key=ph,
+            saved=sr,
+        )
         approval_loc = _control_report_approval_location_ar(sr)
         pv = int(round(float(pct_f)))
         dot = {
@@ -2722,6 +2906,10 @@ def _evaluation_commit_payload_save(
     """يحدّث أو ينشئ السجل الموحّد لنتائج التقييم؛ بعد الحفظ يُزال أي سجل قديم مكرّر لنفس العنصر."""
     if not can_save_evaluation_results(user):
         abort(403)
+    _enforce_judge_unit_scope(db, user, current_exercise, item.unit_level_key or "")
+    _enforce_judge_phase_scope(
+        db, user, current_exercise, getattr(item, "exercise_phase", None)
+    )
     try:
         payload = json.loads(raw)
     except Exception:
@@ -2742,7 +2930,10 @@ def _evaluation_commit_payload_save(
     total_pct, grade = _evaluation_grade_from_payload_rows(rows)
     saved = _evaluation_canonical_saved_row(db, current_exercise.id, item.id)
     if saved is not None and not eval_judge_can_edit(saved):
-        abort(403)
+        if _allow_other_judge_eval_overwrite(user, saved):
+            apply_other_judge_overwrite(saved)
+        else:
+            abort(403)
     was_reopened = eval_reopened_for_judge(saved) if saved is not None else False
     if saved is None:
         saved = EvaluationListSavedResult(
@@ -2808,6 +2999,9 @@ def _planner_bundle_eval_commit_payload_save(
 ) -> None:
     if not can_save_evaluation_results(user):
         abort(403)
+    _enforce_judge_phase_scope(
+        db, user, current_exercise, getattr(bundle, "exercise_phase", None)
+    )
     try:
         payload = json.loads(raw)
     except Exception:
@@ -2830,7 +3024,10 @@ def _planner_bundle_eval_commit_payload_save(
         db, current_exercise.id, action_row.id
     )
     if saved is not None and not eval_judge_can_edit(saved):
-        abort(403)
+        if _allow_other_judge_eval_overwrite(user, saved):
+            apply_other_judge_overwrite(saved)
+        else:
+            abort(403)
     was_reopened = eval_reopened_for_judge(saved) if saved is not None else False
     if saved is None:
         saved = PlannerFlowBundleEvalSavedResult(
@@ -2869,8 +3066,9 @@ def _planner_flow_bundle_for_unit(
     unit_key: str,
     *,
     phase_key: str | None = None,
+    allow_phase_fallback: bool = True,
 ) -> ExercisePlannerFlowBundle | None:
-    """حزمة المجرى لمستوى وحدة — مرحلة افتراضية ثم أي حزمة للوحدة."""
+    """حزمة المجرى لمستوى وحدة — مرحلة محددة ثم أي حزمة للوحدة إن سُمح."""
     from app.evaluation_list_ibank_sync import _resolve_unit_key
 
     uk = _resolve_unit_key(unit_key, db) or normalize_unit_level_key(unit_key)
@@ -2886,7 +3084,7 @@ def _planner_flow_bundle_for_unit(
         )
         .first()
     )
-    if row is not None:
+    if row is not None or not allow_phase_fallback:
         return row
     return (
         db.query(ExercisePlannerFlowBundle)
@@ -8835,9 +9033,20 @@ def _judge_assigned_planner_bundle(
         if b is not None and b.exercise_id == ex.id:
             return b
     uk = _judge_effective_unit_key(db, judge_user, ex, ja)
+    assigned_phase = normalize_exercise_phase((getattr(ja, "exercise_phase", None) or "").strip())
     if uk:
-        linked = _planner_flow_bundle_for_unit(db, int(ex.id), uk)
+        linked = _planner_flow_bundle_for_unit(
+            db,
+            int(ex.id),
+            uk,
+            phase_key=assigned_phase or None,
+            allow_phase_fallback=not bool(assigned_phase),
+        )
         if linked is not None:
+            if assigned_phase:
+                linked_pk = normalize_exercise_phase(getattr(linked, "exercise_phase", None) or "")
+                if linked_pk and linked_pk != assigned_phase:
+                    return None
             return linked
     return None
 
@@ -9097,23 +9306,14 @@ def judge_planner_flow_materials_action_evaluate(slot: int):
     if commander_row is not None:
         commander_name = (commander_row.full_name or "").strip() or commander_name
 
-    judge_name = (
-        (getattr(user, "full_name", "") or "").strip()
-        or (getattr(user, "username", "") or "").strip()
-        or f"محكم #{getattr(user, 'id', '')}"
+    judge_name = _eval_sheet_judge_display_name(
+        db,
+        exercise_id=int(ex.id),
+        unit_key=unit_key,
+        phase_key=getattr(bundle, "exercise_phase", None),
+        saved=canon,
+        fallback_user=user,
     )
-    judge_row = (
-        db.query(ExerciseRosterRow)
-        .filter(
-            ExerciseRosterRow.exercise_id == ex.id,
-            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
-            ExerciseRosterRow.unit_level_key == unit_key,
-        )
-        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
-        .first()
-    )
-    if judge_row is not None:
-        judge_name = (judge_row.full_name or "").strip() or judge_name
 
     return render_template(
         "judge_evaluation_list_viewer.html",
@@ -10097,19 +10297,13 @@ def planner_evaluation_list_file_viewer(unit_key: str, item_id: int):
     if commander_row is not None:
         commander_name = (commander_row.full_name or "").strip() or commander_name
 
-    judge_name = "—"
-    judge_row = (
-        db.query(ExerciseRosterRow)
-        .filter(
-            ExerciseRosterRow.exercise_id == current_exercise.id,
-            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
-            ExerciseRosterRow.unit_level_key == unit_key,
-        )
-        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
-        .first()
+    judge_name = _eval_sheet_judge_display_name(
+        db,
+        exercise_id=int(current_exercise.id),
+        unit_key=unit_key,
+        phase_key=getattr(row, "exercise_phase", None),
+        saved=canon,
     )
-    if judge_row is not None:
-        judge_name = (judge_row.full_name or "").strip() or judge_name
 
     phase_key = _evaluation_list_resolved_phase(row)
     eval_save_url = url_for(
@@ -10312,19 +10506,13 @@ def _send_eval_xlsx_file(
     if commander_row is not None:
         commander_name = (commander_row.full_name or "").strip() or commander_name
 
-    judge_name = "—"
-    judge_row = (
-        db.query(ExerciseRosterRow)
-        .filter(
-            ExerciseRosterRow.exercise_id == current_exercise.id,
-            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
-            ExerciseRosterRow.unit_level_key == unit_key,
-        )
-        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
-        .first()
+    judge_name = _eval_sheet_judge_display_name(
+        db,
+        exercise_id=int(current_exercise.id),
+        unit_key=unit_key,
+        phase_key=getattr(saved_row, "exercise_phase", None) if saved_row is not None else None,
+        saved=saved_row,
     )
-    if judge_row is not None:
-        judge_name = (judge_row.full_name or "").strip() or judge_name
 
     from app.evaluation_list_export import (
         build_evaluation_list_xlsx_bytes,
@@ -13179,18 +13367,13 @@ def control_evaluation_list_file_viewer(unit_key: str, item_id: int):
         )
         if commander_row is not None:
             commander_name = (commander_row.full_name or "").strip() or commander_name
-        judge_row = (
-            db.query(ExerciseRosterRow)
-            .filter(
-                ExerciseRosterRow.exercise_id == ex.id,
-                ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
-                ExerciseRosterRow.unit_level_key == unit_key,
-            )
-            .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
-            .first()
+        judge_name = _eval_sheet_judge_display_name(
+            db,
+            exercise_id=int(ex.id),
+            unit_key=unit_key,
+            phase_key=getattr(row, "exercise_phase", None),
+            saved=saved_row,
         )
-        if judge_row is not None:
-            judge_name = (judge_row.full_name or "").strip() or judge_name
 
     return render_template(
         "admin_evaluation_list_viewer.html",
@@ -13296,19 +13479,13 @@ def control_planner_flow_action_view(unit_key: str, action_eval_id: int):
     )
     if commander_row is not None:
         commander_name = (commander_row.full_name or "").strip() or commander_name
-    judge_name = "—"
-    judge_row = (
-        db.query(ExerciseRosterRow)
-        .filter(
-            ExerciseRosterRow.exercise_id == ex.id,
-            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
-            ExerciseRosterRow.unit_level_key == unit_key,
-        )
-        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
-        .first()
+    judge_name = _eval_sheet_judge_display_name(
+        db,
+        exercise_id=int(ex.id),
+        unit_key=unit_key,
+        phase_key=getattr(bundle, "exercise_phase", None),
+        saved=canon,
     )
-    if judge_row is not None:
-        judge_name = (judge_row.full_name or "").strip() or judge_name
     return render_template(
         "judge_evaluation_list_viewer.html",
         **_ctx(
@@ -13928,6 +14105,7 @@ def _sync_judges_from_roster(db, ex: Exercise) -> None:
         )
         .all()
     )
+    keep_ids: set[int] = set()
     for jr in judges:
         mil = (jr.military_number or "").strip()
         if not mil:
@@ -13985,11 +14163,30 @@ def _sync_judges_from_roster(db, ex: Exercise) -> None:
                 exercise_id=ex.id,
                 judge_user_id=u.id,
                 unit_level_key=uk,
+                exercise_phase=_roster_phase_key(
+                    getattr(jr, "exercise_phase", None)
+                ),
                 trainee_name=(tr.full_name or "").strip() if tr else "",
                 trainee_military_number=(tr.military_number or "").strip() if tr else "",
             )
         )
         db.commit()
+        keep_ids.add(int(u.id))
+
+    if keep_ids:
+        db.execute(
+            delete(JudgeTraineeAssignment).where(
+                JudgeTraineeAssignment.exercise_id == ex.id,
+                ~JudgeTraineeAssignment.judge_user_id.in_(list(keep_ids)),
+            )
+        )
+    else:
+        db.execute(
+            delete(JudgeTraineeAssignment).where(
+                JudgeTraineeAssignment.exercise_id == ex.id
+            )
+        )
+    db.commit()
 
 
 @bp.route("/admin/exercises/objectives", methods=["GET", "POST"])
@@ -14084,23 +14281,25 @@ def admin_exercise_objectives():
     )
 
 
-def _zip_roster_rows_from_manual_form(db) -> list[tuple[str, str, str, str]]:
+def _zip_roster_rows_from_manual_form(db) -> list[tuple[str, str, str, str, str]]:
     from app.evaluation_list_ibank_sync import _resolve_unit_key
 
     ms = request.form.getlist("roster_military")
     rs = request.form.getlist("roster_rank")
     ns = request.form.getlist("roster_full_name")
     uls = request.form.getlist("roster_unit_level")
-    n = max(len(ms), len(rs), len(ns), len(uls))
-    out: list[tuple[str, str, str, str]] = []
+    phs = request.form.getlist("roster_exercise_phase")
+    n = max(len(ms), len(rs), len(ns), len(uls), len(phs))
+    out: list[tuple[str, str, str, str, str]] = []
     for i in range(n):
         a = (ms[i] if i < len(ms) else "").strip()[:128]
         b = (rs[i] if i < len(rs) else "").strip()[:256]
         c = (ns[i] if i < len(ns) else "").strip()[:256]
         raw_ul = (uls[i] if i < len(uls) else "").strip()
         uk = _resolve_unit_key(raw_ul, db) or normalize_unit_level_key(raw_ul)
-        if a or b or c or uk:
-            out.append((a, b, c, uk))
+        phase = normalize_exercise_phase((phs[i] if i < len(phs) else "").strip())
+        if a or b or c or uk or phase:
+            out.append((a, b, c, uk, phase))
     return out[:500]
 
 
@@ -14142,7 +14341,7 @@ def _exercise_roster_page(roster_kind: str):
             "add_label": "إضافة سطر",
             "save_label": "حفظ القائمة",
             "clear_label": "حذف جميع الأسطر",
-            "file_panel_hint": "كقائمة المتدربين: العمود الرابع هو مستوى الوحدة (نفس قائمة المعاضل والتقييم).",
+            "file_panel_hint": "كقائمة المتدربين: العمود الرابع مستوى الوحدة، والخامس مرحلة التمرين (اختياري).",
         },
     }[roster_kind]
 
@@ -14157,29 +14356,29 @@ def _exercise_roster_page(roster_kind: str):
         if roster_kind == ExerciseRosterKind.JUDGE.value:
             from app.judge_signature import get_master, signature_public_meta
 
-            judges = (
-                db.query(User)
-                .filter(User.role_key == RoleKey.JUDGE.value)
-                .order_by(User.id)
-                .all()
-            )
-            asg_by_uid: dict[int, JudgeTraineeAssignment] = {}
-            if exercise is not None:
-                for a in (
-                    db.query(JudgeTraineeAssignment)
-                    .filter(JudgeTraineeAssignment.exercise_id == exercise.id)
-                    .all()
-                ):
-                    asg_by_uid[int(a.judge_user_id)] = a
-            for j in judges:
-                sig_meta = signature_public_meta(get_master(db, int(j.id)))
-                asg = asg_by_uid.get(int(j.id))
-                uk = (asg.unit_level_key or "").strip() if asg is not None else ""
+            for r in rows_f:
+                mil = (r.military_number or "").strip()
+                u = None
+                if mil:
+                    u = (
+                        db.query(User)
+                        .filter(
+                            User.username == mil,
+                            User.role_key == RoleKey.JUDGE.value,
+                        )
+                        .first()
+                    )
+                uid = int(u.id) if u is not None else None
+                sig_meta = signature_public_meta(get_master(db, uid) if uid else None)
+                uk = (r.unit_level_key or "").strip()
                 judge_signature_rows.append(
                     {
-                        "user_id": int(j.id),
-                        "full_name": (j.full_name or "").strip() or j.username,
-                        "username": j.username,
+                        "user_id": uid,
+                        "full_name": (r.full_name or "").strip()
+                        or ((u.full_name or "").strip() if u is not None else "")
+                        or mil
+                        or "—",
+                        "username": mil,
                         "unit_label": label_for_unit_level_key(uk, db=db) or uk or "—",
                         "registered": bool(sig_meta.get("registered")),
                     }
@@ -14195,6 +14394,7 @@ def _exercise_roster_page(roster_kind: str):
                 roster_meta=meta,
                 roster_rows=rows_f,
                 unit_levels=UNIT_LEVELS,
+                exercise_phase_options=list(EXERCISE_PHASE_OPTIONS),
                 judge_signature_rows=judge_signature_rows,
             ),
         )
@@ -14215,12 +14415,35 @@ def _exercise_roster_page(roster_kind: str):
         )
 
     if (request.form.get("roster_action") or "").strip() == "clear_all":
+        old_sig_ids: set[int] = set()
+        if roster_kind == ExerciseRosterKind.JUDGE.value:
+            from app.judge_signature import (
+                delete_master_for_user_ids,
+                judge_user_ids_from_roster_rows,
+            )
+
+            old_rows = (
+                db.query(ExerciseRosterRow)
+                .filter(
+                    ExerciseRosterRow.exercise_id == ex.id,
+                    ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+                )
+                .all()
+            )
+            old_sig_ids = judge_user_ids_from_roster_rows(db, old_rows)
         db.execute(
             delete(ExerciseRosterRow).where(
                 ExerciseRosterRow.exercise_id == ex.id,
                 ExerciseRosterRow.roster_kind == roster_kind,
             )
         )
+        if roster_kind == ExerciseRosterKind.JUDGE.value:
+            db.execute(
+                delete(JudgeTraineeAssignment).where(
+                    JudgeTraineeAssignment.exercise_id == ex.id
+                )
+            )
+            delete_master_for_user_ids(db, old_sig_ids)
         db.commit()
         ex_show = (
             db.query(Exercise)
@@ -14251,13 +14474,36 @@ def _exercise_roster_page(roster_kind: str):
             400,
         )
 
+    old_sig_ids: set[int] = set()
+    if roster_kind == ExerciseRosterKind.JUDGE.value:
+        from app.judge_signature import (
+            delete_master_for_user_ids,
+            judge_user_ids_from_roster_rows,
+        )
+
+        old_rows = (
+            db.query(ExerciseRosterRow)
+            .filter(
+                ExerciseRosterRow.exercise_id == ex.id,
+                ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+            )
+            .all()
+        )
+        old_sig_ids = judge_user_ids_from_roster_rows(db, old_rows)
     db.execute(
         delete(ExerciseRosterRow).where(
             ExerciseRosterRow.exercise_id == ex.id,
             ExerciseRosterRow.roster_kind == roster_kind,
         )
     )
-    for i, (mil, rk, nm, cell4) in enumerate(tuples):
+    for i, tup in enumerate(tuples):
+        mil, rk, nm, cell4 = tup[0], tup[1], tup[2], tup[3]
+        phase = ""
+        if roster_kind == ExerciseRosterKind.JUDGE.value and len(tup) > 4:
+            from app.evaluation_list_ibank_sync import _resolve_phase_key
+
+            raw_ph = (tup[4] or "").strip()
+            phase = _resolve_phase_key(raw_ph, db) or normalize_exercise_phase(raw_ph)
         uk, pos_ar = coerce_roster_import_position_cell(cell4)
         db.add(
             ExerciseRosterRow(
@@ -14268,13 +14514,30 @@ def _exercise_roster_page(roster_kind: str):
                 rank_ar=rk,
                 full_name=nm,
                 unit_level_key=uk,
+                exercise_phase=phase if roster_kind == ExerciseRosterKind.JUDGE.value else "",
                 position_ar=pos_ar,
             )
         )
     db.commit()
     eval_sync_msg = ""
     if roster_kind == ExerciseRosterKind.JUDGE.value:
+        from app.judge_signature import (
+            delete_master_for_user_ids,
+            judge_user_ids_from_roster_rows,
+        )
+
         _sync_judges_from_roster(db, ex)
+        new_rows = (
+            db.query(ExerciseRosterRow)
+            .filter(
+                ExerciseRosterRow.exercise_id == ex.id,
+                ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+            )
+            .all()
+        )
+        new_ids = judge_user_ids_from_roster_rows(db, new_rows)
+        delete_master_for_user_ids(db, old_sig_ids - new_ids)
+        db.commit()
         eval_sync_msg = " تم ربط حسابات المحكمين بالوحدات."
     ex_show = (
         db.query(Exercise)
@@ -14420,18 +14683,6 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
         )
         if commander_row is not None:
             commander_name = (commander_row.full_name or "").strip() or commander_name
-        judge_row = (
-            db.query(ExerciseRosterRow)
-            .filter(
-                ExerciseRosterRow.exercise_id == current_exercise.id,
-                ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
-                ExerciseRosterRow.unit_level_key == unit_key,
-            )
-            .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
-            .first()
-        )
-        if judge_row is not None:
-            judge_name = (judge_row.full_name or "").strip() or judge_name
 
     if current_exercise is not None:
         saved_id_raw = (request.args.get("saved_id") or "").strip()
@@ -14475,6 +14726,14 @@ def admin_evaluation_list_file_viewer(unit_key: str, item_id: int):
     saved_payload = _saved_payload_aligned_with_eval_rows(saved_payload, ev.get("eval_rows"))
     admin_crit = bool(not saved_is_approved and can_save_evaluation_results(user))
     canon_admin = saved_row if current_exercise is not None else None
+    if current_exercise is not None:
+        judge_name = _eval_sheet_judge_display_name(
+            db,
+            exercise_id=int(current_exercise.id),
+            unit_key=unit_key,
+            phase_key=getattr(row, "exercise_phase", None),
+            saved=canon_admin,
+        )
     wf_admin = _eval_list_viewer_ctx(user, canon_admin)
     wf_admin["eval_can_edit"] = admin_crit
     return render_template(
@@ -14605,18 +14864,13 @@ def analyst_evaluation_list_file_viewer(unit_key: str, item_id: int):
         )
         if commander_row is not None:
             commander_name = (commander_row.full_name or "").strip() or commander_name
-        judge_row = (
-            db.query(ExerciseRosterRow)
-            .filter(
-                ExerciseRosterRow.exercise_id == current_exercise.id,
-                ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
-                ExerciseRosterRow.unit_level_key == unit_key,
-            )
-            .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
-            .first()
+        judge_name = _eval_sheet_judge_display_name(
+            db,
+            exercise_id=int(current_exercise.id),
+            unit_key=unit_key,
+            phase_key=getattr(row, "exercise_phase", None),
+            saved=saved_row,
         )
-        if judge_row is not None:
-            judge_name = (judge_row.full_name or "").strip() or judge_name
 
     return render_template(
         "admin_evaluation_list_viewer.html",
@@ -14848,7 +15102,24 @@ def judge_evaluation_lists_home():
     ex = _current_workspace_exercise(db, user)
     _ensure_judge_roster_synced(db, user, ex)
     units = _judge_evaluation_list_unit_levels(db, user, ex)
-    phase_tabs = evaluation_unit_home_phase_tabs(db, ex, units)
+    owned_ids = _eval_item_ids_owned_by_judge(db, user, ex)
+    phase_tabs = evaluation_unit_home_phase_tabs(
+        db, ex, units, item_id_allow=owned_ids
+    )
+    assigned_pk = _judge_assigned_phase_key(db, user, ex) if _is_individual_judge_user(user) else ""
+    if assigned_pk:
+        matched = [t for t in phase_tabs if (t.get("phase_key") or "") == assigned_pk]
+        if matched:
+            phase_tabs = matched
+        else:
+            phase_tabs = [
+                {
+                    "phase_key": assigned_pk,
+                    "phase_label": _phase_label_ar(assigned_pk),
+                    "unit_rows": [],
+                    "totals": {"total": 0, "not_done": 0},
+                }
+            ]
     return render_template(
         "judge_evaluation_lists_home.html",
         **_ctx(
@@ -14979,6 +15250,9 @@ def judge_evaluation_lists(unit_key: str):
         return redirect("/judge/evaluation-lists")
     _enforce_judge_unit_scope(db, user, ex, unit_key)
     phase_key = _evaluation_list_phase_from_request()
+    assigned_pk = _judge_assigned_phase_key(db, user, ex) if _is_individual_judge_user(user) else ""
+    if assigned_pk:
+        phase_key = assigned_pk
     items = (
         db.query(EvaluationListPdfItem)
         .filter(EvaluationListPdfItem.exercise_id == ex.id, EvaluationListPdfItem.unit_level_key == unit_key)
@@ -14990,6 +15264,7 @@ def judge_evaluation_lists(unit_key: str):
         .all()
     )
     items = filter_evaluation_items_by_phase(items, phase_key)
+    items = _eval_items_owned_by_judge(db, user, ex, items)
 
     item_ids = [int(it.id) for it in items]
     canonical_by_item = _evaluation_canonical_map_for_items(db, ex.id, item_ids)
@@ -15057,6 +15332,7 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
     if not row or row.unit_level_key != unit_key or current_exercise is None or row.exercise_id != current_exercise.id:
         abort(404)
     _enforce_judge_unit_scope(db, user, current_exercise, unit_key)
+    _enforce_judge_phase_scope(db, user, current_exercise, getattr(row, "exercise_phase", None))
     list_url = _evaluation_list_unit_href(
         "views.judge_evaluation_lists", unit_key, _evaluation_list_resolved_phase(row)
     )
@@ -15120,23 +15396,14 @@ def judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
     if commander_row is not None:
         commander_name = (commander_row.full_name or "").strip() or commander_name
 
-    judge_name = (
-        (getattr(user, "full_name", "") or "").strip()
-        or (getattr(user, "username", "") or "").strip()
-        or f"محكم #{getattr(user, 'id', '')}"
+    judge_name = _eval_sheet_judge_display_name(
+        db,
+        exercise_id=int(current_exercise.id),
+        unit_key=unit_key,
+        phase_key=getattr(row, "exercise_phase", None),
+        saved=canon,
+        fallback_user=user,
     )
-    judge_row = (
-        db.query(ExerciseRosterRow)
-        .filter(
-            ExerciseRosterRow.exercise_id == current_exercise.id,
-            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
-            ExerciseRosterRow.unit_level_key == unit_key,
-        )
-        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
-        .first()
-    )
-    if judge_row is not None:
-        judge_name = (judge_row.full_name or "").strip() or judge_name
 
     return render_template(
         "judge_evaluation_list_viewer.html",
@@ -15207,6 +15474,7 @@ def judge_evaluation_list_save_results(unit_key: str, item_id: int):
     ):
         abort(404)
     _enforce_judge_unit_scope(db, user, current_exercise, unit_key)
+    _enforce_judge_phase_scope(db, user, current_exercise, getattr(item, "exercise_phase", None))
 
     raw = (request.form.get("payload_json") or "").strip()
     if not raw:
@@ -15255,6 +15523,7 @@ def judge_evaluation_list_approve(unit_key: str, item_id: int):
     ):
         abort(404)
     _enforce_judge_unit_scope(db, user, current_exercise, unit_key)
+    _enforce_judge_phase_scope(db, user, current_exercise, getattr(item, "exercise_phase", None))
 
     saved = _evaluation_canonical_saved_row(db, current_exercise.id, item.id)
     if saved is None or not (saved.payload_json or "").strip():
@@ -15769,19 +16038,13 @@ def chief_judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
     )
     if commander_row is not None:
         commander_name = (commander_row.full_name or "").strip() or commander_name
-    judge_name = "—"
-    judge_row = (
-        db.query(ExerciseRosterRow)
-        .filter(
-            ExerciseRosterRow.exercise_id == current_exercise.id,
-            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
-            ExerciseRosterRow.unit_level_key == unit_key,
-        )
-        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
-        .first()
+    judge_name = _eval_sheet_judge_display_name(
+        db,
+        exercise_id=int(current_exercise.id),
+        unit_key=unit_key,
+        phase_key=getattr(row, "exercise_phase", None),
+        saved=canon,
     )
-    if judge_row is not None:
-        judge_name = (judge_row.full_name or "").strip() or judge_name
 
     phase_key = _evaluation_list_resolved_phase(row)
     return render_template(
@@ -16827,59 +17090,11 @@ def _info_bank_next_sort_order(db, model, phase: str, unit: str) -> int:
 
 
 def _ensure_information_bank_catalog_rows(db) -> None:
-    """يجب أن تكون صفوف الكتالوج الافتراضي مطابقة لـ ``TRAINING_PHASES`` وقوالب مستويات الوحدات.
+    """لا زرع افتراضي للتنظيم أو مراحل التمرين — يضيفها المستخدم محلياً."""
+    from app.planning_catalog_sync import purge_builtin_seeded_unit_levels
 
-    تنشئ أي مفاتيح ناقصة عند أول تشغيل. مراحل التمرين: تُحدَّث التسمية من الكتالوج البرمجي.
-    مستويات الوحدات: تُحدَّث مجموعة اللواء فقط — تسمية المستخدم وترتيبه من صفحة التنظيم لا يُستبدلان.
-    """
     changed = False
-    if apply_information_bank_unit_label_migrations(db):
-        changed = True
-    for idx, row in enumerate(TRAINING_PHASES):
-        r = db.query(InformationBankTrainingPhase).filter_by(key=row["key"]).first()
-        if r is None:
-            db.add(
-                InformationBankTrainingPhase(
-                    key=row["key"],
-                    label=row["label"],
-                    sort_order=idx,
-                    is_system=True,
-                )
-            )
-            changed = True
-        elif r.label != row["label"] or r.sort_order != idx:
-            r.label = row["label"]
-            r.sort_order = idx
-            r.is_system = True
-            changed = True
-    from app.ibank_ui import ibank_brigade_groups_for_page
-
-    for bg in ibank_brigade_groups_for_page():
-        bg_key = bg["key"]
-        for idx, row in enumerate(INFO_BANK_UNIT_LEVEL_TEMPLATES):
-            catalog_key = unit_catalog_key_for_brigade(bg_key, row["key"])
-            if not catalog_key:
-                continue
-            r = db.query(InformationBankUnitLevel).filter_by(key=catalog_key).first()
-            if r is None:
-                db.add(
-                    InformationBankUnitLevel(
-                        key=catalog_key,
-                        label=row["label"],
-                        brigade_group=bg_key,
-                        sort_order=idx,
-                        is_system=True,
-                    )
-                )
-                changed = True
-            else:
-                if getattr(r, "brigade_group", None) != bg_key:
-                    r.brigade_group = bg_key
-                    changed = True
-                # لا نُعيد فرض التسمية أو الترتيب — يُحفظان من صفحة التنظيم
-                if not r.is_system:
-                    r.is_system = True
-                    changed = True
+    purge_builtin_seeded_unit_levels(db)
     legacy_rows = (
         db.query(InformationBankUnitLevel)
         .filter(
@@ -17841,8 +18056,10 @@ def admin_information_bank_phase_notes():
     from flask import g
 
     db = g.db
-    for p in TRAINING_PHASES:
-        key = p["key"]
+    for p in _information_bank_training_phases(db):
+        key = (p.get("key") or "").strip()
+        if not key:
+            continue
         raw = request.form.get(f"note_{key}") or ""
         row = db.query(InformationBankPhaseNote).filter_by(phase_key=key).first()
         if row is None:
@@ -17862,8 +18079,10 @@ def admin_information_bank_unit_notes():
     from flask import g
 
     db = g.db
-    for u in INFO_BANK_UNIT_LEVELS:
-        key = u["key"]
+    for u in _information_bank_unit_levels(db):
+        key = (u.get("key") or "").strip()
+        if not key:
+            continue
         raw = request.form.get(f"unote_{key}") or ""
         row = db.query(InformationBankUnitNote).filter_by(unit_level_key=key).first()
         if row is None:
@@ -17924,6 +18143,94 @@ def admin_information_bank_phase_add():
             )
     db.commit()
     return redirect(url_for("views.admin_information_bank", tab="phases", ok="تمت إضافة مرحلة التمرين."))
+
+
+@bp.route("/admin/information-bank/phases/edit", methods=["POST"])
+def admin_information_bank_phase_edit():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    key = (request.form.get("phase_key") or "").strip()
+    label = (request.form.get("phase_label") or "").strip()[:300]
+    ajax = (request.headers.get("X-Requested-With") or "").strip() == "XMLHttpRequest"
+
+    def _edit_response(*, ok: bool, err_msg: str = "", **extra):
+        if ajax:
+            if ok:
+                return jsonify(ok=True, **extra)
+            return jsonify(ok=False, error=err_msg), 400
+        if ok:
+            return redirect(
+                url_for("views.admin_information_bank", tab="phases", ok="تم تعديل مرحلة التمرين.")
+            )
+        return redirect(url_for("views.admin_information_bank", tab="phases", err=err_msg))
+
+    if not key or not label:
+        return _edit_response(ok=False, err_msg="أدخل اسماً صالحاً للمرحلة.")
+    db = g.db
+    row = db.query(InformationBankTrainingPhase).filter_by(key=key).first()
+    if row is None:
+        return _edit_response(ok=False, err_msg="مرحلة التمرين غير موجودة.")
+    row.label = label
+    row.is_system = False
+    for node in (
+        db.query(InformationBankTreeNode)
+        .filter(
+            InformationBankTreeNode.catalog_phase_key == key,
+            InformationBankTreeNode.is_folder.is_(True),
+            InformationBankTreeNode.parent_id.is_(None),
+        )
+        .all()
+    ):
+        node.name = label[:500]
+    from app.planning_catalog_sync import invalidate_planning_catalog_cache, sync_planning_catalogs_from_db
+
+    db.commit()
+    invalidate_planning_catalog_cache()
+    sync_planning_catalogs_from_db(db, force=True)
+    return _edit_response(ok=True, label=label, phase_key=key)
+
+
+@bp.route("/admin/information-bank/phases/move", methods=["POST"])
+def admin_information_bank_phase_move():
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.ibank_phase_order import apply_information_bank_phase_order
+    from app.planning_catalog_sync import invalidate_planning_catalog_cache, sync_planning_catalogs_from_db
+
+    raw_keys = request.form.getlist("phase_keys")
+    if len(raw_keys) == 1 and "," in (raw_keys[0] or ""):
+        raw_keys = [p.strip() for p in raw_keys[0].split(",") if p.strip()]
+    ajax = (request.headers.get("X-Requested-With") or "").strip() == "XMLHttpRequest"
+
+    def _move_response(*, ok: bool, err_msg: str = "", **extra):
+        if ajax:
+            if ok:
+                return jsonify(ok=True, **extra)
+            return jsonify(ok=False, error=err_msg), 400
+        if ok:
+            return redirect(
+                url_for("views.admin_information_bank", tab="phases", ok="تم تحريك مرحلة التمرين.")
+            )
+        return redirect(url_for("views.admin_information_bank", tab="phases", err=err_msg))
+
+    if not raw_keys:
+        return _move_response(ok=False, err_msg="ترتيب غير صالح.")
+    db = g.db
+    try:
+        keys = apply_information_bank_phase_order(db, ordered_keys=raw_keys)
+        db.commit()
+        invalidate_planning_catalog_cache()
+        sync_planning_catalogs_from_db(db, force=True)
+    except ValueError as exc:
+        db.rollback()
+        return _move_response(ok=False, err_msg=str(exc) or "تعذّر التحريك.")
+    return _move_response(ok=True, keys=keys)
 
 
 @bp.route("/admin/information-bank/phases/delete", methods=["POST"])
@@ -18053,11 +18360,14 @@ def admin_information_bank_unit_edit():
         .all()
     ):
         node.name = label[:500]
+    from app.planning_catalog_sync import invalidate_planning_catalog_cache, sync_planning_catalogs_from_db
     from app.unit_designations import reload_unit_designation_cache, sync_designations_from_organization
 
     sync_designations_from_organization(db)
     db.commit()
     reload_unit_designation_cache(db)
+    invalidate_planning_catalog_cache()
+    sync_planning_catalogs_from_db(db, force=True)
     return _edit_response(ok=True, label=label, unit_key=key, tab=tab)
 
 
@@ -19117,7 +19427,7 @@ def admin_information_bank_manifest_json():
                 "training_phase_key": row.training_phase_key,
                 "training_phase_label": training_phase_label(row.training_phase_key),
                 "unit_level_key": row.unit_level_key,
-                "unit_label": info_bank_unit_label(row.unit_level_key),
+                "unit_label": _information_bank_unit_label(db, row.unit_level_key),
                 "url": url_for("views.admin_information_bank_event_flow_file", item_id=row.id),
             }
         )
@@ -19134,7 +19444,7 @@ def admin_information_bank_manifest_json():
                 "training_phase_key": row.training_phase_key,
                 "training_phase_label": training_phase_label(row.training_phase_key),
                 "unit_level_key": row.unit_level_key,
-                "unit_label": info_bank_unit_label(row.unit_level_key),
+                "unit_label": _information_bank_unit_label(db, row.unit_level_key),
                 "url": url_for("views.admin_information_bank_action_eval_file", item_id=row.id),
             }
         )
@@ -19151,7 +19461,7 @@ def admin_information_bank_manifest_json():
                 "training_phase_key": row.training_phase_key,
                 "training_phase_label": training_phase_label(row.training_phase_key),
                 "unit_level_key": row.unit_level_key,
-                "unit_label": info_bank_unit_label(row.unit_level_key),
+                "unit_label": _information_bank_unit_label(db, row.unit_level_key),
                 "url": url_for("views.admin_information_bank_dilemma_eval_file", item_id=row.id),
             }
         )

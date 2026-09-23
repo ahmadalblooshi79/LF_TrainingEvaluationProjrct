@@ -27,7 +27,7 @@
 <p class="form-error-banner" dir="rtl" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا توجد مراحل تمرين في كتالوج التخطيط. بنك المعلومات له كتالوج مراحل مستقل ولم يُمس.</p>
 {% endif %}
 {% if catalog_empty %}
-<p class="form-error-banner" dir="rtl" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا توجد مستويات وحدة في كتالوج التخطيط. أضفها إلى <code>UNIT_LEVELS</code> في النظام (بنك المعلومات له كتالوج مستقل ولا يتأثر).</p>
+<p class="form-error-banner" dir="rtl" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا توجد مستويات وحدة مدرجة في التمرين. أضفها من بنك المعلومات ← التنظيم ثم حدّد «مدرج في التمرين».</p>
 {% elif bundle is none %}
 <p class="muted card" dir="rtl" role="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> لا توجد حزمة مهيّأة بعد لهذا المزيج (المرحلة ومستوى الوحدة) ضمن مساحة العمل الحالية — يمكن لمسؤول التخطيط إنشاؤها وتجهيزها من مساحة التخطيط.</p>
 {% else %}

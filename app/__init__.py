@@ -15,6 +15,7 @@ from app.database import (
     ensure_evaluation_workflow_columns,
     ensure_exercise_extended_columns,
     ensure_exercise_roster_unit_level_key_column,
+    ensure_judge_assignment_exercise_phase_columns,
     ensure_file_items_exercise_id_columns,
     ensure_judge_trainee_assignment_planner_bundle_column,
     ensure_planner_bundle_action_eval_event_flow_column,
@@ -80,6 +81,7 @@ def create_app() -> Flask:
         ensure_file_items_exercise_id_columns()
         ensure_dilemma_eval_exercise_phase_columns()
         ensure_exercise_roster_unit_level_key_column()
+        ensure_judge_assignment_exercise_phase_columns()
         ensure_evaluation_saved_results_approval_columns()
         ensure_evaluation_workflow_columns()
         ensure_judge_trainee_assignment_planner_bundle_column()

@@ -113,15 +113,6 @@ def _resolve_unit_key(raw: str | None, db: Session) -> str:
                 continue
             if _normalize_tree_label(lbl) == norm_v:
                 return key
-    from app.information_bank_catalog import INFO_BANK_UNIT_LEVEL_TEMPLATES
-
-    for u in INFO_BANK_UNIT_LEVEL_TEMPLATES:
-        key = (u.get("key") or "").strip()
-        label = (u.get("label") or "").strip()
-        if v == key or v == label:
-            return key
-        if norm_v and _normalize_tree_label(label) == norm_v:
-            return key
     return ""
 
 
@@ -158,15 +149,6 @@ def _resolve_phase_key(raw: str | None, db: Session) -> str:
             key = (r.key or "").strip()
             if key and _normalize_tree_label(lbl) == norm_v:
                 return key
-    from app.information_bank_catalog import TRAINING_PHASES
-
-    for p in TRAINING_PHASES:
-        key = (p.get("key") or "").strip()
-        label = (p.get("label") or "").strip()
-        if v == key or v == label:
-            return key
-        if norm_v and _normalize_tree_label(label) == norm_v:
-            return key
     return ""
 
 
@@ -221,26 +203,14 @@ def _match_unit_key_by_folder_name(db: Session, folder_name: str) -> str:
     if best_key:
         return best_key
 
-    from app.information_bank_catalog import INFO_BANK_UNIT_LEVEL_TEMPLATES
-
-    for u in INFO_BANK_UNIT_LEVEL_TEMPLATES:
-        key = (u.get("key") or "").strip()
-        label = (u.get("label") or "").strip()
-        if not key:
-            continue
-        norm_label = _normalize_tree_label(label)
-        if norm_nm == norm_label or norm_short == norm_label:
-            return key
-        if norm_label and (norm_label in norm_nm or norm_nm in norm_label):
-            return key
     cm = re.match(r"^(?:ال)?سر(?:ية|يه)\s*(\d+)\s*$", norm_nm) or re.match(
         r"^(?:ال)?سر(?:ية|يه)\s*(\d+)\s*$", norm_short
     )
     if cm:
         num = cm.group(1)
-        for u in INFO_BANK_UNIT_LEVEL_TEMPLATES:
-            key = (u.get("key") or "").strip()
-            label = _normalize_tree_label(u.get("label") or "")
+        for row in db.query(InformationBankUnitLevel).all():
+            key = (row.key or "").strip()
+            label = _normalize_tree_label(row.label or "")
             if not key or not label:
                 continue
             if re.search(rf"سر(?:ية|يه)[/\s]*{num}(?:\s|$)", label):
@@ -994,9 +964,7 @@ def effective_eval_list_phase_keys(
     )
     if ibank_phases:
         return ibank_phases
-    from app.info_bank_tree import PRIMARY_PHASE_KEYS
-
-    return list(PRIMARY_PHASE_KEYS)
+    return []
 
 
 def ibank_eval_list_sources(

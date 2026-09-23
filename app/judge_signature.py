@@ -298,3 +298,58 @@ def registered_user_ids(db: Session) -> set[int]:
         .all()
     )
     return {int(r[0]) for r in rows if r and r[0]}
+
+
+def delete_master_for_user_ids(db: Session, user_ids) -> int:
+    """حذف التوقيع الرئيسي للحسابات المحددة."""
+    ids = {int(x) for x in (user_ids or []) if x}
+    if not ids:
+        return 0
+    n = (
+        db.query(JudgeElectronicSignature)
+        .filter(JudgeElectronicSignature.user_id.in_(list(ids)))
+        .delete(synchronize_session=False)
+    )
+    db.flush()
+    return int(n or 0)
+
+
+def judge_user_ids_from_roster_rows(db: Session, rows) -> set[int]:
+    mils = {
+        (getattr(r, "military_number", None) or "").strip()
+        for r in (rows or [])
+        if (getattr(r, "military_number", None) or "").strip()
+    }
+    if not mils:
+        return set()
+    from app.models import RoleKey, User
+
+    found = (
+        db.query(User.id)
+        .filter(User.username.in_(list(mils)), User.role_key == RoleKey.JUDGE.value)
+        .all()
+    )
+    return {int(r[0]) for r in found if r and r[0]}
+
+
+def delete_signatures_for_exercise_judges(db: Session, exercise_id: int) -> int:
+    """حذف تواقيع محكمي التمرين (قائمة المحكمين + التخصيصات)."""
+    from app.models.domain import ExerciseRosterKind, ExerciseRosterRow, JudgeTraineeAssignment
+
+    eid = int(exercise_id)
+    roster = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == eid,
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+        )
+        .all()
+    )
+    uids = judge_user_ids_from_roster_rows(db, roster)
+    asg_ids = (
+        db.query(JudgeTraineeAssignment.judge_user_id)
+        .filter(JudgeTraineeAssignment.exercise_id == eid)
+        .all()
+    )
+    uids.update(int(r[0]) for r in asg_ids if r and r[0])
+    return delete_master_for_user_ids(db, uids)

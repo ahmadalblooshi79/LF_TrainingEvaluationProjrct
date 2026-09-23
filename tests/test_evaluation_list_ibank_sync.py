@@ -18,7 +18,7 @@ from app.evaluation_list_ibank_sync import (
     unit_eval_group_visible_for_phase,
     resolve_ibank_eval_publish_unit_key,
 )
-from app.models import InformationBankTreeNode
+from app.models import InformationBankTreeNode, InformationBankUnitLevel
 
 
 class EvaluationListIbankSyncTests(unittest.TestCase):
@@ -42,6 +42,24 @@ class EvalListNestedUnitDedupTests(unittest.TestCase):
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(engine)
         self.db = sessionmaker(bind=engine)()
+        self.db.add(
+            InformationBankUnitLevel(
+                key=self.PARENT_UK,
+                label="قيادة كتيبة المشاة الآلية/12",
+                brigade_group="1",
+                sort_order=0,
+                is_system=False,
+            )
+        )
+        self.db.add(
+            InformationBankUnitLevel(
+                key=self.CHILD_UK,
+                label="كتيبة المشاة الآلية/12 - السرية/1",
+                brigade_group="1",
+                sort_order=1,
+                is_system=False,
+            )
+        )
         phase_root = InformationBankTreeNode(
             kind=INFO_BANK_EVAL_LIST_KIND,
             parent_id=None,

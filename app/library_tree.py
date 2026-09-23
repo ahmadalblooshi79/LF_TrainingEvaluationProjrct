@@ -419,6 +419,154 @@ def unlink_library_file(kind: str, relpath: str | None) -> None:
         pass
 
 
+def dump_exercise_papers(db: Session, exercise_id: int) -> dict:
+    """تسلسل شجرة أوراق التمرين للتصدير مع التمرين."""
+    kind = exercise_papers_kind(int(exercise_id))
+    from app.ibank_section_ctx import ibank_section_bypass
+
+    with ibank_section_bypass():
+        rows = (
+            db.query(_Node)
+            .filter(_Node.kind == kind)
+            .order_by(_Node.id)
+            .all()
+        )
+    return {
+        "kind": kind,
+        "nodes": [
+            {
+                "id": int(n.id),
+                "parent_id": int(n.parent_id) if n.parent_id is not None else None,
+                "name": n.name or "",
+                "is_folder": bool(n.is_folder),
+                "file_relpath": (n.file_relpath or "").replace("\\", "/"),
+                "sort_order": int(n.sort_order or 0),
+                "is_system": bool(n.is_system),
+            }
+            for n in rows
+        ],
+    }
+
+
+def copy_exercise_papers_files_to_archive(
+    db: Session, exercise_id: int, dest_dir: Path
+) -> list[dict[str, str]]:
+    """نسخ ملفات أوراق التمرين إلى مجلد أرشيف التمرين."""
+    payload = dump_exercise_papers(db, exercise_id)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    entries: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for node in payload.get("nodes") or []:
+        if node.get("is_folder"):
+            continue
+        rel = str(node.get("file_relpath") or "").replace("\\", "/").lstrip("/")
+        if not rel or rel in seen or ".." in rel.split("/"):
+            continue
+        src = node_file_abspath(payload["kind"], rel)
+        if src is None or not src.is_file():
+            continue
+        dest = dest_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copy2(src, dest)
+        except OSError:
+            continue
+        seen.add(rel)
+        entries.append({"bucket": "exercise_papers", "relpath": rel})
+    return entries
+
+
+def _remap_papers_relpath(rel: str, old_kind: str, new_kind: str) -> str:
+    r = (rel or "").replace("\\", "/").lstrip("/")
+    ok = (old_kind or "").strip()
+    nk = (new_kind or "").strip()
+    if ok and nk and (r == ok or r.startswith(ok + "/")):
+        return nk + r[len(ok) :]
+    return r
+
+
+def restore_exercise_papers(
+    db: Session,
+    exercise_id: int,
+    payload: dict | None,
+    files_dir: Path | None,
+) -> int:
+    """استعادة شجرة وملفات أوراق التمرين بعد إعادة فتح التمرين."""
+    if not isinstance(payload, dict):
+        return 0
+    nodes = payload.get("nodes")
+    if not isinstance(nodes, list) or not nodes:
+        return 0
+    new_kind = exercise_papers_kind(int(exercise_id))
+    old_kind = str(payload.get("kind") or "").strip() or new_kind
+    from app.ibank_section_ctx import ibank_section_bypass
+
+    with ibank_section_bypass():
+        purge_library_tree(db, new_kind)
+        id_map: dict[int | None, int | None] = {None: None}
+        remaining = [n for n in nodes if isinstance(n, dict)]
+        restored = 0
+        while remaining:
+            progress = False
+            for n in list(remaining):
+                try:
+                    old_id = int(n.get("id"))
+                except (TypeError, ValueError):
+                    remaining.remove(n)
+                    continue
+                raw_pid = n.get("parent_id")
+                try:
+                    old_pid = int(raw_pid) if raw_pid is not None else None
+                except (TypeError, ValueError):
+                    old_pid = None
+                if old_pid is not None and old_pid not in id_map:
+                    continue
+                old_rel = str(n.get("file_relpath") or "").replace("\\", "/").lstrip("/")
+                new_rel = _remap_papers_relpath(old_rel, old_kind, new_kind)
+                is_folder = bool(n.get("is_folder"))
+                if not is_folder and old_rel and files_dir is not None:
+                    src_candidates = [
+                        files_dir / old_rel,
+                        files_dir / Path(old_rel).name,
+                    ]
+                    if old_kind and (old_rel == old_kind or old_rel.startswith(old_kind + "/")):
+                        stripped = old_rel[len(old_kind) :].lstrip("/")
+                        if stripped:
+                            src_candidates.append(files_dir / stripped)
+                    src = next((p for p in src_candidates if p.is_file()), None)
+                    if src is not None and new_rel and ".." not in new_rel.split("/"):
+                        dest = (LIBRARY_DIR / new_rel).resolve()
+                        try:
+                            dest.relative_to(LIBRARY_DIR.resolve())
+                        except ValueError:
+                            dest = None
+                        if dest is not None:
+                            dest.parent.mkdir(parents=True, exist_ok=True)
+                            try:
+                                shutil.copy2(src, dest)
+                            except OSError:
+                                pass
+                row = _Node(
+                    kind=new_kind,
+                    parent_id=id_map.get(old_pid),
+                    name=str(n.get("name") or "")[:500],
+                    is_folder=is_folder,
+                    file_relpath="" if is_folder else new_rel[:700],
+                    sort_order=int(n.get("sort_order") or 0),
+                    is_system=bool(n.get("is_system")),
+                )
+                db.add(row)
+                db.flush()
+                id_map[old_id] = int(row.id)
+                remaining.remove(n)
+                restored += 1
+                progress = True
+            if not progress:
+                break
+        db.flush()
+    return restored
+
+
 __all__ = [
     "ALLOWED_FILE_EXTENSIONS",
     "EXERCISE_PAPERS_TITLE",
@@ -427,6 +575,8 @@ __all__ = [
     "add_custom_folder",
     "build_tree_payload",
     "delete_library_node",
+    "copy_exercise_papers_files_to_archive",
+    "dump_exercise_papers",
     "ensure_library_tree",
     "exercise_papers_kind",
     "get_library_node",
@@ -440,5 +590,6 @@ __all__ = [
     "node_file_abspath",
     "parse_exercise_papers_eid",
     "purge_library_tree",
+    "restore_exercise_papers",
     "upload_files_to_tree",
 ]

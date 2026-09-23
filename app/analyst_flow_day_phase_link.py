@@ -43,19 +43,7 @@ fixed_flow_day_phase_map = ibank_flow_day_phase_map
 
 def flow_day_phase_rule_summary(flow_days: list[dict[str, str]] | None) -> list[dict[str, str]]:
     """ملخص للقراءة فقط في واجهة المحللين (مصدره بنك المعلومات)."""
-    from app.information_bank_catalog import TRAINING_PHASES
-
-    labels = {
-        str(p.get("key") or "").strip(): str(p.get("label") or "").strip()
-        for p in (TRAINING_PHASES or [])
-        if str(p.get("key") or "").strip()
-    }
-    labels.setdefault("preparation", "مرحلة التحضير")
-    labels.setdefault("reorganization", "مرحلة مسارات التقييم")
-    labels.setdefault("opening", "مرحلة الانفتاح")
-    labels.setdefault("battle_exposure", "مرحلة العملية التعرضية")
-    labels.setdefault("main", "مرحلة العملية التعرضية")
-    labels.setdefault("reorg", "مرحلة مسارات التقييم")
+    from app.exercise_phase_catalog import exercise_phase_label
 
     rows: list[dict[str, str]] = []
     for day in flow_days or []:
@@ -68,7 +56,7 @@ def flow_day_phase_rule_summary(flow_days: list[dict[str, str]] | None) -> list[
                 "day_id": day_id,
                 "day_label": str(day.get("label") or day_id).strip() or day_id,
                 "phase_key": pk,
-                "phase_label": labels.get(pk, "— غير مرتبط —") if not pk else labels.get(pk, pk),
+                "phase_label": exercise_phase_label(pk) or ("— غير مرتبط —" if not pk else pk),
             }
         )
     return rows

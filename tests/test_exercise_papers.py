@@ -142,6 +142,78 @@ class ExercisePapersPageSmokeTests(unittest.TestCase):
         self.assertIn(f"/exercises/{self.eid}/papers/tree/folder", html)
 
 
+class ExercisePapersArchiveRestoreTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        register_ibank_section_session_events()
+
+    def setUp(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        self.db = sessionmaker(bind=engine)()
+
+    def tearDown(self):
+        self.db.close()
+
+    def test_dump_copy_restore_remaps_kind_and_files(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from app.library_tree import (
+            copy_exercise_papers_files_to_archive,
+            dump_exercise_papers,
+            restore_exercise_papers,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            lib = Path(tmp) / "library"
+            papers_dir = Path(tmp) / "archive" / "exercise_papers"
+            old_kind = exercise_papers_kind(3)
+            rel = f"{old_kind}/tree/n1/ورقة.pdf"
+            src = lib / rel
+            src.parent.mkdir(parents=True, exist_ok=True)
+            src.write_bytes(b"%PDF-1.4 test")
+            self.db.add(
+                InformationBankTreeNode(
+                    kind=old_kind,
+                    parent_id=None,
+                    name="ورقة.pdf",
+                    is_folder=False,
+                    file_relpath=rel,
+                    sort_order=0,
+                )
+            )
+            self.db.commit()
+            with patch("app.library_tree.LIBRARY_DIR", lib):
+                payload = dump_exercise_papers(self.db, 3)
+                self.assertEqual(payload["kind"], old_kind)
+                self.assertEqual(len(payload["nodes"]), 1)
+                copied = copy_exercise_papers_files_to_archive(self.db, 3, papers_dir)
+                self.assertEqual(len(copied), 1)
+                restored = restore_exercise_papers(self.db, 9, payload, papers_dir)
+                self.assertEqual(restored, 1)
+                new_kind = exercise_papers_kind(9)
+                rows = (
+                    self.db.query(InformationBankTreeNode)
+                    .filter(InformationBankTreeNode.kind == new_kind)
+                    .all()
+                )
+                self.assertEqual(len(rows), 1)
+                self.assertTrue(
+                    (rows[0].file_relpath or "").startswith(f"{new_kind}/")
+                )
+                dest = lib / rows[0].file_relpath
+                self.assertTrue(dest.is_file())
+                self.assertEqual(dest.read_bytes(), b"%PDF-1.4 test")
+                self.assertEqual(
+                    self.db.query(InformationBankTreeNode)
+                    .filter(InformationBankTreeNode.kind == old_kind)
+                    .count(),
+                    1,
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
 

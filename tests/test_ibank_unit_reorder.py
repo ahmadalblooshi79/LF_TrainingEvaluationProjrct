@@ -15,7 +15,7 @@ class IbankUnitReorderTests(unittest.TestCase):
         Base.metadata.create_all(engine)
         self.db = sessionmaker(bind=engine)()
         for i, (key, label) in enumerate(
-            (("ul_a", "وحدة أ"), ("ul_b", "وحدة ب"), ("ul_c", "وحدة ج"))
+            (("unit_a", "وحدة أ"), ("unit_b", "وحدة ب"), ("unit_c", "وحدة ج"))
         ):
             self.db.add(
                 InformationBankUnitLevel(
@@ -46,18 +46,18 @@ class IbankUnitReorderTests(unittest.TestCase):
 
     def test_apply_order_moves_row_to_top(self):
         keys = apply_information_bank_unit_order(
-            self.db, ordered_keys=["ul_c", "ul_a", "ul_b"]
+            self.db, ordered_keys=["unit_c", "unit_a", "unit_b"]
         )
         self.db.commit()
-        self.assertEqual(keys, ["ul_c", "ul_a", "ul_b"])
-        self.assertEqual(self._keys(), ["ul_c", "ul_a", "ul_b"])
+        self.assertEqual(keys, ["unit_c", "unit_a", "unit_b"])
+        self.assertEqual(self._keys(), ["unit_c", "unit_a", "unit_b"])
 
     def test_apply_order_appends_missing_keys(self):
-        keys = apply_information_bank_unit_order(self.db, ordered_keys=["ul_b"])
+        keys = apply_information_bank_unit_order(self.db, ordered_keys=["unit_b"])
         self.db.commit()
-        self.assertEqual(keys[0], "ul_b")
-        self.assertEqual(set(keys), {"ul_a", "ul_b", "ul_c"})
-        self.assertEqual(self._keys()[0], "ul_b")
+        self.assertEqual(keys[0], "unit_b")
+        self.assertEqual(set(keys), {"unit_a", "unit_b", "unit_c"})
+        self.assertEqual(self._keys()[0], "unit_b")
 
     def test_empty_order_raises(self):
         with self.assertRaises(ValueError):
@@ -68,18 +68,18 @@ class IbankUnitReorderTests(unittest.TestCase):
             apply_information_bank_unit_order(self.db, ordered_keys=["missing"])
 
     def test_ensure_does_not_reset_custom_order(self):
-        apply_information_bank_unit_order(self.db, ordered_keys=["ul_b", "ul_a", "ul_c"])
+        apply_information_bank_unit_order(self.db, ordered_keys=["unit_b", "unit_a", "unit_c"])
         self.db.commit()
         _ensure_information_bank_catalog_rows(self.db)
         orders = {
             r.key: r.sort_order
             for r in self.db.query(InformationBankUnitLevel)
-            .filter(InformationBankUnitLevel.key.in_(["ul_a", "ul_b", "ul_c"]))
+            .filter(InformationBankUnitLevel.key.in_(["unit_a", "unit_b", "unit_c"]))
             .all()
         }
-        self.assertEqual(orders, {"ul_b": 0, "ul_a": 1, "ul_c": 2})
+        self.assertEqual(orders, {"unit_b": 0, "unit_a": 1, "unit_c": 2})
 
-    def test_ensure_keeps_reordered_template_row(self):
+    def test_ensure_does_not_recreate_builtin_seeded_row(self):
         self.db.add(
             InformationBankUnitLevel(
                 key="ul_brigade_grp_cmd",
@@ -91,13 +91,32 @@ class IbankUnitReorderTests(unittest.TestCase):
         )
         self.db.commit()
         _ensure_information_bank_catalog_rows(self.db)
-        self.assertEqual(
+        self.assertIsNone(
             self.db.query(InformationBankUnitLevel)
             .filter_by(key="ul_brigade_grp_cmd")
             .first()
-            .sort_order,
-            99,
         )
+
+    def test_ensure_keeps_user_added_row(self):
+        self.db.add(
+            InformationBankUnitLevel(
+                key="unit_bg1_custom1",
+                label="مستوى مستخدم",
+                brigade_group="1",
+                sort_order=99,
+                is_system=False,
+            )
+        )
+        self.db.commit()
+        _ensure_information_bank_catalog_rows(self.db)
+        row = (
+            self.db.query(InformationBankUnitLevel)
+            .filter_by(key="unit_bg1_custom1")
+            .first()
+        )
+        self.assertIsNotNone(row)
+        self.assertEqual(row.sort_order, 99)
+        self.assertFalse(row.is_system)
 
 
 if __name__ == "__main__":

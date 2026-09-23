@@ -264,6 +264,8 @@ class ExerciseRosterRow(Base):
     full_name: Mapped[str] = mapped_column(String(256), default="")
     # نفس مفتاح مستوى الوحدة في المعاضل وقوائم التقييم (قائمة واحدة موحّدة)
     unit_level_key: Mapped[str] = mapped_column(String(64), default="", index=True)
+    # مرحلة التمرين لمحكم الوحدة — فارغة تعني كل المراحل (توافق قديم)
+    exercise_phase: Mapped[str] = mapped_column(String(32), default="", index=True)
     position_ar: Mapped[str] = mapped_column(String(512), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -463,6 +465,7 @@ class JudgeTraineeAssignment(Base):
     )
 
     unit_level_key: Mapped[str] = mapped_column(String(64), default="", index=True)
+    exercise_phase: Mapped[str] = mapped_column(String(32), default="", index=True)
     trainee_name: Mapped[str] = mapped_column(String(256), default="")
     trainee_military_number: Mapped[str] = mapped_column(String(128), default="", index=True)
     planner_flow_bundle_id: Mapped[int | None] = mapped_column(

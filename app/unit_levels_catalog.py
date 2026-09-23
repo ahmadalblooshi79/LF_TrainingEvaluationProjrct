@@ -1,7 +1,7 @@
 """مستويات الوحدة الموحدة — المعاضل، التقييم، قوائم الوحدة (متدربين/محكمين).
 
-بنك المعلومات يستخدم ``INFO_BANK_UNIT_LEVELS`` في ``information_bank_catalog.py``.
-``UNIT_LEVELS`` هنا يُملأ تلقائياً من صفوف «مدرج في التمرين» عبر ``planning_catalog_sync``.
+``UNIT_LEVELS`` يُملأ محلياً من صفوف بنك المعلومات التي وضع المستخدم عليها
+«مدرج في التمرين» عبر ``planning_catalog_sync`` — بلا تنظيم افتراضي في الشيفرة.
 """
 
 from __future__ import annotations

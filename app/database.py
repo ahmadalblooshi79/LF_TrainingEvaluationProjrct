@@ -146,6 +146,29 @@ def ensure_file_items_exercise_id_columns() -> None:
                 conn.execute(text(sql))
 
 
+def ensure_judge_assignment_exercise_phase_columns() -> None:
+    """مرحلة التمرين في قائمة المحكمين وتخصيص المحكم — للجداول القديمة."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    try:
+        insp = inspect(engine)
+        table_names = set(insp.get_table_names())
+    except Exception:
+        return
+    specs = (
+        ("exercise_roster_rows", "exercise_phase", "VARCHAR(32) DEFAULT ''"),
+        ("judge_trainee_assignments", "exercise_phase", "VARCHAR(32) DEFAULT ''"),
+    )
+    for table, col, ddl in specs:
+        if table not in table_names:
+            continue
+        cols = {c["name"] for c in inspect(engine).get_columns(table)}
+        if col in cols:
+            continue
+        with engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
+
+
 def ensure_exercise_roster_unit_level_key_column() -> None:
     """ربط قوائم الوحدة بمستوى الوحدة الموحّد (مثل المعاضل والتقييم)."""
     if not DATABASE_URL.startswith("sqlite"):
@@ -419,7 +442,7 @@ def ensure_information_bank_unit_included_column() -> None:
 
 
 def ensure_information_bank_unit_label_migrations() -> None:
-    """ترحيل تسميات مستويات الوحدات القديمة في بنك المعلومات."""
+    """ترحيل تسميات قديمة وحذف التنظيم المزروع برمجياً."""
     try:
         insp = inspect(engine)
         if "information_bank_unit_levels" not in insp.get_table_names():
@@ -427,11 +450,13 @@ def ensure_information_bank_unit_label_migrations() -> None:
     except Exception:
         return
     from app.information_bank_catalog import apply_information_bank_unit_label_migrations
+    from app.planning_catalog_sync import purge_builtin_seeded_unit_levels
 
     db = SessionLocal()
     try:
         if apply_information_bank_unit_label_migrations(db):
             db.commit()
+        purge_builtin_seeded_unit_levels(db)
     finally:
         db.close()
 

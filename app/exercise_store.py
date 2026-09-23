@@ -75,7 +75,7 @@ from app.models import (
 )
 from app.models.remote_control import RemoteControlAuditLog, RemoteControlSession
 
-EXPORT_SCHEMA_VERSION = 5
+EXPORT_SCHEMA_VERSION = 6
 
 # أسماء مجلدات داخل حزمة الملفات `{اسم_التمرين}_files/` — تطابق مجلدات instance
 FILE_BUCKET_ROOTS: dict[str, Path] = {
@@ -98,6 +98,12 @@ def _iso(dt: datetime | None) -> str | None:
     if dt is None:
         return None
     return dt.isoformat()
+
+
+def _dump_exercise_papers_payload(db: Session, exercise_id: int) -> dict[str, Any]:
+    from app.library_tree import dump_exercise_papers
+
+    return dump_exercise_papers(db, int(exercise_id))
 
 
 def _eval_saved_export_row(s: EvaluationListSavedResult | PlannerFlowBundleEvalSavedResult) -> dict[str, Any]:
@@ -372,6 +378,7 @@ def exercise_to_export_dict(ex: Exercise, db: Session) -> dict[str, Any]:
                 "rank_ar": r.rank_ar or "",
                 "full_name": r.full_name or "",
                 "unit_level_key": getattr(r, "unit_level_key", None) or "",
+                "exercise_phase": (getattr(r, "exercise_phase", None) or "").strip(),
                 "position_ar": r.position_ar or "",
                 "created_at": _iso(r.created_at),
             }
@@ -384,6 +391,7 @@ def exercise_to_export_dict(ex: Exercise, db: Session) -> dict[str, Any]:
                 "rank_ar": r.rank_ar or "",
                 "full_name": r.full_name or "",
                 "unit_level_key": getattr(r, "unit_level_key", None) or "",
+                "exercise_phase": (getattr(r, "exercise_phase", None) or "").strip(),
                 "position_ar": r.position_ar or "",
                 "created_at": _iso(r.created_at),
             }
@@ -558,6 +566,7 @@ def exercise_to_export_dict(ex: Exercise, db: Session) -> dict[str, Any]:
                 "id": a.id,
                 "judge_user_id": a.judge_user_id,
                 "unit_level_key": a.unit_level_key or "",
+                "exercise_phase": (getattr(a, "exercise_phase", None) or "").strip(),
                 "trainee_name": a.trainee_name or "",
                 "trainee_military_number": a.trainee_military_number or "",
                 "planner_flow_bundle_id": a.planner_flow_bundle_id,
@@ -819,6 +828,7 @@ def exercise_to_export_dict(ex: Exercise, db: Session) -> dict[str, Any]:
             for a in rc_audit
         ],
         "ai_positives_negatives_cache": ai_pn_cache,
+        "exercise_papers": _dump_exercise_papers_payload(db, int(ex.id)),
     }
 
 
@@ -903,6 +913,16 @@ def sync_exercise_files_to_archive_bundle(
         except OSError:
             continue
         entries.append({"bucket": bucket, "relpath": rel})
+    from app.library_tree import copy_exercise_papers_files_to_archive
+
+    papers_dir = bundle_dir / "exercise_papers"
+    for row in copy_exercise_papers_files_to_archive(db, exercise_id, papers_dir):
+        rel = str(row.get("relpath") or "")
+        key = ("exercise_papers", rel)
+        if not rel or key in seen:
+            continue
+        seen.add(key)
+        entries.append({"bucket": "exercise_papers", "relpath": rel})
     return entries
 
 
@@ -910,7 +930,8 @@ def _archive_entries_from_bundle_scan(bundle_dir: Path) -> list[dict[str, str]]:
     entries: list[dict[str, str]] = []
     if not bundle_dir.is_dir():
         return entries
-    for bucket in FILE_BUCKET_ROOTS:
+    buckets = list(FILE_BUCKET_ROOTS) + ["exercise_papers"]
+    for bucket in buckets:
         bucket_path = bundle_dir / bucket
         if not bucket_path.is_dir():
             continue
@@ -1274,8 +1295,10 @@ def wipe_exercise_from_system(db: Session, exercise_id: int) -> bool:
         return False
     _remove_exercise_upload_files(db, exercise_id)
     _remove_ai_pn_cache(exercise_id)
+    from app.judge_signature import delete_signatures_for_exercise_judges
     from app.library_tree import exercise_papers_kind, purge_library_tree
 
+    delete_signatures_for_exercise_judges(db, int(exercise_id))
     purge_library_tree(db, exercise_papers_kind(int(exercise_id)))
     _purge_exercise_database_rows(db, exercise_id)
     return True
@@ -2021,6 +2044,7 @@ def _import_v3_exercise_bundle(
                     exercise_id=ex.id,
                     judge_user_id=_uid_or(db, row.get("judge_user_id"), owner_id, umap),
                     unit_level_key=str(row.get("unit_level_key") or "")[:64],
+                    exercise_phase=str(row.get("exercise_phase") or "").strip()[:32],
                     trainee_name=str(row.get("trainee_name") or "")[:256],
                     trainee_military_number=str(row.get("trainee_military_number") or "")[:128],
                     planner_flow_bundle_id=bundle_old_to_new.get(old_pb) if old_pb else None,
@@ -2551,6 +2575,9 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
                 sort_order = int(so) if so is not None else i
             except (TypeError, ValueError):
                 sort_order = i
+            phase = str(row.get("exercise_phase") or "").strip()[:32]
+            if kind != "judge":
+                phase = ""
             db.add(
                 ExerciseRosterRow(
                     exercise_id=ex.id,
@@ -2560,6 +2587,7 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
                     rank_ar=rk,
                     full_name=nm,
                     unit_level_key=(uk or "")[:64],
+                    exercise_phase=phase,
                     position_ar=pos,
                     created_at=_parse_dt(row.get("created_at")) or datetime.utcnow(),
                 )
@@ -2824,6 +2852,19 @@ def import_exercise_bundle_from_dict(db: Session, data: dict[str, Any], owner_id
     bundle_dir = resolve_archive_bundle_dir_for_import(data)
     if bundle_dir is not None:
         restore_exercise_files_from_archive(bundle_dir, data)
+    from app.library_tree import restore_exercise_papers
+
+    papers_dir = None
+    if bundle_dir is not None:
+        papers_dir = bundle_dir / "exercise_papers"
+        if not papers_dir.is_dir():
+            papers_dir = None
+    restore_exercise_papers(
+        db,
+        int(ex.id),
+        data.get("exercise_papers") if isinstance(data.get("exercise_papers"), dict) else None,
+        papers_dir,
+    )
 
     _write_ai_pn_cache_payload(ex.id, data.get("ai_positives_negatives_cache"))
 
