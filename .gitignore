@@ -18,8 +18,10 @@ _transcript_snippets.txt
 _v_err.txt
 _v_out.txt
 # نسخ احتياطية محلية (تُنشأ أثناء التشغيل — لا تُرفع)
-backups/*.db
-backups/information_bank/*.zip
+backups/
+# بيانات التمرين والتشغيل المحلي — لا تُرفع مع تحديثات البرنامج
+exercise_store/
+instance/
 # نسخة APK وسيطة غير مستخدمة في التوزيع
 dist/tablet_apk/
 # صور خلفية مؤقتة (غير مستخدمة)

@@ -1075,7 +1075,9 @@ def tablet_action_eval_approve(user: User, slot: int):
         return _json_error("احفظ النتائج قبل الاعتماد", 400)
     if not eval_judge_can_edit(saved):
         # إن كانت معتمدة مسبقاً لنفس المحكم — نجاح Idempotent بدون خطأ
-        if getattr(saved, "is_approved", False):
+        prev = getattr(saved, "approved_by_id", None) or getattr(saved, "saved_by_id", None)
+        same_judge = prev is not None and int(prev) == int(user.id)
+        if getattr(saved, "is_approved", False) and same_judge:
             body = {"ok": True, "approved": True, "already_approved": True}
             _record_client_op(
                 user,
@@ -1454,7 +1456,9 @@ def tablet_evaluation_list_approve(user: User, unit_key: str, item_id: int):
     if saved is None:
         return _json_error("احفظ النتائج قبل الاعتماد", 400)
     if not eval_judge_can_edit(saved):
-        if getattr(saved, "is_approved", False):
+        prev = getattr(saved, "approved_by_id", None) or getattr(saved, "saved_by_id", None)
+        same_judge = prev is not None and int(prev) == int(user.id)
+        if getattr(saved, "is_approved", False) and same_judge:
             body = {"ok": True, "approved": True, "already_approved": True}
             _record_client_op(
                 user,

@@ -155,7 +155,7 @@ class JudgePhaseAttributionTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0][4], "opening")
 
-    def test_same_phase_judges_get_different_lists(self):
+    def test_same_phase_judges_get_all_lists(self):
         for r in (
             self.db.query(ExerciseRosterRow)
             .filter(ExerciseRosterRow.exercise_id == int(self.ex.id))
@@ -185,10 +185,9 @@ class JudgePhaseAttributionTests(unittest.TestCase):
         b = _eval_items_owned_by_judge(self.db, self.approver, self.ex, items)
         ids_a = {int(x.id) for x in a}
         ids_b = {int(x.id) for x in b}
-        self.assertEqual(len(ids_a), 2)
-        self.assertEqual(len(ids_b), 2)
-        self.assertFalse(ids_a & ids_b)
-        self.assertEqual(ids_a | ids_b, {int(x.id) for x in items})
+        all_ids = {int(x.id) for x in items}
+        self.assertEqual(ids_a, all_ids)
+        self.assertEqual(ids_b, all_ids)
 
 
 if __name__ == "__main__":

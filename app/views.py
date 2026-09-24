@@ -1072,78 +1072,14 @@ def _roster_phase_key(raw: str | None) -> str:
     return normalize_exercise_phase(v) or v
 
 
-def _judge_roster_covers_eval_item(jr: ExerciseRosterRow, item: EvaluationListPdfItem) -> bool:
-    from app.evaluation_workflow import _item_matches_phase
-
-    jr_pk = _roster_phase_key(getattr(jr, "exercise_phase", None))
-    if not jr_pk:
-        return True
-    return _item_matches_phase(item, jr_pk)
-
-
 def _eval_items_owned_by_judge(db, user: User, ex: Exercise | None, items):
-    """توزيع قوائم نفس الوحدة+المرحلة بين المحكمين المعينين لها — كل محكم يرى قوائمه."""
-    if ex is None or not _is_individual_judge_user(user):
-        return list(items)
-    mil = (getattr(user, "username", "") or "").strip()
-    if not mil:
-        return list(items)
-    roster = (
-        db.query(ExerciseRosterRow)
-        .filter(
-            ExerciseRosterRow.exercise_id == ex.id,
-            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
-        )
-        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
-        .all()
-    )
-    roster_mils = {(r.military_number or "").strip() for r in roster}
-    if mil not in roster_mils:
-        return list(items)
-    all_items = (
-        db.query(EvaluationListPdfItem)
-        .filter(EvaluationListPdfItem.exercise_id == ex.id)
-        .order_by(
-            EvaluationListPdfItem.sort_order,
-            EvaluationListPdfItem.id,
-        )
-        .all()
-    )
-    owned = []
-    for it in items:
-        uk = (getattr(it, "unit_level_key", None) or "").strip()
-        peers = [
-            r
-            for r in roster
-            if (r.unit_level_key or "").strip() == uk and _judge_roster_covers_eval_item(r, it)
-        ]
-        if len(peers) <= 1:
-            owned.append(it)
-            continue
-        group = [
-            x
-            for x in all_items
-            if (x.unit_level_key or "").strip() == uk
-            and _roster_phase_key(getattr(x, "exercise_phase", None))
-            == _roster_phase_key(getattr(it, "exercise_phase", None))
-        ]
-        group.sort(key=lambda x: (int(getattr(x, "sort_order", 0) or 0), int(x.id)))
-        idx = next((i for i, x in enumerate(group) if int(x.id) == int(it.id)), 0)
-        owner = peers[idx % len(peers)]
-        if (owner.military_number or "").strip() == mil:
-            owned.append(it)
-    return owned
+    """جميع المحكمين المعينين لنفس الوحدة والمرحلة يستلمون كل القوائم دون توزيع."""
+    return list(items)
 
 
 def _eval_item_ids_owned_by_judge(db, user: User, ex: Exercise | None) -> set[int] | None:
-    if ex is None or not _is_individual_judge_user(user):
-        return None
-    items = (
-        db.query(EvaluationListPdfItem)
-        .filter(EvaluationListPdfItem.exercise_id == ex.id)
-        .all()
-    )
-    return {int(it.id) for it in _eval_items_owned_by_judge(db, user, ex, items)}
+    """لا يُفلتر بالقسمة بين المحكمين — التنسيق بينهم من يقيم ماذا."""
+    return None
 
 
 def _allow_other_judge_eval_overwrite(user: User, saved) -> bool:
@@ -3267,7 +3203,13 @@ def _eval_list_viewer_ctx(user: User, saved) -> dict:
         "saved_chief_approved_at": getattr(saved, "chief_approved_at", None) if saved else None,
         "saved_reopened_for_judge": eval_reopened_for_judge(saved),
         "eval_workflow_label": eval_workflow_label_ar(saved),
-        "eval_can_edit": bool(can_save_evaluation_results(user) and eval_judge_can_edit(saved)),
+        "eval_can_edit": bool(
+            can_save_evaluation_results(user)
+            and (
+                eval_judge_can_edit(saved)
+                or _allow_other_judge_eval_overwrite(user, saved)
+            )
+        ),
         "show_eval_approve": bool(
             can_approve_evaluation_results(user)
             and eval_judge_can_approve(saved)
@@ -3395,7 +3337,9 @@ def _eval_crit_user_can_upload_media(
 ) -> bool:
     if user is None or not can_save_evaluation_results(user):
         return False
-    if not eval_judge_can_edit(canonical_saved):
+    if not eval_judge_can_edit(canonical_saved) and not _allow_other_judge_eval_overwrite(
+        user, canonical_saved
+    ):
         return False
     ex = db.get(Exercise, int(exercise_id))
     if ex is None:
@@ -8605,7 +8549,10 @@ def _planner_flow_eval_list_viewer_ctx(user: User, saved) -> dict:
     wf["eval_chief_next_step_hint"] = True
     if _from_judge_action_eval_lists_request():
         if can_save_evaluation_results(user):
-            wf["eval_can_edit"] = bool(eval_judge_can_edit(saved))
+            wf["eval_can_edit"] = bool(
+                eval_judge_can_edit(saved)
+                or _allow_other_judge_eval_overwrite(user, saved)
+            )
         return wf
     if _planner_flow_is_readonly_oversee(user):
         wf["eval_can_edit"] = False
@@ -8613,7 +8560,10 @@ def _planner_flow_eval_list_viewer_ctx(user: User, saved) -> dict:
         wf["show_eval_approve_form"] = False
         return wf
     if _planner_flow_action_lists_editable(user):
-        wf["eval_can_edit"] = bool(eval_judge_can_edit(saved))
+        wf["eval_can_edit"] = bool(
+            eval_judge_can_edit(saved)
+            or _allow_other_judge_eval_overwrite(user, saved)
+        )
     return wf
 
 
