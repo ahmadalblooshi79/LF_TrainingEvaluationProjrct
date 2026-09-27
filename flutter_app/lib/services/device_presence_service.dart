@@ -4,10 +4,12 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../theme/device_layout.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
 import 'health_service.dart';
 import 'sync_service.dart';
+import 'tablet_local_api.dart';
 
 const String kDeviceIdPrefKey = 'lf_device_id';
 const String kDeviceNamePrefKey = 'lf_device_name';
@@ -89,6 +91,8 @@ class DevicePresenceService {
     }
     try {
       final pending = SyncService.instance.pendingCount.value;
+      final session = AuthService.instance.session;
+      await TabletLocalApi.instance.initToken();
       await ApiClient.instance.post(
         '/api/device/register',
         body: {
@@ -97,6 +101,16 @@ class DevicePresenceService {
           'is_login': isLogin,
           'sync_status': pending > 0 ? 'pending' : 'idle',
           'pending_sync_count': pending,
+          'local_api_port': TabletLocalApi.instance.port,
+          'local_api_token': TabletLocalApi.instance.token,
+          'unit_id': session?.unitKey ?? '',
+          'unit_name': session?.unitLabel ?? '',
+          'exercise_id': session?.exercise?.id,
+          'exercise_name': session?.exercise?.name ?? '',
+          'app_version': DeviceLayout.appVersion,
+          'package_version': DeviceLayout.appVersion,
+          'local_saved_count': pending,
+          'local_pending_saves': pending,
         },
         timeout: const Duration(seconds: 8),
       );
@@ -112,15 +126,25 @@ class DevicePresenceService {
     if (!HealthService.instance.serverReachable.value) return;
     try {
       final pending = SyncService.instance.pendingCount.value;
+      final session = AuthService.instance.session;
+      await TabletLocalApi.instance.initToken();
       await ApiClient.instance.post(
         '/api/device/heartbeat',
         body: {
           'device_id': _deviceId,
           'device_name': _deviceName,
-          'sync_status': SyncService.instance.syncing.value
-              ? 'syncing'
-              : (pending > 0 ? 'pending' : 'idle'),
+          'sync_status': pending > 0 ? 'pending' : 'idle',
           'pending_sync_count': pending,
+          'local_api_port': TabletLocalApi.instance.port,
+          'local_api_token': TabletLocalApi.instance.token,
+          'unit_id': session?.unitKey ?? '',
+          'unit_name': session?.unitLabel ?? '',
+          'exercise_id': session?.exercise?.id,
+          'exercise_name': session?.exercise?.name ?? '',
+          'app_version': DeviceLayout.appVersion,
+          'package_version': DeviceLayout.appVersion,
+          'local_saved_count': pending,
+          'local_pending_saves': pending,
         },
         timeout: const Duration(seconds: 6),
       );

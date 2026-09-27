@@ -9630,6 +9630,7 @@ PLANNER_HUB_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("new-flow", "مجرى الأحداث والمعاضل", "fa-diagram-project"),
     ("new-action-eval-lists", "قوائم تقييم المعاضل", "fa-file-excel"),
     ("new-evaluation-list", "قوائم تقييم الإجراءات", "fa-file-circle-plus"),
+    ("judge-tablets", "إدارة أجهزة المحكمين", "fa-tablet-screen-button"),
     ("incomplete-tasks", "موقف المهام غير المكتملة", "fa-hourglass-half"),
     ("battle-overview", "الصورة العامة للمعركة", "fa-map"),
     ("assign-task", "إسناد مهمة جديدة", "fa-user-plus"),
@@ -10062,6 +10063,8 @@ def planner_hub_section(slug: str):
         return redirect(url_for("views.planner_action_eval_lists_workspace"))
     if slug_norm == "new-evaluation-list":
         return redirect(url_for("views.admin_evaluation_lists"))
+    if slug_norm == "judge-tablets":
+        return redirect(url_for("tablet_transfer.planner_judge_tablets"))
     if slug_norm == "visual-documentation":
         return redirect(url_for("views.visual_documentation", from_planner=1))
     title = PLANNER_HUB_SLUGS.get(slug_norm)
@@ -20289,6 +20292,125 @@ def admin_server_management():
             page_title="إدارة الخادم",
         ),
     )
+
+
+def _tablet_recovery_page(user, db):
+    from pathlib import Path
+
+    from app.tablet_recovery import attach_item_titles, build_preview
+
+    extract = (session.get("tablet_recovery_extract") or "").strip()
+    zip_hash = (session.get("tablet_recovery_hash") or "").strip()
+    zip_name = (session.get("tablet_recovery_name") or "").strip()
+    preview = None
+    exercise_label = ""
+    judge_label = ""
+    server_results = {}
+    if extract and Path(extract).is_dir() and zip_hash:
+        preview = build_preview(Path(extract), zip_hash=zip_hash, zip_name=zip_name)
+        attach_item_titles(db, preview)
+        ex = _current_workspace_exercise(db, user)
+        if ex is not None:
+            exercise_label = f"({ex.code} {ex.title}) {ex.id}" if getattr(ex, "code", "") else str(ex.id)
+        if preview.judge_name or preview.judge_id:
+            judge_label = f"({preview.judge_name}) {preview.judge_id or preview.user_id or ''}".strip()
+        if preview.items:
+            ids = [i.eval_item_id for i in preview.items]
+            cmap = _evaluation_canonical_map_for_items(db, getattr(ex, "id", 0) or 0, ids)
+            for iid, saved in cmap.items():
+                if saved is None:
+                    continue
+                if getattr(saved, "grade_label", "") or getattr(saved, "total_pct", None) is not None:
+                    server_results[iid] = saved.grade_label or f"{saved.total_pct}"
+    return render_template(
+        "admin_tablet_recovery.html",
+        **_ctx(
+            user,
+            preview=preview,
+            exercise_label=exercise_label,
+            judge_label=judge_label,
+            server_results=server_results,
+            page_title="استعادة بيانات التابلت",
+        ),
+    )
+
+
+@bp.route("/admin/tablet-recovery", methods=["GET"])
+def admin_tablet_recovery():
+    user = get_current_user_optional()
+    if not user or not is_system_admin(user):
+        abort(403)
+    from flask import g
+
+    return _tablet_recovery_page(user, g.db)
+
+
+@bp.route("/admin/tablet-recovery/upload", methods=["POST"])
+def admin_tablet_recovery_upload():
+    user = get_current_user_optional()
+    if not user or not is_system_admin(user):
+        abort(403)
+    from pathlib import Path
+
+    from app.tablet_recovery import extract_recovery_zip, sha256_file, _uploads_root
+
+    f = request.files.get("package")
+    if f is None or not (f.filename or "").strip():
+        flash("اختر ملف حزمة ZIP.", "error")
+        return redirect(url_for("views.admin_tablet_recovery"))
+    dest_root = _uploads_root() / uuid.uuid4().hex
+    dest_root.mkdir(parents=True, exist_ok=True)
+    zip_path = dest_root / "package.zip"
+    f.save(str(zip_path))
+    extract_dir = dest_root / "extracted"
+    try:
+        extract_recovery_zip(zip_path, extract_dir)
+    except Exception as exc:
+        flash(f"تعذّر فتح الحزمة: {exc}", "error")
+        return redirect(url_for("views.admin_tablet_recovery"))
+    session["tablet_recovery_extract"] = str(extract_dir)
+    session["tablet_recovery_hash"] = sha256_file(zip_path)
+    session["tablet_recovery_name"] = (f.filename or "package.zip").strip()
+    return redirect(url_for("views.admin_tablet_recovery"))
+
+
+@bp.route("/admin/tablet-recovery/apply", methods=["POST"])
+def admin_tablet_recovery_apply():
+    user = get_current_user_optional()
+    if not user or not is_system_admin(user):
+        abort(403)
+    from flask import g
+    from pathlib import Path
+
+    from app.tablet_recovery import (
+        apply_recovery,
+        attach_item_titles,
+        build_preview,
+        selected_eval_item_ids,
+    )
+
+    db = g.db
+    extract = (session.get("tablet_recovery_extract") or "").strip()
+    zip_hash = (session.get("tablet_recovery_hash") or "").strip()
+    zip_name = (session.get("tablet_recovery_name") or "").strip()
+    if not extract or not Path(extract).is_dir() or not zip_hash:
+        flash("ارفع حزمة الاستعادة أولاً.", "error")
+        return redirect(url_for("views.admin_tablet_recovery"))
+    preview = build_preview(Path(extract), zip_hash=zip_hash, zip_name=zip_name)
+    attach_item_titles(db, preview)
+    selected = selected_eval_item_ids(request.form)
+    force = (request.form.get("force_reapply") or "").strip() == "1"
+    try:
+        stats = apply_recovery(db, preview, selected, force=force)
+    except Exception as exc:
+        db.rollback()
+        flash(f"فشلت الاستعادة وتم التراجع: {exc}", "error")
+        return redirect(url_for("views.admin_tablet_recovery"))
+    flash(
+        f"تمت استعادة {stats.get('restored', 0)} قائمة و{stats.get('media', 0)} وسيط.",
+        "ok",
+    )
+    return redirect(url_for("views.admin_tablet_recovery"))
 
 
 @bp.route("/admin/users", methods=["GET", "POST"])

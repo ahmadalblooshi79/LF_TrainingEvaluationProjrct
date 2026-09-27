@@ -13,6 +13,7 @@ import 'services/notifications_badge_service.dart';
 import 'services/offline_store.dart';
 import 'services/sync_preferences.dart';
 import 'services/sync_service.dart';
+import 'services/tablet_local_api.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,6 +32,7 @@ Future<void> main() async {
   unawaited(SyncService.instance.start());
   unawaited(NotificationsBadgeService.instance.start());
   unawaited(DevicePresenceService.instance.start());
+  unawaited(TabletLocalApi.instance.start());
 
   runApp(const LfTrainingEvaluationApp());
 }

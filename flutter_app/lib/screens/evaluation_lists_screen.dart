@@ -136,6 +136,17 @@ class _EvaluationListsScreenState extends State<EvaluationListsScreen> {
             ],
           ),
         ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: () => context.push('/export-lists'),
+              icon: const Icon(Icons.table_view_outlined, size: 18),
+              label: const Text('تصدير القوائم'),
+            ),
+          ),
+        ),
         if (data.unitLevels.length > 1)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),

@@ -223,6 +223,19 @@ class _DeviceAdminHubScreenState extends State<DeviceAdminHubScreen> {
             label: const Text('تحديث حزمة التمرين (Device Sync)'),
           ),
           const SizedBox(height: 24),
+          Text('استعادة البيانات المحلية', style: AppTextStyles.subtitle),
+          const SizedBox(height: 8),
+          Text(
+            'فحص وقراءة فقط. لا يغيّر النتائج ولا يشغّل المزامنة.',
+            style: AppTextStyles.cairo(fontSize: 12, color: AppColors.muted),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _busy ? null : () => context.push('/recovery'),
+            icon: const Icon(Icons.restore),
+            label: const Text('استعادة البيانات المحلية'),
+          ),
+          const SizedBox(height: 24),
           Text(
             'مدير الجهاز لا يستطيع فتح تقييمات المحكمين أو تعديلها.',
             style: AppTextStyles.cairo(fontSize: 12, color: AppColors.muted),

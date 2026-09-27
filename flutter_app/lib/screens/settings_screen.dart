@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -7,7 +5,6 @@ import 'package:provider/provider.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
-import '../services/sync_preferences.dart';
 import '../services/sync_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_header.dart';
@@ -135,56 +132,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ],
             const SizedBox(height: 28),
-            Text('طريقة المزامنة', style: AppTextStyles.subtitle),
-            const SizedBox(height: 8),
-            ValueListenableBuilder<TabletSyncMode>(
-              valueListenable: SyncPreferences.instance.mode,
-              builder: (context, mode, _) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    RadioListTile<TabletSyncMode>(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        'تلقائية (Wi‑Fi / Ethernet)',
-                        style: AppTextStyles.body,
-                      ),
-                      subtitle: Text(
-                        'عند الاتصال بشبكة محلية والوصول للسيرفر: رفع الأعمال وتنزيل التحديثات تلقائياً.',
-                        style: AppTextStyles.small,
-                      ),
-                      value: TabletSyncMode.automatic,
-                      groupValue: mode,
-                      onChanged: (v) async {
-                        if (v == null) return;
-                        await SyncPreferences.instance.setMode(v);
-                        if (v == TabletSyncMode.automatic) {
-                          unawaited(SyncService.instance.runFullSync(silent: true));
-                        }
-                      },
-                    ),
-                    RadioListTile<TabletSyncMode>(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        'يدوية',
-                        style: AppTextStyles.body,
-                      ),
-                      subtitle: Text(
-                        'لا مزامنة تلقائية — استخدم «إدارة المزامنة» عند الحاجة.',
-                        style: AppTextStyles.small,
-                      ),
-                      value: TabletSyncMode.manual,
-                      groupValue: mode,
-                      onChanged: (v) async {
-                        if (v == null) return;
-                        await SyncPreferences.instance.setMode(v);
-                      },
-                    ),
-                  ],
-                );
-              },
-            ),
-            const SizedBox(height: 28),
             Text('التوقيع الإلكتروني', style: AppTextStyles.subtitle),
             const SizedBox(height: 8),
             ElevatedButton.icon(
@@ -198,7 +145,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 28),
-            Text('حالة الاتصال والمزامنة', style: AppTextStyles.subtitle),
+            Text('العمل المحلي', style: AppTextStyles.subtitle),
             const SizedBox(height: 12),
             const Align(alignment: Alignment.centerRight, child: OnlineStatusChip()),
             const SizedBox(height: 12),
@@ -208,14 +155,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    'عمليات بانتظار الرفع: $count',
+                    'عمليات محفوظة محلياً: $count',
                     style: AppTextStyles.body,
                   ),
                   const SizedBox(height: 10),
                   ElevatedButton.icon(
-                    onPressed: () => context.push('/sync-status'),
-                    icon: const Icon(Icons.sync, size: 20),
-                    label: const Text('إدارة المزامنة'),
+                    onPressed: () => context.push('/export-lists'),
+                    icon: const Icon(Icons.table_view_outlined, size: 20),
+                    label: const Text('تصدير القوائم'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.buttonBrown,
                       foregroundColor: AppColors.white,
@@ -224,6 +171,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ],
               ),
+            ),
+            const SizedBox(height: 28),
+            Text('استعادة البيانات المحلية', style: AppTextStyles.subtitle),
+            const SizedBox(height: 8),
+            Text(
+              'فحص مخزن الجهاز دون مزامنة أو تعديل.',
+              style: AppTextStyles.small,
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: () => context.push('/recovery'),
+              icon: const Icon(Icons.restore),
+              label: const Text('استعادة البيانات المحلية'),
             ),
             const SizedBox(height: 28),
             if (auth.session != null) ...[

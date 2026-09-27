@@ -1,7 +1,7 @@
 name: lf_training_evaluation
 description: Flutter tablet app for judges — Training Evaluation system.
 publish_to: "none"
-version: 2.7.24+38
+version: 2.7.27+41
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -26,6 +26,8 @@ dependencies:
   crypto: ^3.0.7
   flutter_pdfview: ^1.4.0+1
   video_player: ^2.9.5
+  archive: ^3.6.1
+  share_plus: ^10.1.4
 
 dev_dependencies:
   flutter_test:

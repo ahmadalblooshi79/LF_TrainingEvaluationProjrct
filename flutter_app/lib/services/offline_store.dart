@@ -314,6 +314,9 @@ class OfflineStore {
   static const _opsKey = 'pwa_pending_ops_v2';
   static const _mediaKey = 'pwa_media_v2';
 
+  /// Current tablet_offline.db schema version. Recovery reports this; it does not migrate.
+  static const int databaseSchemaVersion = 4;
+
   Future<void> init() async {
     if (kIsWeb) {
       _prefs = await SharedPreferences.getInstance();
@@ -1141,5 +1144,121 @@ class OfflineStore {
       await db.delete('local_users');
       await db.delete('device_meta');
     } catch (_) {}
+  }
+
+  /// Read-only recovery: every pending_ops row, including synced/failed.
+  /// Does not change attempts, sync_status, or any other column.
+  Future<List<Map<String, dynamic>>> recoverySelectPendingOps() async {
+    if (kIsWeb) {
+      final raw = await pwa_kv.pwaKvGet(_opsKey);
+      if (raw == null || raw.isEmpty) return [];
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is! List) return [];
+        return decoded.whereType<Map>().map((e) {
+          final m = Map<String, dynamic>.from(e);
+          if (m['body'] is! String) {
+            try {
+              m['body'] = jsonEncode(m['body'] ?? {});
+            } catch (_) {
+              m['body'] = '${m['body'] ?? ''}';
+            }
+          }
+          return m;
+        }).toList();
+      } catch (_) {
+        return [];
+      }
+    }
+    final db = await _database;
+    final rows = await db.query('pending_ops', orderBy: 'created_at ASC');
+    return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+  }
+
+  /// Read-only recovery: every cache row. Caller filters evaluation keys.
+  Future<List<Map<String, dynamic>>> recoverySelectCache() async {
+    if (kIsWeb) {
+      final keys = await pwa_kv.pwaKvKeys(prefix: _cachePrefix);
+      final out = <Map<String, dynamic>>[];
+      for (final full in keys) {
+        final raw = await pwa_kv.pwaKvGet(full);
+        if (raw == null) continue;
+        final cacheKey = full.startsWith(_cachePrefix)
+            ? full.substring(_cachePrefix.length)
+            : full;
+        String jsonBody = raw;
+        String updatedAt = '';
+        String syncStatus = '';
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is Map) {
+            final root = Map<String, dynamic>.from(decoded);
+            updatedAt = '${root['updated_at'] ?? ''}';
+            syncStatus = '${root['sync_status'] ?? ''}';
+            final body = root['body'];
+            jsonBody = body is Map || body is List
+                ? jsonEncode(body)
+                : (body is String ? body : jsonEncode(root));
+          }
+        } catch (_) {}
+        out.add({
+          'cache_key': cacheKey,
+          'json_body': jsonBody,
+          'updated_at': updatedAt,
+          'sync_status': syncStatus,
+        });
+      }
+      out.sort(
+        (a, b) => '${a['cache_key']}'.compareTo('${b['cache_key']}'),
+      );
+      return out;
+    }
+    final db = await _database;
+    final rows = await db.query('cache', orderBy: 'cache_key ASC');
+    return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+  }
+
+  /// Read-only recovery: every media_files row.
+  Future<List<Map<String, dynamic>>> recoverySelectMedia() async {
+    if (kIsWeb) {
+      final raw = await pwa_kv.pwaKvGet(_mediaKey);
+      if (raw == null || raw.isEmpty) return [];
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is! List) return [];
+        return decoded
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      } catch (_) {
+        return [];
+      }
+    }
+    final db = await _database;
+    final rows = await db.query('media_files', orderBy: 'created_at ASC');
+    return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+  }
+
+  /// Read-only recovery: device_meta rows.
+  Future<List<Map<String, dynamic>>> recoverySelectDeviceMeta() async {
+    if (kIsWeb) {
+      final keys = await pwa_kv.pwaKvKeys(prefix: 'device_meta_');
+      final out = <Map<String, dynamic>>[];
+      for (final k in keys) {
+        final v = await pwa_kv.pwaKvGet(k);
+        out.add({
+          'meta_key': k.replaceFirst('device_meta_', ''),
+          'meta_value': v ?? '',
+        });
+      }
+      return out;
+    }
+    try {
+      final db = await _database;
+      final rows = await db.query('device_meta');
+      return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+    } catch (_) {
+      return [];
+    }
   }
 }

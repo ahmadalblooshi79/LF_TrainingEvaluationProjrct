@@ -1,23 +1,23 @@
 @echo off
 
-REM Build Judge Tablet APK v2.7.24 (workspace images + fullscreen eval)
+REM Build Judge Tablet APK v2.7.27 (server-controlled transfer + Excel)
 
 set PATH=%~dp0tools\flutter\bin;%PATH%
 
 cd /d "%~dp0flutter_app"
 
-call flutter build apk --release --flavor tablet --dart-define=LF_PRODUCT=tablet --dart-define=LF_APP_VERSION=2.7.24 --build-name=2.7.24 --build-number=38
+call flutter build apk --release --flavor tablet --dart-define=LF_PRODUCT=tablet --dart-define=LF_APP_VERSION=2.7.27 --build-name=2.7.27 --build-number=41
 
 if errorlevel 1 exit /b 1
 
 if not exist "%~dp0dist" mkdir "%~dp0dist"
 
-copy /Y "build\app\outputs\flutter-apk\app-tablet-release.apk" "%~dp0dist\judge-tablet-v2.7.24.apk"
+copy /Y "build\app\outputs\flutter-apk\app-tablet-release.apk" "%~dp0dist\judge-tablet-v2.7.27.apk"
 
 echo.
 
-echo Built: dist\judge-tablet-v2.7.24.apk
+echo Built: dist\judge-tablet-v2.7.27.apk
 
 echo Package: ae.lf.training.lf_training_evaluation
 
-echo Version: 2.7.24+38
+echo Version: 2.7.27+41

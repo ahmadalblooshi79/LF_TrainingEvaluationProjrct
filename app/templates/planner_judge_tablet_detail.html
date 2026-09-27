@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title or device.device_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-tablet-screen-button fa-icon-title" aria-hidden="true"></i> {{ device.device_name or device.device_id }}</h1>
+  <div class="page-header__nav">
+    <a class="btn btn-ghost btn-xs" href="{{ url_for('tablet_transfer.planner_judge_tablets') }}">الأجهزة</a>
+    {% include 'partials/subpage_close.html' %}
+  </div>
+</div>
+
+<section class="card" style="margin-bottom:1rem;">
+  <p><strong>● {{ status_label }}</strong></p>
+  <ul class="tr-kv" style="list-style:none;margin:0;padding:0;">
+    <li style="display:flex;justify-content:space-between;padding:0.3rem 0;"><span>Device ID</span><strong dir="ltr">{{ device.device_id }}</strong></li>
+    <li style="display:flex;justify-content:space-between;padding:0.3rem 0;"><span>الوحدة</span><strong>{{ device.unit_label or device.unit_key or '—' }}</strong></li>
+    <li style="display:flex;justify-content:space-between;padding:0.3rem 0;"><span>المحكم</span><strong>{{ device.judge_name or '—' }}</strong></li>
+    <li style="display:flex;justify-content:space-between;padding:0.3rem 0;"><span>التمرين</span><strong>{{ device.exercise_name or device.exercise_id or '—' }}</strong></li>
+    <li style="display:flex;justify-content:space-between;padding:0.3rem 0;"><span>الإصدار</span><strong dir="ltr">{{ device.app_version or '—' }} / {{ device.package_version or '—' }}</strong></li>
+    <li style="display:flex;justify-content:space-between;padding:0.3rem 0;"><span>IP</span><strong dir="ltr">{{ device.device_ip or '—' }}</strong></li>
+  </ul>
+  {% if not ready %}
+  <p class="form-error-banner" style="margin-top:0.8rem;">الجهاز غير جاهز — Ethernet دون استجابة تطبيق المحكم لا يُعد جاهزاً.</p>
+  {% endif %}
+</section>
+
+<form method="post" action="{{ url_for('tablet_transfer.planner_judge_tablet_push', device_id=device.device_id) }}" class="btn-group" style="margin-bottom:1rem;flex-wrap:wrap;">
+  <button type="submit" class="btn btn-primary btn-xs" {% if not ready %}disabled{% endif %}>تحديث بيانات التابلت</button>
+</form>
+<form method="post" action="{{ url_for('tablet_transfer.planner_judge_tablet_pull', device_id=device.device_id) }}">
+  <div class="btn-group" style="margin-bottom:0.8rem;flex-wrap:wrap;">
+    <button type="submit" class="btn btn-primary btn-xs" {% if not ready %}disabled{% endif %}>سحب جميع النتائج</button>
+  </div>
+  <section class="card">
+    <h2 class="h2-in-card" style="margin-top:0;">القوائم</h2>
+    {% if not lists %}
+    <p class="muted">لا توجد قوائم معروضة من الجهاز.</p>
+    {% else %}
+    <table class="tr-table" style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr>
+          <th></th>
+          <th>القائمة</th>
+          <th>نتيجة محلية</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in lists %}
+        {% set eid = item.eval_item_id or item.id %}
+        <tr>
+          <td><input type="checkbox" name="eval_item_id" value="{{ eid }}" {% if item.has_local_result or item.local_result %}checked{% endif %}></td>
+          <td>#{{ eid }} — {{ item.title or item.name or item.evaluation_list_name or '—' }}</td>
+          <td>{% if item.has_local_result or item.local_result %}موجود{% else %}لا يوجد{% endif %}</td>
+          <td>
+            <button type="submit" class="btn btn-ghost btn-xs" name="eval_item_id" value="{{ eid }}" formaction="{{ url_for('tablet_transfer.planner_judge_tablet_pull', device_id=device.device_id) }}">سحب النتيجة</button>
+            <button type="submit" class="btn btn-ghost btn-xs" name="eval_item_id" value="{{ eid }}" formaction="{{ url_for('tablet_transfer.planner_judge_tablet_push', device_id=device.device_id) }}">تحديث القائمة</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </section>
+</form>
+{% endblock %}

@@ -81,6 +81,11 @@ from app.models.server_monitor import (
     ServerErrorLog,
     SyncOperationLog,
 )
+from app.models.tablet_transfer import (
+    TabletIdentityMapping,
+    TabletImportPackage,
+    TabletTransferAudit,
+)
 
 __all__ = [
     "User",
@@ -161,4 +166,7 @@ __all__ = [
     "ServerActivityLog",
     "ServerErrorLog",
     "SyncOperationLog",
+    "TabletIdentityMapping",
+    "TabletImportPackage",
+    "TabletTransferAudit",
 ]

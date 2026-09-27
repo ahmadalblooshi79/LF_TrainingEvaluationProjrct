@@ -18,7 +18,7 @@ class OnlineStatusChip extends StatelessWidget {
           builder: (context, pending, __) {
             final (label, color) = _labelAndColor(state, pending);
             return InkWell(
-              onTap: () => context.push('/sync-status'),
+              onTap: () => context.push('/settings'),
               borderRadius: BorderRadius.circular(20),
               child: Container(
                 padding:
@@ -73,13 +73,13 @@ class OnlineStatusChip extends StatelessWidget {
       case SyncUiState.offline:
         return ('Offline Mode', AppColors.goldDark);
       case SyncUiState.pending:
-        return ('بانتظار المزامنة • $pending', AppColors.goldDark);
+        return ('عمل محلي محفوظ • $pending', AppColors.goldDark);
       case SyncUiState.syncing:
-        return ('جارٍ المزامنة • $pending', AppColors.olive);
+        return ('Offline Mode', AppColors.goldDark);
       case SyncUiState.synced:
         return ('متصل بالسيرفر', AppColors.doneGreen);
       case SyncUiState.failed:
-        return ('فشل المزامنة • $pending', AppColors.notDoneRed);
+        return ('عمل محلي محفوظ • $pending', AppColors.goldDark);
     }
   }
 }

@@ -6,6 +6,7 @@ import '../models/eval_sheet.dart';
 import '../models/eval_sheet_scoring.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/eval_excel_export.dart';
 import '../services/signature_store.dart';
 import '../services/tablet_repository.dart';
 import '../theme/app_theme.dart';
@@ -225,7 +226,7 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
       if (!mounted) return;
       setState(() {
         _rows[index].addMedia(slot, localPath);
-        _hint = 'حُفظت الوسائط محلياً — ستُرفع عند رفع أعمالي';
+        _hint = 'حُفظت الوسائط محلياً على الجهاز';
       });
     } catch (e) {
       if (!mounted) return;
@@ -334,6 +335,44 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
       setState(() {
         _saving = false;
         _hint = 'تعذّر الحفظ: $e';
+        _hintIsError = true;
+      });
+    }
+  }
+
+  Future<void> _exportExcel() async {
+    final id = widget.itemId ?? _detail?.itemId ?? _detail?.slotId;
+    if (id == null) {
+      setState(() {
+        _hint = 'لا يوجد معرّف قائمة للتصدير';
+        _hintIsError = true;
+      });
+      return;
+    }
+    setState(() {
+      _hint = 'جاري تصدير Excel…';
+      _hintIsError = false;
+    });
+    try {
+      final result = await EvalExcelExportService.instance.exportEvalItem(id);
+      if (!result.ok) {
+        if (!mounted) return;
+        setState(() {
+          _hint = result.error ?? 'تعذّر التصدير';
+          _hintIsError = true;
+        });
+        return;
+      }
+      await EvalExcelExportService.instance.saveToUserLocation(result);
+      if (!mounted) return;
+      setState(() {
+        _hint = 'تم التصدير: ${result.fileName}';
+        _hintIsError = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _hint = 'تعذّر التصدير: $e';
         _hintIsError = true;
       });
     }
@@ -672,6 +711,7 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
                   : 'لا يمكن اعتماد نتائج التقييم النهائي إلا بعد إدخال ملاحظات في الصفوف ذات النتيجة راسب أو مقبول.',
               onSave: _save,
               onApprove: _approve,
+              onExport: _exportExcel,
               onClose: () => Navigator.of(context).maybePop(),
             ),
           ),
@@ -1563,6 +1603,7 @@ class _FooterBar extends StatelessWidget {
     this.blockMessage,
     required this.onSave,
     required this.onApprove,
+    required this.onExport,
     required this.onClose,
   });
 
@@ -1581,6 +1622,7 @@ class _FooterBar extends StatelessWidget {
   final String? blockMessage;
   final VoidCallback onSave;
   final VoidCallback onApprove;
+  final VoidCallback onExport;
   final VoidCallback onClose;
 
   @override
@@ -1707,6 +1749,12 @@ class _FooterBar extends StatelessWidget {
                 textAlign: TextAlign.center,
               ),
             ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: onExport,
+            icon: const Icon(Icons.table_view_outlined, size: 18),
+            label: const Text('تصدير Excel'),
+          ),
           const SizedBox(height: 8),
           _EvalSheetCloseButton(onPressed: onClose),
         ],

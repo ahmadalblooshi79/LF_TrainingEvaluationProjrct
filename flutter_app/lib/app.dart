@@ -6,12 +6,14 @@ import 'package:provider/provider.dart';
 import 'screens/action_eval_lists_screen.dart';
 import 'screens/device_admin_hub_screen.dart';
 import 'screens/device_setup_screen.dart';
+import 'screens/eval_lists_export_screen.dart';
 import 'screens/eval_sheet_screen.dart';
 import 'screens/evaluation_lists_screen.dart';
 import 'screens/exercise_details_screen.dart';
 import 'screens/flow_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/incomplete_tasks_screen.dart';
+import 'screens/local_recovery_screen.dart';
 import 'screens/library_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/messages_screen.dart';
@@ -21,7 +23,6 @@ import 'screens/objectives_screen.dart';
 import 'screens/server_connect_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/signature_screen.dart';
-import 'screens/sync_status_screen.dart';
 import 'services/auth_service.dart';
 import 'services/device_admin_service.dart';
 import 'theme/app_theme.dart';
@@ -56,7 +57,9 @@ final GoRouter _router = GoRouter(
 
     if (admin) {
       if (loc == '/login') return '/device-admin';
-      if (deviceOnly || loc == '/server-connect') return null;
+      if (deviceOnly || loc == '/server-connect' || loc == '/recovery') {
+        return null;
+      }
       return '/device-admin';
     }
     if (!loggedIn) {
@@ -152,7 +155,15 @@ final GoRouter _router = GoRouter(
     ),
     GoRoute(
       path: '/sync-status',
-      builder: (context, state) => const SyncStatusScreen(),
+      redirect: (context, state) => '/export-lists',
+    ),
+    GoRoute(
+      path: '/export-lists',
+      builder: (context, state) => const EvalListsExportScreen(),
+    ),
+    GoRoute(
+      path: '/recovery',
+      builder: (context, state) => const LocalRecoveryScreen(),
     ),
   ],
 );

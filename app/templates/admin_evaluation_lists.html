@@ -79,6 +79,10 @@
         <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
         نشر المحددة
       </button>
+      <a class="btn btn-ghost btn-xs eval-lists-toolbar-btn" href="{{ url_for('tablet_transfer.planner_tablet_excel_import') }}" title="استيراد نتائج محفوظة من التابلت">
+        <i class="fa-solid fa-file-import" aria-hidden="true"></i>
+        استيراد نتائج من التابلت
+      </a>
       {% if current_exercise %}
       <button type="submit" class="btn btn-ghost btn-xs eval-lists-toolbar-btn" id="eval-lists-withdraw-btn"
         formaction="{{ url_for('views.admin_evaluation_lists_withdraw_all_from_ibank') }}"

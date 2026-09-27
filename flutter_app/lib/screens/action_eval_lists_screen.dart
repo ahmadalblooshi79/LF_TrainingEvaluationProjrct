@@ -83,6 +83,17 @@ class _ActionEvalListsScreenState extends State<ActionEvalListsScreen> {
             ),
           ),
         ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: () => context.push('/export-lists'),
+              icon: const Icon(Icons.table_view_outlined, size: 18),
+              label: const Text('تصدير القوائم'),
+            ),
+          ),
+        ),
         if (data.dayTabs.isNotEmpty)
           FigmaDayChips(
             labels: data.dayTabs.map((d) => (id: d.id, label: d.label)).toList(),
