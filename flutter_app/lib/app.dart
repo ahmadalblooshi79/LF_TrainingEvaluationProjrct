@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'screens/action_eval_lists_screen.dart';
 import 'screens/device_admin_hub_screen.dart';
 import 'screens/device_setup_screen.dart';
+import 'screens/eval_backup_screen.dart';
 import 'screens/eval_sheet_screen.dart';
 import 'screens/evaluation_lists_screen.dart';
 import 'screens/exercise_details_screen.dart';
@@ -160,6 +161,10 @@ final GoRouter _router = GoRouter(
     GoRoute(
       path: '/recovery',
       builder: (context, state) => const LocalRecoveryScreen(),
+    ),
+    GoRoute(
+      path: '/eval-backup',
+      builder: (context, state) => const EvalBackupScreen(),
     ),
   ],
 );

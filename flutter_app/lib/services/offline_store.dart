@@ -1261,4 +1261,148 @@ class OfflineStore {
       return [];
     }
   }
+
+  bool _sameInt(dynamic raw, int want) {
+    if (raw == null) return false;
+    if (raw is int) return raw == want;
+    if (raw is num) return raw.toInt() == want;
+    return int.tryParse('$raw'.trim()) == want;
+  }
+
+  /// Current-exercise backup: pending save_results for one exercise + user.
+  Future<List<Map<String, dynamic>>> backupSelectPendingForExercise({
+    required int exerciseId,
+    required int userId,
+  }) async {
+    if (kIsWeb) {
+      final all = await recoverySelectPendingOps();
+      return all.where((row) {
+        if (!_sameInt(row['exercise_id'], exerciseId)) return false;
+        if (!_sameInt(row['user_id'], userId)) return false;
+        final op = '${row['op_type'] ?? ''}';
+        final path = '${row['path'] ?? ''}';
+        return op == 'save_results' ||
+            path.contains('save-results') ||
+            path.contains('save_results') ||
+            path.contains('/results');
+      }).toList();
+    }
+    final db = await _database;
+    final rows = await db.query(
+      'pending_ops',
+      where:
+          'exercise_id = ? AND user_id = ? AND (op_type = ? OR path LIKE ? OR path LIKE ? OR path LIKE ?)',
+      whereArgs: [
+        exerciseId,
+        userId,
+        'save_results',
+        '%save-results%',
+        '%save_results%',
+        '%/results',
+      ],
+      orderBy: 'created_at ASC',
+    );
+    return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+  }
+
+  /// Current-exercise backup: this user's evaluation catalogs and detail cache only.
+  Future<List<Map<String, dynamic>>> backupSelectEvalCacheForUser({
+    required int userId,
+    String unitKey = '',
+  }) async {
+    final prefix = 'u$userId:';
+    final patterns = <String>{
+      '${prefix}evaluation_list_detail:%',
+      '${prefix}action_eval_detail:%',
+      '${prefix}evaluation_lists%',
+      '${prefix}action_eval_lists%',
+    };
+    if (unitKey.trim().isNotEmpty) {
+      patterns.add('evaluation_list_detail:${unitKey.trim()}:%');
+      patterns.add('evaluation_lists:${unitKey.trim()}%');
+    }
+    if (kIsWeb) {
+      final all = await recoverySelectCache();
+      return all.where((row) {
+        final key = '${row['cache_key'] ?? ''}';
+        if (key.startsWith(prefix) &&
+            (key.contains('evaluation_list') || key.contains('action_eval'))) {
+          return true;
+        }
+        if (unitKey.trim().isNotEmpty &&
+            (key.startsWith('evaluation_list_detail:${unitKey.trim()}:') ||
+                key.startsWith('evaluation_lists:${unitKey.trim()}'))) {
+          return true;
+        }
+        return key.startsWith('action_eval_detail:') ||
+            key.startsWith('action_eval_lists');
+      }).toList();
+    }
+    final db = await _database;
+    final out = <Map<String, dynamic>>[];
+    final seen = <String>{};
+    for (final like in patterns) {
+      final rows = await db.query(
+        'cache',
+        where: 'cache_key LIKE ?',
+        whereArgs: [like],
+        orderBy: 'cache_key ASC',
+      );
+      for (final r in rows) {
+        final key = '${r['cache_key'] ?? ''}';
+        if (seen.add(key)) out.add(Map<String, dynamic>.from(r));
+      }
+    }
+    return out;
+  }
+
+  /// Current-exercise backup: media with this exercise_id, plus unscoped media for known eval ids.
+  Future<List<Map<String, dynamic>>> backupSelectMediaForExercise({
+    required int exerciseId,
+    List<int> evalItemIds = const [],
+  }) async {
+    if (kIsWeb) {
+      final all = await recoverySelectMedia();
+      final ids = evalItemIds.toSet();
+      return all.where((row) {
+        if (_sameInt(row['exercise_id'], exerciseId)) return true;
+        if (row['exercise_id'] != null &&
+            '${row['exercise_id']}'.trim().isNotEmpty &&
+            !_sameInt(row['exercise_id'], exerciseId)) {
+          return false;
+        }
+        final evalId = row['evaluation_list_item_id'];
+        final slotId = row['bundle_action_eval_id'];
+        final a = evalId is int ? evalId : int.tryParse('${evalId ?? ''}');
+        final b = slotId is int ? slotId : int.tryParse('${slotId ?? ''}');
+        return (a != null && ids.contains(a)) || (b != null && ids.contains(b));
+      }).toList();
+    }
+    final db = await _database;
+    final byExercise = await db.query(
+      'media_files',
+      where: 'exercise_id = ?',
+      whereArgs: [exerciseId],
+      orderBy: 'created_at ASC',
+    );
+    final out = <Map<String, dynamic>>[
+      for (final r in byExercise) Map<String, dynamic>.from(r),
+    ];
+    final seen = {for (final r in out) '${r['id']}'};
+    final ids = evalItemIds.where((id) => id > 0).toList();
+    if (ids.isEmpty) return out;
+    final placeholders = List.filled(ids.length, '?').join(',');
+    final linked = await db.query(
+      'media_files',
+      where:
+          '(exercise_id IS NULL OR exercise_id = 0) AND (evaluation_list_item_id IN ($placeholders) OR bundle_action_eval_id IN ($placeholders))',
+      whereArgs: [...ids, ...ids],
+      orderBy: 'created_at ASC',
+    );
+    for (final r in linked) {
+      final m = Map<String, dynamic>.from(r);
+      if (seen.add('${m['id']}')) out.add(m);
+    }
+    return out;
+  }
 }
