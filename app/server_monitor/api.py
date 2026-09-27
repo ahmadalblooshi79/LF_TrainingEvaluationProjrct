@@ -53,16 +53,6 @@ def api_device_register():
         user=user,
         user_agent=(request.headers.get("User-Agent") or "")[:512],
         is_login=bool(data.get("is_login")),
-        local_api_port=int(data.get("local_api_port") or 0) or None,
-        local_api_token=(data.get("local_api_token") or "").strip(),
-        unit_key=(data.get("unit_id") or data.get("unit_key") or "").strip(),
-        unit_label=(data.get("unit_name") or data.get("unit_label") or "").strip(),
-        exercise_id=int(data.get("exercise_id") or 0) or None,
-        exercise_name=(data.get("exercise_name") or "").strip(),
-        app_version=(data.get("app_version") or "").strip(),
-        package_version=(data.get("package_version") or "").strip(),
-        local_saved_count=int(data.get("local_saved_count") or 0),
-        local_pending_saves=int(data.get("local_pending_saves") or 0),
     )
     log_activity(
         db,
@@ -99,16 +89,6 @@ def api_device_heartbeat():
         user=user,
         sync_status=(data.get("sync_status") or "idle").strip(),
         pending_sync_count=int(data.get("pending_sync_count") or 0),
-        local_api_port=int(data.get("local_api_port") or 0) or None,
-        local_api_token=(data.get("local_api_token") or "").strip(),
-        unit_key=(data.get("unit_id") or data.get("unit_key") or "").strip(),
-        unit_label=(data.get("unit_name") or data.get("unit_label") or "").strip(),
-        exercise_id=int(data.get("exercise_id") or 0) or None,
-        exercise_name=(data.get("exercise_name") or "").strip(),
-        app_version=(data.get("app_version") or "").strip(),
-        package_version=(data.get("package_version") or "").strip(),
-        local_saved_count=int(data.get("local_saved_count") or 0),
-        local_pending_saves=int(data.get("local_pending_saves") or data.get("pending_sync_count") or 0),
     )
     db.commit()
     return jsonify({"ok": True, "server_time": datetime.utcnow().isoformat() + "Z"})

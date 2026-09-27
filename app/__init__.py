@@ -38,14 +38,12 @@ from app.database import (
     ensure_ai_training_center_tables,
     ensure_tablet_offline_support,
     ensure_judge_electronic_signature_schema,
-    ensure_connected_device_transfer_columns,
 )
 
 # تسجيل النماذج لضمان اكتمال metadata
 import app.models  # noqa: F401
 import app.models.remote_control  # noqa: F401 — جلسات التحكم المباشر
 import app.models.server_monitor  # noqa: F401 — مراقبة الأجهزة والمزامنة
-import app.models.tablet_transfer  # noqa: F401 — مطابقة ونقل التابلت
 import app.ai_local_engine.models  # noqa: F401
 import app.ai_report_library.models  # noqa: F401
 import app.ai_agentic.models  # noqa: F401
@@ -110,7 +108,6 @@ def create_app() -> Flask:
         ensure_ai_training_center_tables()
         ensure_tablet_offline_support()
         ensure_judge_electronic_signature_schema()
-        ensure_connected_device_transfer_columns()
         from app.seed import seed_all
         from app.ibank_section_clone import ensure_wargames_ibank_clone
 
@@ -240,10 +237,6 @@ def create_app() -> Flask:
     from app.server_monitor.api import server_api_bp
 
     app.register_blueprint(server_api_bp)
-
-    from app.tablet_transfer_views import bp as tablet_transfer_bp
-
-    app.register_blueprint(tablet_transfer_bp)
 
     @app.template_global()
     def report_phase_max_input_name(unit_key, phase_key):

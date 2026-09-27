@@ -973,41 +973,6 @@ def ensure_ibank_section_schema() -> None:
                 )
 
 
-def ensure_connected_device_transfer_columns() -> None:
-    """أعمدة هوية التابلت وواجهة الشبكة المحلية — إضافة فقط."""
-    if not DATABASE_URL.startswith("sqlite"):
-        return
-    try:
-        insp = inspect(engine)
-        if "connected_devices" not in insp.get_table_names():
-            return
-        cols = {c["name"] for c in insp.get_columns("connected_devices")}
-    except Exception:
-        return
-    specs = [
-        ("local_api_port", "INTEGER DEFAULT 8765"),
-        ("local_api_token", "VARCHAR(128) DEFAULT ''"),
-        ("unit_key", "VARCHAR(128) DEFAULT ''"),
-        ("unit_label", "VARCHAR(256) DEFAULT ''"),
-        ("exercise_id", "INTEGER"),
-        ("exercise_name", "VARCHAR(256) DEFAULT ''"),
-        ("app_version", "VARCHAR(64) DEFAULT ''"),
-        ("package_version", "VARCHAR(64) DEFAULT ''"),
-        ("local_saved_count", "INTEGER DEFAULT 0"),
-        ("local_pending_saves", "INTEGER DEFAULT 0"),
-    ]
-    stmts = [
-        f"ALTER TABLE connected_devices ADD COLUMN {name} {typ}"
-        for name, typ in specs
-        if name not in cols
-    ]
-    if not stmts:
-        return
-    with engine.begin() as conn:
-        for sql in stmts:
-            conn.execute(text(sql))
-
-
 def get_db():
     db = SessionLocal()
     try:

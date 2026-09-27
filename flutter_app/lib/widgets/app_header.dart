@@ -388,11 +388,11 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
           return Padding(
             padding: const EdgeInsets.only(left: 2),
             child: _SqIcon(
-              icon: Icons.table_view_outlined,
+              icon: Icons.cloud_upload_outlined,
               badge: '$count',
-              tooltip: 'عمل محلي محفوظ',
+              tooltip: 'بانتظار المزامنة',
               compact: phone,
-              onTap: () => context.push('/export-lists'),
+              onTap: () => context.push('/sync-status'),
             ),
           );
         },

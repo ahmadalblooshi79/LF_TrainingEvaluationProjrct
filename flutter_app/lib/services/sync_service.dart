@@ -49,7 +49,6 @@ class SyncService {
     if (_started) return;
     _started = true;
     await SyncPreferences.instance.init();
-    await SyncPreferences.instance.setMode(TabletSyncMode.manual);
     await HealthService.instance.start();
     await refreshPendingCount();
     final saved = await AuthService.loadLastSyncAt();
@@ -84,7 +83,7 @@ class SyncService {
     _retryTimer?.cancel();
   }
 
-  bool _shouldAutoUpload() => false;
+  bool _shouldAutoUpload() => SyncPreferences.instance.isAutomatic;
 
   void _onConnectivityChanged() {
     final online = HealthService.instance.serverReachable.value;

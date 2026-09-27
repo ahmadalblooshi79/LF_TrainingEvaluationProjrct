@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'screens/action_eval_lists_screen.dart';
 import 'screens/device_admin_hub_screen.dart';
 import 'screens/device_setup_screen.dart';
-import 'screens/eval_lists_export_screen.dart';
 import 'screens/eval_sheet_screen.dart';
 import 'screens/evaluation_lists_screen.dart';
 import 'screens/exercise_details_screen.dart';
@@ -23,6 +22,7 @@ import 'screens/objectives_screen.dart';
 import 'screens/server_connect_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/signature_screen.dart';
+import 'screens/sync_status_screen.dart';
 import 'services/auth_service.dart';
 import 'services/device_admin_service.dart';
 import 'theme/app_theme.dart';
@@ -155,11 +155,7 @@ final GoRouter _router = GoRouter(
     ),
     GoRoute(
       path: '/sync-status',
-      redirect: (context, state) => '/export-lists',
-    ),
-    GoRoute(
-      path: '/export-lists',
-      builder: (context, state) => const EvalListsExportScreen(),
+      builder: (context, state) => const SyncStatusScreen(),
     ),
     GoRoute(
       path: '/recovery',

@@ -26,16 +26,6 @@ def register_or_update_device(
     sync_status: str = "idle",
     pending_sync_count: int = 0,
     is_login: bool = False,
-    local_api_port: int | None = None,
-    local_api_token: str = "",
-    unit_key: str = "",
-    unit_label: str = "",
-    exercise_id: int | None = None,
-    exercise_name: str = "",
-    app_version: str = "",
-    package_version: str = "",
-    local_saved_count: int | None = None,
-    local_pending_saves: int | None = None,
 ) -> ConnectedDevice:
     did = (device_id or "").strip()
     if not did:
@@ -60,26 +50,6 @@ def register_or_update_device(
         row.user_id = int(user.id)
         row.military_number = _military_number_for_user(user)
         row.judge_name = (getattr(user, "full_name", "") or "").strip()
-    if local_api_port:
-        row.local_api_port = int(local_api_port)
-    if local_api_token:
-        row.local_api_token = (local_api_token or "")[:128]
-    if unit_key:
-        row.unit_key = (unit_key or "")[:128]
-    if unit_label:
-        row.unit_label = (unit_label or "")[:256]
-    if exercise_id:
-        row.exercise_id = int(exercise_id)
-    if exercise_name:
-        row.exercise_name = (exercise_name or "")[:256]
-    if app_version:
-        row.app_version = (app_version or "")[:64]
-    if package_version:
-        row.package_version = (package_version or "")[:64]
-    if local_saved_count is not None:
-        row.local_saved_count = max(0, int(local_saved_count))
-    if local_pending_saves is not None:
-        row.local_pending_saves = max(0, int(local_pending_saves))
     row.updated_at = now
     return row
 

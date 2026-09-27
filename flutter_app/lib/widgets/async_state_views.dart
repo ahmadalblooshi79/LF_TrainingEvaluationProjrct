@@ -34,7 +34,7 @@ class ErrorView extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'البيانات محفوظة محلياً على الجهاز وتعمل دون شبكة.',
+              'بعد «تحديث بياناتي» أو تهيئة الجهاز تُحفظ البيانات محلياً وتعمل دون شبكة.',
               style: AppTextStyles.small,
               textAlign: TextAlign.center,
             ),
