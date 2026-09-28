@@ -267,6 +267,55 @@ def _evaluation_list_file_abspath(relpath: str) -> Path | None:
     return out if out.is_file() else None
 
 
+def _resolve_evaluation_list_export_source(db, row) -> Path | None:
+    """مسار ملف القائمة للتصدير — مع إعادة النسخ من بنك المعلومات إن غاب الملف المحلي.
+
+    ملفات instance/evaluation_list_xlsx غير مضمّنة في git؛ بعد السحب على جهاز آخر
+    قد يختفي الملف رغم بقاء السجل في القاعدة. نستعيده من عقدة بنك المعلومات.
+    """
+    import shutil
+
+    rel = (getattr(row, "pdf_relpath", None) or "").strip()
+    fspath = _evaluation_list_file_abspath(rel)
+    if fspath is not None:
+        return fspath
+
+    from app.evaluation_list_ibank_sync import (
+        INFO_BANK_EVAL_LIST_KIND,
+        parse_ibank_eval_storage_relpath,
+    )
+    from app.info_bank_tree import node_file_abspath
+
+    nid = parse_ibank_eval_storage_relpath(rel)
+    if nid is None:
+        return None
+    node = db.get(InformationBankTreeNode, int(nid))
+    if node is None or bool(getattr(node, "is_folder", False)):
+        return None
+    src = node_file_abspath(INFO_BANK_EVAL_LIST_KIND, getattr(node, "file_relpath", None))
+    if src is None or not src.is_file():
+        # جرّب المسار المخزّن كما هو (أقسام أخرى / مسارات قديمة)
+        src = node_file_abspath(getattr(node, "kind", "") or INFO_BANK_EVAL_LIST_KIND, getattr(node, "file_relpath", None))
+    if src is None or not src.is_file():
+        return None
+
+    # أعد نسخ الملف إلى مسار التمرين حتى تتوافق الواجهة والتصدير لاحقاً
+    if rel:
+        dest = (EVALUATION_LIST_XLSX_DIR / rel.replace("\\", "/")).resolve()
+        try:
+            dest.relative_to(EVALUATION_LIST_XLSX_DIR.resolve())
+        except ValueError:
+            return src
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            if dest.is_file():
+                return dest
+        except OSError:
+            return src
+    return src
+
+
 def _evaluation_sheet_view_context(fspath: Path, exercise=None) -> dict:
     """قراءة ملف قائمة التقييم مع اكتشاف قوالب الصفوف (القصوى/المكتسبة) تلقائيًا."""
     from app.evaluation_element_display import enrich_eval_rows_element_styles
@@ -10498,8 +10547,15 @@ def _send_eval_xlsx_file(
             approved_at=getattr(saved_row, "approved_at", None) if saved_row else None,
             materialize_computed=True,
         )
+    except ModuleNotFoundError:
+        current_app.logger.exception("evaluation list export missing dependency")
+        abort(500, description="مكتبة openpyxl أو Pillow غير مثبتة على هذا الجهاز.")
+    except FileNotFoundError:
+        current_app.logger.exception("evaluation list export source missing: %s", source_path)
+        abort(404, description="ملف قائمة التقييم غير موجود على القرص.")
     except Exception:
-        abort(500)
+        current_app.logger.exception("evaluation list export failed for %s", source_path)
+        abort(500, description="تعذّر بناء ملف Excel من قالب القائمة.")
 
     if as_pdf:
         from app.evaluation_list_pdf import build_evaluation_list_pdf_bytes
@@ -10549,9 +10605,12 @@ def _send_evaluation_list_export_xlsx(
         _enforce_judge_unit_scope(db, user, current_exercise, unit_key)
     if not (row.pdf_relpath or "").strip():
         abort(404)
-    fspath = _evaluation_list_file_abspath(row.pdf_relpath)
+    fspath = _resolve_evaluation_list_export_source(db, row)
     if fspath is None:
-        abort(404)
+        abort(
+            404,
+            description="ملف قائمة التقييم غير موجود على القرص. أعد نشر القائمة من بنك المعلومات أو استورد حزمة التمرين.",
+        )
 
     ev = _evaluation_sheet_view_context(fspath, exercise=current_exercise)
     canon = _evaluation_canonical_saved_row(db, current_exercise.id, row.id)

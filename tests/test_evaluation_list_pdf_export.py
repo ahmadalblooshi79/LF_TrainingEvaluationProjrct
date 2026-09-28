@@ -138,6 +138,59 @@ class EvaluationListPdfExportTests(unittest.TestCase):
         finally:
             wb.close()
 
+    def test_military_template_not_mutated_by_narrative_insert(self):
+        """القوالب العسكرية (وحدة/قائد/مجرى أحداث) تُصدَّر دون إدراج صفوف وصف النظام."""
+        with TemporaryDirectory() as td:
+            src = Path(td) / "military.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "قائمة التقييم"
+            ws["B1"] = "13. تقييم إنقاذ وإخلاء المصابين"
+            ws["B2"] = "الوحدة"
+            ws["C2"] = "فصيل الطبية /1"
+            ws["E2"] = "التاريخ"
+            ws["F2"] = "2026-09-23"
+            ws["B3"] = "قائد الوحدة"
+            ws["C3"] = "أدخل اسم قائد الوحدة الخاضعة للتقييم"
+            ws["E3"] = "المحكم"
+            ws["F3"] = "أدخل اسم المحكم"
+            ws["B4"] = "مجرى الأحداث والمعاضل"
+            ws["E4"] = "رقم المعضلة"
+            ws["B5"] = "نوع التمرين"
+            ws["B7"] = "عناصــــــر التقييـــــم"
+            ws["E7"] = "القصوى"
+            ws["F7"] = "المكتسبة"
+            ws["B8"] = "1. بند"
+            ws["E8"] = 3
+            ws["F8"] = "أدخل العلامة"
+            ws["B20"] = "التقدير العام"
+            ws["E20"] = "راسب"
+            wb.save(src)
+            wb.close()
+
+            data = build_evaluation_list_xlsx_bytes(
+                src,
+                doc_title="13. تقييم إنقاذ وإخلاء المصابين",
+                unit_label="فصيل الطبية /1",
+                date_str="2026-09-23",
+                commander_name="قائد",
+                judge_name="محكم",
+                eval_rows=[{"row_kind": "score", "max_num": 3}],
+                saved_rows=[{"acquired": None, "notes": ""}],
+                dilemma_description="يجب ألا يُكتب هنا فوق القالب",
+                dilemma_requirements="ولا هنا",
+            )
+        out = load_workbook(io.BytesIO(data))
+        try:
+            ws = out.active
+            self.assertEqual(ws["B2"].value, "الوحدة")
+            self.assertNotIn("وصف المعضلة", str(ws["B2"].value or ""))
+            self.assertEqual(ws["B3"].value, "قائد الوحدة")
+            self.assertEqual(ws["B4"].value, "مجرى الأحداث والمعاضل")
+            self.assertEqual(ws["C2"].value, "فصيل الطبية /1")
+        finally:
+            out.close()
+
     def test_pdf_fallback_produces_pdf(self):
         from app.evaluation_list_pdf import build_evaluation_list_pdf_bytes
 

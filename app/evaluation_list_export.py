@@ -377,9 +377,42 @@ def _looks_like_unit_meta_row(ws, row: int) -> bool:
     return "الوحدة" in blob or "قائد الوحدة" in blob
 
 
-def _ensure_eval_narrative_header_rows(ws) -> None:
-    """يدرج صفي الوصف/المتطلبات بعد العنوان إن كان صف الوحدة يلي العنوان مباشرة."""
+def _is_classic_military_eval_layout(ws) -> bool:
+    """قوالب عسكرية جاهزة (وحدة/قائد/مجرى أحداث/…) — لا ندرج صفوف وصف النظام فوقها."""
     if _looks_like_narrative_header(ws):
+        return False
+    markers = (
+        "مجرى الأحداث",
+        "رقم المعضلة",
+        "نوع التمرين",
+        "قائد الوحدة",
+        "التقدير العام",
+        "النسبة العامة",
+    )
+    hits = 0
+    mr = min(int(getattr(ws, "max_row", None) or 1), 18)
+    mc = min(int(getattr(ws, "max_column", None) or 1), 12)
+    for r in range(1, mr + 1):
+        parts: list[str] = []
+        for c in range(1, mc + 1):
+            parts.append(_cell_text(ws, r, c))
+        blob = " ".join(p for p in parts if p)
+        if not blob:
+            continue
+        for m in markers:
+            if m in blob:
+                hits += 1
+                break
+        if hits >= 2:
+            return True
+    return False
+
+
+def _ensure_eval_narrative_header_rows(ws) -> None:
+    """يدرج صفي الوصف/المتطلبات فقط للقوالب المبسّطة — لا يمس القالب العسكري الجاهز."""
+    if _looks_like_narrative_header(ws):
+        return
+    if _is_classic_military_eval_layout(ws):
         return
     if _looks_like_marks_header_row(ws, 2) or _looks_like_marks_header_row(ws, 3):
         return
@@ -429,9 +462,10 @@ def _apply_narrative_wrap(ws, row: int, col: int, text: str) -> None:
 def _write_eval_narrative_header(
     ws, *, dilemma_description: str, dilemma_requirements: str
 ) -> None:
-    if _looks_like_marks_header_row(ws, 2):
+    # لا تُكتب صفوف الوصف إلا إن وُجدت مسبقاً في القالب — تجنّب كسر القالب العسكري
+    if not _looks_like_narrative_header(ws):
         return
-    if not _looks_like_narrative_header(ws) and _looks_like_marks_header_row(ws, 3):
+    if _looks_like_marks_header_row(ws, 2):
         return
     desc_cell = format_eval_narrative_cell(EVAL_NARRATIVE_DESC_LABEL, dilemma_description)
     _set_cell_value(ws, 2, 2, desc_cell)
@@ -623,16 +657,17 @@ def build_evaluation_list_xlsx_bytes(
     if not path.is_file():
         raise FileNotFoundError(str(path))
 
-    wb = load_workbook(filename=str(path))
+    # keep_vba يحافظ على xlsm؛ data_only=False يبقي الصيغ والتنسيق كما في القالب المصدر
+    wb = load_workbook(filename=str(path), data_only=False, keep_vba=path.suffix.lower() == ".xlsm")
     try:
-        # ورقة واحدة فقط
+        # اختر ورقة التقييم دون حذف الأوراق الأخرى (ملاحظات/مفتاح ألوان إن وُجدت)
         keep = None
         for name in list(wb.sheetnames):
-            if name == "قائمة التقييم" or keep is None:
+            if name == "قائمة التقييم":
                 keep = name
-        for name in list(wb.sheetnames):
-            if name != keep:
-                del wb[name]
+                break
+        if keep is None:
+            keep = wb.sheetnames[0] if wb.sheetnames else None
         ws = wb[keep] if keep else wb.active
         _remove_grade_conditional_formatting(ws)
 
