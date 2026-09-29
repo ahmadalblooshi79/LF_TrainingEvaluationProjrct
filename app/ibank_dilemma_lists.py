@@ -334,6 +334,73 @@ def apply_dilemma_list_units_to_action_eval(db: Session) -> int:
     return updated
 
 
+def _count_files_in_tree(nodes: list[dict]) -> int:
+    total = 0
+    for n in nodes:
+        if n.get("is_folder"):
+            total += int(n.get("file_count") or 0)
+        else:
+            total += 1
+    return total
+
+
+def _build_dilemma_lists_tree(
+    db: Session,
+    parent_id: int,
+    amap: dict[int, set[str]],
+    seq_holder: list[int],
+) -> list[dict]:
+    """شجرة العرض تحت جذر بنك المعاضل — مجلدات + ملفات (الفرض يبقى على الملفات فقط)."""
+    rows = (
+        db.query(InformationBankTreeNode)
+        .filter(
+            InformationBankTreeNode.kind == DILEMMA_LISTS_KIND,
+            InformationBankTreeNode.parent_id == int(parent_id),
+        )
+        .order_by(
+            InformationBankTreeNode.sort_order,
+            InformationBankTreeNode.id,
+        )
+        .all()
+    )
+    rows = sorted(
+        rows,
+        key=lambda n: (
+            0 if bool(n.is_folder) else 1,
+            (n.name or "").casefold(),
+            int(n.id or 0),
+        ),
+    )
+    out: list[dict] = []
+    for row in rows:
+        if bool(row.is_folder):
+            children = _build_dilemma_lists_tree(db, int(row.id), amap, seq_holder)
+            out.append(
+                {
+                    "is_folder": True,
+                    "id": int(row.id),
+                    "name": (row.name or "").strip() or "مجلد",
+                    "children": children,
+                    "file_count": _count_files_in_tree(children),
+                }
+            )
+            continue
+        seq_holder[0] += 1
+        seq = seq_holder[0]
+        selected = sorted(amap.get(int(row.id), set()))
+        out.append(
+            {
+                "is_folder": False,
+                "seq": seq,
+                "id": int(row.id),
+                "name": (row.name or "").strip() or f"قائمة {seq}",
+                "selected_unit_keys": selected,
+                "selected_count": len(selected),
+            }
+        )
+    return out
+
+
 def build_dilemma_lists_page_payload(db: Session) -> dict:
     """بيانات عرض تبويب قوائم تقييم المعاضل."""
     root = ensure_dilemma_lists_root(db)
@@ -352,8 +419,11 @@ def build_dilemma_lists_page_payload(db: Session) -> dict:
                 "selected_count": len(selected),
             }
         )
+    seq_holder = [0]
+    tree = _build_dilemma_lists_tree(db, int(root.id), amap, seq_holder)
     return {
         "root_id": int(root.id),
         "lists": lists,
+        "tree": tree,
         "org_units": units,
     }

@@ -1,10 +1,119 @@
-{# تبويب بنك المعاضل — رفع + جدول (ت / الاسم) + تنظيم المعركة checkboxes #}
+{# تبويب بنك المعاضل — رفع + شجرة مجلدات/ملفات + فرض الوحدات على القوائم #}
 {% set dl = dilemma_lists_payload|default({}) %}
 {% set dl_lists = dl.lists|default([]) %}
+{% set dl_tree = dl.tree|default(dl_lists) %}
 {% set dl_units = dl.org_units|default([]) %}
 {% set dl_root_id = dl.root_id|default('') %}
 
-<div class="ibank-tree-page ibank-dilemma-lists-page" dir="rtl" data-ibank-tree-kind="dilemma_lists" data-dilemma-lists-assign-url="{{ url_for('views.admin_information_bank_dilemma_lists_assign') }}">
+{% macro dilemma_list_file_block(item) %}
+<tr class="ibank-dilemma-lists-row" data-list-id="{{ item.id }}"{% if information_bank_can_manage %} data-dl-draggable="1"{% endif %}>
+  <td class="ibank-col-num">{{ item.seq }}</td>
+  <td>
+    <details class="ibank-dilemma-lists-details">
+      <summary class="ibank-dilemma-lists-summary">
+        {% if information_bank_can_manage %}
+        <span class="ibank-dilemma-lists-drag-handle" draggable="true" title="اسحب لنقل القائمة إلى مجلد آخر" aria-label="سحب لنقل القائمة">
+          <i class="fa-solid fa-grip-vertical" aria-hidden="true"></i>
+        </span>
+        {% endif %}
+        <span class="ibank-dilemma-lists-name"><i class="fa-solid fa-file-excel" aria-hidden="true"></i> {{ item.name }}</span>
+        <span class="ibank-dilemma-lists-badge{% if item.selected_count %} is-set{% endif %}">
+          {% if item.selected_count %}{{ item.selected_count }} وحدة{% else %}بدون وحدات{% endif %}
+        </span>
+      </summary>
+      <div class="ibank-dilemma-lists-org" dir="rtl">
+        <p class="ibank-dilemma-lists-org__title"><i class="fa-solid fa-sitemap" aria-hidden="true"></i> تنظيم المعركة — فرض القائمة على الوحدات</p>
+        {% if dl_units %}
+        <ul class="ibank-dilemma-lists-org-tree" role="group" aria-label="تنظيم المعركة — {{ item.name }}">
+          <li class="ibank-dilemma-lists-org-node ibank-dilemma-lists-org-node--all">
+            <label class="ibank-dilemma-lists-org-label ibank-dilemma-lists-org-label--all">
+              <input type="checkbox"
+                     class="ibank-dilemma-lists-all-cb"
+                     data-list-id="{{ item.id }}"
+                     {% if item.selected_count and item.selected_count >= (dl_units|length) %}checked{% endif %}
+                     {% if not information_bank_can_manage %}disabled{% endif %}
+                     aria-label="اختيار كل الوحدات">
+              <span>الكل</span>
+            </label>
+          </li>
+          {% for u in dl_units %}
+          <li class="ibank-dilemma-lists-org-node">
+            <label class="ibank-dilemma-lists-org-label">
+              <input type="checkbox"
+                     class="ibank-dilemma-lists-unit-cb"
+                     data-list-id="{{ item.id }}"
+                     value="{{ u.key }}"
+                     {% if u.key in item.selected_unit_keys %}checked{% endif %}
+                     {% if not information_bank_can_manage %}disabled{% endif %}
+                     aria-label="فرض القائمة على {{ u.label }}">
+              <span>{{ u.label }}</span>
+            </label>
+          </li>
+          {% endfor %}
+        </ul>
+        {% if information_bank_can_manage %}
+        <p class="ibank-dilemma-lists-save-status muted" data-list-status="{{ item.id }}" role="status" aria-live="polite" hidden></p>
+        {% endif %}
+        {% else %}
+        <p class="muted">لا توجد وحدات مدرجة في التمرين — حدّد الوحدات من تبويب التنظيم أولاً.</p>
+        {% endif %}
+      </div>
+    </details>
+  </td>
+  {% if information_bank_can_manage %}
+  <td class="ibank-dilemma-lists-actions-col">
+    <form method="post" action="{{ url_for('views.admin_information_bank_tree_delete', node_id=item.id) }}" class="ibank-dilemma-lists-delete-form" onsubmit="return confirm('حذف هذه القائمة؟');">
+      <input type="hidden" name="kind" value="dilemma_lists">
+      <button type="submit" class="btn btn-ghost btn-sm-compact" title="حذف"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
+    </form>
+  </td>
+  {% endif %}
+</tr>
+{% endmacro %}
+
+{% macro dilemma_lists_render_nodes(nodes) %}
+{% for node in nodes %}
+  {% if node.is_folder %}
+  <tr class="ibank-dilemma-lists-folder-row" data-folder-id="{{ node.id }}"{% if information_bank_can_manage %} data-dl-drop-folder="1"{% endif %}>
+    <td class="ibank-col-num"></td>
+    <td>
+      <details class="ibank-dilemma-lists-folder" open>
+        <summary class="ibank-dilemma-lists-folder__sum">
+          <span class="ibank-dilemma-lists-folder__name">
+            <i class="fa-solid fa-folder" aria-hidden="true"></i>
+            {{ node.name }}
+          </span>
+          <span class="ibank-dilemma-lists-badge is-folder">
+            {% if node.file_count %}{{ node.file_count }} قائمة{% else %}فارغ{% endif %}
+          </span>
+        </summary>
+        {% if node.children %}
+        <table class="ibank-table ibank-dilemma-lists-table ibank-dilemma-lists-table--nested" aria-label="محتوى {{ node.name }}">
+          <tbody>
+            {{ dilemma_lists_render_nodes(node.children) }}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="muted ibank-dilemma-lists-folder__empty">لا توجد قوائم داخل هذا المجلد.</p>
+        {% endif %}
+      </details>
+    </td>
+    {% if information_bank_can_manage %}
+    <td class="ibank-dilemma-lists-actions-col">
+      <form method="post" action="{{ url_for('views.admin_information_bank_tree_delete', node_id=node.id) }}" class="ibank-dilemma-lists-delete-form" onsubmit="return confirm('حذف هذا المجلد وكل محتوياته؟');">
+        <input type="hidden" name="kind" value="dilemma_lists">
+        <button type="submit" class="btn btn-ghost btn-sm-compact" title="حذف المجلد"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
+      </form>
+    </td>
+    {% endif %}
+  </tr>
+  {% else %}
+  {{ dilemma_list_file_block(node) }}
+  {% endif %}
+{% endfor %}
+{% endmacro %}
+
+<div class="ibank-tree-page ibank-dilemma-lists-page" dir="rtl" data-ibank-tree-kind="dilemma_lists" data-dilemma-lists-assign-url="{{ url_for('views.admin_information_bank_dilemma_lists_assign') }}" data-dilemma-lists-move-url="{{ url_for('views.admin_information_bank_tree_move') }}" data-dilemma-lists-root-id="{{ dl_root_id }}">
   <section class="card ibank-tree-card">
     <h2 class="h2-in-card"><i class="fa-solid fa-list-check fa-icon-title" aria-hidden="true"></i> بنك المعاضل</h2>
 
@@ -22,7 +131,7 @@
           <input type="hidden" name="kind" value="dilemma_lists">
           <input type="hidden" name="parent_id" value="{{ dl_root_id }}" class="js-ibank-tree-upload-parent">
           <input type="file" name="files" multiple class="ibank-tree-file-input js-ibank-tree-dir" tabindex="-1" aria-hidden="true" webkitdirectory directory>
-          <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-pick-dir" title="اختر مجلداً مصدراً — يمكن إضافة عدة مجلدات قبل الإدراج، أو سحبها إلى الشريط دفعة واحدة."><i class="fa-solid fa-folder-open" aria-hidden="true"></i> إرفاق مجلد</button>
+          <button type="button" class="btn btn-ghost btn-sm-compact js-ibank-tree-pick-dir" title="اختر مجلداً مصدراً — يُدرج المجلد مع محتوياته (مجلدات فرعية وقوائم). يمكن إضافة عدة مجلدات أو سحبها إلى الشريط."><i class="fa-solid fa-folder-open" aria-hidden="true"></i> إرفاق مجلد</button>
         </form>
         <form method="post" action="/admin/information-bank/eval-list/purge-all" class="ibank-tree-purge-form" onsubmit="return confirm('مسح جميع محتويات بنك المعاضل والوحدات المفروضة؟ لا يمكن التراجع.');">
           <input type="hidden" name="kind" value="dilemma_lists">
@@ -34,69 +143,21 @@
     {% endif %}
 
     <div class="ibank-dilemma-lists-scroll">
-      {% if dl_lists %}
+      {% if dl_tree %}
       <table class="ibank-table ibank-dilemma-lists-table" aria-label="بنك المعاضل">
         <thead>
           <tr>
             <th scope="col" class="ibank-col-num">ت</th>
-            <th scope="col">اسم قائمة تقييم المعضلة</th>
+            <th scope="col">المجلد / اسم قائمة تقييم المعضلة</th>
             {% if information_bank_can_manage %}<th scope="col" class="ibank-dilemma-lists-actions-col">إجراءات</th>{% endif %}
           </tr>
         </thead>
         <tbody>
-          {% for item in dl_lists %}
-          <tr class="ibank-dilemma-lists-row" data-list-id="{{ item.id }}">
-            <td class="ibank-col-num">{{ item.seq }}</td>
-            <td>
-              <details class="ibank-dilemma-lists-details">
-                <summary class="ibank-dilemma-lists-summary">
-                  <span class="ibank-dilemma-lists-name">{{ item.name }}</span>
-                  <span class="ibank-dilemma-lists-badge{% if item.selected_count %} is-set{% endif %}">
-                    {% if item.selected_count %}{{ item.selected_count }} وحدة{% else %}بدون وحدات{% endif %}
-                  </span>
-                </summary>
-                <div class="ibank-dilemma-lists-org" dir="rtl">
-                  <p class="ibank-dilemma-lists-org__title"><i class="fa-solid fa-sitemap" aria-hidden="true"></i> تنظيم المعركة — فرض القائمة على الوحدات</p>
-                  {% if dl_units %}
-                  <ul class="ibank-dilemma-lists-org-tree" role="group" aria-label="تنظيم المعركة — {{ item.name }}">
-                    {% for u in dl_units %}
-                    <li class="ibank-dilemma-lists-org-node">
-                      <label class="ibank-dilemma-lists-org-label">
-                        <input type="checkbox"
-                               class="ibank-dilemma-lists-unit-cb"
-                               data-list-id="{{ item.id }}"
-                               value="{{ u.key }}"
-                               {% if u.key in item.selected_unit_keys %}checked{% endif %}
-                               {% if not information_bank_can_manage %}disabled{% endif %}
-                               aria-label="فرض القائمة على {{ u.label }}">
-                        <span>{{ u.label }}</span>
-                      </label>
-                    </li>
-                    {% endfor %}
-                  </ul>
-                  {% if information_bank_can_manage %}
-                  <p class="ibank-dilemma-lists-save-status muted" data-list-status="{{ item.id }}" role="status" aria-live="polite" hidden></p>
-                  {% endif %}
-                  {% else %}
-                  <p class="muted">لا توجد وحدات مدرجة في التمرين — حدّد الوحدات من تبويب التنظيم أولاً.</p>
-                  {% endif %}
-                </div>
-              </details>
-            </td>
-            {% if information_bank_can_manage %}
-            <td class="ibank-dilemma-lists-actions-col">
-              <form method="post" action="{{ url_for('views.admin_information_bank_tree_delete', node_id=item.id) }}" class="ibank-dilemma-lists-delete-form" onsubmit="return confirm('حذف هذه القائمة؟');">
-                <input type="hidden" name="kind" value="dilemma_lists">
-                <button type="submit" class="btn btn-ghost btn-sm-compact" title="حذف"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
-              </form>
-            </td>
-            {% endif %}
-          </tr>
-          {% endfor %}
+          {{ dilemma_lists_render_nodes(dl_tree) }}
         </tbody>
       </table>
       {% else %}
-      <p class="muted ibank-tree-empty">لا توجد قوائم بعد — أرفق ملفات أو مجلداً لإضافة قوائم بنك المعاضل.</p>
+      <p class="muted ibank-tree-empty">لا توجد قوائم بعد — أرفق ملفات أو مجلداً لإضافة قوائم بنك المعاضل مع هيكل المجلدات.</p>
       {% endif %}
     </div>
   </section>

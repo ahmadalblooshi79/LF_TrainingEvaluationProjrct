@@ -50,6 +50,37 @@ def test_footer_stop_with_tatweel_and_notes():
     assert should_skip_evaluation_import_row(notes_row, excel_row_1based=37)
 
 
+def test_inline_instructional_note_does_not_stop_import():
+    """ملاحظة إرشادية داخل البنود (مثل قوائم الهجوم المدبر) ليست تذييلاً."""
+    inline = [
+        "",
+        "ملاحظة: يتم تنفيذ مرحلة التخطيط في منطقة الحشد إذا توفر الوقت لذلك.",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+    ]
+    assert not is_evaluation_import_footer_stop_row(inline)
+    # صف البند التالي بعد الملاحظة يجب أن يبقى ضمن الجسم
+    score = [
+        "",
+        "1. يعمل القادة في السرية على فهم الموقف.",
+        "",
+        "",
+        "5",
+        "أدخل العلامة",
+        "",
+        "",
+        "",
+        "",
+    ]
+    assert not is_evaluation_import_footer_stop_row(score)
+
+
 def test_build_structured_rows_imports_notes_and_scores():
     body = [
         ["", "بند 1", "", "", "5", "4", "0.8", "جيد جدا", "ملاحظة", ""],

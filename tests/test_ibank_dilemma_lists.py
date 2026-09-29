@@ -86,6 +86,62 @@ class DilemmaListsTests(unittest.TestCase):
         payload = build_dilemma_lists_page_payload(self.db)
         self.assertEqual(payload["root_id"], int(root.id))
         match = next(x for x in payload["lists"] if x["id"] == int(list_node.id))
+        self.assertEqual(match["selected_unit_keys"], ["ul_test_cmd"])
+        self.assertEqual(match["selected_count"], 1)
+        tree_match = next(x for x in payload["tree"] if x["id"] == int(list_node.id))
+        self.assertFalse(tree_match["is_folder"])
+
+    def test_payload_tree_preserves_folders(self):
+        root = ensure_dilemma_lists_root(self.db)
+        folder = InformationBankTreeNode(
+            kind=DILEMMA_LISTS_KIND,
+            parent_id=int(root.id),
+            name="مجموعة القتال/32",
+            is_folder=True,
+            sort_order=0,
+            is_system=False,
+        )
+        self.db.add(folder)
+        self.db.flush()
+        nested = InformationBankTreeNode(
+            kind=DILEMMA_LISTS_KIND,
+            parent_id=int(folder.id),
+            name="سرية المشاة",
+            is_folder=True,
+            sort_order=0,
+            is_system=False,
+        )
+        self.db.add(nested)
+        self.db.flush()
+        list_node = InformationBankTreeNode(
+            kind=DILEMMA_LISTS_KIND,
+            parent_id=int(nested.id),
+            name="التعامل مع أسرى الحرب.xlsx",
+            is_folder=False,
+            file_relpath="dilemma_lists/tree/n1/pow.xlsx",
+            sort_order=0,
+            is_system=False,
+        )
+        self.db.add(list_node)
+        self.db.flush()
+
+        payload = build_dilemma_lists_page_payload(self.db)
+        self.assertEqual(len(payload["lists"]), 1)
+        self.assertEqual(len(payload["tree"]), 1)
+        top = payload["tree"][0]
+        self.assertTrue(top["is_folder"])
+        self.assertEqual(top["name"], "مجموعة القتال/32")
+        self.assertEqual(top["file_count"], 1)
+        self.assertEqual(len(top["children"]), 1)
+        mid = top["children"][0]
+        self.assertTrue(mid["is_folder"])
+        self.assertEqual(mid["name"], "سرية المشاة")
+        self.assertEqual(mid["file_count"], 1)
+        leaf = mid["children"][0]
+        self.assertFalse(leaf["is_folder"])
+        self.assertEqual(leaf["name"], "التعامل مع أسرى الحرب.xlsx")
+        self.assertEqual(leaf["seq"], 1)
+
     def test_unmatched_action_eval_clears_guessed_unit(self):
         ae_node = InformationBankTreeNode(
             kind="action_eval",

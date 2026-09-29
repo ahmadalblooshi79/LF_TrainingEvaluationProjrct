@@ -18935,7 +18935,12 @@ def admin_information_bank_tree_move():
         return jsonify(ok=False, error="غير مسموح."), 403
     from flask import g
 
-    from app.info_bank_tree import reorder_tree_sibling, reorder_tree_sibling_step
+    from app.info_bank_tree import (
+        invalidate_information_bank_kind_cache,
+        move_tree_node,
+        reorder_tree_sibling,
+        reorder_tree_sibling_step,
+    )
 
     data = request.get_json(force=True, silent=True) or {}
     kind = (data.get("kind") or "").strip()
@@ -18948,6 +18953,20 @@ def admin_information_bank_tree_move():
     direction = (data.get("direction") or "").strip().lower()
     db = g.db
     try:
+        # نقل إلى مجلد أب (سحب ملف/مجلد إلى مجلد) — بنك المعاضل وغيره
+        if "parent_id" in data and direction not in ("up", "down"):
+            raw_parent = data.get("parent_id")
+            if raw_parent is None or raw_parent == "":
+                parent_id = None
+            else:
+                try:
+                    parent_id = int(raw_parent)
+                except (TypeError, ValueError):
+                    return jsonify(ok=False, error="المجلد المستهدف غير صالح."), 400
+            move_tree_node(db, kind=kind, node_id=nid, parent_id=parent_id)
+            db.commit()
+            invalidate_information_bank_kind_cache(kind)
+            return jsonify(ok=True, moved=True)
         if direction in ("up", "down"):
             reorder_tree_sibling_step(
                 db, kind=kind, node_id=nid, direction=direction

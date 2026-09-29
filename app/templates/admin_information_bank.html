@@ -599,12 +599,27 @@
 
         var assignUrl = page.getAttribute('data-dilemma-lists-assign-url') || '';
         var saveTimers = {};
+        function unitCbs(listId) {
+          return page.querySelectorAll('.ibank-dilemma-lists-unit-cb[data-list-id="' + listId + '"]');
+        }
+        function allCbFor(listId) {
+          return page.querySelector('.ibank-dilemma-lists-all-cb[data-list-id="' + listId + '"]');
+        }
         function collectKeys(listId) {
           var keys = [];
-          page.querySelectorAll('.ibank-dilemma-lists-unit-cb[data-list-id="' + listId + '"]').forEach(function (cb) {
+          unitCbs(listId).forEach(function (cb) {
             if (cb.checked) keys.push(cb.value);
           });
           return keys;
+        }
+        function syncAllCheckbox(listId) {
+          var allCb = allCbFor(listId);
+          var units = unitCbs(listId);
+          if (!allCb || !units.length) return;
+          var checked = 0;
+          units.forEach(function (cb) { if (cb.checked) checked += 1; });
+          allCb.checked = checked === units.length;
+          allCb.indeterminate = checked > 0 && checked < units.length;
         }
         function updateBadge(listId, count) {
           var row = page.querySelector('.ibank-dilemma-lists-row[data-list-id="' + listId + '"]');
@@ -618,11 +633,18 @@
             badge.classList.remove('is-set');
           }
         }
+        function scheduleSave(listId) {
+          if (!listId) return;
+          syncAllCheckbox(listId);
+          clearTimeout(saveTimers[listId]);
+          saveTimers[listId] = setTimeout(function () { saveListUnits(listId); }, 280);
+        }
         function saveListUnits(listId) {
           if (!assignUrl) return;
           var statusEl = page.querySelector('[data-list-status="' + listId + '"]');
           var keys = collectKeys(listId);
           updateBadge(listId, keys.length);
+          syncAllCheckbox(listId);
           if (statusEl) {
             statusEl.hidden = false;
             statusEl.textContent = 'جاري الحفظ…';
@@ -657,14 +679,145 @@
               if (statusEl) statusEl.textContent = 'تعذر الاتصال بالخادم.';
             });
         }
-        page.querySelectorAll('.ibank-dilemma-lists-unit-cb').forEach(function (cb) {
-          cb.addEventListener('change', function () {
-            var listId = cb.getAttribute('data-list-id') || '';
+        page.querySelectorAll('.ibank-dilemma-lists-all-cb').forEach(function (allCb) {
+          allCb.addEventListener('change', function () {
+            var listId = allCb.getAttribute('data-list-id') || '';
             if (!listId) return;
-            clearTimeout(saveTimers[listId]);
-            saveTimers[listId] = setTimeout(function () { saveListUnits(listId); }, 280);
+            var on = !!allCb.checked;
+            allCb.indeterminate = false;
+            unitCbs(listId).forEach(function (cb) { cb.checked = on; });
+            scheduleSave(listId);
           });
         });
+        page.querySelectorAll('.ibank-dilemma-lists-unit-cb').forEach(function (cb) {
+          cb.addEventListener('change', function () {
+            scheduleSave(cb.getAttribute('data-list-id') || '');
+          });
+        });
+        page.querySelectorAll('.ibank-dilemma-lists-all-cb').forEach(function (allCb) {
+          syncAllCheckbox(allCb.getAttribute('data-list-id') || '');
+        });
+
+        // سحب قائمة Excel إلى مجلد آخر — دون التأثير على الحفظ/الحذف/الرفع
+        (function bindDilemmaListFileDragDrop() {
+          var moveUrl = page.getAttribute('data-dilemma-lists-move-url') || '';
+          if (!moveUrl) return;
+          var dragListId = '';
+          var dragRow = null;
+          var busy = false;
+
+          function clearDropTargets() {
+            page.querySelectorAll('.ibank-dilemma-lists-folder-row--drop-target').forEach(function (el) {
+              el.classList.remove('ibank-dilemma-lists-folder-row--drop-target');
+            });
+            page.classList.remove('ibank-dilemma-lists-page--dragging');
+          }
+
+          function folderRowFromEvent(ev) {
+            var t = ev.target;
+            if (!t || !t.closest) return null;
+            return t.closest('.ibank-dilemma-lists-folder-row[data-folder-id]');
+          }
+
+          page.querySelectorAll('.ibank-dilemma-lists-drag-handle').forEach(function (handle) {
+            handle.addEventListener('dragstart', function (ev) {
+              var row = handle.closest('.ibank-dilemma-lists-row[data-list-id]');
+              if (!row) return;
+              dragListId = row.getAttribute('data-list-id') || '';
+              dragRow = row;
+              if (!dragListId) return;
+              try {
+                ev.dataTransfer.setData('text/plain', dragListId);
+                ev.dataTransfer.effectAllowed = 'move';
+              } catch (errDt) {}
+              row.classList.add('ibank-dilemma-lists-row--dragging');
+              page.classList.add('ibank-dilemma-lists-page--dragging');
+              // لا تفتح/تغلق details أثناء السحب
+              ev.stopPropagation();
+            });
+            handle.addEventListener('dragend', function () {
+              if (dragRow) dragRow.classList.remove('ibank-dilemma-lists-row--dragging');
+              dragListId = '';
+              dragRow = null;
+              clearDropTargets();
+            });
+            // منع تبديل details عند بدء السحب من المقبض
+            handle.addEventListener('click', function (ev) {
+              ev.preventDefault();
+              ev.stopPropagation();
+            });
+          });
+
+          page.addEventListener('dragover', function (ev) {
+            if (!dragListId) return;
+            var folderRow = folderRowFromEvent(ev);
+            if (!folderRow) return;
+            ev.preventDefault();
+            try { ev.dataTransfer.dropEffect = 'move'; } catch (errFx) {}
+            clearDropTargets();
+            page.classList.add('ibank-dilemma-lists-page--dragging');
+            folderRow.classList.add('ibank-dilemma-lists-folder-row--drop-target');
+          });
+
+          page.addEventListener('dragleave', function (ev) {
+            var folderRow = folderRowFromEvent(ev);
+            if (!folderRow) return;
+            var rel = ev.relatedTarget;
+            if (rel && folderRow.contains(rel)) return;
+            folderRow.classList.remove('ibank-dilemma-lists-folder-row--drop-target');
+          });
+
+          page.addEventListener('drop', function (ev) {
+            if (!dragListId || busy) return;
+            var folderRow = folderRowFromEvent(ev);
+            if (!folderRow) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            var folderId = folderRow.getAttribute('data-folder-id') || '';
+            var listId = dragListId;
+            clearDropTargets();
+            if (!folderId || !listId) return;
+            // لا تنقل إلى مجلد يضم الملف حالياً داخل نفس الصف الأب المباشر بدون تغيير — الخادم يتجاهل التكرار
+            busy = true;
+            fetch(moveUrl, {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+              },
+              body: JSON.stringify({
+                kind: 'dilemma_lists',
+                node_id: parseInt(listId, 10),
+                parent_id: parseInt(folderId, 10),
+              }),
+            })
+              .then(function (r) {
+                return r.json().then(function (j) {
+                  return { ok: r.ok && j && j.ok, error: (j && j.error) || '' };
+                }).catch(function () {
+                  return { ok: false, error: 'تعذّر قراءة الرد.' };
+                });
+              })
+              .then(function (res) {
+                busy = false;
+                if (!res.ok) {
+                  window.alert(res.error || 'تعذّر نقل القائمة.');
+                  return;
+                }
+                var url = new URL(window.location.href);
+                url.searchParams.set('tab', 'dilemma-lists');
+                url.searchParams.set('ok', 'تم نقل القائمة إلى المجلد.');
+                window.location.href = url.toString();
+              })
+              .catch(function () {
+                busy = false;
+                window.alert('تعذر الاتصال بالخادم.');
+              });
+          });
+        })();
+
         return;
       }
       var isUnitEvalTree = (kind === 'action_eval' || kind === 'dilemma_eval');

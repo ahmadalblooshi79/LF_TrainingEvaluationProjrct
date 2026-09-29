@@ -14795,6 +14795,83 @@ body.wrm-page-body main {
   background: #eef6f2;
   color: #1a5f4a;
 }
+.ibank-dilemma-lists-badge.is-folder {
+  border-color: #d2c4b0;
+  background: #f3eee6;
+  color: #6b5a45;
+}
+.ibank-dilemma-lists-folder-row > td {
+  vertical-align: top;
+  background: var(--surface-muted, #faf8f6);
+}
+.ibank-dilemma-lists-folder {
+  margin: 0.15rem 0;
+}
+.ibank-dilemma-lists-folder__sum {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.75rem;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 700;
+}
+.ibank-dilemma-lists-folder__sum::-webkit-details-marker { display: none; }
+.ibank-dilemma-lists-folder__sum::before {
+  content: "\f07b";
+  font-family: "Font Awesome 6 Free";
+  font-weight: 900;
+  font-size: 0.85rem;
+  color: #b8893a;
+}
+.ibank-dilemma-lists-folder[open] > .ibank-dilemma-lists-folder__sum::before {
+  content: "\f07c";
+}
+.ibank-dilemma-lists-folder__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.ibank-dilemma-lists-folder__name .fa-folder {
+  display: none;
+}
+.ibank-dilemma-lists-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  color: #8a7b6b;
+  cursor: grab;
+  flex: 0 0 auto;
+  margin-inline-end: 0.15rem;
+}
+.ibank-dilemma-lists-drag-handle:active {
+  cursor: grabbing;
+}
+.ibank-dilemma-lists-row--dragging {
+  opacity: 0.45;
+}
+.ibank-dilemma-lists-folder-row--drop-target > td {
+  outline: 2px solid #2e8b3a;
+  outline-offset: -2px;
+  background: #eef8f0 !important;
+}
+.ibank-dilemma-lists-page--dragging .ibank-dilemma-lists-folder-row {
+  cursor: copy;
+}
+.ibank-dilemma-lists-folder__empty {
+  margin: 0.35rem 0.25rem 0.5rem;
+  padding-inline-start: 1.1rem;
+}
+.ibank-dilemma-lists-table--nested {
+  margin: 0.35rem 0 0.25rem;
+  border: 1px solid var(--border-soft, #c9bfb5);
+  border-radius: var(--radius-sm, 6px);
+  background: #fff;
+}
+.ibank-dilemma-lists-table--nested .ibank-dilemma-lists-folder-row > td {
+  background: #f7f3ee;
+}
 .ibank-dilemma-lists-org {
   margin: 0.45rem 0 0.25rem;
   padding: 0.45rem 0.55rem;
@@ -14828,6 +14905,12 @@ body.wrm-page-body main {
   line-height: 1.35;
 }
 .ibank-dilemma-lists-org-label input { margin-top: 0.15rem; flex: 0 0 auto; }
+.ibank-dilemma-lists-org-node--all {
+  grid-column: 1 / -1;
+}
+.ibank-dilemma-lists-org-label--all {
+  font-weight: 700;
+}
 .ibank-dilemma-lists-save-status { margin: 0.35rem 0 0; font-size: 0.85rem; }
 
 /* —— إيجابيات/سلبيات المحكم (ويب) —— */

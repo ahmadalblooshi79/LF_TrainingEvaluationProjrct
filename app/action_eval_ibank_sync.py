@@ -219,22 +219,25 @@ def _infer_flow_day_id_from_slot_title(db: Session, title: str) -> str:
     dtxt = _norm_dilemma_key((m.group("text") if m else raw) or "")
     if not dtxt:
         return ""
-    hits: list[str] = []
+    exact: list[str] = []
+    fuzzy: list[str] = []
     for day_id, flow_no, flow_key in _flow_dilemma_day_index(db):
         if dno and flow_no and dno != flow_no:
             continue
-        if (
-            dtxt == flow_key
-            or dtxt.startswith(flow_key)
+        if dtxt == flow_key:
+            exact.append(day_id)
+        elif (
+            dtxt.startswith(flow_key)
             or flow_key.startswith(dtxt)
             or flow_key in dtxt
             or dtxt in flow_key
         ):
-            hits.append(day_id)
-    if len(set(hits)) == 1:
-        return hits[0]
-    if hits:
-        return hits[0]
+            fuzzy.append(day_id)
+    # تطابق تام أولاً؛ عند أكثر من يوم لا نخمن (hits[0] كان يُسقط نشر اليوم 2/3).
+    hits = exact or fuzzy
+    uniq = list(dict.fromkeys(hits))
+    if len(uniq) == 1:
+        return uniq[0]
     return ""
 
 
@@ -2105,17 +2108,36 @@ def publish_action_eval_lists_from_ibank(
         d_idx = int(dilemma_map.get(int(nid), 0) or 0)
         if d_idx <= 0:
             d_idx = int(src.get("dilemma_no") or 0)
-        dilemma = dilemma_by_idx.get(d_idx) if d_idx > 0 else None
-        if dilemma is None and d_idx > 0:
+        # نص المعضلة من شجرة اليوم أولاً — حزمة المرحلة المشتركة بين الأيام
+        # قد تُرجع معضلة يوم آخر بنفس الرقم عبر extract_flow_dilemmas_from_bundle.
+        src_dtext = (src.get("dilemma_text") or "").strip()
+        if src_dtext:
+            if d_idx <= 0:
+                d_idx = int(src.get("dilemma_no") or 0)
             dilemma = {
                 "index": d_idx,
-                "short_label": (src.get("dilemma_text") or "").strip()[:200],
-                "text": (src.get("dilemma_text") or "").strip()[:400],
+                "short_label": src_dtext[:200],
+                "text": src_dtext[:400],
             }
+        else:
+            dilemma = dilemma_by_idx.get(d_idx) if d_idx > 0 else None
+            if dilemma is None and d_idx > 0:
+                dilemma = {
+                    "index": d_idx,
+                    "short_label": "",
+                    "text": "",
+                }
         title = _slot_title_with_dilemma(str(src["title"]), dilemma)
         if want_day and not _title_belongs_to_flow_day(db, title, want_day):
-            skipped += 1
-            continue
+            # القائمة مُجمَّعة لليوم من الشجرة/المجلد — لا تُرفض بسبب عنوان ملتبس
+            node_day = want_day if src.get("from_dilemma_tree") else ""
+            if not node_day:
+                node_for_day = db.get(InformationBankTreeNode, int(nid))
+                if node_for_day is not None:
+                    node_day = _flow_day_id_for_node(db, node_for_day) or ""
+            if not (node_day and _flow_days_match(db, node_day, want_day)):
+                skipped += 1
+                continue
         slot = by_node.get(int(nid))
         if slot is not None and _slot_has_saved_result(db, slot.id):
             skipped += 1
@@ -2368,11 +2390,14 @@ def publish_phase_action_eval_lists_from_ibank(
                 node_id=int(nid),
                 fallback_unit_key=form_uk,
             )
-            if resolved:
+            if (resolved or "").strip():
                 remapped[resolved].add(int(nid))
+            else:
+                totals["skipped"] += 1
     dmap_all = dilemma_by_unit_node or {}
     for uk in sorted(remapped.keys()):
         if not (uk or "").strip():
+            totals["skipped"] += len(remapped.get(uk) or ())
             continue
         d_for_unit: dict[int, int] = {}
         for (form_uk, nid), d_idx in dmap_all.items():

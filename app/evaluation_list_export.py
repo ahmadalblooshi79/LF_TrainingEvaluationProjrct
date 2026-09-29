@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import re
 import tempfile
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ from app.evaluation_list_columns import (
     eval_doc_title_first_line,
     format_eval_narrative_cell,
     grade_label_from_percent,
+    is_acquired_entry_placeholder,
     is_evaluation_import_footer_stop_row,
     normalize_ar_header,
     parse_max_cell,
@@ -26,6 +28,51 @@ from app.evaluation_list_columns import (
 )
 from app.evaluation_sheet_parser import _find_rubric_subheader_row_index, _pad_grid
 from app.xlsx_grid_preview import _cell_to_str
+
+
+def zip_safe_segment(name: str, fallback: str = "بند") -> str:
+    """جزء مسار داخل أرشيف ZIP — بلا فواصل أو رموز ممنوعة."""
+    t = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", (name or "").strip())
+    t = t.replace("..", "_").strip(" .")
+    return (t or fallback)[:120]
+
+
+def pending_eval_list_zip_relpath(
+    *,
+    phase_label: str,
+    unit_label: str,
+    list_title: str,
+    item_id: int,
+    used: set[str],
+) -> str:
+    """مسار الملف داخل الأرشيف: المرحلة/الوحدة/اسم القائمة.xlsx"""
+    phase = zip_safe_segment(phase_label, "مرحلة")
+    unit = zip_safe_segment(unit_label, "وحدة")
+    fname = export_download_filename(list_title)
+    rel = f"{phase}/{unit}/{fname}"
+    if rel in used:
+        stem = re.sub(r"\.(xlsx|xlsm|xls)$", "", fname, flags=re.I).strip() or "قائمة_التقييم"
+        rel = f"{phase}/{unit}/{stem}_{int(item_id)}.xlsx"
+    n = 2
+    base = rel
+    while rel in used:
+        stem = re.sub(r"\.(xlsx|xlsm|xls)$", "", base, flags=re.I).strip() or "قائمة_التقييم"
+        rel = f"{phase}/{unit}/{stem}_{n}.xlsx"
+        n += 1
+    used.add(rel)
+    return rel
+
+
+def pack_pending_eval_lists_zip(entries: list[tuple[str, bytes]]) -> bytes:
+    """أرشيف ZIP من أزواج (المسار النسبي، بايتات Excel)."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for rel, data in entries:
+            info = zipfile.ZipInfo((rel or "").replace("\\", "/"))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.flag_bits |= 0x800
+            zf.writestr(info, data)
+    return buf.getvalue()
 
 
 def export_download_filename(
@@ -484,6 +531,130 @@ def _eval_meta_row_numbers(ws) -> tuple[int, int]:
     return 2, 3
 
 
+def _looks_like_split_date_headers(ws, row: int) -> bool:
+    """القالب العسكري: التاريخ مقسوم إلى يوم / شهر / سنة في F و H و J."""
+    f = _footer_label_key(_cell_text(ws, row, 6))
+    h = _footer_label_key(_cell_text(ws, row, 8))
+    j = _footer_label_key(_cell_text(ws, row, 10))
+    return ("يوم" in f) and ("شهر" in h) and ("سنة" in j)
+
+
+def _write_export_date(ws, row: int, date_str: str) -> None:
+    raw = normalize_ar_header(date_str or "")
+    if not raw:
+        return
+    if _looks_like_split_date_headers(ws, row):
+        parts = re.findall(r"\d+", raw)
+        if len(parts) >= 3:
+            if len(parts[0]) == 4:
+                year, month, day = parts[0], parts[1], parts[2]
+            else:
+                day, month, year = parts[0], parts[1], parts[2]
+            _set_cell_value(ws, row, 6, int(day) if day.isdigit() else day)
+            _set_cell_value(ws, row, 8, int(month) if month.isdigit() else month)
+            _set_cell_value(ws, row, 10, int(year) if year.isdigit() else year)
+            return
+    _set_meta_if_not_header(ws, row, 6, raw)
+
+
+def _cell_has_formula(cell) -> bool:
+    return _value_is_formula(getattr(cell, "value", None))
+
+
+def _value_is_formula(value: Any) -> bool:
+    if isinstance(value, str) and value.startswith("="):
+        return True
+    if value is None:
+        return False
+    return type(value).__name__ in {"ArrayFormula", "DataTableFormula"}
+
+
+def _strip_sheet_formulas(ws) -> None:
+    """يحذف صيغ الخلايا ويُبقي القيمة/التنسيق بعد تعبئة بيانات النظام."""
+    mr = int(getattr(ws, "max_row", None) or 0)
+    mc = int(getattr(ws, "max_column", None) or 0)
+    if mr < 1 or mc < 1:
+        return
+    for r in range(1, mr + 1):
+        for c in range(1, mc + 1):
+            cell = _writable_cell(ws, r, c)
+            if _value_is_formula(getattr(cell, "value", None)):
+                cell.value = None
+
+
+def _strip_workbook_formulas(wb) -> None:
+    for name in list(getattr(wb, "sheetnames", None) or []):
+        _strip_sheet_formulas(wb[name])
+
+
+def _merge_worksheet_extlst(src_xml: bytes, exp_xml: bytes) -> bytes:
+    """يعيد قوائم x14 المنسدلة التي يحذفها openpyxl من القالب العسكري."""
+    try:
+        src = src_xml.decode("utf-8")
+        exp = exp_xml.decode("utf-8")
+    except UnicodeDecodeError:
+        return exp_xml
+    if "x14:dataValidations" in exp:
+        return exp_xml
+    m = re.search(r"<extLst>.*?</extLst>", src, flags=re.DOTALL)
+    if not m:
+        return exp_xml
+    ext = m.group(0)
+    src_tag = re.search(r"<worksheet\b[^>]*>", src)
+    exp_tag = re.search(r"<worksheet\b[^>]*>", exp)
+    if src_tag and exp_tag:
+        decls = re.findall(r'\sxmlns(?::[A-Za-z0-9]+)="[^"]*"', src_tag.group(0))
+        extra = ""
+        for decl in decls:
+            prefix = decl.strip().split("=", 1)[0]
+            if prefix not in exp_tag.group(0):
+                extra += " " + decl.strip()
+        if "xmlns:x14=" not in exp_tag.group(0) and "xmlns:x14=" in ext:
+            extra += ' xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"'
+        if "xmlns:xm=" not in exp_tag.group(0) and "xmlns:xm=" in ext:
+            extra += ' xmlns:xm="http://schemas.microsoft.com/office/excel/2006/main"'
+        if extra:
+            old = exp_tag.group(0)
+            new = old[:-1] + extra + ">"
+            exp = exp[: exp_tag.start()] + new + exp[exp_tag.end() :]
+    if "<extLst>" in exp:
+        exp = re.sub(r"<extLst>.*?</extLst>", ext, exp, count=1, flags=re.DOTALL)
+    else:
+        exp = exp.replace("</worksheet>", ext + "</worksheet>", 1)
+    return exp.encode("utf-8")
+
+
+def _restore_template_xlsx_parts(source_path: Path, exported: bytes) -> bytes:
+    """يحافظ على أجزاء القالب التي يُسقطها openpyxl (قوائم منسدلة / طابعة)."""
+    src_path = Path(source_path)
+    if not src_path.is_file() or not exported:
+        return exported
+    try:
+        src_bytes = src_path.read_bytes()
+    except OSError:
+        return exported
+    try:
+        with zipfile.ZipFile(io.BytesIO(src_bytes)) as srcz, zipfile.ZipFile(
+            io.BytesIO(exported)
+        ) as expz:
+            src_names = set(srcz.namelist())
+            exp_names = set(expz.namelist())
+            out = io.BytesIO()
+            with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as outz:
+                for name in expz.namelist():
+                    data = expz.read(name)
+                    if (
+                        name.startswith("xl/worksheets/sheet")
+                        and name.endswith(".xml")
+                        and name in src_names
+                    ):
+                        data = _merge_worksheet_extlst(srcz.read(name), data)
+                    outz.writestr(name, data)
+            return out.getvalue()
+    except Exception:
+        return exported
+
+
 def _fill_footer_judge_name(ws, judge_name: str, *, max_row: int, max_col: int) -> None:
     """
     يملأ صف تذييل «المحكم» باسم المحكم من صفحة قائمة التقييم.
@@ -640,13 +811,14 @@ def build_evaluation_list_xlsx_bytes(
     dilemma_requirements: str = "",
     signature_png: bytes | None = None,
     approved_at: Any | None = None,
-    materialize_computed: bool = False,
+    materialize_computed: bool = True,
+    remove_grade_cf: bool = False,
 ) -> bytes:
     """
     ينسخ ملف المصدر، يحدّث العنوان والبيانات الوصفية وعلامات المحكم،
-    ويحذف أي ورقة إضافية غير ورقة التقييم.
-    ``materialize_computed`` يكتب النسبة/النتيجة والإجمالي من بيانات النظام
-    (لتصدير PDF مطابق للقوائم دون الاعتماد على صيغ Excel).
+    ويكتب النسبة/النتيجة والإجمالي من بيانات النظام بدل صيغ Excel.
+    يُبقي الأوراق الإضافية والتنسيق العام (حدود/خطوط/دمج/تنسيق شرطي ما لم يُطلب حذفه).
+    ``remove_grade_cf`` يُستخدم لتصدير PDF حتى تظهر ألوان النظام دون قواعد القالب.
     """
     try:
         from openpyxl import load_workbook  # type: ignore
@@ -657,7 +829,7 @@ def build_evaluation_list_xlsx_bytes(
     if not path.is_file():
         raise FileNotFoundError(str(path))
 
-    # keep_vba يحافظ على xlsm؛ data_only=False يبقي الصيغ والتنسيق كما في القالب المصدر
+    # keep_vba يحافظ على xlsm؛ data_only=False ثم تُستبدل الصيغ بقيم النظام
     wb = load_workbook(filename=str(path), data_only=False, keep_vba=path.suffix.lower() == ".xlsm")
     try:
         # اختر ورقة التقييم دون حذف الأوراق الأخرى (ملاحظات/مفتاح ألوان إن وُجدت)
@@ -669,9 +841,14 @@ def build_evaluation_list_xlsx_bytes(
         if keep is None:
             keep = wb.sheetnames[0] if wb.sheetnames else None
         ws = wb[keep] if keep else wb.active
-        _remove_grade_conditional_formatting(ws)
+        if remove_grade_cf:
+            _remove_grade_conditional_formatting(ws)
 
-        _ensure_eval_narrative_header_rows(ws)
+        # IMPORTANT: preserve the original Excel template structure during export.
+        # Do not insert rows or create new merged ranges here; some military
+        # templates already contain complex merges and modifying them can make
+        # Excel repair/remove mergeCells records when the exported file opens.
+        # Narrative rows are written only when they already exist in the template.
 
         mr = int(getattr(ws, "max_row", None) or 1)
         mc = int(getattr(ws, "max_column", None) or 1)
@@ -695,7 +872,7 @@ def build_evaluation_list_xlsx_bytes(
         if unit_label and unit_label != "—":
             _set_meta_if_not_header(ws, unit_row, 3, unit_label)
         if date_str:
-            _set_meta_if_not_header(ws, unit_row, 6, date_str)
+            _write_export_date(ws, unit_row, date_str)
         if commander_name and commander_name != "—":
             _set_meta_if_not_header(ws, cmd_row, 3, commander_name)
         if judge_name and judge_name != "—":
@@ -717,6 +894,8 @@ def build_evaluation_list_xlsx_bytes(
                 break
             if should_skip_evaluation_import_row(cells, excel_row_1based=excel_r):
                 continue
+            if not any(str(c).strip() for c in cells):
+                continue
             if ti >= len(template_rows):
                 break
             trow = template_rows[ti]
@@ -730,8 +909,19 @@ def build_evaluation_list_xlsx_bytes(
                 cells[EVAL_IMPORT_COL_MAX] if len(cells) > EVAL_IMPORT_COL_MAX else ""
             )
             aq, mx = _row_acquired_and_max(trow, srow, excel_max=excel_max)
-            if aq is not None:
+            if materialize_computed and mx is not None:
+                _set_cell_value(
+                    ws, excel_r, EVAL_IMPORT_COL_MAX + 1, _export_number(float(mx))
+                )
+
+            saved_has_acquired = isinstance(srow, dict) and "acquired" in srow
+            if aq is not None and (
+                saved_has_acquired
+                or not is_acquired_entry_placeholder(str(aq))
+            ):
                 _set_cell_value(ws, excel_r, EVAL_IMPORT_COL_ACQUIRED + 1, aq)
+            elif materialize_computed:
+                _set_cell_value(ws, excel_r, EVAL_IMPORT_COL_ACQUIRED + 1, "—")
 
             notes = ""
             if isinstance(srow, dict):
@@ -741,37 +931,59 @@ def build_evaluation_list_xlsx_bytes(
             if notes:
                 _set_cell_value(ws, excel_r, EVAL_IMPORT_COL_NOTES + 1, notes)
 
-            na = _is_na_acquired(aq)
-            if not na and mx is not None and float(mx) > 0:
-                sum_max += float(mx)
-            if na:
-                _write_system_pct_grade(ws, excel_r, None)
-            elif aq is not None:
-                try:
-                    aq_f = float(aq)
-                except (TypeError, ValueError):
-                    aq_f = None
-                if aq_f is not None:
-                    sum_acq += aq_f
-                    any_acquired = True
-                    if mx is not None and float(mx) > 0:
-                        _write_system_pct_grade(ws, excel_r, (aq_f / float(mx)) * 100.0)
+            if materialize_computed:
+                na = _is_na_acquired(aq)
+                if not na and mx is not None and float(mx) > 0:
+                    sum_max += float(mx)
+                if na:
+                    _write_system_pct_grade(ws, excel_r, None)
+                elif aq is not None:
+                    try:
+                        aq_f = float(aq)
+                    except (TypeError, ValueError):
+                        aq_f = None
+                    if aq_f is not None:
+                        sum_acq += aq_f
+                        any_acquired = True
+                        if mx is not None and float(mx) > 0:
+                            _write_system_pct_grade(
+                                ws, excel_r, (aq_f / float(mx)) * 100.0
+                            )
+                        else:
+                            _write_system_pct_grade(ws, excel_r, None)
                     else:
                         _write_system_pct_grade(ws, excel_r, None)
                 else:
                     _write_system_pct_grade(ws, excel_r, None)
+            elif (
+                aq is not None
+                and not _is_na_acquired(aq)
+                and mx is not None
+                and float(mx) > 0
+            ):
+                try:
+                    aq_f = float(aq)
+                    pct = (aq_f / float(mx)) * 100.0
+                    g_cell = _writable_cell(ws, excel_r, EVAL_IMPORT_COL_PCT + 1)
+                    h_cell = _writable_cell(ws, excel_r, EVAL_IMPORT_COL_GRADE + 1)
+                    if not _cell_has_formula(g_cell):
+                        g_cell.value = round(pct / 100.0, 4)
+                    if not _cell_has_formula(h_cell):
+                        h_cell.value = grade_label_from_percent(pct)
+                except (TypeError, ValueError):
+                    pass
 
-        # الإجمالي كصفحة النظام: بنود «لا ينطبق» خارج مجموع القصوى والمكتسبة
-        _fill_footer_system_totals(
-            ws,
-            sum_max=sum_max,
-            sum_acq=sum_acq,
-            any_acquired=any_acquired,
-            start_row=footer_start,
-            max_row=mr,
-            max_col=mc,
-        )
         if materialize_computed:
+            _fill_footer_system_totals(
+                ws,
+                sum_max=sum_max,
+                sum_acq=sum_acq,
+                any_acquired=any_acquired,
+                start_row=footer_start,
+                max_row=mr,
+                max_col=mc,
+            )
+        if remove_grade_cf:
             try:
                 ws.page_setup.paperSize = getattr(ws.page_setup, "PAPERSIZE_A4", 9)
                 ws.page_setup.orientation = "portrait"
@@ -787,6 +999,8 @@ def build_evaluation_list_xlsx_bytes(
         tmp_sig = _embed_transparent_signature(
             ws, signature_png, max_row=mr, max_col=mc
         )
+        if materialize_computed:
+            _strip_workbook_formulas(wb)
 
         buf = io.BytesIO()
         try:
@@ -798,7 +1012,10 @@ def build_evaluation_list_xlsx_bytes(
                 except Exception:
                     pass
         buf.seek(0)
-        return buf.getvalue()
+        data = buf.getvalue()
+        if not materialize_computed:
+            data = _restore_template_xlsx_parts(path, data)
+        return data
     finally:
         try:
             wb.close()

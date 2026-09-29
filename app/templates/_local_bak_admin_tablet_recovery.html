@@ -1,0 +1,237 @@
+{% extends "admin_shell.html" %}
+{% block title %}استعادة بيانات التابلت — إدارة النظام{% endblock %}
+{% block admin_workspace %}
+<h1 class="h1-page"><i class="fa-solid fa-tablet-screen-button fa-icon-title" aria-hidden="true"></i> استعادة بيانات التابلت</h1>
+<p class="muted">استيراد حزمة استعادة تم استخراجها من جهاز المحكم واستعادة النتائج والوسائط المحفوظة محلياً. المعاينة لا تغيّر نتائج التقييم حتى تضغط «استعادة البيانات».</p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <p class="{% if category == 'error' %}form-error-banner{% else %}form-ok-banner{% endif %}" role="status">{{ message }}</p>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+{% if not preview and not result %}
+<section class="card" style="margin-bottom:1rem;">
+  <h2 class="h2-in-card">اختيار حزمة الاستعادة</h2>
+  <form method="post" action="{{ url_for('tablet_recovery.tablet_recovery_upload') }}" enctype="multipart/form-data">
+    <div class="form-group">
+      <label for="recovery_zip">ملف ZIP</label>
+      <input type="file" id="recovery_zip" name="recovery_zip" accept=".zip,application/zip" required>
+    </div>
+    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> فحص الحزمة</button>
+  </form>
+</section>
+
+{% if recent_imports %}
+<section class="card">
+  <h2 class="h2-in-card">عمليات سابقة</h2>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>التاريخ</th>
+        <th>الملف</th>
+        <th>الحالة</th>
+        <th>التمرين</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in recent_imports %}
+      <tr>
+        <td dir="ltr">{{ r.imported_at }}</td>
+        <td>{{ r.package_filename }}</td>
+        <td>{{ r.status }}</td>
+        <td>{{ r.exercise_id or '—' }}</td>
+        <td><a href="{{ url_for('tablet_recovery.tablet_recovery_preview', import_uuid=r.import_uuid) }}">فتح</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endif %}
+
+{% if result %}
+<section class="card form-ok-banner" style="margin-bottom:1rem;">
+  <h2 class="h2-in-card" style="margin-top:0;">تمت عملية الاستعادة</h2>
+  <ul>
+    <li>القوائم المحددة: {{ result.selected }}</li>
+    <li>تمت الاستعادة: {{ result.restored }}</li>
+    <li>موجودة مسبقاً / متخطاة: {{ result.skipped }}</li>
+    <li>تعارضات: {{ result.conflicts }}</li>
+    <li>الصور المستعادة: {{ result.images_restored }}</li>
+    <li>الفيديوهات المستعادة: {{ result.videos_restored }}</li>
+    <li>وسائط مفقودة: {{ result.missing_media }}</li>
+  </ul>
+  <table class="table">
+    <thead><tr><th>القائمة</th><th>الحالة</th><th></th></tr></thead>
+    <tbody>
+      {% for it in result.items %}
+      <tr>
+        <td>#{{ it.eval_item_id }} {% if it.ok %}✓{% else %}✗{% endif %}</td>
+        <td>
+          {{ it.status }}
+          {% if it.media_restored %}<br><span class="muted">وسائط جديدة: {{ it.media_restored }}</span>{% endif %}
+          {% if it.media_missing %}<br><span class="muted">وسائط مفقودة: {{ it.media_missing }}</span>{% endif %}
+          {% for err in it.media_errors or [] %}
+          <br><span class="form-error-banner" style="display:inline-block;padding:0.15rem 0.4rem;">{{ err }}</span>
+          {% endfor %}
+        </td>
+        <td>{% if it.open_url %}<a href="{{ it.open_url }}">فتح قائمة التقييم</a>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">ملاحظة: أيقونات الصور/الفيديو تظهر في عمود «توثيق» بجانب الصف المرتبط (قد تحتاج للتمرير لأسفل داخل القائمة).</p>
+  <p><a class="btn btn-ghost" href="{{ url_for('tablet_recovery.tablet_recovery_home') }}">عودة</a></p>
+</section>
+{% endif %}
+
+{% if preview and import_row and not result %}
+{% set m = preview.manifest %}
+{% set srv = preview.server %}
+{% set sum = preview.summary %}
+
+{% if prior_same_hash or import_row.notes %}
+<p class="form-error-banner" role="status">تم استخدام هذه الحزمة سابقاً{% if prior_same_hash %} ({{ prior_same_hash.imported_at }} — {{ prior_same_hash.status }}){% endif %}{{ ' — ' ~ import_row.notes if import_row.notes else '' }}. يمكنك المعاينة دون إعادة تطبيق تلقائي.</p>
+{% endif %}
+
+<section class="card" style="margin-bottom:1rem;">
+  <h2 class="h2-in-card">ملخص الحزمة</h2>
+  <ul class="server-dash-kv">
+    <li><span>Device ID</span><strong dir="ltr">{{ m.device_id or '—' }}</strong></li>
+    <li><span>إصدار التطبيق</span><strong>{{ m.app_version or '—' }}</strong></li>
+    <li><span>وقت التصدير</span><strong dir="ltr">{{ m.export_timestamp or '—' }}</strong></li>
+    <li><span>Exercise ID</span><strong>{{ m.exercise_id or '—' }} {% if srv.exercise_found %}(✓ {{ srv.exercise_title }}){% else %}(غير موجود){% endif %}</strong></li>
+    <li><span>Judge / User ID</span><strong>{{ m.judge_id or '—' }} {% if srv.judge_found %}(✓ {{ srv.judge_name }}){% else %}(غير موجود){% endif %}</strong></li>
+    <li><span>الوحدة</span><strong>{{ m.unit or '—' }}</strong></li>
+    <li><span>عمليات معلقة</span><strong>{{ m.pending_operation_count }}</strong></li>
+    <li><span>عمليات حفظ نتائج</span><strong>{{ m.save_results_operation_count }}</strong></li>
+    <li><span>وسائط</span><strong>{{ m.media_count }}</strong></li>
+    <li><span>جاهز للاستعادة</span><strong>{{ sum.ready_count }}</strong></li>
+    <li><span>تعارضات</span><strong>{{ sum.conflict_count }}</strong></li>
+    <li><span>وسائط مفقودة في الحزمة</span><strong>{{ sum.missing_media }}</strong></li>
+  </ul>
+</section>
+
+{% if detail_item %}
+<section class="card" style="margin-bottom:1rem;">
+  <h2 class="h2-in-card">تفاصيل قائمة التقييم #{{ detail_item.eval_item_id }}</h2>
+  <p>المصدر: {{ detail_item.source }} — الحالة: <strong>{{ detail_item.status }}</strong></p>
+  <p>نسخ محفوظة: {{ detail_item.saved_versions }} — المرشح: {{ detail_item.recommended }}</p>
+  <p>Pending: {{ 'نعم' if detail_item.pending_exists else 'لا' }} / Cache: {{ 'نعم' if detail_item.cache_exists else 'لا' }} — {{ detail_item.match_status }}</p>
+  <p>نتائج محفوظة (مرشح): نعم — طلب اعتماد محلي: {{ 'موجود' if detail_item.has_approve_op else 'غير موجود' }}{% if detail_item.approve_created_at %} ({{ detail_item.approve_created_at }}){% endif %}</p>
+  <p class="muted">هذه المرحلة تستعيد النتائج فقط — الاعتماد لا يُطبَّق تلقائياً.</p>
+  {% if detail_item.versions %}
+  <h3 class="h2-in-card">نسخ الحفظ</h3>
+  <ol>
+    {% for v in detail_item.versions %}
+    <li>Created: <span dir="ltr">{{ v.created_at }}</span> — درجات: {{ v.scored_rows }} — ملاحظات: {{ v.notes }}{% if v.malformed %} (تالف){% endif %}</li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+  <h3 class="h2-in-card">الصفوف المستعادة (المرشح)</h3>
+  <table class="table">
+    <thead>
+      <tr><th>العنصر</th><th>الدرجة القصوى</th><th>الدرجة المستعادة</th><th>الملاحظة</th></tr>
+    </thead>
+    <tbody>
+      {% for r in detail_item.candidate_rows %}
+      <tr>
+        <td>{{ r.element or '—' }}</td>
+        <td>{{ r.max_val or '—' }}</td>
+        <td>{{ r.acquired or '—' }}</td>
+        <td>{{ r.notes or '' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">لا صفوف</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p><a href="{{ url_for('tablet_recovery.tablet_recovery_preview', import_uuid=import_row.import_uuid) }}">رجوع للمعاينة</a></p>
+</section>
+{% endif %}
+
+<form method="post" action="{{ url_for('tablet_recovery.tablet_recovery_restore', import_uuid=import_row.import_uuid) }}" id="restore-form">
+  <section class="card" style="margin-bottom:1rem;">
+    <h2 class="h2-in-card">معاينة البيانات</h2>
+    <p class="muted">حدّد القوائم الجاهزة ثم اضغط استعادة البيانات. لن يُستبدل تقييم معتمد تلقائياً.</p>
+    <p>
+      <button type="button" class="btn btn-ghost" id="btn-select-ready">تحديد الكل الجاهز</button>
+    </p>
+    <div style="overflow-x:auto;">
+      <table class="table" id="recovery-preview-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>القائمة</th>
+            <th>النسخ</th>
+            <th>أحدث حفظ</th>
+            <th>الدرجات</th>
+            <th>الملاحظات</th>
+            <th>الوسائط</th>
+            <th>المصدر</th>
+            <th>حالة السيرفر</th>
+            <th>الإجراء</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in preview.evaluations %}
+          <tr data-status="{{ e.status }}">
+            <td>
+              <input type="checkbox" name="eval_item_id" value="{{ e.eval_item_id }}"
+                {% if e.default_selected %}checked{% endif %}
+                {% if e.status in ['تعارض مع قائمة معتمدة', 'قائمة غير موجودة', 'تمرين غير مطابق', 'محكم غير مطابق'] %}disabled{% endif %}>
+            </td>
+            <td>
+              <a href="{{ url_for('tablet_recovery.tablet_recovery_item_detail', import_uuid=import_row.import_uuid, item_id=e.eval_item_id) }}">
+                #{{ e.eval_item_id }}{% if e.target_eval_item_id and e.target_eval_item_id != e.eval_item_id %} → #{{ e.target_eval_item_id }}{% endif %} — {{ e.list_title }}
+              </a>
+              {% if e.unit_label %}<br><span class="muted">الوحدة: {{ e.unit_label }}</span>{% endif %}
+              {% if e.redirect_note %}<br><span class="muted">{{ e.redirect_note }}</span>{% endif %}
+              {% if e.match_status == 'SOURCE_MISMATCH' %}<br><span class="muted">SOURCE_MISMATCH</span>{% endif %}
+              {% if e.missing_media_count %}<br><span class="muted">وسائط مفقودة في الحزمة: {{ e.missing_media_count }}</span>{% endif %}
+              {% if e.media_count %}<br><span class="muted">وسائط في الحزمة: {{ e.media_count }}</span>{% endif %}
+            </td>
+            <td>{{ e.saved_versions }}</td>
+            <td dir="ltr">{{ e.latest_created_at or '—' }}</td>
+            <td>{{ e.scored_rows }}</td>
+            <td>{{ e.notes_count }}</td>
+            <td>{{ e.media_count }}</td>
+            <td>{{ e.source }} / {{ e.match_status }}</td>
+            <td>{{ e.server_state }}</td>
+            <td><strong>{{ e.status }}</strong></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10">لا توجد تقييمات قابلة للاستعادة في الحزمة.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:1rem;">
+      <button type="submit" class="btn btn-primary" onclick="return confirm('تأكيد استعادة القوائم المحددة؟ لن تُستبدل القوائم المعتمدة.');">
+        <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i> استعادة البيانات
+      </button>
+      <a class="btn btn-ghost" href="{{ url_for('tablet_recovery.tablet_recovery_home') }}">إلغاء / حزمة جديدة</a>
+    </p>
+  </section>
+</form>
+
+<script>
+(function () {
+  var btn = document.getElementById('btn-select-ready');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    document.querySelectorAll('#recovery-preview-table tbody tr').forEach(function (tr) {
+      var st = tr.getAttribute('data-status') || '';
+      var cb = tr.querySelector('input[type=checkbox]');
+      if (!cb || cb.disabled) return;
+      cb.checked = (st === 'جاهز للاستعادة');
+    });
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

@@ -1743,13 +1743,16 @@ def move_tree_node(
         if dest is None or not dest.is_folder:
             raise ValueError("المجلد المستهدف غير صالح.")
         if int(row.id) == new_parent_id:
-            raise ValueError("لا يمكن نقل العنصر إلى نفس المجلد.")
+            raise ValueError("لا يمكن نقل العنصر إلى نفسه.")
         if row.is_folder and _node_is_descendant_or_self(
             db, int(row.id), new_parent_id
         ):
             raise ValueError(
                 "لا يمكن نقل مجلد داخل نفسه أو داخل مجلد فرعي منه."
             )
+    cur_parent = int(row.parent_id) if row.parent_id is not None else None
+    if cur_parent == new_parent_id:
+        return
     row.parent_id = new_parent_id
     db.flush()
     row.sort_order = _next_sort(db, kind, new_parent_id)

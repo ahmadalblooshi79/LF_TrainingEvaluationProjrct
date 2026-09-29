@@ -50,6 +50,19 @@ flutter_app/.pub/
 
 # Local Flutter SDK (downloaded by agent/build scripts)
 tools/flutter/
+# Local Android SDK / JDK (build tooling — exceeds GitHub size limits)
+tools/android-sdk/
+tools/jdk/
+# Local conflict/media backups — do not push
+_pull_conflict_backup/
+# Local tablet upload/import scratch
+tablet_excel_imports/
+tablet_recovery_uploads/
+# Local SQLite sidecar backups
+*.db-shm
+*.db-wal
+exercises*.bak*
+exercises_BACKUP*
 
 # تطبيق النظام رقم 2 — مخرجات بناء Android فقط (المصادر تُرفع)
 system_tablet/.gradle/

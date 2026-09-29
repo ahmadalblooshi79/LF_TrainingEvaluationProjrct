@@ -408,14 +408,20 @@ def _row_text_in_label_columns(cells: list[str], max_col: int = 4) -> str:
 
 
 def is_evaluation_import_footer_stop_row(cells: list[str]) -> bool:
-    """صف يُنهي جسم الاستيراد (إجمالي / نسبة عامة / تقدير عام / ملاحظات / محكم / توقيع)."""
+    """صف يُنهي جسم الاستيراد (إجمالي / نسبة عامة / تقدير عام / ملاحظات / محكم / توقيع).
+
+    لا تُوقف على «ملاحظة: …» الإرشادية داخل بنود التقييم (شائعة في قوائم الهجوم المدبر).
+    التذييل الحقيقي يبدأ عادةً بـ «ملاحظات» (جمع) أو يضم المحكم/التوقيع/الإجمالي.
+    """
     label_blob = _row_text_in_label_columns(cells)
     if not label_blob:
         return False
     for marker in EVAL_IMPORT_FOOTER_STOP_MARKERS:
         if _normalize_footer_text(marker) in label_blob:
             return True
-    if label_blob.startswith("ملاحظ") or "ملاحظات" in label_blob.split()[0:1]:
+    first_token = (label_blob.split() or [""])[0]
+    # تذييل «ملاحظات» / «الملاحظات» فقط — وليس «ملاحظة: شرح البند»
+    if first_token.startswith("ملاحظات") or first_token.startswith("الملاحظات"):
         return True
     if "ملاحظات" in label_blob and "1." in label_blob:
         return True
@@ -425,7 +431,18 @@ def is_evaluation_import_footer_stop_row(cells: list[str]) -> bool:
         return True
     joined = _normalize_footer_text(" ".join(cells))
     for kw in EVAL_IMPORT_SKIP_ROW_KEYWORDS:
-        if _normalize_footer_text(kw) in joined:
+        # «ملاحظات» في الكلمات المفتاحية للتذييل فقط كجمع — لا تُطابق «ملاحظة» الإرشادية
+        nkw = _normalize_footer_text(kw)
+        if nkw == "ملاحظات":
+            if "ملاحظات" in joined and (
+                joined.startswith("ملاحظات")
+                or "المحكم" in joined
+                or "التوقيع" in joined
+                or "اجمالي" in joined
+            ):
+                return True
+            continue
+        if nkw and nkw in joined:
             return True
     return False
 

@@ -423,8 +423,17 @@ def _build_action_eval_dilemma_judge_tree_uncached(
                 node = db.get(InformationBankTreeNode, node_id) if node_id else None
                 path = None
                 if node and node.file_relpath:
-                    path = (INFO_BANK_DIR / node.file_relpath).resolve()
-                analysis = analyze_action_eval_xlsx(path) if path else {}
+                    cand = (INFO_BANK_DIR / str(node.file_relpath).replace("\\", "/")).resolve()
+                    try:
+                        cand.relative_to(Path(INFO_BANK_DIR).resolve())
+                    except ValueError:
+                        cand = None
+                    if cand is not None and cand.is_file():
+                        path = cand
+                # لا تُعرض قوائم بلا ملف على القرص — تسبب «تعذّر النشر» عند التحديد الجماعي
+                if path is None:
+                    continue
+                analysis = analyze_action_eval_xlsx(path)
                 unit_key = (fr.get("unit_key") or "").strip()
                 if not unit_key and node is not None:
                     unit_key = (node.catalog_unit_key or "").strip()
