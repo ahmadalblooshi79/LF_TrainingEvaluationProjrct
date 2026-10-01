@@ -342,6 +342,13 @@ def dedupe_published_action_eval_slots(
     """
     if len(slots) <= 1:
         return list(slots)
+    # إزالة تكرار نفس الخانة (مثلاً بعد استبدال الفارغ بنتيجة موجودة أصلاً في اليوم)
+    unique_by_id: dict[int, ExercisePlannerFlowBundleActionEval] = {}
+    for slot in slots:
+        unique_by_id[int(slot.id)] = slot
+    slots = list(unique_by_id.values())
+    if len(slots) <= 1:
+        return slots
     saved_ids = _saved_result_slot_ids(db, [int(s.id) for s in slots])
     grouped: dict[tuple[str, str], list[ExercisePlannerFlowBundleActionEval]] = defaultdict(list)
     for slot in slots:
@@ -382,10 +389,13 @@ def _replace_empty_day_slots_with_saved_siblings(
         by_key[_published_slot_dup_key(slot)].append(slot)
     out: list[ExercisePlannerFlowBundleActionEval] = []
     used_saved: set[int] = set()
+    seen_out: set[int] = set()
     for slot in day_slots:
         sid = int(slot.id)
         if sid in saved_ids:
-            out.append(slot)
+            if sid not in seen_out:
+                out.append(slot)
+                seen_out.add(sid)
             used_saved.add(sid)
             continue
         alts = [
@@ -394,12 +404,73 @@ def _replace_empty_day_slots_with_saved_siblings(
             if int(s.id) in saved_ids and int(s.id) not in used_saved
         ]
         if not alts:
-            out.append(slot)
+            if sid not in seen_out:
+                out.append(slot)
+                seen_out.add(sid)
             continue
         pick = min(alts, key=lambda s: int(s.id))
-        out.append(pick)
-        used_saved.add(int(pick.id))
+        pid = int(pick.id)
+        if pid not in seen_out:
+            out.append(pick)
+            seen_out.add(pid)
+        used_saved.add(pid)
     return out
+
+
+def purge_duplicate_empty_action_eval_slots(
+    db: Session, *, exercise_id: int | None = None
+) -> dict[str, int]:
+    """حذف الخانات الفارغة المكررة لنفس العنوان عند وجود شقيق (بنتيجة أو أحدث)."""
+    q = db.query(ExercisePlannerFlowBundle)
+    if exercise_id is not None:
+        q = q.filter(ExercisePlannerFlowBundle.exercise_id == int(exercise_id))
+    bundles = q.all()
+    removed = 0
+    for bundle in bundles:
+        slots = (
+            db.query(ExercisePlannerFlowBundleActionEval)
+            .filter(ExercisePlannerFlowBundleActionEval.bundle_id == int(bundle.id))
+            .all()
+        )
+        if len(slots) <= 1:
+            continue
+        saved_ids = _saved_result_slot_ids(db, [int(s.id) for s in slots])
+        grouped: dict[tuple[str, str], list[ExercisePlannerFlowBundleActionEval]] = defaultdict(
+            list
+        )
+        for slot in slots:
+            grouped[_published_slot_dup_key(slot)].append(slot)
+        for items in grouped.values():
+            if len(items) <= 1:
+                continue
+            with_res = [s for s in items if int(s.id) in saved_ids]
+            empties = [s for s in items if int(s.id) not in saved_ids]
+            if with_res and empties:
+                # احذف الفارغ فقط — اترك كل نتيجة محفوظة
+                for s in empties:
+                    _unlink_bundle_action_file(s.file_relpath)
+                    db.delete(s)
+                    removed += 1
+                continue
+            if not with_res and len(empties) > 1:
+                # لا نتيجة: أبقِ خانة واحدة (عقدة حيّة ثم أحدث id)
+                def _keep_score(s: ExercisePlannerFlowBundleActionEval) -> tuple[int, int, int]:
+                    nid = parse_action_eval_storage_relpath(s.file_relpath) or 0
+                    live = (
+                        1 if db.get(InformationBankTreeNode, int(nid)) is not None else 0
+                    )
+                    return (live, int(nid or 0), int(s.id))
+
+                keep = max(empties, key=_keep_score)
+                for s in empties:
+                    if int(s.id) == int(keep.id):
+                        continue
+                    _unlink_bundle_action_file(s.file_relpath)
+                    db.delete(s)
+                    removed += 1
+    if removed:
+        db.flush()
+    return {"removed": removed}
 
 
 def repair_orphaned_action_eval_slots(
@@ -2152,6 +2223,30 @@ def publish_action_eval_lists_from_ibank(
             ):
                 skipped += 1
                 continue
+            # أعد استخدام خانة فارغة بنفس العنوان بدل إنشاء تكرار
+            empty_siblings = [
+                s
+                for s in by_node.values()
+                if _published_slot_dup_key(s) == want_key
+                and not _slot_has_saved_result(db, s.id)
+            ]
+            if empty_siblings:
+
+                def _reuse_score(s: ExercisePlannerFlowBundleActionEval) -> tuple[int, int]:
+                    old_nid = parse_action_eval_storage_relpath(s.file_relpath) or 0
+                    live = (
+                        1
+                        if old_nid
+                        and db.get(InformationBankTreeNode, int(old_nid)) is not None
+                        else 0
+                    )
+                    return (live, int(s.id))
+
+                slot = max(empty_siblings, key=_reuse_score)
+                old_nid = parse_action_eval_storage_relpath(slot.file_relpath)
+                if old_nid is not None and int(old_nid) in by_node:
+                    by_node.pop(int(old_nid), None)
+                by_node[int(nid)] = slot
 
         need_copy = True
         if dest.is_file():
@@ -2356,6 +2451,11 @@ def publish_phase_action_eval_lists_from_ibank(
     pk = _resolve_phase_key(phase_key, db) or normalize_exercise_phase(phase_key)
     if not pk:
         return {"added": 0, "updated": 0, "removed": 0, "sources": 0, "units": 0, "skipped": 0}
+    # أزل الخانات الفارغة المكررة قبل النشر حتى لا تتراكم
+    try:
+        purge_duplicate_empty_action_eval_slots(db, exercise_id=int(exercise_id))
+    except Exception:
+        pass
     totals = {"added": 0, "updated": 0, "removed": 0, "sources": 0, "units": 0, "skipped": 0}
     # اختيارات بلا unit_key (قيمة النموذج ":node_id") — حلّ الوحدة من عقدة الملف.
     orphan_ids = set(selections_by_unit.pop("", set()) or ())

@@ -328,6 +328,62 @@ class ActionEvalOrphanRestoreTests(unittest.TestCase):
         }
         self.assertEqual(kept_ids, {slot_id, int(other.id)})
 
+    def test_replace_empty_sibling_does_not_duplicate_saved_row(self):
+        from app.action_eval_ibank_sync import (
+            _replace_empty_day_slots_with_saved_siblings,
+            dedupe_published_action_eval_slots,
+        )
+        from app.models import ExercisePlannerFlowBundle
+
+        slot_id, saved_id, _payload = self._publish_and_save()
+        bundle = (
+            self.db.query(ExercisePlannerFlowBundle)
+            .filter(ExercisePlannerFlowBundle.exercise_id == 1)
+            .first()
+        )
+        empty = ExercisePlannerFlowBundleActionEval(
+            bundle_id=int(bundle.id),
+            slot_index=11,
+            title="إجراءات الاستطلاع — معضلة 1: كمين على الاستطلاع",
+            file_relpath=f"{int(bundle.id)}/ibn_orphan.xlsx",
+        )
+        self.db.add(empty)
+        self.db.flush()
+        saved_slot = self.db.get(ExercisePlannerFlowBundleActionEval, slot_id)
+        day_slots = [empty, saved_slot]
+        replaced = _replace_empty_day_slots_with_saved_siblings(
+            self.db, day_slots, [empty, saved_slot]
+        )
+        self.assertEqual([int(s.id) for s in replaced], [slot_id])
+        kept = dedupe_published_action_eval_slots(self.db, replaced)
+        self.assertEqual([int(s.id) for s in kept], [slot_id])
+        self.assertIsNotNone(self.db.get(PlannerFlowBundleEvalSavedResult, saved_id))
+
+    def test_purge_removes_empty_duplicate_keeps_saved(self):
+        from app.action_eval_ibank_sync import purge_duplicate_empty_action_eval_slots
+        from app.models import ExercisePlannerFlowBundle
+
+        slot_id, saved_id, _payload = self._publish_and_save()
+        bundle = (
+            self.db.query(ExercisePlannerFlowBundle)
+            .filter(ExercisePlannerFlowBundle.exercise_id == 1)
+            .first()
+        )
+        empty = ExercisePlannerFlowBundleActionEval(
+            bundle_id=int(bundle.id),
+            slot_index=12,
+            title="إجراءات الاستطلاع — معضلة 1: كمين على الاستطلاع",
+            file_relpath=f"{int(bundle.id)}/ibn_purge.xlsx",
+        )
+        self.db.add(empty)
+        self.db.flush()
+        empty_id = int(empty.id)
+        stats = purge_duplicate_empty_action_eval_slots(self.db, exercise_id=1)
+        self.assertGreaterEqual(int(stats.get("removed") or 0), 1)
+        self.assertIsNone(self.db.get(ExercisePlannerFlowBundleActionEval, empty_id))
+        self.assertIsNotNone(self.db.get(ExercisePlannerFlowBundleActionEval, slot_id))
+        self.assertIsNotNone(self.db.get(PlannerFlowBundleEvalSavedResult, saved_id))
+
 
 if __name__ == "__main__":
     unittest.main()

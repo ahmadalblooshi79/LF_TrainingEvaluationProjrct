@@ -8745,7 +8745,13 @@ def _judge_action_eval_groups_for_all_flow_days(
     from app.action_eval_ibank_sync import (
         build_judge_action_eval_display_groups,
         collect_flow_day_tabs_for_exercise,
+        purge_duplicate_empty_action_eval_slots,
     )
+
+    try:
+        purge_duplicate_empty_action_eval_slots(db, exercise_id=int(ex.id))
+    except Exception:
+        pass
 
     day_options = collect_flow_day_tabs_for_exercise(
         db, exercise_id=int(ex.id), phase_key=phase_key

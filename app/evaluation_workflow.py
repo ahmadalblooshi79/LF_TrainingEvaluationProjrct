@@ -391,12 +391,18 @@ def build_planner_flow_eval_row(
     """صف جدول قوائم تقييم إجراءات حزمة المجرى."""
     is_done = eval_status_done(saved)
     dispatch_label, row_tone = eval_dispatch_status_ar(saved)
+    pct_raw = getattr(saved, "total_pct", None) if saved else None
+    try:
+        total_pct = float(pct_raw) if pct_raw is not None else None
+    except (TypeError, ValueError):
+        total_pct = None
     return {
         "slot_index": int(slot_index),
         "item_title": (item_title or "قائمة التقييم").strip(),
         "dt": (getattr(saved, "updated_at", None) if saved else None) or dt_fallback,
         "exercise_type": (getattr(exercise, "exercise_type", "") or "").strip(),
         "trained_unit": (getattr(exercise, "trained_unit", "") or "").strip(),
+        "total_pct": total_pct,
         "delivery_dt": (
             getattr(saved, "approved_at", None)
             if saved is not None and eval_judge_approved(saved) and not eval_reopened_for_judge(saved)
@@ -424,6 +430,11 @@ def build_evaluation_list_row(
     """صف جدول قوائم التقييم (محكم / مخطط / كبير محكمين)."""
     is_done = eval_status_done(saved)
     dispatch_label, row_tone = eval_dispatch_status_ar(saved)
+    pct_raw = getattr(saved, "total_pct", None) if saved else None
+    try:
+        total_pct = float(pct_raw) if pct_raw is not None else None
+    except (TypeError, ValueError):
+        total_pct = None
     return {
         "item_id": int(item.id),
         "item_title": (getattr(item, "text", None) or "تقييم").strip(),
@@ -431,6 +442,7 @@ def build_evaluation_list_row(
         or getattr(item, "created_at", None),
         "exercise_type": (getattr(exercise, "exercise_type", "") or "").strip(),
         "trained_unit": (getattr(exercise, "trained_unit", "") or "").strip(),
+        "total_pct": total_pct,
         "delivery_dt": (
             getattr(saved, "approved_at", None)
             if saved is not None and eval_judge_approved(saved) and not eval_reopened_for_judge(saved)
