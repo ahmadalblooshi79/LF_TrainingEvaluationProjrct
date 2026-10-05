@@ -63,6 +63,31 @@ def pending_eval_list_zip_relpath(
     return rel
 
 
+def eval_export_list_folder_relpath(
+    *,
+    phase_label: str,
+    unit_label: str,
+    list_title: str,
+    item_id: int,
+    used: set[str],
+) -> str:
+    """مجلد القائمة داخل الأرشيف: المرحلة/الوحدة/اسم القائمة."""
+    phase = zip_safe_segment(phase_label, "مرحلة")
+    unit = zip_safe_segment(unit_label, "وحدة")
+    fname = export_download_filename(list_title)
+    stem = re.sub(r"\.(xlsx|xlsm|xls)$", "", fname, flags=re.I).strip() or f"قائمة_{int(item_id)}"
+    rel = f"{phase}/{unit}/{stem}"
+    if rel in used:
+        rel = f"{phase}/{unit}/{stem}_{int(item_id)}"
+    n = 2
+    base = rel
+    while rel in used:
+        rel = f"{base}_{n}"
+        n += 1
+    used.add(rel)
+    return rel
+
+
 def pack_pending_eval_lists_zip(entries: list[tuple[str, bytes]]) -> bytes:
     """أرشيف ZIP من أزواج (المسار النسبي، بايتات Excel)."""
     buf = io.BytesIO()

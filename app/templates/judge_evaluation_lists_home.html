@@ -4,6 +4,14 @@
 {% block content %}
 <div class="page-header page-header--judge-eval-lists">
   <h1><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ page_title | default('قوائم تقييم الإجراءات') }}</h1>
+  {% if pending_export_href %}
+  <div class="page-header__tools">
+    <a class="btn btn--eval-export" href="{{ pending_export_href }}" title="تصدير Excel لكل قوائم تقييم الإجراءات بانتظار الاعتماد">
+      <i class="fa-solid fa-file-zipper" aria-hidden="true"></i>
+      تصدير قوائم بانتظار الاعتماد
+    </a>
+  </div>
+  {% endif %}
   <div class="page-header__nav">
     {% include 'partials/control_hub_back.html' %}
   </div>

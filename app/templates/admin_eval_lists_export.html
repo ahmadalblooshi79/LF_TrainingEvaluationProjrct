@@ -1,0 +1,163 @@
+{% extends "admin_shell.html" %}
+{% block title %}تصدير قوائم التقييم والمعاضل{% endblock %}
+{% block admin_workspace %}
+<div class="page-header">
+  <h1><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> تصدير قوائم التقييم والإجراءات والمعاضل</h1>
+  <p class="muted" style="margin:0;">اختر الوحدات والمراحل والقوائم والحالة، ثم احفظ في مجلد (المرحلة / الوحدة / القائمة) أو نزّل أرشيفاً.</p>
+</div>
+{% if not has_exercise %}
+<p class="form-error-banner" role="alert">لا يوجد تمرين حالي.</p>
+{% else %}
+<form id="form-eval-export" method="post" action="{{ url_for('views.admin_eval_lists_export_zip') }}">
+  <section class="card" style="margin-bottom:1rem;">
+    <h2 class="h2-in-card"><i class="fa-solid fa-layer-group fa-icon-title" aria-hidden="true"></i> الحالة</h2>
+    <div class="eval-export-checks">
+      {% for st in export_statuses %}
+      <label class="checkbox-label"><input type="checkbox" name="status" value="{{ st.key }}" checked data-filter="status"> {{ st.label }}</label>
+      {% endfor %}
+    </div>
+  </section>
+  <section class="card" style="margin-bottom:1rem;">
+    <h2 class="h2-in-card"><i class="fa-solid fa-sitemap fa-icon-title" aria-hidden="true"></i> الوحدات</h2>
+    <p class="muted" style="margin-top:0;"><button type="button" class="btn btn-ghost" data-toggle-group="unit">تحديد الكل / إلغاء</button></p>
+    <div class="eval-export-checks">
+      {% for u in export_units %}
+      <label class="checkbox-label"><input type="checkbox" name="unit" value="{{ u.key }}" checked data-filter="unit"> {{ u.label }}</label>
+      {% endfor %}
+      {% if not export_units %}
+      <p class="muted">لا توجد وحدات بقوائم محفوظة.</p>
+      {% endif %}
+    </div>
+  </section>
+  <section class="card" style="margin-bottom:1rem;">
+    <h2 class="h2-in-card"><i class="fa-solid fa-route fa-icon-title" aria-hidden="true"></i> المراحل</h2>
+    <p class="muted" style="margin-top:0;"><button type="button" class="btn btn-ghost" data-toggle-group="phase">تحديد الكل / إلغاء</button></p>
+    <div class="eval-export-checks">
+      {% for p in export_phases %}
+      <label class="checkbox-label"><input type="checkbox" name="phase" value="{{ p.key }}" checked data-filter="phase"> {{ p.label }}</label>
+      {% endfor %}
+      {% if not export_phases %}
+      <p class="muted">لا توجد مراحل بقوائم محفوظة.</p>
+      {% endif %}
+    </div>
+  </section>
+  <section class="card" style="margin-bottom:1rem;">
+    <h2 class="h2-in-card"><i class="fa-solid fa-list fa-icon-title" aria-hidden="true"></i> القوائم</h2>
+    <p class="muted" style="margin-top:0;"><button type="button" class="btn btn-ghost" data-toggle-group="list">تحديد الكل الظاهر / إلغاء</button></p>
+    <div class="eval-export-lists" id="eval-export-lists">
+      {% for e in export_catalog %}
+      <label class="checkbox-label eval-export-list" data-unit="{{ e.unit_key }}" data-phase="{{ e.phase_key }}" data-status="{{ e.status }}">
+        <input type="checkbox" name="list" value="{{ e.key }}" checked data-filter="list">
+        <span>{{ e.title }}</span>
+        <span class="muted"> — {{ e.phase_label }} / {{ e.unit_label }} / {{ e.status_label }}</span>
+      </label>
+      {% endfor %}
+      {% if not export_catalog %}
+      <p class="muted">لا توجد قوائم محفوظة أو بانتظار الاعتماد أو معتمدة.</p>
+      {% endif %}
+    </div>
+  </section>
+  <div class="eval-export-actions">
+    <button type="button" class="btn" id="btn-export-folder"><i class="fa-solid fa-folder-open" aria-hidden="true"></i> حفظ في مجلد</button>
+    <button type="submit" class="btn btn-ghost" id="btn-export-zip"><i class="fa-solid fa-file-zipper" aria-hidden="true"></i> تنزيل أرشيف ZIP</button>
+    <span class="muted" id="eval-export-status" aria-live="polite"></span>
+  </div>
+</form>
+<style>
+.eval-export-checks, .eval-export-lists { display:flex; flex-direction:column; gap:0.35rem; }
+.eval-export-list { align-items:flex-start; }
+.eval-export-actions { display:flex; flex-wrap:wrap; gap:0.6rem; align-items:center; }
+</style>
+<script>
+(function () {
+  var form = document.getElementById("form-eval-export");
+  if (!form) return;
+  var statusEl = document.getElementById("eval-export-status");
+  function checkedValues(name) {
+    return Array.prototype.map.call(form.querySelectorAll('input[name="' + name + '"]:checked'), function (el) { return el.value; });
+  }
+  function applyListFilter() {
+    var units = new Set(checkedValues("unit"));
+    var phases = new Set(checkedValues("phase"));
+    var statuses = new Set(checkedValues("status"));
+    form.querySelectorAll(".eval-export-list").forEach(function (lab) {
+      var ok = units.has(lab.getAttribute("data-unit") || "")
+        && phases.has(lab.getAttribute("data-phase") || "")
+        && statuses.has(lab.getAttribute("data-status") || "");
+      lab.style.display = ok ? "" : "none";
+      if (!ok) {
+        var cb = lab.querySelector('input[name="list"]');
+        if (cb) cb.checked = false;
+      }
+    });
+  }
+  form.querySelectorAll("input[data-filter]").forEach(function (el) {
+    if (el.getAttribute("data-filter") === "list") return;
+    el.addEventListener("change", applyListFilter);
+  });
+  form.querySelectorAll("[data-toggle-group]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var group = btn.getAttribute("data-toggle-group");
+      var boxes = Array.prototype.filter.call(form.querySelectorAll('input[name="' + group + '"]'), function (cb) {
+        return cb.closest("label") ? cb.closest("label").style.display !== "none" : true;
+      });
+      var allOn = boxes.every(function (cb) { return cb.checked; });
+      boxes.forEach(function (cb) { cb.checked = !allOn; });
+      if (group !== "list") applyListFilter();
+    });
+  });
+  async function ensureDir(root, parts) {
+    var handle = root;
+    for (var i = 0; i < parts.length; i++) {
+      handle = await handle.getDirectoryHandle(parts[i], { create: true });
+    }
+    return handle;
+  }
+  document.getElementById("btn-export-folder").addEventListener("click", async function () {
+    if (!window.showDirectoryPicker) {
+      if (statusEl) statusEl.textContent = "المتصفح لا يدعم اختيار المجلد — سيتم تنزيل الأرشيف.";
+      form.submit();
+      return;
+    }
+    var dir;
+    try {
+      dir = await window.showDirectoryPicker({ mode: "readwrite" });
+    } catch (err) {
+      if (err && err.name === "AbortError") return;
+      form.submit();
+      return;
+    }
+    if (statusEl) statusEl.textContent = "جاري التحضير…";
+    var res = await fetch("{{ url_for('views.admin_eval_lists_export_manifest') }}", {
+      method: "POST",
+      body: new FormData(form),
+      credentials: "same-origin"
+    });
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok || !data.files || !data.files.length) {
+      if (statusEl) statusEl.textContent = data.error || "تعذّر التصدير.";
+      return;
+    }
+    var n = 0;
+    for (var i = 0; i < data.files.length; i++) {
+      var f = data.files[i];
+      var parts = String(f.relpath || "").split("/").filter(Boolean);
+      if (!parts.length) continue;
+      var fileName = parts.pop();
+      var folder = await ensureDir(dir, parts);
+      var fileHandle = await folder.getFileHandle(fileName, { create: true });
+      var blobRes = await fetch(f.href, { credentials: "same-origin" });
+      if (!blobRes.ok) continue;
+      var blob = await blobRes.blob();
+      var w = await fileHandle.createWritable();
+      await w.write(blob);
+      await w.close();
+      n += 1;
+      if (statusEl) statusEl.textContent = "حُفظ " + n + " من " + data.files.length;
+    }
+    if (statusEl) statusEl.textContent = "اكتمل الحفظ (" + n + " ملف).";
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

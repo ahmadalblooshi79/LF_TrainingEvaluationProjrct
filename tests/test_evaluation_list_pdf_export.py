@@ -119,6 +119,7 @@ class EvaluationListPdfExportTests(unittest.TestCase):
                 judge_name="سالم",
                 eval_rows=eval_rows,
                 saved_rows=saved,
+                materialize_computed=True,
             )
         wb = load_workbook(io.BytesIO(data))
         try:
@@ -188,6 +189,113 @@ class EvaluationListPdfExportTests(unittest.TestCase):
             self.assertEqual(ws["B3"].value, "قائد الوحدة")
             self.assertEqual(ws["B4"].value, "مجرى الأحداث والمعاضل")
             self.assertEqual(ws["C2"].value, "فصيل الطبية /1")
+        finally:
+            out.close()
+
+    def test_military_inspection_template_writes_system_values_without_formulas(self):
+        with TemporaryDirectory() as td:
+            src = Path(td) / "n.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "قائمة التقييم"
+            ws.merge_cells("B1:J1")
+            ws["B1"] = "تقييم معضلة تعرض فرد للدغة عقرب"
+            ws["B2"] = "وصف المعضلة: نص"
+            ws["B3"] = "متطلبات تنفيذ المعضلة: تفرض المعضلة من قبل المحكم شفهياً."
+            ws["B4"] = "الوحدة:"
+            ws["C4"] = "أدخل الوحدة الخاضعة للتقييم"
+            ws["E4"] = "التاريخ:"
+            ws["F4"] = "اليوم"
+            ws["H4"] = "الشهر"
+            ws["J4"] = "السنة"
+            ws["B5"] = "قائد الوحدة:"
+            ws["C5"] = "أدخل اسم قائد الوحدة"
+            ws["E5"] = "المحكم:"
+            ws["F5"] = "أدخل اسم المحكم"
+            ws["B8"] = "عناصــــــر التقييـــــم"
+            ws["E8"] = "العلامـــــــات"
+            ws["I8"] = "ملاحظــــــات"
+            ws["E9"] = "القصوى"
+            ws["F9"] = "المكتسبة"
+            ws["G9"] = "النسبة"
+            ws["H9"] = "النتيجة"
+            items = [
+                "1. إجراء الإسعاف الأولي",
+                "2. ربط المنطقة",
+                "3. إخلاء المصابين",
+                "4. يفترض المحكم وفاة المصاب عند تأخر الإخلاء.",
+                "5. إسعاف المصاب",
+                "6. إبلاغ مركز التسمم",
+                "7. رفع تقرير",
+                "8. تفعيل دور الصحة العامة",
+            ]
+            for i, title in enumerate(items, start=11):
+                ws[f"B{i}"] = title
+                ws[f"E{i}"] = 3
+                ws[f"F{i}"] = "أدخل العلامة"
+                ws[f"G{i}"] = f'=IFERROR(F{i}/E{i},"")'
+                ws[f"H{i}"] = (
+                    f'=IFS(F{i}="أدخل العلامة","",F{i}="لا ينطبق","تم الإلغاء",'
+                    f'G{i}>=90%,"ممتاز",G{i}<60%,"راسب")'
+                )
+            ws["B19"] = "إجمالي العلامات"
+            ws["E19"] = "=SUM(E11:E18)"
+            ws["F19"] = "=SUM(F11:F18)"
+            ws["B20"] = "النسبة العامة"
+            ws["E20"] = "=F19/E19"
+            extra = wb.create_sheet("بيانات التقييم")
+            extra["A1"] = "أدخل الوحدة الخاضعة للتقييم"
+            extra["A2"] = "سرية القناصة"
+            extra["A3"] = "=A2"
+            wb.save(src)
+            wb.close()
+
+            eval_rows = read_evaluation_list_sheet(src).get("eval_rows") or []
+            scores = [r for r in eval_rows if r.get("row_kind") == "score"]
+            self.assertEqual(len(scores), 8)
+            saved = [
+                {"acquired": "2", "notes": "", "row_kind": r.get("row_kind") or "score"}
+                for r in eval_rows
+            ]
+            data = build_evaluation_list_xlsx_bytes(
+                src,
+                doc_title="تقييم معضلة تعرض فرد للدغة عقرب",
+                unit_label="سرية القناصة",
+                date_str="2026-09-21",
+                commander_name="قائد الوحدة",
+                judge_name="علي حميد",
+                eval_rows=eval_rows,
+                saved_rows=saved,
+            )
+        out = load_workbook(io.BytesIO(data))
+        try:
+            self.assertEqual(out.sheetnames, ["قائمة التقييم", "بيانات التقييم"])
+            ws = out["قائمة التقييم"]
+            self.assertEqual(ws["C4"].value, "سرية القناصة")
+            self.assertEqual(ws["F4"].value, 21)
+            self.assertEqual(ws["H4"].value, 9)
+            self.assertEqual(ws["J4"].value, 2026)
+            self.assertEqual(ws["C5"].value, "قائد الوحدة")
+            self.assertEqual(ws["F5"].value, "علي حميد")
+            for r in range(11, 19):
+                self.assertEqual(ws[f"B{r}"].value, items[r - 11])
+                self.assertEqual(ws[f"E{r}"].value, 3)
+                self.assertEqual(ws[f"F{r}"].value, 2)
+                self.assertAlmostEqual(float(ws[f"G{r}"].value), 2 / 3, places=5)
+                self.assertEqual(ws[f"H{r}"].value, "مقبول")
+                self.assertFalse(str(ws[f"G{r}"].value).startswith("="))
+                self.assertFalse(str(ws[f"H{r}"].value).startswith("="))
+            self.assertEqual(ws["E19"].value, 24)
+            self.assertEqual(ws["F19"].value, 16)
+            self.assertAlmostEqual(float(ws["E20"].value), 16 / 24, places=5)
+            self.assertFalse(str(ws["E19"].value).startswith("="))
+            extra_ws = out["بيانات التقييم"]
+            self.assertEqual(extra_ws["A2"].value, "سرية القناصة")
+            self.assertIsNone(extra_ws["A3"].value)
+            for row in ws.iter_rows(min_row=1, max_row=22, max_col=10, values_only=True):
+                for val in row:
+                    if isinstance(val, str):
+                        self.assertFalse(val.startswith("="), val)
         finally:
             out.close()
 

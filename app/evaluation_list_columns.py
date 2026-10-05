@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 
@@ -407,12 +408,27 @@ def _row_text_in_label_columns(cells: list[str], max_col: int = 4) -> str:
     return " ".join(p for p in parts if p).strip()
 
 
+_RE_NUMBERED_EVAL_ITEM = re.compile(r"^[\d٠-٩]+\s*[\.\)\-\u2013\u2014]|^\s*[\d٠-٩]+\s+\S")
+
+
+def _row_is_numbered_eval_item(cells: list[str]) -> bool:
+    """بند تقييم مرقم (1. …) — ليس صف تذييل حتى لو وردت فيه كلمة «المحكم»."""
+    el = normalize_ar_header(
+        cells[EVAL_IMPORT_COL_ELEMENTS] if len(cells) > EVAL_IMPORT_COL_ELEMENTS else ""
+    )
+    if not el:
+        return False
+    return bool(_RE_NUMBERED_EVAL_ITEM.match(el))
+
+
 def is_evaluation_import_footer_stop_row(cells: list[str]) -> bool:
     """صف يُنهي جسم الاستيراد (إجمالي / نسبة عامة / تقدير عام / ملاحظات / محكم / توقيع).
 
     لا تُوقف على «ملاحظة: …» الإرشادية داخل بنود التقييم (شائعة في قوائم الهجوم المدبر).
     التذييل الحقيقي يبدأ عادةً بـ «ملاحظات» (جمع) أو يضم المحكم/التوقيع/الإجمالي.
     """
+    if _row_is_numbered_eval_item(cells):
+        return False
     label_blob = _row_text_in_label_columns(cells)
     if not label_blob:
         return False
@@ -425,9 +441,10 @@ def is_evaluation_import_footer_stop_row(cells: list[str]) -> bool:
         return True
     if "ملاحظات" in label_blob and "1." in label_blob:
         return True
-    if "المحكم" in label_blob:
+    key = _normalize_footer_text(label_blob)
+    if key == "المحكم" or (key.startswith("المحكم") and len(key) <= 24):
         return True
-    if "التوقيع" in label_blob:
+    if key == "التوقيع" or (key.startswith("التوقيع") and len(key) <= 24):
         return True
     joined = _normalize_footer_text(" ".join(cells))
     for kw in EVAL_IMPORT_SKIP_ROW_KEYWORDS:
@@ -532,6 +549,8 @@ def should_skip_evaluation_import_row(
             return True
     if is_evaluation_import_footer_stop_row(cells):
         return True
+    if _row_is_numbered_eval_item(cells):
+        return False
     label_blob = _row_text_in_label_columns(cells)
     for kw in EVAL_IMPORT_SKIP_ROW_KEYWORDS:
         if _normalize_footer_text(kw) in label_blob:

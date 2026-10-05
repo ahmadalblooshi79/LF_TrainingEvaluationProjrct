@@ -90,6 +90,23 @@ from app.eval_criterion_media import (
     persist_criterion_medium,
     unlink_criterion_media_file,
 )
+from app.eval_judge_attribution import (
+    assigned_judge_user_for_unit,
+    attribution_user_id_for_eval_actor,
+    reattribute_admin_saved_eval_rows,
+    user_is_admin_attribution_source,
+)
+from app.eval_lists_admin_export import (
+    catalog_filter_options,
+    collect_admin_eval_export_catalog,
+    filter_admin_eval_export_entries,
+    media_export_filename,
+    media_file_bytes,
+    media_rows_for_list,
+    pack_admin_eval_export_zip,
+    parse_export_form_filters,
+    zip_entries_for_selected,
+)
 from app.evaluation_workflow import (
     apply_chief_approve,
     apply_chief_reopen,
@@ -105,6 +122,8 @@ from app.evaluation_workflow import (
     evaluation_unit_home_totals,
     filter_evaluation_items_by_phase,
     parse_evaluation_list_phase_key,
+    pending_dispatch_eval_items,
+    _evaluation_home_items_bundle,
     eval_status_done,
     eval_chief_approved,
     eval_chief_can_approve,
@@ -349,15 +368,27 @@ def _evaluation_sheet_view_context(fspath: Path, exercise=None) -> dict:
 def _saved_payload_aligned_with_eval_rows(
     saved_payload: dict | None, eval_rows: list | None
 ) -> dict:
-    """يتجاهل حفظاً قديماً بعدد صفوف لا يطابق القالب الحالي (يمنع انحراف المكتسبة والمجاميع)."""
+    """يطابق صفوف الحفظ مع صفوف القالب كما في صفحة القائمة (بالفهرس)."""
     header = eval_header_fields_from_payload(saved_payload)
     if not saved_payload or not isinstance(saved_payload, dict):
         return header
     rows = saved_payload.get("rows") or []
     template = eval_rows or []
-    if not template or len(rows) != len(template):
+    if not template:
         return header
-    return saved_payload
+    if not isinstance(rows, list):
+        return header
+    if len(rows) == len(template):
+        return saved_payload
+    aligned: list = []
+    for i in range(len(template)):
+        if i < len(rows) and isinstance(rows[i], dict):
+            aligned.append(rows[i])
+        else:
+            aligned.append({})
+    out = dict(saved_payload)
+    out["rows"] = aligned
+    return out
 
 
 def _unlink_evaluation_list_stored_file(relpath: str) -> None:
@@ -1062,12 +1093,14 @@ def _eval_sheet_judge_display_name(
     fallback_user: User | None = None,
 ) -> str:
     """اسم المحكم المعروض على القائمة: من اعتمد/حفظ، ثم محكم الوحدة+المرحلة."""
-    uid = None
     if saved is not None:
-        uid = getattr(saved, "approved_by_id", None) or getattr(saved, "saved_by_id", None)
-    if uid is not None:
-        u = db.get(User, int(uid))
-        if u is not None:
+        for attr in ("approved_by_id", "saved_by_id"):
+            uid = getattr(saved, attr, None)
+            if uid is None:
+                continue
+            u = db.get(User, int(uid))
+            if u is None or user_is_admin_attribution_source(u):
+                continue
             return (u.full_name or "").strip() or (u.username or "").strip() or f"محكم #{int(uid)}"
     uk = (unit_key or "").strip()
     pk_raw = (phase_key or "").strip()
@@ -1094,7 +1127,7 @@ def _eval_sheet_judge_display_name(
         name = (jr.full_name or "").strip()
         if name:
             return name
-    if fallback_user is not None:
+    if fallback_user is not None and not user_is_admin_attribution_source(fallback_user):
         return (
             (getattr(fallback_user, "full_name", "") or "").strip()
             or (getattr(fallback_user, "username", "") or "").strip()
@@ -2920,13 +2953,20 @@ def _evaluation_commit_payload_save(
         else:
             abort(403)
     was_reopened = eval_reopened_for_judge(saved) if saved is not None else False
+    actor_uid = attribution_user_id_for_eval_actor(
+        db,
+        user,
+        exercise_id=int(current_exercise.id),
+        unit_key=item.unit_level_key or "",
+        phase_key=getattr(item, "exercise_phase", None),
+    )
     if saved is None:
         saved = EvaluationListSavedResult(
             evaluation_item_id=item.id,
             exercise_id=current_exercise.id,
             exercise_phase=_normalized_exercise_phase(getattr(item, "exercise_phase", None)),
             unit_level_key=item.unit_level_key or "",
-            saved_by_id=getattr(user, "id", None),
+            saved_by_id=actor_uid,
             is_approved=False,
         )
         db.add(saved)
@@ -2936,7 +2976,7 @@ def _evaluation_commit_payload_save(
     )
     saved.total_pct = total_pct
     saved.grade_label = grade
-    saved.saved_by_id = getattr(user, "id", None)
+    saved.saved_by_id = actor_uid
     if was_reopened:
         apply_judge_save_after_reopen(saved)
     db.flush()
@@ -3014,13 +3054,20 @@ def _planner_bundle_eval_commit_payload_save(
         else:
             abort(403)
     was_reopened = eval_reopened_for_judge(saved) if saved is not None else False
+    actor_uid = attribution_user_id_for_eval_actor(
+        db,
+        user,
+        exercise_id=int(current_exercise.id),
+        unit_key=bundle.unit_level_key or "",
+        phase_key=getattr(bundle, "exercise_phase", None),
+    )
     if saved is None:
         saved = PlannerFlowBundleEvalSavedResult(
             bundle_action_eval_id=action_row.id,
             exercise_id=current_exercise.id,
             exercise_phase=_normalized_exercise_phase(bundle.exercise_phase),
             unit_level_key=bundle.unit_level_key or "",
-            saved_by_id=getattr(user, "id", None),
+            saved_by_id=actor_uid,
             is_approved=False,
         )
         db.add(saved)
@@ -3030,7 +3077,7 @@ def _planner_bundle_eval_commit_payload_save(
     )
     saved.total_pct = total_pct
     saved.grade_label = grade
-    saved.saved_by_id = getattr(user, "id", None)
+    saved.saved_by_id = actor_uid
     saved.unit_level_key = bundle.unit_level_key or ""
     saved.exercise_phase = _normalized_exercise_phase(bundle.exercise_phase)
     if was_reopened:
@@ -3288,13 +3335,45 @@ def _eval_list_viewer_ctx(user: User, saved) -> dict:
 
 
 def _web_signed_judge_approve(db, user: User, saved) -> None:
-    from app.judge_signature import attach_signature_snapshot, resolve_approval_png
-
-    png, version = resolve_approval_png(db, user)
-    apply_judge_approve(saved, getattr(user, "id", None))
-    attach_signature_snapshot(
-        saved, user_id=int(user.id), png_bytes=png, version=version
+    from app.judge_signature import (
+        JudgeSignatureError,
+        attach_signature_snapshot,
+        resolve_approval_png,
     )
+
+    actor_uid = attribution_user_id_for_eval_actor(
+        db,
+        user,
+        exercise_id=int(getattr(saved, "exercise_id", 0) or 0),
+        unit_key=getattr(saved, "unit_level_key", None) or "",
+        phase_key=getattr(saved, "exercise_phase", None),
+    )
+    png = None
+    version = None
+    try:
+        png, version = resolve_approval_png(db, user)
+    except JudgeSignatureError:
+        if not (is_chief_judge(user) or is_system_admin(user)):
+            raise
+        assigned = assigned_judge_user_for_unit(
+            db,
+            exercise_id=int(getattr(saved, "exercise_id", 0) or 0),
+            unit_key=getattr(saved, "unit_level_key", None) or "",
+            phase_key=getattr(saved, "exercise_phase", None),
+        )
+        if assigned is not None:
+            try:
+                png, version = resolve_approval_png(db, assigned)
+            except JudgeSignatureError:
+                png, version = None, None
+    apply_judge_approve(saved, actor_uid)
+    if png and version is not None:
+        attach_signature_snapshot(
+            saved,
+            user_id=int(actor_uid or user.id),
+            png_bytes=png,
+            version=version,
+        )
 
 
 def _eval_crit_media_sheet_ctx(
@@ -8589,6 +8668,8 @@ def _planner_flow_action_eval_mutations_blocked(user: User) -> bool:
     """هل يُمنع الحفظ/الاعتماد؟ مسار قوائم تقييم الإجراءات في مساحة المحكمين دائماً تفاعلي."""
     if _from_judge_action_eval_lists_request():
         return not can_save_evaluation_results(user)
+    if _request_from_chief_judge_hub() and can_approve_evaluation_results(user):
+        return False
     return _planner_flow_is_readonly_oversee(user)
 
 
@@ -8602,6 +8683,9 @@ def _planner_flow_eval_list_viewer_ctx(user: User, saved) -> dict:
                 eval_judge_can_edit(saved)
                 or _allow_other_judge_eval_overwrite(user, saved)
             )
+        return wf
+    if _request_from_chief_judge_hub() and can_approve_evaluation_results(user):
+        wf["eval_can_edit"] = False
         return wf
     if _planner_flow_is_readonly_oversee(user):
         wf["eval_can_edit"] = False
@@ -10163,8 +10247,27 @@ def planner_evaluation_lists_home():
             phase_tabs=phase_tabs,
             active_phase_key=_evaluation_list_home_active_phase(phase_tabs),
             unit_list_endpoint="views.planner_evaluation_lists",
+            pending_export_href=url_for("views.planner_evaluation_lists_export_pending") if ex is not None else "",
             **_hub_back_ctx_for_request_path(),
         ),
+    )
+
+
+@bp.route("/planner/evaluation-lists/export-pending.zip", methods=["GET"])
+def planner_evaluation_lists_export_pending():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/planner/evaluation-lists/export-pending.zip")
+    if not can_access_planner_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _admin_current_workspace_exercise(db, user)
+    return _send_pending_evaluation_lists_zip(
+        db=db,
+        current_exercise=ex,
+        redirect_url=url_for("views.planner_evaluation_lists_home"),
     )
 
 
@@ -10469,7 +10572,13 @@ def planner_evaluation_list_approve(unit_key: str, item_id: int):
             eval_approve_grade_blocked=1,
         )
     saved.is_approved = True
-    saved.approved_by_id = getattr(user, "id", None)
+    saved.approved_by_id = attribution_user_id_for_eval_actor(
+        db,
+        user,
+        exercise_id=int(current_exercise.id),
+        unit_key=item.unit_level_key or "",
+        phase_key=getattr(item, "exercise_phase", None),
+    )
     saved.approved_at = datetime.utcnow()
     db.commit()
     return _evaluation_list_viewer_redirect(
@@ -10477,21 +10586,21 @@ def planner_evaluation_list_approve(unit_key: str, item_id: int):
     )
 
 
-def _send_eval_xlsx_file(
+def _eval_xlsx_bytes_from_source(
     *,
     db,
     source_path: Path,
     item_title: str,
     unit_key: str,
+    unit_label: str,
     current_exercise,
     saved_payload: dict | None,
     ev: dict,
     saved_row=None,
-    as_pdf: bool = False,
-):
-    """يبني ملف Excel (أو PDF مطابق) من مسار القائمة ويرسله للتنزيل."""
-    unit = _require_unit_level_row(unit_key) if unit_key else None
-    unit_label = (unit.get("label") or "").strip() if isinstance(unit, dict) else ""
+    materialize_computed: bool = True,
+    remove_grade_cf: bool = False,
+) -> bytes:
+    """يبني بايتات Excel من مسار القائمة دون إرسال الملف."""
     shown_date = getattr(current_exercise, "planned_start", None) or getattr(
         current_exercise, "created_at", None
     )
@@ -10521,7 +10630,6 @@ def _send_eval_xlsx_file(
 
     from app.evaluation_list_export import (
         build_evaluation_list_xlsx_bytes,
-        export_download_filename,
         export_eval_doc_banner_title,
     )
     from app.judge_signature import snapshot_png
@@ -10537,21 +10645,54 @@ def _send_eval_xlsx_file(
         excel_requirements=(ev.get("eval_dilemma_requirements") or ""),
     )
     sig_png = snapshot_png(saved_row)
+    return build_evaluation_list_xlsx_bytes(
+        source_path,
+        doc_title=doc_title,
+        unit_label=unit_label or "",
+        date_str=date_str,
+        commander_name=commander_name or "",
+        judge_name=judge_name or "",
+        eval_rows=ev.get("eval_rows") or [],
+        saved_rows=(saved_payload.get("rows") or []) if saved_payload else [],
+        dilemma_description=dilemma_description,
+        dilemma_requirements=dilemma_requirements,
+        signature_png=sig_png,
+        approved_at=getattr(saved_row, "approved_at", None) if saved_row else None,
+        materialize_computed=True,
+        remove_grade_cf=remove_grade_cf,
+    )
+
+
+def _send_eval_xlsx_file(
+    *,
+    db,
+    source_path: Path,
+    item_title: str,
+    unit_key: str,
+    current_exercise,
+    saved_payload: dict | None,
+    ev: dict,
+    saved_row=None,
+    as_pdf: bool = False,
+):
+    """يبني ملف Excel (أو PDF مطابق) من مسار القائمة ويرسله للتنزيل."""
+    from app.evaluation_list_export import export_download_filename
+
+    unit = _require_unit_level_row(unit_key) if unit_key else None
+    unit_label = (unit.get("label") or "").strip() if isinstance(unit, dict) else ""
     try:
-        data = build_evaluation_list_xlsx_bytes(
-            source_path,
-            doc_title=doc_title,
-            unit_label=unit_label or "",
-            date_str=date_str,
-            commander_name=commander_name or "",
-            judge_name=judge_name or "",
-            eval_rows=ev.get("eval_rows") or [],
-            saved_rows=(saved_payload.get("rows") or []) if saved_payload else [],
-            dilemma_description=dilemma_description,
-            dilemma_requirements=dilemma_requirements,
-            signature_png=sig_png,
-            approved_at=getattr(saved_row, "approved_at", None) if saved_row else None,
+        data = _eval_xlsx_bytes_from_source(
+            db=db,
+            source_path=source_path,
+            item_title=item_title,
+            unit_key=unit_key,
+            unit_label=unit_label,
+            current_exercise=current_exercise,
+            saved_payload=saved_payload,
+            ev=ev,
+            saved_row=saved_row,
             materialize_computed=True,
+            remove_grade_cf=as_pdf,
         )
     except ModuleNotFoundError:
         current_app.logger.exception("evaluation list export missing dependency")
@@ -10565,9 +10706,10 @@ def _send_eval_xlsx_file(
 
     if as_pdf:
         from app.evaluation_list_pdf import build_evaluation_list_pdf_bytes
+        from app.judge_signature import snapshot_png
 
         try:
-            pdf = build_evaluation_list_pdf_bytes(data, signature_png=sig_png)
+            pdf = build_evaluation_list_pdf_bytes(data, signature_png=snapshot_png(saved_row))
         except Exception:
             abort(500)
         if not pdf:
@@ -10576,14 +10718,14 @@ def _send_eval_xlsx_file(
             io.BytesIO(pdf),
             mimetype="application/pdf",
             as_attachment=True,
-            download_name=export_download_filename(item_title or doc_title, ext="pdf"),
+            download_name=export_download_filename(item_title, ext="pdf"),
         )
 
     return send_file(
         io.BytesIO(data),
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
-        download_name=export_download_filename(item_title or doc_title),
+        download_name=export_download_filename(item_title),
     )
 
 
@@ -10639,6 +10781,251 @@ def _send_evaluation_list_export_xlsx(
         ev=ev,
         saved_row=canon,
         as_pdf=as_pdf,
+    )
+
+
+def _eval_xlsx_bytes_for_item(db, item, current_exercise, saved_row) -> bytes | None:
+    """بايتات Excel لقائمة تقييم واحدة، أو None إن تعذّر المصدر."""
+    if not (getattr(item, "pdf_relpath", None) or "").strip():
+        return None
+    fspath = _resolve_evaluation_list_export_source(db, item)
+    if fspath is None:
+        return None
+    ev = _evaluation_sheet_view_context(fspath, exercise=current_exercise)
+    saved_payload: dict = {}
+    if saved_row is not None and (getattr(saved_row, "payload_json", None) or "").strip():
+        try:
+            p = json.loads(saved_row.payload_json)
+            if isinstance(p, dict):
+                saved_payload = p
+        except Exception:
+            saved_payload = {}
+    saved_payload = _saved_payload_aligned_with_eval_rows(saved_payload, ev.get("eval_rows"))
+    uk = (getattr(item, "unit_level_key", None) or "").strip()
+    unit_label = label_for_unit_level_key(uk, db) or uk
+    return _eval_xlsx_bytes_from_source(
+        db=db,
+        source_path=fspath,
+        item_title=(getattr(item, "text", None) or "").strip(),
+        unit_key=uk,
+        unit_label=unit_label,
+        current_exercise=current_exercise,
+        saved_payload=saved_payload,
+        ev=ev,
+        saved_row=saved_row,
+        materialize_computed=True,
+        remove_grade_cf=False,
+    )
+
+
+def _eval_xlsx_bytes_for_action_row(db, action_row, bundle, current_exercise, saved_row) -> bytes | None:
+    """بايتات Excel لقائمة تقييم معاضل/إجراءات واحدة."""
+    path = _planner_bundle_file_abspath(getattr(action_row, "file_relpath", None))
+    if path is None:
+        return None
+    ev = _evaluation_sheet_view_context(path, exercise=current_exercise)
+    saved_payload: dict = {}
+    if saved_row is not None and (getattr(saved_row, "payload_json", None) or "").strip():
+        try:
+            p = json.loads(saved_row.payload_json)
+            if isinstance(p, dict):
+                saved_payload = p
+        except Exception:
+            saved_payload = {}
+    saved_payload = _saved_payload_aligned_with_eval_rows(saved_payload, ev.get("eval_rows"))
+    uk = (getattr(bundle, "unit_level_key", None) or "").strip()
+    unit_label = label_for_unit_level_key(uk, db) or uk
+    item_title = _planner_blob_display_filename(
+        stored_title=getattr(action_row, "title", None) or "",
+        relpath=getattr(action_row, "file_relpath", None) or "",
+        fallback=f"قائمة تقييم إجراءات — {getattr(action_row, 'id', '')}",
+    ).strip()
+    return _eval_xlsx_bytes_from_source(
+        db=db,
+        source_path=path,
+        item_title=item_title,
+        unit_key=uk,
+        unit_label=unit_label,
+        current_exercise=current_exercise,
+        saved_payload=saved_payload,
+        ev=ev,
+        saved_row=saved_row,
+        materialize_computed=True,
+        remove_grade_cf=False,
+    )
+
+
+def _admin_eval_export_file_payloads(db, current_exercise, selected: list[dict]):
+    """يبني بايتات Excel والوسائط للمفاتيح المختارة."""
+    from app.eval_lists_admin_export import EXPORT_KIND_ACTION, EXPORT_KIND_EVAL
+
+    xlsx_by_key: dict[str, bytes] = {}
+    media_by_key: dict[str, list[tuple[str, bytes]]] = {}
+    eval_items = {
+        int(it.id): it
+        for it in db.query(EvaluationListPdfItem)
+        .filter(EvaluationListPdfItem.exercise_id == int(current_exercise.id))
+        .all()
+    }
+    action_pairs = {
+        int(ar.id): (ar, bun)
+        for ar, bun in db.query(
+            ExercisePlannerFlowBundleActionEval, ExercisePlannerFlowBundle
+        )
+        .join(
+            ExercisePlannerFlowBundle,
+            ExercisePlannerFlowBundleActionEval.bundle_id == ExercisePlannerFlowBundle.id,
+        )
+        .filter(ExercisePlannerFlowBundle.exercise_id == int(current_exercise.id))
+        .all()
+    }
+    eval_canon: dict[int, EvaluationListSavedResult] = {}
+    for r in (
+        db.query(EvaluationListSavedResult)
+        .filter(EvaluationListSavedResult.exercise_id == int(current_exercise.id))
+        .order_by(
+            EvaluationListSavedResult.updated_at.desc(),
+            EvaluationListSavedResult.id.desc(),
+        )
+        .all()
+    ):
+        iid = int(r.evaluation_item_id)
+        if iid not in eval_canon:
+            eval_canon[iid] = r
+    action_canon: dict[int, PlannerFlowBundleEvalSavedResult] = {}
+    for r in (
+        db.query(PlannerFlowBundleEvalSavedResult)
+        .filter(PlannerFlowBundleEvalSavedResult.exercise_id == int(current_exercise.id))
+        .order_by(
+            PlannerFlowBundleEvalSavedResult.updated_at.desc(),
+            PlannerFlowBundleEvalSavedResult.id.desc(),
+        )
+        .all()
+    ):
+        iid = int(r.bundle_action_eval_id)
+        if iid not in action_canon:
+            action_canon[iid] = r
+
+    for e in selected:
+        key = e.get("key") or ""
+        kind = e.get("kind")
+        iid = int(e.get("item_id") or 0)
+        try:
+            if kind == EXPORT_KIND_EVAL:
+                item = eval_items.get(iid)
+                if item is None:
+                    continue
+                data = _eval_xlsx_bytes_for_item(
+                    db, item, current_exercise, eval_canon.get(iid)
+                )
+            elif kind == EXPORT_KIND_ACTION:
+                pair = action_pairs.get(iid)
+                if pair is None:
+                    continue
+                action_row, bundle = pair
+                data = _eval_xlsx_bytes_for_action_row(
+                    db, action_row, bundle, current_exercise, action_canon.get(iid)
+                )
+            else:
+                continue
+        except Exception:
+            current_app.logger.exception("admin eval export xlsx failed for %s", key)
+            continue
+        if not data:
+            continue
+        xlsx_by_key[key] = data
+        used_names: set[str] = set()
+        media_files: list[tuple[str, bytes]] = []
+        for row in media_rows_for_list(
+            db, int(current_exercise.id), kind=kind, item_id=iid
+        ):
+            packed = media_file_bytes(row)
+            if packed is None:
+                continue
+            fname = media_export_filename(row, used_names)
+            media_files.append((fname, packed[1]))
+        if media_files:
+            media_by_key[key] = media_files
+    return xlsx_by_key, media_by_key
+
+
+def _send_pending_evaluation_lists_zip(
+    *,
+    db,
+    current_exercise,
+    redirect_url: str,
+    item_id_allow: set[int] | None = None,
+    unit_keys_allow: set[str] | None = None,
+    phase_key: str | None = None,
+):
+    """تنزيل أرشيف Excel لكل قوائم تقييم الإجراءات بانتظار الاعتماد."""
+    if current_exercise is None:
+        flash("لا يوجد تمرين حالي.", "error")
+        return redirect(redirect_url)
+    items, canonical = _evaluation_home_items_bundle(db, current_exercise)
+    pending = pending_dispatch_eval_items(
+        items,
+        canonical,
+        item_id_allow=item_id_allow,
+        unit_keys_allow=unit_keys_allow,
+        phase_key=phase_key,
+    )
+    if not pending:
+        flash("لا توجد قوائم تقييم إجراءات بانتظار الاعتماد.", "error")
+        return redirect(redirect_url)
+
+    from app.evaluation_list_export import (
+        pack_pending_eval_lists_zip,
+        pending_eval_list_zip_relpath,
+    )
+
+    phase_order = {k: i for i, k in enumerate(exercise_phase_keys())}
+    unit_order = {u["key"]: i for i, u in enumerate(UNIT_LEVELS)}
+    pending.sort(
+        key=lambda it: (
+            phase_order.get(normalize_exercise_phase(getattr(it, "exercise_phase", None)), 99),
+            unit_order.get((getattr(it, "unit_level_key", None) or "").strip(), 99),
+            (getattr(it, "text", None) or ""),
+            int(it.id),
+        )
+    )
+
+    used: set[str] = set()
+    entries: list[tuple[str, bytes]] = []
+    for it in pending:
+        saved = canonical.get(int(it.id))
+        uk = (getattr(it, "unit_level_key", None) or "").strip()
+        phase_label = _phase_label_ar(getattr(it, "exercise_phase", None)) or "مرحلة"
+        unit_label = label_for_unit_level_key(uk, db) or uk or "وحدة"
+        list_title = (getattr(it, "text", None) or "").strip() or f"قائمة_{it.id}"
+        rel = pending_eval_list_zip_relpath(
+            phase_label=phase_label,
+            unit_label=unit_label,
+            list_title=list_title,
+            item_id=int(it.id),
+            used=used,
+        )
+        try:
+            data = _eval_xlsx_bytes_for_item(db, it, current_exercise, saved)
+        except Exception:
+            current_app.logger.exception(
+                "pending eval list zip failed for item %s", getattr(it, "id", None)
+            )
+            continue
+        if not data:
+            continue
+        entries.append((rel, data))
+
+    if not entries:
+        flash("تعذّر بناء ملفات Excel للقوائم بانتظار الاعتماد.", "error")
+        return redirect(redirect_url)
+
+    zip_bytes = pack_pending_eval_lists_zip(entries)
+    return send_file(
+        io.BytesIO(zip_bytes),
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name="قوائم_بانتظار_الاعتماد.zip",
     )
 
 
@@ -13719,6 +14106,194 @@ def admin_root_redirect():
     return redirect("/dashboard")
 
 
+def _admin_eval_export_catalog(db, ex):
+    return collect_admin_eval_export_catalog(
+        db,
+        ex,
+        unit_label_fn=lambda uk, _db=db: label_for_unit_level_key(uk, _db) or uk,
+        phase_label_fn=_phase_label_ar,
+    )
+
+
+def _admin_eval_export_selected(db, ex, src) -> list[dict]:
+    filters = parse_export_form_filters(src)
+    catalog = _admin_eval_export_catalog(db, ex)
+    return filter_admin_eval_export_entries(
+        catalog,
+        units=filters["units"],
+        phases=filters["phases"],
+        list_keys=filters["list_keys"],
+        statuses=filters["statuses"],
+    )
+
+
+@bp.route("/admin/exercises/eval-lists-export", methods=["GET"])
+def admin_eval_lists_export():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/admin/exercises/eval-lists-export")
+    if not is_system_admin(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _admin_current_workspace_exercise(db, user)
+    if ex is not None:
+        n = reattribute_admin_saved_eval_rows(db, int(ex.id))
+        if n:
+            db.commit()
+    catalog = _admin_eval_export_catalog(db, ex) if ex is not None else []
+    opts = catalog_filter_options(catalog)
+    return render_template(
+        "admin_eval_lists_export.html",
+        **_ctx(
+            user,
+            has_exercise=ex is not None,
+            exercise=ex,
+            export_catalog=catalog,
+            export_units=opts["units"],
+            export_phases=opts["phases"],
+            export_statuses=opts["statuses"],
+        ),
+    )
+
+
+@bp.route("/admin/exercises/eval-lists-export.zip", methods=["POST"])
+def admin_eval_lists_export_zip():
+    user = get_current_user_optional()
+    if not user or not is_system_admin(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _admin_current_workspace_exercise(db, user)
+    if ex is None:
+        flash("لا يوجد تمرين حالي.", "error")
+        return redirect(url_for("views.admin_eval_lists_export"))
+    selected = _admin_eval_export_selected(db, ex, request.form)
+    if not selected:
+        flash("لا توجد قوائم مطابقة للمرشّحات.", "error")
+        return redirect(url_for("views.admin_eval_lists_export"))
+    xlsx_by_key, media_by_key = _admin_eval_export_file_payloads(db, ex, selected)
+    entries = zip_entries_for_selected(
+        selected, xlsx_by_key=xlsx_by_key, media_by_key=media_by_key
+    )
+    if not entries:
+        flash("تعذّر بناء ملفات Excel للتصدير.", "error")
+        return redirect(url_for("views.admin_eval_lists_export"))
+    zip_bytes = pack_admin_eval_export_zip(entries)
+    return send_file(
+        io.BytesIO(zip_bytes),
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name="قوائم_التقييم_والمعاضل.zip",
+    )
+
+
+@bp.route("/admin/exercises/eval-lists-export/manifest.json", methods=["POST"])
+def admin_eval_lists_export_manifest():
+    user = get_current_user_optional()
+    if not user or not is_system_admin(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _admin_current_workspace_exercise(db, user)
+    if ex is None:
+        return jsonify({"ok": False, "error": "لا يوجد تمرين حالي."}), 400
+    selected = _admin_eval_export_selected(db, ex, request.form)
+    if not selected:
+        return jsonify({"ok": False, "error": "لا توجد قوائم مطابقة للمرشّحات."}), 400
+    xlsx_by_key, media_by_key = _admin_eval_export_file_payloads(db, ex, selected)
+    files: list[dict[str, str]] = []
+    media_href_by_name: dict[tuple[str, str], str] = {}
+    for e in selected:
+        key = e.get("key") or ""
+        iid = int(e.get("item_id") or 0)
+        kind = e.get("kind") or ""
+        used_names: set[str] = set()
+        for row in media_rows_for_list(db, int(ex.id), kind=kind, item_id=iid):
+            packed = media_file_bytes(row)
+            if packed is None:
+                continue
+            fname = media_export_filename(row, used_names)
+            media_href_by_name[(key, fname)] = url_for(
+                "views.eval_criterion_media_stream", media_id=int(row.id)
+            )
+    # rebuild folder paths the same way as zip_entries_for_selected
+    from app.evaluation_list_export import eval_export_list_folder_relpath, export_download_filename
+
+    used_dirs: set[str] = set()
+    for e in selected:
+        key = e.get("key") or ""
+        if key not in xlsx_by_key:
+            continue
+        folder = eval_export_list_folder_relpath(
+            phase_label=e.get("phase_label") or "مرحلة",
+            unit_label=e.get("unit_label") or "وحدة",
+            list_title=e.get("title") or key,
+            item_id=int(e.get("item_id") or 0),
+            used=used_dirs,
+        )
+        xlsx_name = export_download_filename(e.get("title") or "قائمة")
+        files.append(
+            {
+                "relpath": f"{folder}/{xlsx_name}",
+                "href": url_for(
+                    "views.admin_eval_lists_export_file",
+                    kind=e.get("kind"),
+                    item_id=int(e.get("item_id") or 0),
+                ),
+            }
+        )
+        for media_name, _b in media_by_key.get(key) or []:
+            href = media_href_by_name.get((key, media_name)) or ""
+            if not href:
+                continue
+            files.append({"relpath": f"{folder}/{media_name}", "href": href})
+    if not files:
+        return jsonify({"ok": False, "error": "تعذّر بناء ملفات التصدير."}), 400
+    return jsonify({"ok": True, "files": files, "count": len(files)})
+
+
+@bp.route("/admin/exercises/eval-lists-export/file", methods=["GET"])
+def admin_eval_lists_export_file():
+    user = get_current_user_optional()
+    if not user or not is_system_admin(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _admin_current_workspace_exercise(db, user)
+    if ex is None:
+        abort(404)
+    kind = (request.args.get("kind") or "").strip()
+    item_id = request.args.get("item_id", type=int)
+    if not item_id:
+        abort(404)
+    selected = [
+        e
+        for e in _admin_eval_export_catalog(db, ex)
+        if e.get("kind") == kind and int(e.get("item_id") or 0) == int(item_id)
+    ]
+    if not selected:
+        abort(404)
+    xlsx_by_key, _media = _admin_eval_export_file_payloads(db, ex, selected)
+    key = selected[0].get("key") or ""
+    data = xlsx_by_key.get(key)
+    if not data:
+        abort(404)
+    from app.evaluation_list_export import export_download_filename
+
+    name = export_download_filename(selected[0].get("title") or "قائمة")
+    return send_file(
+        io.BytesIO(data),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=name,
+    )
+
+
 @bp.route("/admin/exercises/create", methods=["GET", "POST"])
 def admin_exercise_create():
     user = get_current_user_optional()
@@ -15098,7 +15673,13 @@ def admin_evaluation_list_approve(unit_key: str, item_id: int):
             )
         )
     saved.is_approved = True
-    saved.approved_by_id = getattr(user, "id", None)
+    saved.approved_by_id = attribution_user_id_for_eval_actor(
+        db,
+        user,
+        exercise_id=int(current_exercise.id),
+        unit_key=item.unit_level_key or "",
+        phase_key=getattr(item, "exercise_phase", None),
+    )
     saved.approved_at = datetime.utcnow()
     db.commit()
     return redirect(url_for("views.admin_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id))
@@ -15146,8 +15727,38 @@ def judge_evaluation_lists_home():
             active_phase_key=_evaluation_list_home_active_phase(phase_tabs),
             unit_list_endpoint="views.judge_evaluation_lists",
             judge_no_unit_assignment=_is_individual_judge_user(user) and not units,
+            pending_export_href=(
+                url_for("views.judge_evaluation_lists_export_pending")
+                if ex is not None and units
+                else ""
+            ),
             **_hub_back_ctx_for_request_path(),
         ),
+    )
+
+
+@bp.route("/judge/evaluation-lists/export-pending.zip", methods=["GET"])
+def judge_evaluation_lists_export_pending():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/judge/evaluation-lists/export-pending.zip")
+    if not can_access_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    _ensure_judge_roster_synced(db, user, ex)
+    units = _judge_evaluation_list_unit_levels(db, user, ex)
+    unit_keys = {(u.get("key") or "").strip() for u in units if (u.get("key") or "").strip()}
+    assigned_pk = _judge_assigned_phase_key(db, user, ex) if _is_individual_judge_user(user) else ""
+    return _send_pending_evaluation_lists_zip(
+        db=db,
+        current_exercise=ex,
+        redirect_url=url_for("views.judge_evaluation_lists_home"),
+        item_id_allow=_eval_item_ids_owned_by_judge(db, user, ex),
+        unit_keys_allow=unit_keys if _is_individual_judge_user(user) else None,
+        phase_key=assigned_pk or None,
     )
 
 
@@ -15919,8 +16530,27 @@ def chief_judge_evaluation_lists_home():
             active_phase_key=_evaluation_list_home_active_phase(phase_tabs),
             unit_list_endpoint="views.chief_judge_evaluation_lists",
             page_title="قوائم تقييم الإجراءات — اعتماد كبير المحكمين",
+            pending_export_href=url_for("views.chief_judge_evaluation_lists_export_pending") if ex is not None else "",
             **_hub_back_ctx_for_request_path(),
         ),
+    )
+
+
+@bp.route("/chief-judge/evaluation-lists/export-pending.zip", methods=["GET"])
+def chief_judge_evaluation_lists_export_pending():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/chief-judge/evaluation-lists/export-pending.zip")
+    if not can_access_chief_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    return _send_pending_evaluation_lists_zip(
+        db=db,
+        current_exercise=ex,
+        redirect_url=url_for("views.chief_judge_evaluation_lists_home"),
     )
 
 
@@ -16036,7 +16666,6 @@ def chief_judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
     wf = {
         **wf,
         "eval_can_edit": False,
-        "show_eval_approve": False,
     }
     unit_label = (unit.get("label") or "").strip() if isinstance(unit, dict) else ""
     shown_date = getattr(current_exercise, "planned_start", None) or getattr(current_exercise, "created_at", None)
@@ -16089,7 +16718,12 @@ def chief_judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
             judge_name=judge_name or "—",
             has_saved_rows=bool(saved_payload and (saved_payload.get("rows") or [])),
             eval_save_url="",
-            eval_approve_url="",
+            eval_approve_url=url_for(
+                "views.chief_judge_evaluation_list_approve",
+                unit_key=unit_key,
+                item_id=item_id,
+                **_evaluation_list_phase_url_kwargs(phase_key),
+            ),
             eval_chief_approve_url=url_for(
                 "views.chief_judge_evaluation_list_chief_approve",
                 unit_key=unit_key,
@@ -16104,10 +16738,87 @@ def chief_judge_evaluation_list_file_viewer(unit_key: str, item_id: int):
             ),
             eval_close_href=list_url,
             subpage_close_fallback=list_url,
-            eval_approve_incomplete=False,
+            eval_approve_incomplete=request.args.get("eval_approve_incomplete", type=int) == 1,
             viewer_readonly_chief=True,
             **_hub_back_ctx_for_request_path(),
         ),
+    )
+
+
+@bp.route(
+    "/chief-judge/evaluation-lists/<unit_key>/view/<int:item_id>/approve",
+    methods=["POST"],
+)
+def chief_judge_evaluation_list_approve(unit_key: str, item_id: int):
+    """اعتماد المحكم من مساحة كبير المحكمين — نفس شروط اعتماد المحكم."""
+    user = get_current_user_optional()
+    if not user:
+        abort(403)
+    if not can_approve_evaluation_results(user):
+        abort(403)
+    if not can_access_chief_judge_hub(user):
+        abort(403)
+    unit = _require_unit_level_row(unit_key)
+    from flask import g
+
+    db = g.db
+    item = db.get(EvaluationListPdfItem, item_id)
+    current_exercise = _current_workspace_exercise(db, user)
+    if (
+        not item
+        or item.unit_level_key != unit_key
+        or current_exercise is None
+        or item.exercise_id != current_exercise.id
+    ):
+        abort(404)
+
+    saved = _evaluation_canonical_saved_row(db, current_exercise.id, item.id)
+    if saved is None or not (saved.payload_json or "").strip():
+        abort(400)
+    if not eval_judge_can_approve(saved):
+        return _evaluation_list_viewer_redirect(
+            "views.chief_judge_evaluation_list_file_viewer", unit_key, item_id, item
+        )
+    rows = _parse_saved_eval_rows(saved.payload_json)
+    if _evaluation_payload_has_empty_acquired_for_approve(rows):
+        return _evaluation_list_viewer_redirect(
+            "views.chief_judge_evaluation_list_file_viewer",
+            unit_key,
+            item_id,
+            item,
+            eval_approve_incomplete=1,
+        )
+    if not _evaluation_saved_allows_judge_approve(saved):
+        return _evaluation_list_viewer_redirect(
+            "views.chief_judge_evaluation_list_file_viewer",
+            unit_key,
+            item_id,
+            item,
+            eval_approve_grade_blocked=1,
+        )
+    try:
+        _web_signed_judge_approve(db, user, saved)
+        db.commit()
+    except Exception as exc:
+        from app.judge_signature import JudgeSignatureError
+
+        db.rollback()
+        if isinstance(exc, JudgeSignatureError):
+            extra = (
+                {"eval_approve_no_signature": 1}
+                if exc.code == "no_signature"
+                else {"eval_approve_signature_mismatch": 1}
+            )
+            return _evaluation_list_viewer_redirect(
+                "views.chief_judge_evaluation_list_file_viewer",
+                unit_key,
+                item_id,
+                item,
+                **extra,
+            )
+        raise
+    return _evaluation_list_viewer_redirect(
+        "views.chief_judge_evaluation_list_file_viewer", unit_key, item_id, item
     )
 
 

@@ -156,6 +156,26 @@ def eval_dispatch_status_ar(saved: SavedRow | None) -> tuple[str, str]:
     return ("بانتظار الإعتماد", "pending")
 
 
+ADMIN_EXPORT_STATUS_LABELS = {
+    "saved": "المحفوظة",
+    "pending": "بانتظار الإعتماد",
+    "approved": "المعتمدة",
+}
+
+
+def eval_admin_export_status_key(saved: SavedRow | None) -> str | None:
+    """تصنيف القائمة لتصدير أوامر العمل: saved | pending | approved."""
+    has_payload = bool(saved and (getattr(saved, "payload_json", None) or "").strip())
+    if not has_payload:
+        return None
+    if eval_judge_approved(saved) and not eval_reopened_for_judge(saved):
+        return "approved"
+    _label, tone = eval_dispatch_status_ar(saved)
+    if tone == "pending":
+        return "pending"
+    return "saved"
+
+
 def _evaluation_home_items_bundle(
     db,
     exercise,
@@ -189,6 +209,33 @@ def _evaluation_home_items_bundle(
             if iid not in canonical:
                 canonical[iid] = row
     return items, canonical
+
+
+def pending_dispatch_eval_items(
+    items,
+    canonical: dict[int, EvaluationListSavedResult],
+    *,
+    item_id_allow: set[int] | None = None,
+    unit_keys_allow: set[str] | None = None,
+    phase_key: str | None = None,
+):
+    """قوائم تقييم الإجراءات ذات عمود «إرسال للاعتماد» = بانتظار الإعتماد."""
+    out = []
+    for it in items:
+        iid = int(it.id)
+        if item_id_allow is not None and iid not in item_id_allow:
+            continue
+        uk = (getattr(it, "unit_level_key", None) or "").strip()
+        if unit_keys_allow is not None and uk not in unit_keys_allow:
+            continue
+        if phase_key is not None and not _item_matches_phase(it, phase_key):
+            continue
+        saved = canonical.get(iid)
+        _label, tone = eval_dispatch_status_ar(saved)
+        if tone != "pending":
+            continue
+        out.append(it)
+    return out
 
 
 def parse_evaluation_list_phase_key(raw: str | None) -> str | None:

@@ -81,6 +81,23 @@ def test_inline_instructional_note_does_not_stop_import():
     assert not is_evaluation_import_footer_stop_row(score)
 
 
+def test_numbered_criterion_with_judge_word_is_not_footer():
+    row = [
+        "",
+        "4. يفترض المحكم وفاة المصاب عند تأخر إجراءات الإخلاء.",
+        "",
+        "",
+        "3",
+        "أدخل العلامة",
+        "",
+        "",
+        "",
+        "",
+    ]
+    assert not is_evaluation_import_footer_stop_row(row)
+    assert not should_skip_evaluation_import_row(row, excel_row_1based=14)
+
+
 def test_build_structured_rows_imports_notes_and_scores():
     body = [
         ["", "بند 1", "", "", "5", "4", "0.8", "جيد جدا", "ملاحظة", ""],
