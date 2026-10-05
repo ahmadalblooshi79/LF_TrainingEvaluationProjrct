@@ -1277,6 +1277,8 @@ class InformationBankTreeNode(Base):
     file_relpath: Mapped[str] = mapped_column(String(700), default="")
     catalog_phase_key: Mapped[str] = mapped_column(String(64), default="", index=True)
     catalog_unit_key: Mapped[str] = mapped_column(String(128), default="", index=True)
+    # اسم محكم اختياري على العقدة (قوائم التقييم) — فارغ = يُستنتج من قائمة المحكمين حسب الوحدة+المرحلة
+    judge_name: Mapped[str] = mapped_column(String(256), default="")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_system: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

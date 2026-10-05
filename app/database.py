@@ -283,8 +283,25 @@ def ensure_evaluation_workflow_columns() -> None:
 
 
 def ensure_information_bank_tree_nodes_table() -> None:
-    """جدول الشجرة يُنشأ عبر create_all؛ لا إجراء إضافي لـ SQLite."""
-    return
+    """جدول الشجرة يُنشأ عبر create_all؛ إضافة أعمدة ناقصة للجداول القديمة."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    try:
+        insp = inspect(engine)
+        if "information_bank_tree_nodes" not in insp.get_table_names():
+            return
+    except Exception:
+        return
+    cols = {c["name"] for c in insp.get_columns("information_bank_tree_nodes")}
+    if "judge_name" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE information_bank_tree_nodes "
+                "ADD COLUMN judge_name VARCHAR(256) DEFAULT ''"
+            )
+        )
 
 
 def ensure_information_bank_tree_suppressions_table() -> None:

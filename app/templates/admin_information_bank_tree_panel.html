@@ -168,7 +168,7 @@
 
       {% for n in nodes %}
 
-      <li class="ibank-tree-node{% if n.is_folder %} ibank-tree-node--folder{% else %} ibank-tree-node--file{% endif %}{% if n.is_system %} ibank-tree-node--system{% endif %}{% if n.children %} ibank-tree-has-children{% endif %}" role="treeitem"{% if n.children %} aria-expanded="false"{% endif %} data-node-id="{{ n.id }}" data-is-folder="{{ '1' if n.is_folder else '0' }}" data-is-phase-root="{{ '1' if n.is_phase_root else '0' }}" data-effective-unit-key="{{ n.effective_unit_key|e }}">
+      <li class="ibank-tree-node{% if n.is_folder %} ibank-tree-node--folder{% else %} ibank-tree-node--file{% endif %}{% if n.is_system %} ibank-tree-node--system{% endif %}{% if n.children %} ibank-tree-has-children{% endif %}" role="treeitem"{% if n.children %} aria-expanded="false"{% endif %} data-node-id="{{ n.id }}" data-is-folder="{{ '1' if n.is_folder else '0' }}" data-is-phase-root="{{ '1' if n.is_phase_root else '0' }}" data-effective-unit-key="{{ n.effective_unit_key|e }}" data-effective-phase-key="{{ n.effective_phase_key|default('')|e }}">
 
         <div class="ibank-tree-row" style="--ibank-depth: {{ depth }}">
 
@@ -209,12 +209,34 @@
           {% if n.is_folder and not n.is_phase_root %}
           <span class="ibank-tree-judge-pair" dir="rtl">
             <label class="ibank-tree-unit-cluster__label" for="ibank-judge-{{ n.id }}">اسم المحكم</label>
+            {% if information_bank_can_manage %}
+            {% set _juk = n.effective_unit_key or n.catalog_unit_key or '' %}
+            {% set _jopts = (ibank_judge_options_by_unit or {}).get(_juk, []) if _juk else [] %}
+            <select id="ibank-judge-{{ n.id }}" class="ibank-tree-judge-select js-ibank-tree-judge-select" aria-label="اسم المحكم — {{ n.name }}" title="اختياري — المحكمون المعيّنون لهذا المستوى في قائمة المحكمين" data-node-id="{{ n.id }}" data-kind="{{ kind }}" data-phase-key="{{ n.effective_phase_key|default('')|e }}" data-override="{{ '1' if n.judge_name_override else '0' }}" data-last-saved="{{ n.judge_name_stored|default('')|e }}" data-selected-unit="{{ _juk|e }}">
+              <option value="">— اختياري —</option>
+              {% for o in _jopts %}
+              <option value="{{ o.name|e }}" data-phase-key="{{ (o.phase_key or '')|e }}"{% if (n.judge_name or '') == o.name %} selected{% endif %}>{% if o.phase_label %}{{ o.name }} — {{ o.phase_label }}{% else %}{{ o.name }}{% endif %}</option>
+              {% endfor %}
+            </select>
+            {% else %}
             <input type="text" id="ibank-judge-{{ n.id }}" class="ibank-tree-judge-readonly" value="{{ n.judge_name or '—' }}" readonly tabindex="-1" aria-label="اسم المحكم — {{ n.name }}" title="من قائمة المحكمين للتمرين الحالي">
+            {% endif %}
           </span>
           {% elif not n.is_folder and (n.show_unit_select or n.effective_unit_key or n.unit_choice_enabled) %}
           <span class="ibank-tree-judge-pair" dir="rtl">
             <label class="ibank-tree-unit-cluster__label" for="ibank-judge-{{ n.id }}">اسم المحكم</label>
+            {% if information_bank_can_manage %}
+            {% set _juk = n.effective_unit_key or n.catalog_unit_key or '' %}
+            {% set _jopts = (ibank_judge_options_by_unit or {}).get(_juk, []) if _juk else [] %}
+            <select id="ibank-judge-{{ n.id }}" class="ibank-tree-judge-select js-ibank-tree-judge-select" aria-label="اسم المحكم — {{ n.name }}" title="اختياري — المحكمون المعيّنون لهذا المستوى في قائمة المحكمين" data-node-id="{{ n.id }}" data-kind="{{ kind }}" data-phase-key="{{ n.effective_phase_key|default('')|e }}" data-override="{{ '1' if n.judge_name_override else '0' }}" data-last-saved="{{ n.judge_name_stored|default('')|e }}" data-selected-unit="{{ _juk|e }}">
+              <option value="">— اختياري —</option>
+              {% for o in _jopts %}
+              <option value="{{ o.name|e }}" data-phase-key="{{ (o.phase_key or '')|e }}"{% if (n.judge_name or '') == o.name %} selected{% endif %}>{% if o.phase_label %}{{ o.name }} — {{ o.phase_label }}{% else %}{{ o.name }}{% endif %}</option>
+              {% endfor %}
+            </select>
+            {% else %}
             <input type="text" id="ibank-judge-{{ n.id }}" class="ibank-tree-judge-readonly" value="{{ n.judge_name or '—' }}" readonly tabindex="-1" aria-label="اسم المحكم — {{ n.name }}" title="من قائمة المحكمين للتمرين الحالي">
+            {% endif %}
           </span>
           {% endif %}
           {% endif %}
@@ -298,6 +320,8 @@
 
   {% if is_unit_eval_tree %}
   <script type="application/json" class="js-ibank-judge-by-unit-data">{{ ibank_judge_names_by_unit|default({})|tojson }}</script>
+  <script type="application/json" class="js-ibank-judge-by-unit-phase-data">{{ ibank_judge_names_by_unit_phase|default({})|tojson }}</script>
+  <script type="application/json" class="js-ibank-judge-options-by-unit-data">{{ ibank_judge_options_by_unit|default({})|tojson }}</script>
   <script type="application/json" class="js-ibank-unit-levels-data">{{ ibank_tree_unit_levels|default([])|tojson }}</script>
   {% endif %}
 

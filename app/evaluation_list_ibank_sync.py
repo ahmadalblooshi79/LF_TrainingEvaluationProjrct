@@ -766,6 +766,25 @@ def exercise_roster_labels_by_unit(
     db: Session, exercise_id: int | None
 ) -> tuple[dict[str, str], dict[str, str]]:
     """أسماء المحكم والضابط المتدرب حسب مستوى الوحدة من قائمة المحكمين."""
+    judge_by_unit_phase, trainee_by_unit = exercise_roster_labels_by_unit_phase(
+        db, exercise_id
+    )
+    judge_by_unit: dict[str, str] = {}
+    for (uk, pk), label in judge_by_unit_phase.items():
+        if uk in judge_by_unit:
+            continue
+        if not pk:
+            judge_by_unit[uk] = label
+    for (uk, pk), label in judge_by_unit_phase.items():
+        if uk not in judge_by_unit:
+            judge_by_unit[uk] = label
+    return judge_by_unit, trainee_by_unit
+
+
+def exercise_roster_labels_by_unit_phase(
+    db: Session, exercise_id: int | None
+) -> tuple[dict[tuple[str, str], str], dict[str, str]]:
+    """أسماء المحكم حسب (وحدة، مرحلة) واسم المتدرب حسب الوحدة."""
     if not exercise_id:
         return {}, {}
 
@@ -781,7 +800,7 @@ def exercise_roster_labels_by_unit(
         mil = (getattr(row, "military_number", None) or "").strip()
         return mil or "—"
 
-    judge_by_unit: dict[str, str] = {}
+    judge_by_unit_phase: dict[tuple[str, str], str] = {}
     trainee_by_unit: dict[str, str] = {}
     for rr in (
         db.query(ExerciseRosterRow)
@@ -793,11 +812,32 @@ def exercise_roster_labels_by_unit(
         if not uk:
             continue
         kind = (getattr(rr, "roster_kind", None) or "").strip()
-        if kind == ExerciseRosterKind.JUDGE.value and uk not in judge_by_unit:
-            judge_by_unit[uk] = _label(rr)
+        if kind == ExerciseRosterKind.JUDGE.value:
+            raw_ph = (getattr(rr, "exercise_phase", None) or "").strip()
+            pk = normalize_exercise_phase(raw_ph) or raw_ph
+            key = (uk, pk)
+            if key not in judge_by_unit_phase and _label(rr) != "—":
+                judge_by_unit_phase[key] = _label(rr)
+            elif key not in judge_by_unit_phase:
+                judge_by_unit_phase[key] = _label(rr)
         elif kind == ExerciseRosterKind.TRAINEE.value and uk not in trainee_by_unit:
             trainee_by_unit[uk] = _label(rr)
-    return judge_by_unit, trainee_by_unit
+    return judge_by_unit_phase, trainee_by_unit
+
+
+def roster_judge_name_for_unit_phase(
+    judge_by_unit_phase: dict[tuple[str, str], str],
+    judge_by_unit: dict[str, str],
+    unit_key: str,
+    phase_key: str,
+) -> str:
+    uk = (unit_key or "").strip()
+    pk = normalize_exercise_phase(phase_key) or (phase_key or "").strip()
+    if uk and pk and (uk, pk) in judge_by_unit_phase:
+        return judge_by_unit_phase[(uk, pk)]
+    if uk and (uk, "") in judge_by_unit_phase:
+        return judge_by_unit_phase[(uk, "")]
+    return judge_by_unit.get(uk, "—")
 
 
 def roster_judge_unit_keys(db: Session, exercise_id: int) -> set[str]:
@@ -1903,6 +1943,7 @@ def build_eval_list_display_groups(
         }
 
     judge_by_unit, trainee_by_unit = exercise_roster_labels_by_unit(db, int(exercise_id))
+    judge_by_unit_phase, _ = exercise_roster_labels_by_unit_phase(db, int(exercise_id))
     phase_keys = effective_eval_list_phase_keys(db, roster_units=roster_units)
     if not phase_keys:
         from app.information_bank_catalog import ordered_training_phase_keys
@@ -1969,7 +2010,9 @@ def build_eval_list_display_groups(
                     "phase_label": pl,
                     "unit_key": uk,
                     "unit_label": ul,
-                    "judge_name": judge_by_unit.get(uk, "—"),
+                    "judge_name": roster_judge_name_for_unit_phase(
+                        judge_by_unit_phase, judge_by_unit, uk, pk
+                    ),
                     "trainee_name": trainee_by_unit.get(uk, "—"),
                     "eval_items": eval_items,
                     "ibank_sources": ibank_sources,

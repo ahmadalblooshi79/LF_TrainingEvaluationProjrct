@@ -12371,6 +12371,52 @@ main:has(.judge-pf-root--tabbed) > .judge-pf-root {
   cursor: default;
   box-sizing: border-box;
 }
+.ibank-tree-judge-input {
+  width: 14rem;
+  min-width: 0;
+  max-width: 14rem;
+  flex: 0 0 14rem;
+  font-size: 0.78rem;
+  padding: 0.14rem 0.32rem;
+  min-height: 0;
+  border: 1px solid #8a6a4a;
+  border-radius: 4px;
+  background: #fff;
+  color: var(--brown-soft, #4a3828);
+  cursor: text;
+  box-sizing: border-box;
+}
+.ibank-tree-judge-input:focus {
+  outline: 2px solid rgba(138, 106, 74, 0.35);
+  outline-offset: 1px;
+}
+.ibank-tree-judge-input:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+.ibank-tree-judge-select {
+  width: 16rem;
+  min-width: 0;
+  max-width: 20rem;
+  flex: 0 0 16rem;
+  font-size: 0.78rem;
+  padding: 0.14rem 0.32rem;
+  min-height: 0;
+  border: 1px solid #8a6a4a;
+  border-radius: 4px;
+  background: #fff;
+  color: var(--brown-soft, #4a3828);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.ibank-tree-judge-select:focus {
+  outline: 2px solid rgba(138, 106, 74, 0.35);
+  outline-offset: 1px;
+}
+.ibank-tree-judge-select:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
 .ibank-tree-unit-pair .ibank-tree-unit-badge {
   min-width: 22rem;
   max-width: 44rem;

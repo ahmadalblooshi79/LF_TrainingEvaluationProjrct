@@ -306,7 +306,7 @@
 
       <div class="ibank-tabpane{% if active_tab == 'action-eval' %} is-active{% endif %}" data-tab-pane="action-eval" data-ibank-needs-server="{% if not ibank_pane_ready.get('action-eval') %}1{% else %}0{% endif %}" role="tabpanel">
         {% if ibank_pane_ready.get('action-eval') %}
-        {% with kind='action_eval', tree_nodes=tree_action_eval, ibank_tree_unit_levels=ibank_tree_unit_levels, ibank_judge_names_by_unit=ibank_judge_names_by_unit, ibank_action_eval_flow_days=ibank_action_eval_flow_days, active_action_eval_day=active_action_eval_day, action_eval_trees_by_day=action_eval_trees_by_day, action_eval_day_root_ids=action_eval_day_root_ids, ibank_action_eval_dilemmas_by_day=ibank_action_eval_dilemmas_by_day, ibank_action_eval_dilemma_tree=ibank_action_eval_dilemma_tree %}
+        {% with kind='action_eval', tree_nodes=tree_action_eval, ibank_tree_unit_levels=ibank_tree_unit_levels, ibank_judge_names_by_unit=ibank_judge_names_by_unit, ibank_judge_names_by_unit_phase=ibank_judge_names_by_unit_phase, ibank_judge_options_by_unit=ibank_judge_options_by_unit, ibank_action_eval_flow_days=ibank_action_eval_flow_days, active_action_eval_day=active_action_eval_day, action_eval_trees_by_day=action_eval_trees_by_day, action_eval_day_root_ids=action_eval_day_root_ids, ibank_action_eval_dilemmas_by_day=ibank_action_eval_dilemmas_by_day, ibank_action_eval_dilemma_tree=ibank_action_eval_dilemma_tree %}
         {% include 'admin_information_bank_tree_panel.html' %}
         {% endwith %}
         {% else %}
@@ -316,7 +316,7 @@
 
       <div class="ibank-tabpane{% if active_tab == 'dilemma-eval' %} is-active{% endif %}" data-tab-pane="dilemma-eval" data-ibank-needs-server="{% if not ibank_pane_ready.get('dilemma-eval') %}1{% else %}0{% endif %}" role="tabpanel">
         {% if ibank_pane_ready.get('dilemma-eval') %}
-        {% with kind='dilemma_eval', tree_nodes=tree_dilemma_eval, ibank_tree_unit_levels=ibank_tree_unit_levels, ibank_judge_names_by_unit=ibank_judge_names_by_unit %}
+        {% with kind='dilemma_eval', tree_nodes=tree_dilemma_eval, ibank_tree_unit_levels=ibank_tree_unit_levels, ibank_judge_names_by_unit=ibank_judge_names_by_unit, ibank_judge_names_by_unit_phase=ibank_judge_names_by_unit_phase, ibank_judge_options_by_unit=ibank_judge_options_by_unit %}
         {% include 'admin_information_bank_tree_panel.html' %}
         {% endwith %}
         {% else %}
@@ -1553,12 +1553,121 @@
         } catch (errJudge) {
           judgeByUnit = {};
         }
+        var judgePhaseRaw = page.querySelector('.js-ibank-judge-by-unit-phase-data');
+        var judgeByUnitPhase = {};
+        try {
+          judgeByUnitPhase = judgePhaseRaw && judgePhaseRaw.textContent
+            ? JSON.parse(judgePhaseRaw.textContent)
+            : {};
+        } catch (errJudgePh) {
+          judgeByUnitPhase = {};
+        }
+        var judgeOptsRaw = page.querySelector('.js-ibank-judge-options-by-unit-data');
+        var judgeOptionsByUnit = {};
+        try {
+          judgeOptionsByUnit = judgeOptsRaw && judgeOptsRaw.textContent
+            ? JSON.parse(judgeOptsRaw.textContent)
+            : {};
+        } catch (errJudgeOpts) {
+          judgeOptionsByUnit = {};
+        }
         var unitLevels = [];
         try {
           var levelsRaw = page.querySelector('.js-ibank-unit-levels-data');
           unitLevels = levelsRaw && levelsRaw.textContent ? JSON.parse(levelsRaw.textContent) : [];
         } catch (errLevels) {
           unitLevels = [];
+        }
+        function resolveJudgeName(uk, phaseKey) {
+          uk = (uk || '').trim();
+          if (!uk) return '';
+          var byPh = judgeByUnitPhase[uk] || null;
+          var pk = (phaseKey || '').trim();
+          if (byPh) {
+            if (pk && byPh[pk]) return String(byPh[pk] || '').trim();
+            if (byPh['']) return String(byPh[''] || '').trim();
+            for (var k in byPh) {
+              if (Object.prototype.hasOwnProperty.call(byPh, k) && byPh[k]) {
+                return String(byPh[k] || '').trim();
+              }
+            }
+          }
+          return String(judgeByUnit[uk] || '').trim();
+        }
+        function phaseKeyForJudgeEl(el) {
+          if (!el) return '';
+          var fromData = (el.getAttribute('data-phase-key') || '').trim();
+          if (fromData) return fromData;
+          var li = el.closest ? el.closest('.ibank-tree-node') : null;
+          return li ? (li.getAttribute('data-effective-phase-key') || '').trim() : '';
+        }
+        function fillJudgeSelect(sel, uk, preferredName, opts) {
+          if (!sel || !sel.classList.contains('js-ibank-tree-judge-select')) return;
+          opts = opts || {};
+          uk = (uk || '').trim();
+          var pk = phaseKeyForJudgeEl(sel);
+          var preferred = (preferredName || '').trim();
+          if (!preferred && !opts.clearOverride && sel.getAttribute('data-override') === '1') {
+            preferred = (sel.getAttribute('data-last-saved') || '').trim();
+          }
+          if (!preferred && opts.autoPick !== false) {
+            preferred = resolveJudgeName(uk, pk);
+          }
+          var list = uk ? (judgeOptionsByUnit[uk] || []) : [];
+          sel.innerHTML = '';
+          var empty = document.createElement('option');
+          empty.value = '';
+          empty.textContent = '— اختياري —';
+          sel.appendChild(empty);
+          var seen = {};
+          list.forEach(function (o) {
+            if (!o || !o.name) return;
+            var name = String(o.name || '').trim();
+            if (!name || seen[name + '|' + (o.phase_key || '')]) return;
+            seen[name + '|' + (o.phase_key || '')] = true;
+            var opt = document.createElement('option');
+            opt.value = name;
+            opt.setAttribute('data-phase-key', o.phase_key || '');
+            opt.textContent = o.phase_label ? (name + ' — ' + o.phase_label) : name;
+            sel.appendChild(opt);
+          });
+          if (preferred) {
+            sel.value = preferred;
+            if (sel.value !== preferred) {
+              var miss = document.createElement('option');
+              miss.value = preferred;
+              miss.textContent = preferred;
+              miss.selected = true;
+              sel.appendChild(miss);
+              sel.value = preferred;
+            }
+          } else {
+            sel.value = '';
+          }
+          sel.setAttribute('data-selected-unit', uk);
+          if (opts.clearOverride) {
+            sel.setAttribute('data-override', '0');
+            sel.setAttribute('data-last-saved', '');
+          }
+        }
+        function setJudgeInputValue(inp, name, opts) {
+          if (!inp) return;
+          opts = opts || {};
+          var v = (name || '').trim();
+          if (inp.classList.contains('js-ibank-tree-judge-select')) {
+            var li = inp.closest('.ibank-tree-node');
+            var uk = (inp.getAttribute('data-selected-unit') || '').trim();
+            if (!uk && li) uk = (li.getAttribute('data-effective-unit-key') || '').trim();
+            fillJudgeSelect(inp, uk, v, opts);
+          } else if (inp.classList.contains('js-ibank-tree-judge-input')) {
+            inp.value = v;
+            if (opts.clearOverride) {
+              inp.setAttribute('data-override', '0');
+              inp.setAttribute('data-last-saved', '');
+            }
+          } else {
+            inp.value = v || '—';
+          }
         }
         function fillLazyUnitSelect(sel) {
           if (!sel || sel.getAttribute('data-options-filled') === '1') return;
@@ -1616,11 +1725,12 @@
           sel.setAttribute('data-last-unit-key', uk);
           var inpId = sel.getAttribute('data-judge-input') || '';
           var inp = inpId ? document.getElementById(inpId) : null;
-          if (inp) inp.value = uk ? (judgeByUnit[uk] || '—') : '—';
           var rowLi = sel.closest('.ibank-tree-node');
           if (rowLi) rowLi.setAttribute('data-effective-unit-key', uk);
+          var pk = phaseKeyForJudgeEl(inp) || (rowLi ? (rowLi.getAttribute('data-effective-phase-key') || '') : '');
+          setJudgeInputValue(inp, uk ? resolveJudgeName(uk, pk) : '', { clearOverride: true });
         }
-        function applyUnitToFolderDescendants(folderLi, uk, unitLabel) {
+        function applyUnitToFolderDescendants(folderLi, uk, unitLabel, judgeName) {
           if (!folderLi || !uk) return;
           folderLi.querySelectorAll('.ibank-tree-node[data-is-folder="0"]').forEach(function (fileLi) {
             fileLi.setAttribute('data-effective-unit-key', uk);
@@ -1629,7 +1739,14 @@
             else {
               var jid = 'ibank-judge-' + (fileLi.getAttribute('data-node-id') || '');
               var jinp = document.getElementById(jid);
-              if (jinp) jinp.value = judgeByUnit[uk] || '—';
+              var fpk = phaseKeyForJudgeEl(jinp) || (fileLi.getAttribute('data-effective-phase-key') || '');
+              setJudgeInputValue(
+                jinp,
+                (judgeName != null && String(judgeName).trim() !== '')
+                  ? String(judgeName).trim()
+                  : resolveJudgeName(uk, fpk),
+                { clearOverride: true }
+              );
             }
           });
         }
@@ -1644,8 +1761,9 @@
             var inpId = sel.getAttribute('data-judge-input') || '';
             var inp = inpId ? document.getElementById(inpId) : null;
             var uk = (sel.value || '').trim();
+            var pk = phaseKeyForJudgeEl(inp) || '';
             if (inp) {
-              inp.value = uk ? (judgeByUnit[uk] || '—') : '—';
+              setJudgeInputValue(inp, uk ? resolveJudgeName(uk, pk) : '', { clearOverride: true });
             }
             if (!uk || !sel.form) return;
             var form = sel.form;
@@ -1679,7 +1797,13 @@
                 if (!res.ok) {
                   if (prev) sel.value = prev;
                   else sel.selectedIndex = 0;
-                  if (inp) inp.value = prev ? (judgeByUnit[prev] || '—') : '—';
+                  if (inp) {
+                    setJudgeInputValue(
+                      inp,
+                      prev ? resolveJudgeName(prev, pk) : '',
+                      { clearOverride: true }
+                    );
+                  }
                   window.alert((res.json && res.json.error) || 'تعذّر تعيين مستوى الوحدة.');
                   return;
                 }
@@ -1688,8 +1812,10 @@
                 var li = sel.closest('.ibank-tree-node');
                 if (li) li.setAttribute('data-effective-unit-key', uk);
                 var unitLabel = (res.json && res.json.unit_label) || '';
+                var jn = (res.json && res.json.judge_name) || resolveJudgeName(uk, pk);
+                setJudgeInputValue(inp, jn, { clearOverride: true });
                 if (res.json && res.json.is_folder && li) {
-                  applyUnitToFolderDescendants(li, uk, unitLabel);
+                  applyUnitToFolderDescendants(li, uk, unitLabel, jn);
                 }
                 var statusEl = page.querySelector('.js-ibank-unit-save-status');
                 if (!statusEl) {
@@ -1715,12 +1841,80 @@
                 sel.disabled = false;
                 if (prev) sel.value = prev;
                 else sel.selectedIndex = 0;
-                if (inp) inp.value = prev ? (judgeByUnit[prev] || '—') : '—';
+                if (inp) {
+                  setJudgeInputValue(
+                    inp,
+                    prev ? resolveJudgeName(prev, pk) : '',
+                    { clearOverride: true }
+                  );
+                }
                 window.alert('تعذر الاتصال بالخادم.');
               });
           });
           var cur = (sel.value || '').trim();
           if (cur) sel.setAttribute('data-last-unit-key', cur);
+        });
+        page.querySelectorAll('.js-ibank-tree-judge-select').forEach(function (sel) {
+          function saveJudgeName() {
+            var nodeId = (sel.getAttribute('data-node-id') || '').trim();
+            var kind = (sel.getAttribute('data-kind') || '').trim();
+            if (!nodeId || !kind) return;
+            var val = (sel.value || '').trim();
+            var last = (sel.getAttribute('data-last-saved') || '').trim();
+            var wasOverride = sel.getAttribute('data-override') === '1';
+            if (val === last && wasOverride) return;
+            if (!wasOverride && !val && !last) return;
+            var body = new URLSearchParams();
+            body.set('kind', kind);
+            body.set('judge_name', val);
+            sel.disabled = true;
+            fetch('/admin/information-bank/tree/' + encodeURIComponent(nodeId) + '/judge-name', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                Accept: 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+              },
+              body: body.toString(),
+            })
+              .then(function (r) {
+                return r.json().then(function (j) {
+                  return { ok: r.ok && j && j.ok, json: j || {} };
+                }).catch(function () {
+                  return { ok: false, json: {} };
+                });
+              })
+              .then(function (res) {
+                sel.disabled = false;
+                if (!res.ok) {
+                  window.alert((res.json && res.json.error) || 'تعذّر حفظ اسم المحكم.');
+                  return;
+                }
+                var stored = (res.json && res.json.judge_name_stored) || '';
+                var display = (res.json && res.json.judge_name) || '';
+                sel.setAttribute('data-last-saved', stored);
+                sel.setAttribute('data-override', stored ? '1' : '0');
+                var li = sel.closest('.ibank-tree-node');
+                var uk2 = (sel.getAttribute('data-selected-unit') || '').trim();
+                if (!uk2 && li) uk2 = (li.getAttribute('data-effective-unit-key') || '').trim();
+                if (!stored) {
+                  fillJudgeSelect(sel, uk2, '', {
+                    clearOverride: true,
+                    autoPick: false,
+                  });
+                } else {
+                  fillJudgeSelect(sel, uk2, stored, { autoPick: false });
+                  sel.setAttribute('data-override', '1');
+                  sel.setAttribute('data-last-saved', stored);
+                }
+              })
+              .catch(function () {
+                sel.disabled = false;
+                window.alert('تعذّر حفظ اسم المحكم.');
+              });
+          }
+          sel.addEventListener('change', saveJudgeName);
         });
       }
 

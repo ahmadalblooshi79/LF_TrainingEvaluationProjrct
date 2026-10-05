@@ -28,8 +28,10 @@ from app.evaluation_list_ibank_sync import (
     _resolve_phase_key,
     _resolve_unit_key,
     exercise_roster_labels_by_unit,
+    exercise_roster_labels_by_unit_phase,
     resolve_ibank_publish_unit_key,
     roster_eval_display_unit_keys,
+    roster_judge_name_for_unit_phase,
     roster_judge_unit_keys,
 )
 from app.exercise_phase_catalog import exercise_phase_label, normalize_exercise_phase
@@ -2781,6 +2783,7 @@ def _build_action_eval_branch_group(
     trainee_by_unit: dict[str, str],
     flow_day_id: str | None = None,
     prefetched_sources: list[dict] | None = None,
+    judge_by_unit_phase: dict[tuple[str, str], str] | None = None,
 ) -> dict:
     uk = (unit_key or "").strip()
     ul = label_for_unit_level_key(uk, db=db) or uk
@@ -2833,7 +2836,9 @@ def _build_action_eval_branch_group(
         "phase_label": pl,
         "unit_key": uk,
         "unit_label": ul,
-        "judge_name": judge_by_unit.get(uk, "—"),
+        "judge_name": roster_judge_name_for_unit_phase(
+            judge_by_unit_phase or {}, judge_by_unit, uk, pk
+        ),
         "trainee_name": trainee_by_unit.get(uk, "—"),
         "assignee_labels": assignee_labels,
         "ibank_sources": ibank_sources,
@@ -3068,6 +3073,7 @@ def build_judge_action_eval_display_groups(
             restrict_unit_key
         )
     judge_by_unit, trainee_by_unit = exercise_roster_labels_by_unit(db, int(exercise_id))
+    judge_by_unit_phase, _ = exercise_roster_labels_by_unit_phase(db, int(exercise_id))
 
     # تسميات العرض من المكلف إن وُجدت — دون استخدامها كشرط ظهور
     flow_labels: dict[str, list[str]] = {}
@@ -3184,7 +3190,9 @@ def build_judge_action_eval_display_groups(
                 "phase_label": exercise_phase_label(pk) or pk,
                 "unit_key": uk,
                 "unit_label": _flow_display_label(uk, assignees, db=db),
-                "judge_name": judge_by_unit.get(uk, "—"),
+                "judge_name": roster_judge_name_for_unit_phase(
+                    judge_by_unit_phase, judge_by_unit, uk, pk
+                ),
                 "trainee_name": trainee_by_unit.get(uk, "—"),
                 "assignee_labels": assignees,
                 "ibank_sources": [],
@@ -3302,6 +3310,7 @@ def build_action_eval_display_groups(
     roster_units = roster_eval_display_unit_keys(db, int(exercise_id))
     judge_units = roster_judge_unit_keys(db, int(exercise_id))
     judge_by_unit, trainee_by_unit = exercise_roster_labels_by_unit(db, int(exercise_id))
+    judge_by_unit_phase, _ = exercise_roster_labels_by_unit_phase(db, int(exercise_id))
     phase_keys = (
         effective_action_eval_phase_keys(db, roster_units=roster_units)
         if roster_units
@@ -3401,6 +3410,7 @@ def build_action_eval_display_groups(
                 trainee_by_unit=trainee_by_unit,
                 flow_day_id=flow_day_id,
                 prefetched_sources=pref,
+                judge_by_unit_phase=judge_by_unit_phase,
             )
             row["unit_label"] = _flow_display_label(uk, assignees, db=db)
             row["source"] = "ibank_dilemma" if uk in dilemma_units else "flow"
@@ -3427,6 +3437,7 @@ def build_action_eval_dilemma_publish_groups(
     from app.ibank_action_eval_dilemma_tree import build_action_eval_dilemma_judge_tree
 
     judge_by_unit, trainee_by_unit = exercise_roster_labels_by_unit(db, int(exercise_id))
+    judge_by_unit_phase, _ = exercise_roster_labels_by_unit_phase(db, int(exercise_id))
     pk = (
         _resolve_phase_key(phase_key, db)
         or (phase_key or "").strip()
@@ -3577,7 +3588,9 @@ def build_action_eval_dilemma_publish_groups(
                             if uk
                             else ""
                         )
-                        or judge_by_unit.get(branch_uk, "—"),
+                        or roster_judge_name_for_unit_phase(
+                            judge_by_unit_phase, judge_by_unit, branch_uk, pk
+                        ),
                         "trainee_name": trainee_by_unit.get(branch_uk, "—")
                         if branch_uk
                         else "—",

@@ -958,6 +958,40 @@ def set_folder_unit_level(
         row.catalog_phase_key = phase_key[:64]
 
 
+def set_node_judge_name(
+    db: Session, *, kind: str, node_id: int, judge_name: str
+) -> str:
+    """تعيين/مسح اسم المحكم الاختياري على عقدة شجرة قوائم التقييم."""
+    if not is_unit_eval_tree_kind(kind):
+        raise ValueError("unsupported kind")
+    row = get_node(db, node_id, kind)
+    if row is None:
+        raise ValueError("العنصر غير موجود")
+    if _is_phase_root_folder(row):
+        raise ValueError("لا يُعيَّن اسم محكم على مجلد المرحلة نفسه")
+    name = (judge_name or "").strip()[:256]
+    row.judge_name = name
+    if row.is_folder:
+        # طبّق على الملفات/المجلدات الفرعية التي ليس لها تجاوز يدوي مختلف؟
+        # نحدّث الأبناء المباشرين والفرعيين لنفس القيمة عند تعيين المجلد.
+        stack = [int(row.id)]
+        seen: set[int] = set()
+        while stack:
+            pid = stack.pop()
+            if pid in seen:
+                continue
+            seen.add(pid)
+            for ch in (
+                db.query(InformationBankTreeNode)
+                .filter(InformationBankTreeNode.parent_id == pid)
+                .all()
+            ):
+                ch.judge_name = name
+                if ch.is_folder:
+                    stack.append(int(ch.id))
+    return name
+
+
 def _phase_key_for_node(db: Session, node: InformationBankTreeNode) -> str:
     pk = (node.catalog_phase_key or "").strip()
     if pk:
@@ -1876,11 +1910,17 @@ def upload_files_to_parent(
     return added, errors
 
 
-def exercise_judge_names_by_unit(db: Session, exercise_id: int | None) -> dict[str, str]:
-    """أسماء المحكمين من قائمة المحكمين حسب مفتاح مستوى الوحدة (التمرين الحالي)."""
+def exercise_judge_roster_name_index(
+    db: Session, exercise_id: int | None
+) -> dict[str, dict[str, str]]:
+    """أسماء المحكمين من قائمة المحكمين: unit_key → {phase_key_or_'': name}.
+
+    صف بلا مرحلة يُخزَّن تحت المفتاح الفارغ (كل المراحل). يُسمح بعدة محكمين
+    لنفس مستوى الوحدة بمراحل مختلفة.
+    """
     if not exercise_id:
         return {}
-    out: dict[str, str] = {}
+    out: dict[str, dict[str, str]] = {}
     rows = (
         db.query(ExerciseRosterRow)
         .filter(
@@ -1892,10 +1932,131 @@ def exercise_judge_names_by_unit(db: Session, exercise_id: int | None) -> dict[s
     )
     for jr in rows:
         uk = (jr.unit_level_key or "").strip()
-        if not uk or uk in out:
+        if not uk:
             continue
-        out[uk] = (jr.full_name or "").strip()
+        name = (jr.full_name or "").strip()
+        if not name:
+            continue
+        try:
+            from app.exercise_phase_catalog import normalize_exercise_phase
+
+            raw_ph = (jr.exercise_phase or "").strip()
+            pk = normalize_exercise_phase(raw_ph) or raw_ph
+        except Exception:
+            pk = (jr.exercise_phase or "").strip()
+        by_phase = out.setdefault(uk, {})
+        if pk not in by_phase:
+            by_phase[pk] = name
     return out
+
+
+def exercise_judge_roster_options_by_unit(
+    db: Session, exercise_id: int | None
+) -> dict[str, list[dict[str, str]]]:
+    """خيارات قائمة منسدلة: unit_key → [{name, phase_key, phase_label}, …].
+
+    كل صف محكم له اسم في قائمة المحكمين لنفس مستوى الوحدة (مراحل مختلفة مسموحة).
+    """
+    if not exercise_id:
+        return {}
+    try:
+        from app.exercise_phase_catalog import (
+            exercise_phase_label,
+            normalize_exercise_phase,
+        )
+    except Exception:
+        exercise_phase_label = lambda k: k  # type: ignore
+        normalize_exercise_phase = lambda k: (k or "").strip()  # type: ignore
+
+    out: dict[str, list[dict[str, str]]] = {}
+    seen: dict[str, set[tuple[str, str]]] = {}
+    rows = (
+        db.query(ExerciseRosterRow)
+        .filter(
+            ExerciseRosterRow.exercise_id == int(exercise_id),
+            ExerciseRosterRow.roster_kind == ExerciseRosterKind.JUDGE.value,
+        )
+        .order_by(ExerciseRosterRow.sort_order, ExerciseRosterRow.id)
+        .all()
+    )
+    for jr in rows:
+        uk = (jr.unit_level_key or "").strip()
+        if not uk:
+            continue
+        name = (jr.full_name or "").strip()
+        if not name:
+            mil = (jr.military_number or "").strip()
+            rank = (jr.rank_ar or "").strip()
+            if mil and rank:
+                name = f"{rank} {mil}"
+            elif mil:
+                name = mil
+            elif rank:
+                name = rank
+            else:
+                continue
+        raw_ph = (jr.exercise_phase or "").strip()
+        pk = normalize_exercise_phase(raw_ph) or raw_ph
+        key = (name, pk)
+        bucket = seen.setdefault(uk, set())
+        if key in bucket:
+            continue
+        bucket.add(key)
+        pl = (exercise_phase_label(pk) or pk).strip() if pk else ""
+        out.setdefault(uk, []).append(
+            {
+                "name": name,
+                "phase_key": pk,
+                "phase_label": pl,
+            }
+        )
+    return out
+
+
+def resolve_roster_judge_name(
+    index: dict[str, dict[str, str]] | None,
+    unit_key: str | None,
+    phase_key: str | None = "",
+) -> str:
+    """اسم المحكم لمستوى وحدة ومرحلة — يفضّل تطابق المرحلة ثم صف «كل المراحل» ثم أي اسم."""
+    uk = (unit_key or "").strip()
+    if not uk or not index:
+        return ""
+    by_phase = index.get(uk) or {}
+    if not by_phase:
+        return ""
+    try:
+        from app.exercise_phase_catalog import normalize_exercise_phase
+
+        pk_raw = (phase_key or "").strip()
+        pk = normalize_exercise_phase(pk_raw) or pk_raw
+    except Exception:
+        pk = (phase_key or "").strip()
+    if pk and (by_phase.get(pk) or "").strip():
+        return (by_phase.get(pk) or "").strip()
+    if (by_phase.get("") or "").strip():
+        return (by_phase.get("") or "").strip()
+    for name in by_phase.values():
+        n = (name or "").strip()
+        if n:
+            return n
+    return ""
+
+
+def exercise_judge_names_by_unit(db: Session, exercise_id: int | None) -> dict[str, str]:
+    """أسماء المحكمين حسب مستوى الوحدة فقط (أول اسم / صف بلا مرحلة) — توافق قديم."""
+    index = exercise_judge_roster_name_index(db, exercise_id)
+    out: dict[str, str] = {}
+    for uk, by_phase in index.items():
+        out[uk] = resolve_roster_judge_name(index, uk, "")
+    return out
+
+
+def exercise_judge_names_by_unit_phase_payload(
+    db: Session, exercise_id: int | None
+) -> dict[str, dict[str, str]]:
+    """حمولة JSON للواجهة: unit → {phase → name}."""
+    return exercise_judge_roster_name_index(db, exercise_id)
 
 
 def build_tree_payload(
@@ -1904,6 +2065,7 @@ def build_tree_payload(
     *,
     unit_label_by_key: dict[str, str] | None = None,
     judge_name_by_unit: dict[str, str] | None = None,
+    judge_name_index: dict[str, dict[str, str]] | None = None,
     ensure: bool = True,
 ) -> list[dict]:
     # ensure_information_bank_kind يُنفَّذ مرة لكل عملية (كاش) — لا تعِد إصلاح الشجرة في كل عرض.
@@ -1933,6 +2095,9 @@ def build_tree_payload(
     for pid, siblings in by_parent.items():
         siblings.sort(key=lambda n: (_natural_sort_key(n.name or ""), int(n.id or 0)))
     judge_map = dict(judge_name_by_unit or {})
+    judge_idx = dict(judge_name_index or {})
+    if not judge_idx and judge_map:
+        judge_idx = {uk: {"": nm} for uk, nm in judge_map.items() if (nm or "").strip()}
     phase_key_cache: dict[int, str] = {}
     unit_key_cache: dict[int, str] = {}
     bank_by_base: dict[str, set[str]] | None = None
@@ -2024,16 +2189,29 @@ def build_tree_payload(
         bank_units_cache[nid] = ordered
         return ordered
 
+    def node_judge_display(n: InformationBankTreeNode, display_uk: str, phase_key: str) -> tuple[str, str, bool]:
+        """(عرض، مخزّن اختياري، هل تجاوز يدوي)."""
+        stored = (getattr(n, "judge_name", None) or "").strip()
+        if stored:
+            return stored, stored, True
+        auto = ""
+        if display_uk:
+            auto = resolve_roster_judge_name(judge_idx, display_uk, phase_key)
+            if not auto:
+                auto = (judge_map.get(display_uk) or "").strip()
+        return auto, "", False
+
     def node_dict(n: InformationBankTreeNode) -> dict:
         children = [node_dict(c) for c in by_parent.get(int(n.id), [])]
         eff_uk = unit_key_mem(n)
         is_phase_root = _is_phase_root_folder(n)
+        eff_pk = phase_key_mem(n)
         flow_day_id = (
             parse_flow_day_catalog_key((n.catalog_phase_key or "").strip()) or ""
         )
         show_unit = False
         if is_unit_eval_tree_kind(kind) and not is_phase_root:
-            show_unit = bool(phase_key_mem(n))
+            show_unit = bool(eff_pk)
         bank_keys = bank_units_mem(n) if kind == "action_eval" else []
         if kind == "action_eval":
             stored_uk = (n.catalog_unit_key or "").strip()
@@ -2046,6 +2224,7 @@ def build_tree_payload(
                 unit_choice_enabled = not n.is_folder
                 display_uk = stored_uk if stored_uk in bank_keys else ""
             unit_label = (labels.get(display_uk) or display_uk).strip() if display_uk else ""
+            j_disp, j_stored, j_over = node_judge_display(n, display_uk, eff_pk)
             d: dict = {
                 "id": int(n.id),
                 "name": n.name,
@@ -2056,8 +2235,11 @@ def build_tree_payload(
                 "children": children,
                 "catalog_unit_key": stored_uk,
                 "effective_unit_key": display_uk,
+                "effective_phase_key": eff_pk,
                 "unit_level_label": unit_label,
-                "judge_name": (judge_map.get(display_uk) or "").strip() if display_uk else "",
+                "judge_name": j_disp,
+                "judge_name_stored": j_stored,
+                "judge_name_override": j_over,
                 "show_unit_select": show_unit,
                 "dilemma_bank_unit_keys": bank_keys,
                 "unit_choice_enabled": unit_choice_enabled,
@@ -2067,6 +2249,7 @@ def build_tree_payload(
                 ],
             }
         else:
+            j_disp, j_stored, j_over = node_judge_display(n, eff_uk, eff_pk)
             d = {
                 "id": int(n.id),
                 "name": n.name,
@@ -2077,8 +2260,11 @@ def build_tree_payload(
                 "children": children,
                 "catalog_unit_key": (n.catalog_unit_key or "").strip(),
                 "effective_unit_key": eff_uk,
+                "effective_phase_key": eff_pk,
                 "unit_level_label": labels.get(eff_uk, "") if eff_uk else "",
-                "judge_name": judge_map.get(eff_uk, "") if eff_uk else "",
+                "judge_name": j_disp,
+                "judge_name_stored": j_stored,
+                "judge_name_override": j_over,
                 "show_unit_select": show_unit,
                 "dilemma_bank_unit_keys": [],
                 "unit_choice_enabled": False,

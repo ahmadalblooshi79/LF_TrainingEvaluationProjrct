@@ -14356,7 +14356,7 @@ def _exercise_roster_page(roster_kind: str):
             "add_label": "إضافة سطر",
             "save_label": "حفظ القائمة",
             "clear_label": "حذف جميع الأسطر",
-            "file_panel_hint": "كقائمة المتدربين: العمود الرابع مستوى الوحدة، والخامس مرحلة التمرين (اختياري).",
+            "file_panel_hint": "كقائمة المتدربين: العمود الرابع مستوى الوحدة، والخامس مرحلة التمرين (اختياري). يمكن تكرار نفس مستوى الوحدة لعدة محكمين بمراحل مختلفة؛ الاسم اختياري.",
         },
     }[roster_kind]
 
@@ -17612,6 +17612,8 @@ def admin_information_bank():
         build_tree_payload,
         ensure_information_bank_kind,
         exercise_judge_names_by_unit,
+        exercise_judge_roster_name_index,
+        exercise_judge_roster_options_by_unit,
         ibank_event_flow_days,
     )
 
@@ -17631,9 +17633,10 @@ def admin_information_bank():
         if (u.get("key") or "").strip()
     }
     current_exercise = _admin_current_workspace_exercise(db, user)
-    ibank_judge_names_by_unit = exercise_judge_names_by_unit(
-        db, int(current_exercise.id) if current_exercise else None
-    )
+    _ex_id = int(current_exercise.id) if current_exercise else None
+    ibank_judge_names_by_unit_phase = exercise_judge_roster_name_index(db, _ex_id)
+    ibank_judge_names_by_unit = exercise_judge_names_by_unit(db, _ex_id)
+    ibank_judge_options_by_unit = exercise_judge_roster_options_by_unit(db, _ex_id)
     from app.ibank_ui import (
         ibank_brigade_groups_for_page,
         is_removed_brigade_tab,
@@ -17684,6 +17687,7 @@ def admin_information_bank():
                 "action_eval",
                 unit_label_by_key=ibank_unit_labels,
                 judge_name_by_unit=ibank_judge_names_by_unit,
+                judge_name_index=ibank_judge_names_by_unit_phase,
             )
             ibank_action_eval_flow_days = ibank_event_flow_days(db)
             valid_day_ids = {d["id"] for d in ibank_action_eval_flow_days}
@@ -17729,6 +17733,7 @@ def admin_information_bank():
                 "dilemma_eval",
                 unit_label_by_key=ibank_unit_labels,
                 judge_name_by_unit=ibank_judge_names_by_unit,
+                judge_name_index=ibank_judge_names_by_unit_phase,
             )
     except Exception as exc:
         db.rollback()
@@ -17784,6 +17789,8 @@ def admin_information_bank():
                 information_bank_can_manage=can_manage_information_bank(user),
                 ibank_tree_unit_levels=list(UNIT_LEVELS),
                 ibank_judge_names_by_unit=ibank_judge_names_by_unit,
+                ibank_judge_names_by_unit_phase=ibank_judge_names_by_unit_phase,
+                ibank_judge_options_by_unit=ibank_judge_options_by_unit,
                 **ibank_event_flow_ctx,
             ),
         )
@@ -18922,6 +18929,24 @@ def admin_information_bank_tree_unit_level(node_id: int):
         if is_folder
         else "تم تعيين مستوى الوحدة للملف."
     )
+    judge_display = ""
+    if wants_json and row is not None:
+        from app.info_bank_tree import (
+            exercise_judge_roster_name_index,
+            resolve_roster_judge_name,
+            _phase_key_for_node,
+        )
+
+        stored_jn = (getattr(row, "judge_name", None) or "").strip()
+        if stored_jn:
+            judge_display = stored_jn
+        else:
+            ex = _admin_current_workspace_exercise(db, user)
+            idx = exercise_judge_roster_name_index(
+                db, int(ex.id) if ex else None
+            )
+            pk = _phase_key_for_node(db, row)
+            judge_display = resolve_roster_judge_name(idx, unit_key, pk)
     if wants_json:
         return jsonify(
             ok=True,
@@ -18930,8 +18955,80 @@ def admin_information_bank_tree_unit_level(node_id: int):
             unit_key=unit_key,
             unit_label=label_for_unit_level_key(unit_key, db=db) or unit_key,
             is_folder=is_folder,
+            judge_name=judge_display or "",
         )
     return _admin_information_bank_tree_redirect(tab=tab, ok=ok_msg)
+
+
+@bp.route("/admin/information-bank/tree/<int:node_id>/judge-name", methods=["POST"])
+def admin_information_bank_tree_judge_name(node_id: int):
+    user = get_current_user_optional()
+    if not user or not can_manage_information_bank(user):
+        abort(403)
+    from flask import g
+
+    from app.info_bank_tree import (
+        invalidate_information_bank_kind_cache,
+        is_unit_eval_tree_kind,
+        kind_tab,
+        resolve_roster_judge_name,
+        set_node_judge_name,
+        exercise_judge_roster_name_index,
+        _phase_key_for_node,
+        get_node,
+    )
+    from app.unit_levels_catalog import label_for_unit_level_key
+
+    db = g.db
+    kind = (request.form.get("kind") or "").strip()
+    if not is_unit_eval_tree_kind(kind):
+        abort(400)
+    tab = kind_tab(kind)
+    judge_name = (request.form.get("judge_name") or "").strip()
+    wants_json = (
+        (request.headers.get("X-Requested-With") or "").strip() == "XMLHttpRequest"
+        or request.accept_mimetypes.best_match(["application/json", "text/html"])
+        == "application/json"
+    )
+    try:
+        saved = set_node_judge_name(
+            db, kind=kind, node_id=node_id, judge_name=judge_name
+        )
+        invalidate_information_bank_kind_cache(kind)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        err = str(exc) or "تعذّر حفظ اسم المحكم."
+        if wants_json:
+            return jsonify(ok=False, error=err), 400
+        return _admin_information_bank_tree_redirect(tab=tab, err=err)
+    row = get_node(db, node_id, kind)
+    display = saved
+    if not display and row is not None:
+        uk = (row.catalog_unit_key or "").strip()
+        pk = _phase_key_for_node(db, row) if row else ""
+        ex = _admin_current_workspace_exercise(db, user)
+        idx = exercise_judge_roster_name_index(
+            db, int(ex.id) if ex else None
+        )
+        display = resolve_roster_judge_name(idx, uk, pk)
+    if wants_json:
+        return jsonify(
+            ok=True,
+            message="تم حفظ اسم المحكم.",
+            node_id=int(node_id),
+            judge_name=display or "",
+            judge_name_stored=saved,
+            judge_name_override=bool(saved),
+            unit_label=label_for_unit_level_key(
+                (row.catalog_unit_key or "").strip() if row else "", db=db
+            )
+            if row
+            else "",
+        )
+    return _admin_information_bank_tree_redirect(
+        tab=tab, ok="تم حفظ اسم المحكم."
+    )
 
 
 @bp.route("/admin/information-bank/tree/move", methods=["POST"])
