@@ -1,10 +1,15 @@
 import io
+import tempfile
 import unittest
 import zipfile
+from pathlib import Path
 from types import SimpleNamespace
 
 from app.eval_lists_admin_export import (
     filter_admin_eval_export_entries,
+    layout_admin_export_files,
+    pack_admin_eval_export_zip,
+    stored_zip_add_file,
     zip_entries_for_selected,
 )
 from app.evaluation_list_export import eval_export_list_folder_relpath
@@ -61,6 +66,27 @@ class AdminEvalExportTests(unittest.TestCase):
             entries, units=set(), phases=None, list_keys=None, statuses=None
         )
         self.assertEqual(none, [])
+        by_kind = filter_admin_eval_export_entries(
+            [
+                {**entries[0], "kind": "eval"},
+                {**entries[1], "kind": "action"},
+            ],
+            units=None,
+            phases=None,
+            list_keys=None,
+            statuses=None,
+            kinds={"action"},
+        )
+        self.assertEqual([e["key"] for e in by_kind], ["action:2"])
+        blank_phase = filter_admin_eval_export_entries(
+            [{"key": "eval:9", "kind": "eval", "unit_key": "u1", "phase_key": "", "status": "saved"}],
+            units=None,
+            phases={"__none__"},
+            list_keys=None,
+            statuses=None,
+            kinds={"eval"},
+        )
+        self.assertEqual([e["key"] for e in blank_phase], ["eval:9"])
 
     def test_folder_tree_and_media_in_same_dir(self):
         used: set[str] = set()
@@ -104,6 +130,51 @@ class AdminEvalExportTests(unittest.TestCase):
         data = pack_admin_eval_export_zip(packed)
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             self.assertEqual(set(zf.namelist()), set(names))
+            for info in zf.infolist():
+                self.assertEqual(info.compress_type, zipfile.ZIP_STORED)
+
+    def test_kinds_export_into_separate_folders(self):
+        selected = [
+            {
+                "key": "eval:1",
+                "kind": "eval",
+                "item_id": 1,
+                "title": "قائمة مشتركة",
+                "phase_label": "مرحلة التحضير",
+                "unit_label": "سرية الهاون",
+            },
+            {
+                "key": "action:2",
+                "kind": "action",
+                "item_id": 2,
+                "title": "قائمة مشتركة",
+                "phase_label": "مرحلة التحضير",
+                "unit_label": "سرية الهاون",
+            },
+        ]
+        layout = layout_admin_export_files(
+            selected,
+            {"eval:1": ["صورة_بند_0_3.jpg"], "action:2": []},
+        )
+        self.assertTrue(layout["eval:1"]["xlsx_relpath"].startswith("قوائم تقييم الإجراءات/"))
+        self.assertTrue(layout["eval:1"]["media"][0]["relpath"].startswith("قوائم تقييم الإجراءات/"))
+        self.assertTrue(layout["action:2"]["xlsx_relpath"].startswith("قوائم تقييم المعاضل/"))
+        self.assertNotEqual(
+            layout["eval:1"]["xlsx_relpath"].split("/")[0],
+            layout["action:2"]["xlsx_relpath"].split("/")[0],
+        )
+
+    def test_stored_zip_keeps_arabic_name_from_disk(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "photo.bin"
+            src.write_bytes(b"img-bytes")
+            dest = Path(tmp) / "out.zip"
+            with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_STORED) as zf:
+                stored_zip_add_file(zf, "قوائم تقييم المعاضل/صورة.jpg", src)
+            with zipfile.ZipFile(dest) as zf:
+                self.assertEqual(zf.namelist(), ["قوائم تقييم المعاضل/صورة.jpg"])
+                self.assertEqual(zf.read("قوائم تقييم المعاضل/صورة.jpg"), b"img-bytes")
+                self.assertEqual(zf.getinfo("قوائم تقييم المعاضل/صورة.jpg").compress_type, zipfile.ZIP_STORED)
 
 
 if __name__ == "__main__":

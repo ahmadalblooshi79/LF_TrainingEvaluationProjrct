@@ -70,15 +70,18 @@ def eval_export_list_folder_relpath(
     list_title: str,
     item_id: int,
     used: set[str],
+    root_label: str = "",
 ) -> str:
-    """مجلد القائمة داخل الأرشيف: المرحلة/الوحدة/اسم القائمة."""
+    """مجلد القائمة داخل الأرشيف: [نوع القوائم]/المرحلة/الوحدة/اسم القائمة."""
     phase = zip_safe_segment(phase_label, "مرحلة")
     unit = zip_safe_segment(unit_label, "وحدة")
     fname = export_download_filename(list_title)
     stem = re.sub(r"\.(xlsx|xlsm|xls)$", "", fname, flags=re.I).strip() or f"قائمة_{int(item_id)}"
-    rel = f"{phase}/{unit}/{stem}"
+    root = zip_safe_segment(root_label, "") if (root_label or "").strip() else ""
+    prefix = f"{root}/" if root else ""
+    rel = f"{prefix}{phase}/{unit}/{stem}"
     if rel in used:
-        rel = f"{phase}/{unit}/{stem}_{int(item_id)}"
+        rel = f"{prefix}{phase}/{unit}/{stem}_{int(item_id)}"
     n = 2
     base = rel
     while rel in used:
@@ -855,7 +858,16 @@ def build_evaluation_list_xlsx_bytes(
         raise FileNotFoundError(str(path))
 
     # keep_vba يحافظ على xlsm؛ data_only=False ثم تُستبدل الصيغ بقيم النظام
-    wb = load_workbook(filename=str(path), data_only=False, keep_vba=path.suffix.lower() == ".xlsm")
+    keep_vba = path.suffix.lower() == ".xlsm"
+    try:
+        wb = load_workbook(
+            filename=str(path),
+            data_only=False,
+            keep_vba=keep_vba,
+            keep_links=False,
+        )
+    except TypeError:
+        wb = load_workbook(filename=str(path), data_only=False, keep_vba=keep_vba)
     try:
         # اختر ورقة التقييم دون حذف الأوراق الأخرى (ملاحظات/مفتاح ألوان إن وُجدت)
         keep = None

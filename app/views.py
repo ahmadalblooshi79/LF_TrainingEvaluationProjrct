@@ -3,9 +3,14 @@ import io
 import json
 import logging
 import mimetypes
+import os
 import re
+import tempfile
+import threading
+import time
 import uuid
 import zipfile
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, unquote
@@ -97,15 +102,18 @@ from app.eval_judge_attribution import (
     user_is_admin_attribution_source,
 )
 from app.eval_lists_admin_export import (
+    admin_export_zip_filename,
     catalog_filter_options,
     collect_admin_eval_export_catalog,
     filter_admin_eval_export_entries,
+    iter_existing_media_exports,
+    layout_admin_export_files,
     media_export_filename,
     media_file_bytes,
     media_rows_for_list,
-    pack_admin_eval_export_zip,
     parse_export_form_filters,
-    zip_entries_for_selected,
+    stored_zip_add_bytes,
+    stored_zip_add_file,
 )
 from app.evaluation_workflow import (
     apply_chief_approve,
@@ -335,6 +343,10 @@ def _resolve_evaluation_list_export_source(db, row) -> Path | None:
     return src
 
 
+_SHEET_EXPORT_CACHE: dict[tuple, dict] = {}
+_SHEET_EXPORT_LOCK = threading.Lock()
+
+
 def _evaluation_sheet_view_context(fspath: Path, exercise=None) -> dict:
     """قراءة ملف قائمة التقييم مع اكتشاف قوالب الصفوف (القصوى/المكتسبة) تلقائيًا."""
     from app.evaluation_element_display import enrich_eval_rows_element_styles
@@ -343,26 +355,45 @@ def _evaluation_sheet_view_context(fspath: Path, exercise=None) -> dict:
         format_eval_exercise_subtitle_from_exercise,
     )
 
-    sheet = read_evaluation_list_sheet(fspath)
-    es = bool(sheet.get("eval_structured"))
-    raw_eval = sheet.get("eval_rows") or []
-    eval_rows = enrich_eval_rows_element_styles(raw_eval) if es else raw_eval
-    return {
-        "preview_error": sheet.get("error"),
-        "sheet_title": sheet.get("sheet_title") or "",
-        "eval_doc_title": eval_doc_title_first_line(sheet.get("eval_doc_title") or ""),
-        "eval_doc_subtitle": format_eval_exercise_subtitle_from_exercise(exercise),
-        "eval_dilemma_description": str(sheet.get("eval_dilemma_description") or ""),
-        "eval_dilemma_requirements": str(sheet.get("eval_dilemma_requirements") or ""),
-        "header_row": sheet.get("header_row") or [],
-        "body_rows": sheet.get("body_rows") or [],
-        "eval_structured": es,
-        "eval_column_source": sheet.get("eval_column_source"),
-        "eval_rows": eval_rows,
-        "eval_input_mode": sheet.get("eval_input_mode") or "scale5",
-        "eval_layout": sheet.get("eval_layout") or "legacy",
-        "acquired_options": acquired_select_options() if es else [],
-    }
+    path = Path(fspath)
+    cache_key = None
+    try:
+        st = path.stat()
+        cache_key = (str(path.resolve()), int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9))), int(st.st_size))
+    except OSError:
+        cache_key = None
+    cached = None
+    if cache_key is not None:
+        with _SHEET_EXPORT_LOCK:
+            cached = _SHEET_EXPORT_CACHE.get(cache_key)
+    if cached is None:
+        sheet = read_evaluation_list_sheet(path)
+        es = bool(sheet.get("eval_structured"))
+        raw_eval = sheet.get("eval_rows") or []
+        eval_rows = enrich_eval_rows_element_styles(raw_eval) if es else raw_eval
+        cached = {
+            "preview_error": sheet.get("error"),
+            "sheet_title": sheet.get("sheet_title") or "",
+            "eval_doc_title": eval_doc_title_first_line(sheet.get("eval_doc_title") or ""),
+            "eval_dilemma_description": str(sheet.get("eval_dilemma_description") or ""),
+            "eval_dilemma_requirements": str(sheet.get("eval_dilemma_requirements") or ""),
+            "header_row": sheet.get("header_row") or [],
+            "body_rows": sheet.get("body_rows") or [],
+            "eval_structured": es,
+            "eval_column_source": sheet.get("eval_column_source"),
+            "eval_rows": eval_rows,
+            "eval_input_mode": sheet.get("eval_input_mode") or "scale5",
+            "eval_layout": sheet.get("eval_layout") or "legacy",
+            "acquired_options": acquired_select_options() if es else [],
+        }
+        if cache_key is not None and not cached.get("preview_error"):
+            with _SHEET_EXPORT_LOCK:
+                if len(_SHEET_EXPORT_CACHE) > 300:
+                    _SHEET_EXPORT_CACHE.clear()
+                _SHEET_EXPORT_CACHE[cache_key] = cached
+    out = dict(cached)
+    out["eval_doc_subtitle"] = format_eval_exercise_subtitle_from_exercise(exercise)
+    return out
 
 
 def _saved_payload_aligned_with_eval_rows(
@@ -10855,7 +10886,9 @@ def _eval_xlsx_bytes_for_action_row(db, action_row, bundle, current_exercise, sa
     )
 
 
-def _admin_eval_export_file_payloads(db, current_exercise, selected: list[dict]):
+def _admin_eval_export_file_payloads(
+    db, current_exercise, selected: list[dict], *, include_media: bool = True
+):
     """يبني بايتات Excel والوسائط للمفاتيح المختارة."""
     from app.eval_lists_admin_export import EXPORT_KIND_ACTION, EXPORT_KIND_EVAL
 
@@ -10934,6 +10967,8 @@ def _admin_eval_export_file_payloads(db, current_exercise, selected: list[dict])
         if not data:
             continue
         xlsx_by_key[key] = data
+        if not include_media:
+            continue
         used_names: set[str] = set()
         media_files: list[tuple[str, bytes]] = []
         for row in media_rows_for_list(
@@ -14124,6 +14159,7 @@ def _admin_eval_export_selected(db, ex, src) -> list[dict]:
         phases=filters["phases"],
         list_keys=filters["list_keys"],
         statuses=filters["statuses"],
+        kinds=filters["kinds"],
     )
 
 
@@ -14154,8 +14190,371 @@ def admin_eval_lists_export():
             export_units=opts["units"],
             export_phases=opts["phases"],
             export_statuses=opts["statuses"],
+            export_kinds=opts["kinds"],
         ),
     )
+
+
+_EVAL_EXPORT_JOBS: dict[str, dict] = {}
+_EVAL_EXPORT_JOBS_LOCK = threading.Lock()
+_EVAL_EXPORT_JOB_TTL = 30 * 60
+
+
+def _admin_eval_export_layout(db, exercise, selected: list[dict]) -> dict[str, dict]:
+    """مسارات الملفات والوسائط دون بناء Excel."""
+    selected = [e for e in selected if _export_entry_has_source(db, exercise, e)]
+    media_names: dict[str, list[str]] = {}
+    media_meta: dict[tuple[str, str], dict[str, str]] = {}
+    eid = int(exercise.id)
+    for entry in selected:
+        key = entry.get("key") or ""
+        names: list[str] = []
+        for row, fname, path in iter_existing_media_exports(
+            media_rows_for_list(
+                db,
+                eid,
+                kind=entry.get("kind") or "",
+                item_id=int(entry.get("item_id") or 0),
+            )
+        ):
+            names.append(fname)
+            media_meta[(key, fname)] = {
+                "path": str(path),
+                "href": url_for("views.eval_criterion_media_stream", media_id=int(row.id)),
+            }
+        media_names[key] = names
+    layout = layout_admin_export_files(selected, media_names)
+    for key, plan in layout.items():
+        plan["xlsx_href"] = url_for(
+            "views.admin_eval_lists_export_file",
+            kind=plan.get("kind") or "",
+            item_id=int(plan.get("item_id") or 0),
+        )
+        for media in plan["media"]:
+            meta = media_meta.get((key, media["name"])) or {}
+            media["path"] = meta.get("path") or ""
+            media["href"] = meta.get("href") or ""
+    return layout
+
+
+def _admin_eval_manifest_files(layout: dict[str, dict], selected: list[dict]) -> list[dict[str, str]]:
+    files: list[dict[str, str]] = []
+    for entry in selected:
+        plan = layout.get(entry.get("key") or "")
+        if not plan:
+            continue
+        files.append(
+            {
+                "relpath": plan["xlsx_relpath"],
+                "href": plan.get("xlsx_href") or "",
+                "name": plan.get("xlsx_name") or "قائمة.xlsx",
+            }
+        )
+        for media in plan.get("media") or []:
+            href = media.get("href") or ""
+            if not href:
+                continue
+            files.append(
+                {
+                    "relpath": media["relpath"],
+                    "href": href,
+                    "name": media.get("name") or "وسيط",
+                }
+            )
+    return files
+
+
+def _export_entry_has_source(db, exercise, entry: dict) -> bool:
+    """القائمة لها ملف Excel على القرص؛ بدون ذلك لا يُنشأ مجلد فارغ."""
+    from app.eval_lists_admin_export import EXPORT_KIND_ACTION, EXPORT_KIND_EVAL
+
+    kind = (entry.get("kind") or "").strip()
+    iid = int(entry.get("item_id") or 0)
+    if not iid:
+        return False
+    if kind == EXPORT_KIND_EVAL:
+        item = db.get(EvaluationListPdfItem, iid)
+        if item is None or int(getattr(item, "exercise_id", 0) or 0) != int(exercise.id):
+            return False
+        return _resolve_evaluation_list_export_source(db, item) is not None
+    if kind == EXPORT_KIND_ACTION:
+        row = db.get(ExercisePlannerFlowBundleActionEval, iid)
+        if row is None:
+            return False
+        return _planner_bundle_file_abspath(getattr(row, "file_relpath", None)) is not None
+    return False
+
+
+def _xlsx_bytes_for_admin_export_entry(db, exercise, entry: dict) -> bytes | None:
+    """يبني Excel لقائمة واحدة دون إعادة قراءة كل قوائم التمرين."""
+    from app.eval_lists_admin_export import EXPORT_KIND_ACTION, EXPORT_KIND_EVAL
+
+    kind = (entry.get("kind") or "").strip()
+    iid = int(entry.get("item_id") or 0)
+    if not iid:
+        return None
+    eid = int(exercise.id)
+    if kind == EXPORT_KIND_EVAL:
+        item = db.get(EvaluationListPdfItem, iid)
+        if item is None or int(getattr(item, "exercise_id", 0) or 0) != eid:
+            return None
+        saved = (
+            db.query(EvaluationListSavedResult)
+            .filter(
+                EvaluationListSavedResult.exercise_id == eid,
+                EvaluationListSavedResult.evaluation_item_id == iid,
+            )
+            .order_by(
+                EvaluationListSavedResult.updated_at.desc(),
+                EvaluationListSavedResult.id.desc(),
+            )
+            .first()
+        )
+        return _eval_xlsx_bytes_for_item(db, item, exercise, saved)
+    if kind == EXPORT_KIND_ACTION:
+        action_row = db.get(ExercisePlannerFlowBundleActionEval, iid)
+        if action_row is None:
+            return None
+        bundle = db.get(ExercisePlannerFlowBundle, int(action_row.bundle_id))
+        if bundle is None or int(getattr(bundle, "exercise_id", 0) or 0) != eid:
+            return None
+        saved = (
+            db.query(PlannerFlowBundleEvalSavedResult)
+            .filter(
+                PlannerFlowBundleEvalSavedResult.exercise_id == eid,
+                PlannerFlowBundleEvalSavedResult.bundle_action_eval_id == iid,
+            )
+            .order_by(
+                PlannerFlowBundleEvalSavedResult.updated_at.desc(),
+                PlannerFlowBundleEvalSavedResult.id.desc(),
+            )
+            .first()
+        )
+        return _eval_xlsx_bytes_for_action_row(db, action_row, bundle, exercise, saved)
+    return None
+
+
+def _admin_eval_export_one_xlsx(app, exercise_id: int, entry: dict) -> bytes | None:
+    from app.database import SessionLocal
+
+    with app.app_context():
+        db = SessionLocal()
+        try:
+            ex = db.get(Exercise, int(exercise_id))
+            if ex is None:
+                return None
+            return _xlsx_bytes_for_admin_export_entry(db, ex, entry)
+        finally:
+            db.close()
+
+
+def _write_eval_export_zip(app, exercise_id, selected, layout, dest_path, on_progress=None) -> tuple[bool, str]:
+    """يبني أرشيفاً دون إعادة ضغط الوسائط. ملف Excel المتوقف يُتخطى حتى يكتمل الباقي."""
+    xlsx_timeout = 90
+    max_workers = 4
+    groups = [e for e in selected if (e.get("key") or "") in layout]
+    total = 0
+    for entry in groups:
+        plan = layout[entry.get("key") or ""]
+        total += 1 + len(plan.get("media") or [])
+    done = 0
+    current = "جاري تجهيز الملفات…"
+    file_fraction = 0.0
+
+    def report(*, finished=None):
+        if on_progress is None:
+            return
+        on_progress(
+            done=done,
+            total=total,
+            current=current,
+            finished=finished,
+            file_fraction=file_fraction,
+        )
+
+    def skip_plan(plan: dict) -> None:
+        nonlocal total
+        total -= 1 + len(plan.get("media") or [])
+        if total < done:
+            total = done
+
+    if total <= 0:
+        return False, "تعذّر بناء ملفات التصدير."
+    report()
+    executor = ThreadPoolExecutor(max_workers=max_workers)
+    pools_left = 4
+    try:
+        with zipfile.ZipFile(dest_path, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
+            pending: dict = {}
+            index = 0
+
+            def submit_more():
+                nonlocal index, current, file_fraction
+                while index < len(groups) and len(pending) < max_workers:
+                    entry = groups[index]
+                    index += 1
+                    plan = layout[entry.get("key") or ""]
+                    current = plan.get("xlsx_name") or "قائمة.xlsx"
+                    file_fraction = 0.0
+                    report()
+                    fut = executor.submit(_admin_eval_export_one_xlsx, app, exercise_id, entry)
+                    pending[fut] = (entry, time.monotonic())
+
+            submit_more()
+            while pending or index < len(groups):
+                if not pending:
+                    submit_more()
+                    if not pending:
+                        break
+                finished_futs, _rest = wait(set(pending), timeout=2, return_when=FIRST_COMPLETED)
+                for fut in finished_futs:
+                    entry, _started = pending.pop(fut)
+                    key = entry.get("key") or ""
+                    plan = layout[key]
+                    try:
+                        data = fut.result()
+                    except Exception:
+                        app.logger.exception("admin eval export xlsx failed for %s", key)
+                        data = None
+                    if not data:
+                        skip_plan(plan)
+                        file_fraction = 0.0
+                        report()
+                        continue
+                    xlsx_name = plan.get("xlsx_name") or "قائمة.xlsx"
+                    current = xlsx_name
+                    file_fraction = 0.0
+                    stored_zip_add_bytes(zf, plan["xlsx_relpath"], data)
+                    done += 1
+                    report(finished=xlsx_name)
+                    last_pulse = 0.0
+                    for media in plan.get("media") or []:
+                        media_name = media.get("name") or "وسيط"
+                        media_path = Path(media.get("path") or "")
+                        if not media_path.is_file():
+                            total -= 1
+                            if total < done:
+                                total = done
+                            file_fraction = 0.0
+                            report()
+                            continue
+                        current = media_name
+                        file_fraction = 0.0
+                        report()
+
+                        def _on_bytes(copied, size):
+                            nonlocal file_fraction, last_pulse
+                            file_fraction = (copied / size) if size else 1.0
+                            now_b = time.monotonic()
+                            if copied >= size or now_b - last_pulse >= 0.4:
+                                last_pulse = now_b
+                                report()
+
+                        stored_zip_add_file(zf, media["relpath"], media_path, on_bytes=_on_bytes)
+                        done += 1
+                        file_fraction = 0.0
+                        report(finished=media_name)
+                now = time.monotonic()
+                running = [fut for fut in pending if fut.running()]
+                stalled = [
+                    fut
+                    for fut, (_entry, started) in pending.items()
+                    if fut.running() and now - started >= xlsx_timeout
+                ]
+                if stalled and running and len(stalled) == len(running):
+                    for fut in list(pending):
+                        entry, _started = pending.pop(fut)
+                        skip_plan(layout[entry.get("key") or ""])
+                        file_fraction = 0.0
+                        report()
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    pools_left -= 1
+                    if pools_left <= 0:
+                        while index < len(groups):
+                            entry = groups[index]
+                            index += 1
+                            skip_plan(layout[entry.get("key") or ""])
+                        file_fraction = 0.0
+                        report()
+                        break
+                    executor = ThreadPoolExecutor(max_workers=max_workers)
+                submit_more()
+    except Exception:
+        app.logger.exception("admin eval export zip failed")
+        return False, "تعذّر التصدير."
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+    if done <= 0:
+        return False, "تعذّر بناء ملفات Excel للتصدير."
+    return True, ""
+
+
+def _eval_export_job_update(job_id: str, *, finished=None, **fields) -> None:
+    with _EVAL_EXPORT_JOBS_LOCK:
+        job = _EVAL_EXPORT_JOBS.get(job_id)
+        if job is None:
+            return
+        if finished:
+            job["recent"].append(str(finished))
+        for key, value in fields.items():
+            job[key] = value
+
+
+def _eval_export_job_snapshot(job_id: str, user_id: int) -> dict | None:
+    with _EVAL_EXPORT_JOBS_LOCK:
+        job = _EVAL_EXPORT_JOBS.get(job_id)
+        if job is None or int(job.get("user_id") or 0) != int(user_id):
+            return None
+        return {
+            "status": job.get("status") or "",
+            "done": int(job.get("done") or 0),
+            "total": int(job.get("total") or 0),
+            "current": job.get("current") or "",
+            "file_fraction": float(job.get("file_fraction") or 0),
+            "recent": list(job.get("recent") or []),
+            "error": job.get("error") or "",
+            "download_name": job.get("download_name") or "قوائم_التقييم.zip",
+            "path": job.get("path") or "",
+        }
+
+
+def _drop_eval_export_job(job_id: str) -> None:
+    with _EVAL_EXPORT_JOBS_LOCK:
+        job = _EVAL_EXPORT_JOBS.pop(job_id, None)
+    if not job:
+        return
+    path = job.get("path") or ""
+    if path:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _purge_eval_export_jobs() -> None:
+    now = time.time()
+    stale: list[str] = []
+    with _EVAL_EXPORT_JOBS_LOCK:
+        for job_id, job in _EVAL_EXPORT_JOBS.items():
+            if now - float(job.get("created") or now) > _EVAL_EXPORT_JOB_TTL:
+                stale.append(job_id)
+    for job_id in stale:
+        _drop_eval_export_job(job_id)
+
+
+def _user_has_running_eval_export(user_id: int) -> bool:
+    with _EVAL_EXPORT_JOBS_LOCK:
+        for job in _EVAL_EXPORT_JOBS.values():
+            if int(job.get("user_id") or 0) == int(user_id) and job.get("status") == "running":
+                return True
+    return False
+
+
+def _remove_export_file_later(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
 
 @bp.route("/admin/exercises/eval-lists-export.zip", methods=["POST"])
@@ -14170,23 +14569,26 @@ def admin_eval_lists_export_zip():
     if ex is None:
         flash("لا يوجد تمرين حالي.", "error")
         return redirect(url_for("views.admin_eval_lists_export"))
-    selected = _admin_eval_export_selected(db, ex, request.form)
+    selected = [dict(e) for e in _admin_eval_export_selected(db, ex, request.form)]
     if not selected:
         flash("لا توجد قوائم مطابقة للمرشّحات.", "error")
         return redirect(url_for("views.admin_eval_lists_export"))
-    xlsx_by_key, media_by_key = _admin_eval_export_file_payloads(db, ex, selected)
-    entries = zip_entries_for_selected(
-        selected, xlsx_by_key=xlsx_by_key, media_by_key=media_by_key
-    )
-    if not entries:
-        flash("تعذّر بناء ملفات Excel للتصدير.", "error")
+    layout = _admin_eval_export_layout(db, ex, selected)
+    fd, path = tempfile.mkstemp(prefix="eval-export-", suffix=".zip")
+    os.close(fd)
+    app = current_app._get_current_object()
+    ok, err = _write_eval_export_zip(app, int(ex.id), selected, layout, path, None)
+    if not ok:
+        _remove_export_file_later(path)
+        flash(err or "تعذّر بناء ملفات Excel للتصدير.", "error")
         return redirect(url_for("views.admin_eval_lists_export"))
-    zip_bytes = pack_admin_eval_export_zip(entries)
     return send_file(
-        io.BytesIO(zip_bytes),
+        path,
         mimetype="application/zip",
         as_attachment=True,
-        download_name="قوائم_التقييم_والمعاضل.zip",
+        download_name=admin_export_zip_filename(selected),
+        conditional=False,
+        max_age=0,
     )
 
 
@@ -14204,56 +14606,141 @@ def admin_eval_lists_export_manifest():
     selected = _admin_eval_export_selected(db, ex, request.form)
     if not selected:
         return jsonify({"ok": False, "error": "لا توجد قوائم مطابقة للمرشّحات."}), 400
-    xlsx_by_key, media_by_key = _admin_eval_export_file_payloads(db, ex, selected)
-    files: list[dict[str, str]] = []
-    media_href_by_name: dict[tuple[str, str], str] = {}
-    for e in selected:
-        key = e.get("key") or ""
-        iid = int(e.get("item_id") or 0)
-        kind = e.get("kind") or ""
-        used_names: set[str] = set()
-        for row in media_rows_for_list(db, int(ex.id), kind=kind, item_id=iid):
-            packed = media_file_bytes(row)
-            if packed is None:
-                continue
-            fname = media_export_filename(row, used_names)
-            media_href_by_name[(key, fname)] = url_for(
-                "views.eval_criterion_media_stream", media_id=int(row.id)
-            )
-    # rebuild folder paths the same way as zip_entries_for_selected
-    from app.evaluation_list_export import eval_export_list_folder_relpath, export_download_filename
-
-    used_dirs: set[str] = set()
-    for e in selected:
-        key = e.get("key") or ""
-        if key not in xlsx_by_key:
-            continue
-        folder = eval_export_list_folder_relpath(
-            phase_label=e.get("phase_label") or "مرحلة",
-            unit_label=e.get("unit_label") or "وحدة",
-            list_title=e.get("title") or key,
-            item_id=int(e.get("item_id") or 0),
-            used=used_dirs,
-        )
-        xlsx_name = export_download_filename(e.get("title") or "قائمة")
-        files.append(
-            {
-                "relpath": f"{folder}/{xlsx_name}",
-                "href": url_for(
-                    "views.admin_eval_lists_export_file",
-                    kind=e.get("kind"),
-                    item_id=int(e.get("item_id") or 0),
-                ),
-            }
-        )
-        for media_name, _b in media_by_key.get(key) or []:
-            href = media_href_by_name.get((key, media_name)) or ""
-            if not href:
-                continue
-            files.append({"relpath": f"{folder}/{media_name}", "href": href})
+    layout = _admin_eval_export_layout(db, ex, selected)
+    files = _admin_eval_manifest_files(layout, selected)
     if not files:
         return jsonify({"ok": False, "error": "تعذّر بناء ملفات التصدير."}), 400
     return jsonify({"ok": True, "files": files, "count": len(files)})
+
+
+@bp.route("/admin/exercises/eval-lists-export/job", methods=["POST"])
+def admin_eval_lists_export_job_start():
+    user = get_current_user_optional()
+    if not user or not is_system_admin(user):
+        abort(403)
+    from flask import g
+
+    _purge_eval_export_jobs()
+    if _user_has_running_eval_export(int(user.id)):
+        return jsonify({"ok": False, "error": "يوجد تنزيل قيد التنفيذ."}), 409
+    db = g.db
+    ex = _admin_current_workspace_exercise(db, user)
+    if ex is None:
+        return jsonify({"ok": False, "error": "لا يوجد تمرين حالي."}), 400
+    selected = [dict(e) for e in _admin_eval_export_selected(db, ex, request.form)]
+    if not selected:
+        return jsonify({"ok": False, "error": "لا توجد قوائم مطابقة للمرشّحات."}), 400
+    layout = _admin_eval_export_layout(db, ex, selected)
+    total = 0
+    for entry in selected:
+        plan = layout.get(entry.get("key") or "")
+        if not plan:
+            continue
+        total += 1 + len(plan.get("media") or [])
+    if total <= 0:
+        return jsonify({"ok": False, "error": "تعذّر بناء ملفات التصدير."}), 400
+    fd, path = tempfile.mkstemp(prefix="eval-export-", suffix=".zip")
+    os.close(fd)
+    job_id = uuid.uuid4().hex
+    download_name = admin_export_zip_filename(selected)
+    with _EVAL_EXPORT_JOBS_LOCK:
+        _EVAL_EXPORT_JOBS[job_id] = {
+            "user_id": int(user.id),
+            "status": "running",
+            "done": 0,
+            "total": total,
+            "current": "جاري تجهيز الملفات…",
+            "recent": [],
+            "error": "",
+            "path": path,
+            "download_name": download_name,
+            "created": time.time(),
+        }
+    app = current_app._get_current_object()
+    exercise_id = int(ex.id)
+
+    def _run():
+        def on_progress(*, done, total, current, finished=None, file_fraction=0):
+            _eval_export_job_update(
+                job_id,
+                finished=finished,
+                done=done,
+                total=total,
+                current=current or "",
+                file_fraction=float(file_fraction or 0),
+            )
+
+        try:
+            ok, err = _write_eval_export_zip(
+                app, exercise_id, selected, layout, path, on_progress
+            )
+        except Exception:
+            app.logger.exception("admin eval export job crashed")
+            ok, err = False, "تعذّر التصدير."
+        if ok:
+            _eval_export_job_update(job_id, status="ready", current="", error="")
+            return
+        _eval_export_job_update(job_id, status="error", error=err or "تعذّر التصدير.", current="")
+        _remove_export_file_later(path)
+
+    threading.Thread(target=_run, name=f"eval-export-{job_id[:8]}", daemon=True).start()
+    resp = jsonify(
+        {
+            "ok": True,
+            "job_id": job_id,
+            "total": total,
+            "download_name": download_name,
+        }
+    )
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@bp.route("/admin/exercises/eval-lists-export/job/<job_id>", methods=["GET"])
+def admin_eval_lists_export_job_status(job_id: str):
+    user = get_current_user_optional()
+    if not user or not is_system_admin(user):
+        abort(403)
+    try:
+        uuid.UUID(job_id)
+    except ValueError:
+        abort(404)
+    snap = _eval_export_job_snapshot(job_id, int(user.id))
+    if snap is None:
+        abort(404)
+    snap.pop("path", None)
+    resp = jsonify({"ok": True, **snap})
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@bp.route("/admin/exercises/eval-lists-export/job/<job_id>/download", methods=["GET"])
+def admin_eval_lists_export_job_download(job_id: str):
+    user = get_current_user_optional()
+    if not user or not is_system_admin(user):
+        abort(403)
+    try:
+        uuid.UUID(job_id)
+    except ValueError:
+        abort(404)
+    snap = _eval_export_job_snapshot(job_id, int(user.id))
+    if snap is None:
+        abort(404)
+    if snap.get("status") != "ready":
+        abort(409)
+    path = snap.get("path") or ""
+    if not path or not os.path.isfile(path):
+        abort(404)
+    resp = send_file(
+        path,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=snap.get("download_name") or "قوائم_التقييم.zip",
+        conditional=False,
+        max_age=0,
+    )
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @bp.route("/admin/exercises/eval-lists-export/file", methods=["GET"])
@@ -14271,18 +14758,11 @@ def admin_eval_lists_export_file():
     item_id = request.args.get("item_id", type=int)
     if not item_id:
         abort(404)
-    selected = [
-        e
-        for e in _admin_eval_export_catalog(db, ex)
-        if e.get("kind") == kind and int(e.get("item_id") or 0) == int(item_id)
-    ]
-    if not selected:
-        abort(404)
-    xlsx_by_key, _media = _admin_eval_export_file_payloads(db, ex, selected)
-    key = selected[0].get("key") or ""
-    data = xlsx_by_key.get(key)
+    entry = {"kind": kind, "item_id": int(item_id), "key": f"{kind}:{int(item_id)}"}
+    data = _xlsx_bytes_for_admin_export_entry(db, ex, entry)
     if not data:
         abort(404)
+    selected = [entry]
     from app.evaluation_list_export import export_download_filename
 
     name = export_download_filename(selected[0].get("title") or "قائمة")
