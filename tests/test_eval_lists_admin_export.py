@@ -164,6 +164,38 @@ class AdminEvalExportTests(unittest.TestCase):
             layout["action:2"]["xlsx_relpath"].split("/")[0],
         )
 
+    def test_long_dilemma_title_stays_within_windows_path(self):
+        title = (
+            "إنذار بتهديد جوي ودفاع سلبي وايجابي — معضلة 30: المعضلة 30 "
+            "إنذار وهجوم طائرة مسيرة انتحارية على موقع سرية الحرب الإلكترونية وتدمير محطة استطلاع"
+        )
+        selected = [
+            {
+                "key": "action:30",
+                "kind": "action",
+                "item_id": 30,
+                "title": title,
+                "phase_label": "مرحلة العمليات التعرضية الآلية",
+                "unit_label": "فصيل الحرب الإلكترونية_1",
+            },
+            {
+                "key": "action:31",
+                "kind": "action",
+                "item_id": 31,
+                "title": title + " نسخة",
+                "phase_label": "مرحلة العمليات التعرضية الآلية",
+                "unit_label": "فصيل الحرب الإلكترونية_1",
+            },
+        ]
+        layout = layout_admin_export_files(selected, {})
+        for key in ("action:30", "action:31"):
+            rel = layout[key]["xlsx_relpath"]
+            self.assertLess(len(rel), 180)
+            for part in rel.split("/"):
+                self.assertLessEqual(len(part), 80)
+            self.assertLessEqual(len(rel.split("/")[-2]), 48)
+        self.assertNotEqual(layout["action:30"]["folder"], layout["action:31"]["folder"])
+
     def test_stored_zip_keeps_arabic_name_from_disk(self):
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "photo.bin"

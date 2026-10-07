@@ -112,19 +112,6 @@
       </tbody>
     </table>
   </div>
-  {% if saved_is_approved|default(false) and eval_signature_url|default('') %}
-  <section class="eval-judge-esign" dir="rtl" aria-label="الاعتماد الإلكتروني">
-    <div class="eval-judge-esign__row"><span class="eval-judge-esign__k">المحكم:</span> <span class="eval-judge-esign__v">{{ judge_name|default('—') }}</span></div>
-    <div class="eval-judge-esign__row"><span class="eval-judge-esign__k">الوحدة:</span> <span class="eval-judge-esign__v">{{ unit_label|default('—') }}</span></div>
-    <div class="eval-judge-esign__sig">
-      <span class="eval-judge-esign__k">التوقيع:</span>
-      <img class="eval-judge-esign__img" src="{{ eval_signature_url }}" alt="توقيع المحكم الإلكتروني" width="220" height="72">
-    </div>
-    <div class="eval-judge-esign__row"><span class="eval-judge-esign__k">تاريخ الاعتماد:</span> <span class="eval-judge-esign__v">{% if saved_approved_at %}{{ saved_approved_at.strftime('%d/%m/%Y') }}{% else %}—{% endif %}</span></div>
-    <div class="eval-judge-esign__row"><span class="eval-judge-esign__k">الوقت:</span> <span class="eval-judge-esign__v">{% if saved_approved_at %}{{ saved_approved_at.strftime('%H:%M') }}{% else %}—{% endif %}</span></div>
-    <div class="eval-judge-esign__status">حالة القائمة: معتمدة إلكترونياً</div>
-  </section>
-  {% endif %}
   <p class="form-error-banner eval-approve-block-msg" id="eval-approve-block-msg" role="alert" dir="rtl"{% if not eval_approve_incomplete|default(false) and not eval_approve_grade_blocked|default(false) and not eval_approve_no_signature|default(false) and not eval_approve_signature_mismatch|default(false) %} hidden{% endif %}>{% if eval_approve_signature_mismatch|default(false) %}تعذّر الاعتماد: التوقيع لا يخص الحساب الحالي.{% elif eval_approve_no_signature|default(false) %}لا يوجد توقيع إلكتروني مسجل لهذا الحساب. يرجى تسجيل التوقيع قبل اعتماد القائمة.{% elif eval_approve_grade_blocked|default(false) %}لا يمكن الاعتماد: التقدير «راسب» أو «مقبول» — عدّل العلامات إلى «جيد» فما فوق، أو اكتب ملاحظات في خانة الملاحظات ثم احفظ.{% elif eval_approve_incomplete|default(false) %}لا يمكن الاعتماد: يوجد بند أو أكثر لم تُدخل له المكتسبة (الخانات المحددة باللون الأحمر). اختر علامة أو «لا ينطبق»، ثم احفظ إن لزم، ثم أعد الاعتماد.{% endif %}</p>
   <p class="eval-acquired-warn" id="eval-acquired-warn" role="alert" hidden></p>
   {% if eval_chief_next_step_hint|default(false) and (show_chief_approve|default(false) or show_chief_reopen|default(false)) %}
@@ -138,6 +125,19 @@
         <div class="eval-footer-stats__line"><span class="muted">مجموع علامات القصوى</span> <span class="eval-sticky-total"><span id="eval-sum-max">—</span></span></div>
       </div>
     </div>
+    {% if saved_is_approved|default(false) and eval_signature_url|default('') %}
+    <section class="eval-judge-esign eval-judge-esign--compact" dir="rtl" aria-label="الاعتماد الإلكتروني">
+      <span class="eval-judge-esign__row"><span class="eval-judge-esign__k">المحكم:</span> <span class="eval-judge-esign__v">{{ judge_name|default('—') }}</span></span>
+      <span class="eval-judge-esign__row"><span class="eval-judge-esign__k">الوحدة:</span> <span class="eval-judge-esign__v">{{ unit_label|default('—') }}</span></span>
+      <span class="eval-judge-esign__sig">
+        <span class="eval-judge-esign__k">التوقيع:</span>
+        <img class="eval-judge-esign__img" src="{{ eval_signature_url }}" alt="توقيع المحكم الإلكتروني" width="64" height="22">
+      </span>
+      <span class="eval-judge-esign__row"><span class="eval-judge-esign__k">تاريخ الاعتماد:</span> <span class="eval-judge-esign__v">{% if saved_approved_at %}{{ saved_approved_at.strftime('%d/%m/%Y') }}{% else %}—{% endif %}</span></span>
+      <span class="eval-judge-esign__row"><span class="eval-judge-esign__k">الوقت:</span> <span class="eval-judge-esign__v">{% if saved_approved_at %}{{ saved_approved_at.strftime('%H:%M') }}{% else %}—{% endif %}</span></span>
+      <span class="eval-judge-esign__status">حالة القائمة: معتمدة إلكترونياً</span>
+    </section>
+    {% endif %}
     <div class="eval-sticky-footer__right">
       {% if eval_can_edit|default(false) and eval_save_url %}
       <form method="post" action="{{ eval_save_url }}" id="eval-save-form" style="margin:0;">

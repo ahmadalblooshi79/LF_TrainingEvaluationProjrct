@@ -18,7 +18,7 @@
       class="eval-narrative-row__input"
       id="eval-dilemma-description"
       name="dilemma_description"
-      rows="2"
+      rows="1"
       dir="rtl"
       spellcheck="true"
       placeholder="أدخل وصف المعضلة"
@@ -31,7 +31,7 @@
       class="eval-narrative-row__input"
       id="eval-dilemma-requirements"
       name="dilemma_requirements"
-      rows="3"
+      rows="1"
       dir="rtl"
       spellcheck="true"
       placeholder="أدخل متطلبات تنفيذ المعضلة"
@@ -39,3 +39,18 @@
     >{{ nar.req }}</textarea>
   </div>
 </section>
+<script>
+(function () {
+  function fitNarrative(el) {
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + "px";
+  }
+  ["eval-dilemma-description", "eval-dilemma-requirements"].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var run = function () { fitNarrative(el); };
+    el.addEventListener("input", run);
+    run();
+  });
+})();
+</script>

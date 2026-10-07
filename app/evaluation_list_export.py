@@ -30,11 +30,17 @@ from app.evaluation_sheet_parser import _find_rubric_subheader_row_index, _pad_g
 from app.xlsx_grid_preview import _cell_to_str
 
 
-def zip_safe_segment(name: str, fallback: str = "بند") -> str:
+# ورقة القائمة تُكرَّر في اسم المجلد واسم الملف. الإبقاء على العنوان كاملاً
+# يتجاوز حد مسار ويندوز (260) فيرفض المتصفح إنشاء المجلد.
+EXPORT_PATH_LEAF_MAX = 40
+
+
+def zip_safe_segment(name: str, fallback: str = "بند", *, limit: int = 120) -> str:
     """جزء مسار داخل أرشيف ZIP — بلا فواصل أو رموز ممنوعة."""
     t = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", (name or "").strip())
     t = t.replace("..", "_").strip(" .")
-    return (t or fallback)[:120]
+    cap = limit if limit and limit > 0 else 120
+    return (t or fallback)[:cap]
 
 
 def pending_eval_list_zip_relpath(
@@ -75,13 +81,16 @@ def eval_export_list_folder_relpath(
     """مجلد القائمة داخل الأرشيف: [نوع القوائم]/المرحلة/الوحدة/اسم القائمة."""
     phase = zip_safe_segment(phase_label, "مرحلة")
     unit = zip_safe_segment(unit_label, "وحدة")
-    fname = export_download_filename(list_title)
+    fname = export_download_filename(list_title, max_stem=EXPORT_PATH_LEAF_MAX)
     stem = re.sub(r"\.(xlsx|xlsm|xls)$", "", fname, flags=re.I).strip() or f"قائمة_{int(item_id)}"
+    stem = zip_safe_segment(stem, f"قائمة_{int(item_id)}", limit=EXPORT_PATH_LEAF_MAX)
     root = zip_safe_segment(root_label, "") if (root_label or "").strip() else ""
     prefix = f"{root}/" if root else ""
     rel = f"{prefix}{phase}/{unit}/{stem}"
     if rel in used:
-        rel = f"{prefix}{phase}/{unit}/{stem}_{int(item_id)}"
+        suffix = f"_{int(item_id)}"
+        head = stem[: max(1, EXPORT_PATH_LEAF_MAX - len(suffix))].strip(" .") or f"قائمة_{int(item_id)}"
+        rel = f"{prefix}{phase}/{unit}/{head}{suffix}"
     n = 2
     base = rel
     while rel in used:
@@ -108,6 +117,7 @@ def export_download_filename(
     fallback: str = "قائمة_التقييم.xlsx",
     *,
     ext: str | None = None,
+    max_stem: int | None = None,
 ) -> str:
     """اسم ملف التنزيل من عنوان القائمة الظاهر في الصفحة."""
     name = (item_title or "").strip() or fallback
@@ -126,6 +136,13 @@ def export_download_filename(
     if ext:
         stem = re.sub(r"\.(xlsx|xlsm|xls|pdf)$", "", name, flags=re.I).strip() or "قائمة_التقييم"
         name = f"{stem}.{str(ext).lstrip('.')}"
+    if max_stem and max_stem > 0:
+        matched = re.match(r"^(.*?)(\.(?:xlsx|xlsm|xls|pdf))$", name, flags=re.I)
+        if matched:
+            stem = matched.group(1).strip(" .")
+            if len(stem) > max_stem:
+                stem = stem[:max_stem].strip(" .") or "قائمة"
+            name = f"{stem}{matched.group(2)}"
     return name
 
 

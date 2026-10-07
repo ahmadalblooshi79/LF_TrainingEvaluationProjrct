@@ -12,6 +12,7 @@ from app.eval_criterion_media import (
     ext_for_mime,
 )
 from app.evaluation_list_export import (
+    EXPORT_PATH_LEAF_MAX,
     eval_export_list_folder_relpath,
     export_download_filename,
     zip_safe_segment,
@@ -367,7 +368,9 @@ def layout_admin_export_files(
         if not key:
             continue
         folder = folder_for_export_entry(entry, used_dirs)
-        xlsx_name = export_download_filename(entry.get("title") or "قائمة")
+        xlsx_name = export_download_filename(
+            entry.get("title") or "قائمة", max_stem=EXPORT_PATH_LEAF_MAX
+        )
         media = [
             {"name": name, "relpath": f"{folder}/{name}"}
             for name in (media_names_by_key.get(key) or [])
@@ -408,7 +411,9 @@ def zip_entries_for_selected(
         if not data:
             continue
         folder = folder_for_export_entry(e, used_dirs)
-        xlsx_name = export_download_filename(e.get("title") or "قائمة")
+        xlsx_name = export_download_filename(
+            e.get("title") or "قائمة", max_stem=EXPORT_PATH_LEAF_MAX
+        )
         entries.append((f"{folder}/{xlsx_name}", data))
         used_media: set[str] = set()
         for media_name, media_bytes in media_by_key.get(key) or []:

@@ -13,6 +13,14 @@
       <div class="dilemma-viewer-toolbar__titles">
         <h1 class="dilemma-viewer-title"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ item_title }}</h1>
       </div>
+      <div class="eval-top-messages eval-banner-row--compact dilemma-viewer-toolbar__status" dir="ltr">
+        {% if saved_is_approved %}
+        <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> اعتماد{% if saved_approved_at %} {{ saved_approved_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</p>
+        {% endif %}
+        {% if saved_updated_at %}
+        <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ {{ saved_updated_at.strftime('%Y-%m-%d %H:%M') }}</p>
+        {% endif %}
+      </div>
       <div class="dilemma-viewer-toolbar__actions">
         {% include 'partials/eval_export_buttons.html' %}
         {% include 'partials/subpage_close.html' %}
@@ -21,15 +29,6 @@
 
     {% include 'partials/eval_doc_title_banner.html' %}
     {% include 'partials/eval_dilemma_header_fields.html' %}
-
-    <div class="eval-top-messages eval-banner-row--compact" dir="ltr">
-      {% if saved_is_approved %}
-      <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> اعتماد{% if saved_approved_at %} {{ saved_approved_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</p>
-      {% endif %}
-      {% if saved_updated_at %}
-      <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ {{ saved_updated_at.strftime('%Y-%m-%d %H:%M') }}</p>
-      {% endif %}
-    </div>
 
     {% if eval_save_notes_required|default(false) %}
     <p class="form-error-banner eval-banner--small" role="alert" dir="rtl"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> لا يمكن الحفظ: يوجد بند نتيجته «مقبول» أو «راسب» — اكتب ملاحظات لهذا الصف في خانة الملاحظات.</p>
@@ -68,24 +67,17 @@
     <div class="dilemma-viewer-toolbar__titles">
       <h1 class="dilemma-viewer-title"><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ item_title }}</h1>
     </div>
+    <div class="eval-top-messages eval-banner-row--compact dilemma-viewer-toolbar__status" dir="ltr">
+      {% if saved_is_approved %}
+      <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> اعتماد{% if saved_approved_at %} {{ saved_approved_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</p>
+      {% endif %}
+      {% if saved_updated_at %}
+      <p class="form-ok-banner eval-banner--small" role="status"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ {{ saved_updated_at.strftime('%Y-%m-%d %H:%M') }}</p>
+      {% endif %}
+    </div>
     <div class="dilemma-viewer-toolbar__actions">
       {% include 'partials/subpage_close.html' %}
     </div>
-  </div>
-
-  <div class="eval-top-messages" dir="ltr">
-    {% if saved_is_approved %}
-    <p class="form-ok-banner" role="status" style="display:inline-block;margin:0 0 0.5rem;">
-      <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
-      تم اعتماد التقييم{% if saved_approved_at %} بتاريخ {{ saved_approved_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}.
-    </p>
-    {% endif %}
-    {% if saved_updated_at %}
-    <p class="form-ok-banner" role="status" style="display:inline-block;margin:0 0 0.5rem;">
-      <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i>
-      آخر حفظ: {{ saved_updated_at.strftime('%Y-%m-%d %H:%M') }}
-    </p>
-    {% endif %}
   </div>
 
   {% if preview_error %}

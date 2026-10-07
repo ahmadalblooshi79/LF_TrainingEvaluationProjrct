@@ -257,6 +257,19 @@
       clearTimeout(timer);
     });
   }
+  function clipExportPart(name, maxLen) {
+    var t = String(name || "").replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").replace(/\.\./g, "_");
+    t = t.replace(/^[\s.]+|[\s.]+$/g, "");
+    if (t.length > maxLen) t = t.slice(0, maxLen).replace(/[\s.]+$/g, "");
+    return t || "بند";
+  }
+  function splitExt(fileName) {
+    var matched = String(fileName || "").match(/^(.*?)(\.[A-Za-z0-9]{1,8})?$/);
+    return {
+      stem: (matched && matched[1]) || String(fileName || ""),
+      ext: (matched && matched[2]) || ""
+    };
+  }
   function groupExportFiles(files) {
     var map = new Map();
     var order = [];
@@ -266,42 +279,87 @@
       var fileName = parts.pop();
       var key = parts.join("/");
       if (!map.has(key)) {
-        map.set(key, { parts: parts, xlsx: null, media: [] });
+        map.set(key, { rawParts: parts, xlsx: null, media: [] });
         order.push(key);
       }
       var group = map.get(key);
-      var item = { fileName: fileName, href: f.href, label: f.name || fileName, parts: parts };
+      var item = { fileName: fileName, href: f.href, label: f.name || fileName };
       if (/\.xlsx$/i.test(fileName)) group.xlsx = item;
       else group.media.push(item);
     });
-    return order.map(function (key) { return map.get(key); }).filter(function (group) { return group.xlsx; });
+    var usedFolders = {};
+    return order.map(function (key) {
+      var group = map.get(key);
+      if (!group.xlsx) return null;
+      var parts = group.rawParts.map(function (part, idx) {
+        return clipExportPart(part, idx === group.rawParts.length - 1 ? 40 : 80);
+      });
+      var xlsxBits = splitExt(group.xlsx.fileName);
+      var stem = clipExportPart(xlsxBits.stem, 40);
+      var n = 2;
+      while (usedFolders[parts.join("/")]) {
+        var suffix = "_" + n;
+        var leafSrc = group.rawParts.length ? group.rawParts[group.rawParts.length - 1] : xlsxBits.stem;
+        parts = parts.slice();
+        parts[parts.length - 1] = clipExportPart(leafSrc, Math.max(1, 40 - suffix.length)) + suffix;
+        stem = clipExportPart(xlsxBits.stem, Math.max(1, 40 - suffix.length)) + suffix;
+        n += 1;
+      }
+      usedFolders[parts.join("/")] = true;
+      group.parts = parts;
+      group.xlsx.fileName = stem + (xlsxBits.ext || ".xlsx");
+      group.xlsx.parts = parts;
+      group.media.forEach(function (media) {
+        var bits = splitExt(media.fileName);
+        media.fileName = clipExportPart(bits.stem, 40) + bits.ext;
+        media.parts = parts;
+      });
+      return group;
+    }).filter(Boolean);
   }
-  async function saveResponse(folder, fileName, response, onBytes) {
+  async function readBody(response) {
+    if (!response.body || !response.body.getReader) return await response.blob();
+    var reader = response.body.getReader();
+    var parts = [];
+    while (true) {
+      var step = await reader.read();
+      if (step.done) break;
+      parts.push(step.value);
+    }
+    return new Blob(parts);
+  }
+  async function writeBlob(folder, fileName, blob) {
     var handle = await folder.getFileHandle(fileName, { create: true });
     var writable = await handle.createWritable();
-    var total = Number(response.headers.get("Content-Length") || 0);
-    var loaded = 0;
     try {
-      var reader = response.body && response.body.getReader ? response.body.getReader() : null;
-      if (!reader) {
-        var blob = await response.blob();
-        await writable.write(blob);
-        await writable.close();
-        if (onBytes) onBytes(blob.size, blob.size || total);
-        return;
-      }
-      while (true) {
-        var step = await reader.read();
-        if (step.done) break;
-        await writable.write(step.value);
-        loaded += step.value.byteLength || 0;
-        if (onBytes) onBytes(loaded, total);
-      }
+      await writable.write(blob);
       await writable.close();
     } catch (err) {
       try { await writable.abort(); } catch (ignore) {}
       try { await folder.removeEntry(fileName); } catch (ignore2) {}
       throw err;
+    }
+  }
+  async function getDir(root, parts) {
+    var handle = root;
+    for (var i = 0; i < parts.length; i++) {
+      handle = await handle.getDirectoryHandle(parts[i]);
+    }
+    return handle;
+  }
+  async function removeListFolder(root, parts) {
+    if (!parts || !parts.length) return;
+    try {
+      var parent = parts.length === 1 ? root : await getDir(root, parts.slice(0, -1));
+      await parent.removeEntry(parts[parts.length - 1], { recursive: true });
+    } catch (ignore) {}
+    for (var i = parts.length - 1; i >= 1; i--) {
+      try {
+        var up = i === 1 ? root : await getDir(root, parts.slice(0, i - 1));
+        await up.removeEntry(parts[i - 1]);
+      } catch (ignore2) {
+        break;
+      }
     }
   }
   async function pipeZipToHandle(handle, url) {
@@ -315,8 +373,8 @@
       while (true) {
         var step = await reader.read();
         if (step.done) break;
-        await writable.write(step.value);
-        loaded += step.value.byteLength || 0;
+        if (step.value && step.value.byteLength) await writable.write(new Blob([step.value]));
+        loaded += (step.value && step.value.byteLength) || 0;
         if (total > 0) {
           var pct = Math.min(100, Math.round((100 * loaded) / total));
           if (fillEl) fillEl.style.width = pct + "%";
@@ -441,77 +499,75 @@
       groups.forEach(function (group) { fileTotal += 1 + group.media.length; });
       var saved = 0;
       var finished = 0;
+      var firstError = "";
+      function noteError(err) {
+        if (firstError) return;
+        firstError = (err && err.message) ? String(err.message) : "تعذّر حفظ الملف";
+      }
       setBar(0, fileTotal);
+      var prepared = 0;
       await runPool(groups, 4, async function (group) {
         setCurrentName(group.xlsx.label);
-        var xlsxRes;
+        group.blob = null;
         try {
-          xlsxRes = await fetchTimeout(group.xlsx.href, 120000);
+          var xlsxRes = await fetchTimeout(group.xlsx.href, 120000);
+          if (!xlsxRes.ok) {
+            noteError({ message: "تعذّر بناء ملف Excel" });
+          } else {
+            var blob = await readBody(xlsxRes);
+            if (!blob || !blob.size) noteError({ message: "ملف Excel فارغ" });
+            else group.blob = blob;
+          }
         } catch (err) {
+          noteError(err);
+        }
+        prepared += 1;
+        if (metaEl) metaEl.textContent = "جاري تجهيز الملفات " + prepared + " من " + groups.length;
+      });
+      for (var g = 0; g < groups.length; g++) {
+        var group = groups[g];
+        if (!group.blob) {
           finished += 1 + group.media.length;
           setBar(finished, fileTotal);
-          return;
+          continue;
         }
-        if (!xlsxRes.ok) {
-          finished += 1 + group.media.length;
-          setBar(finished, fileTotal);
-          return;
-        }
-        var folder;
+        var folder = null;
         try {
           folder = await ensureDir(dir, group.parts);
-          await saveResponse(folder, group.xlsx.fileName, xlsxRes, function (loaded, total) {
-            var frac = total > 0 ? Math.min(0.99, loaded / total) : 0;
-            setBar(finished + frac, fileTotal);
-          });
+          await writeBlob(folder, group.xlsx.fileName, group.blob);
+          saved += 1;
+          pushName(group.xlsx.label);
+          finished += 1;
+          setBar(finished, fileTotal);
         } catch (err) {
-          if (group.parts.length) {
-            try {
-              var parentParts = group.parts.slice(0, -1);
-              var leaf = group.parts[group.parts.length - 1];
-              var parent = parentParts.length ? await ensureDir(dir, parentParts) : dir;
-              await parent.removeEntry(leaf);
-            } catch (ignore) {}
-          }
+          noteError(err);
+          await removeListFolder(dir, group.parts);
+          folder = null;
           finished += 1 + group.media.length;
           setBar(finished, fileTotal);
-          return;
         }
-        saved += 1;
-        finished += 1;
-        pushName(group.xlsx.label);
-        setBar(finished, fileTotal);
+        group.blob = null;
+        if (!folder) continue;
         for (var m = 0; m < group.media.length; m++) {
           var media = group.media[m];
           setCurrentName(media.label);
-          var mediaRes;
           try {
-            mediaRes = await fetchTimeout(media.href, 300000);
-          } catch (err) {
-            finished += 1;
-            setBar(finished, fileTotal);
-            continue;
-          }
-          if (!mediaRes.ok) {
-            finished += 1;
-            setBar(finished, fileTotal);
-            continue;
-          }
-          try {
-            var mediaBase = finished;
-            await saveResponse(folder, media.fileName, mediaRes, function (loaded, total) {
-              var frac = total > 0 ? Math.min(0.99, loaded / total) : 0;
-              setBar(mediaBase + frac, fileTotal);
-            });
+            var mediaRes = await fetchTimeout(media.href, 300000);
+            if (!mediaRes.ok) throw new Error("تعذّر تنزيل المرفق");
+            var mediaBlob = await readBody(mediaRes);
+            if (!mediaBlob || !mediaBlob.size) throw new Error("المرفق فارغ");
+            await writeBlob(folder, media.fileName, mediaBlob);
             saved += 1;
             pushName(media.label);
-          } catch (err) {}
+          } catch (err) {
+            noteError(err);
+          }
           finished += 1;
           setBar(finished, fileTotal);
         }
-      });
+      }
       if (!saved) {
-        showError("تعذّر التصدير.");
+        showError(firstError || "تعذّر حفظ الملفات في المجلد.");
         return;
       }
       showSuccess();
