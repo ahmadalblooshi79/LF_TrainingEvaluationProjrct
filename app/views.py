@@ -8992,6 +8992,14 @@ def _render_judge_action_eval_lists_workspace(
     else:
         parent_href = parent_home
 
+    results_export_endpoint = (
+        "views.chief_judge_action_eval_lists_export_results"
+        if chief_mode
+        else "views.judge_dilemmas_export_results"
+    )
+    results_export_kw: dict[str, str] = {"unit_key": unit_key} if unit_key else {}
+    results_export_href = url_for(results_export_endpoint, **results_export_kw)
+
     if unit_key is None:
         return render_template(
             "judge_action_eval_lists_home.html",
@@ -9005,6 +9013,7 @@ def _render_judge_action_eval_lists_workspace(
                 unit_list_endpoint=unit_endpoint,
                 subpage_close_fallback=parent_href,
                 page_title=page_title,
+                results_export_href=results_export_href,
                 **_hub_back_ctx_for_request_path(),
             ),
         )
@@ -9045,6 +9054,7 @@ def _render_judge_action_eval_lists_workspace(
             subpage_close_fallback=list_close_href,
             pf_reopened=request.args.get("pf_reopened", type=int) == 1,
             pf_chief_approved=request.args.get("pf_chief_approved", type=int) == 1,
+            results_export_href=results_export_href,
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -16165,6 +16175,263 @@ def admin_evaluation_list_approve(unit_key: str, item_id: int):
     return redirect(url_for("views.admin_evaluation_list_file_viewer", unit_key=unit_key, item_id=item_id))
 
 
+def _send_judge_results_xlsx(data: bytes, filename: str):
+    return send_file(
+        io.BytesIO(data),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+def _procedure_results_phases(
+    db,
+    user: User,
+    ex: Exercise,
+    *,
+    unit_key: str | None,
+    phase_key: str | None,
+    chief: bool,
+) -> list[dict]:
+    from app.judge_eval_results_export import list_result_fields
+
+    if chief:
+        units = list(UNIT_LEVELS)
+        assigned_pk = ""
+        owned = None
+        fallback = None
+    else:
+        units = _judge_evaluation_list_unit_levels(db, user, ex)
+        assigned_pk = (
+            _judge_assigned_phase_key(db, user, ex) if _is_individual_judge_user(user) else ""
+        )
+        owned = _eval_item_ids_owned_by_judge(db, user, ex)
+        fallback = user
+    allow = {(u.get("key") or "").strip() for u in units if (u.get("key") or "").strip()}
+    if unit_key:
+        allow = {unit_key}
+    elif (not chief) and _is_individual_judge_user(user) and not allow:
+        return []
+    effective_phase = assigned_pk or (phase_key or "")
+    items, canonical = _evaluation_home_items_bundle(db, ex)
+    if owned is not None:
+        items = [it for it in items if int(it.id) in owned]
+    items = [it for it in items if (getattr(it, "unit_level_key", None) or "").strip() in allow]
+    if effective_phase:
+        items = filter_evaluation_items_by_phase(items, effective_phase)
+    phase_order = {key: idx for idx, key in enumerate(exercise_phase_keys())}
+    unit_order = {(u.get("key") or ""): idx for idx, u in enumerate(units)}
+
+    def _sort_key(it):
+        raw_phase = (getattr(it, "exercise_phase", None) or "").strip()
+        pk = normalize_exercise_phase(raw_phase) or raw_phase
+        uk = (getattr(it, "unit_level_key", None) or "").strip()
+        return (
+            phase_order.get(pk, 10_000),
+            unit_order.get(uk, 10_000),
+            int(getattr(it, "sort_order", 0) or 0),
+            int(it.id),
+        )
+
+    items.sort(key=_sort_key)
+    grouped: dict[str, dict] = {}
+    phase_seq: list[str] = []
+    for it in items:
+        raw_phase = (getattr(it, "exercise_phase", None) or "").strip()
+        pk = normalize_exercise_phase(raw_phase) or raw_phase
+        uk = (getattr(it, "unit_level_key", None) or "").strip()
+        saved = canonical.get(int(it.id))
+        judge = _eval_sheet_judge_display_name(
+            db,
+            exercise_id=int(ex.id),
+            unit_key=uk,
+            phase_key=pk,
+            saved=saved,
+            fallback_user=fallback,
+        )
+        unit_label = (label_for_unit_level_key(uk) or uk or "—").strip() or "—"
+        title = (getattr(it, "text", None) or "قائمة تقييم إجراءات").strip() or "قائمة تقييم إجراءات"
+        if pk not in grouped:
+            grouped[pk] = {
+                "phase_label": _phase_label_ar(pk) if pk else "بدون مرحلة",
+                "blocks_map": {},
+                "block_order": [],
+            }
+            phase_seq.append(pk)
+        bkey = (uk, judge)
+        blockmap = grouped[pk]["blocks_map"]
+        if bkey not in blockmap:
+            blockmap[bkey] = {"unit_label": unit_label, "judge_name": judge, "lists": []}
+            grouped[pk]["block_order"].append(bkey)
+        blockmap[bkey]["lists"].append({"title": title, **list_result_fields(saved)})
+    out: list[dict] = []
+    for pk in phase_seq:
+        g = grouped[pk]
+        blocks = [g["blocks_map"][k] for k in g["block_order"] if g["blocks_map"][k]["lists"]]
+        if blocks:
+            out.append({"phase_label": g["phase_label"], "blocks": blocks})
+    return out
+
+
+def _dilemma_results_phases(
+    db,
+    user: User,
+    ex: Exercise,
+    *,
+    unit_key: str | None,
+    chief: bool,
+) -> list[dict]:
+    from app.exercise_phase_catalog import default_exercise_phase_key
+    from app.judge_eval_results_export import list_result_fields
+
+    assigned_uk = None if chief else _judge_assigned_unit_key(db, user, ex)
+    if (not chief) and _is_individual_judge_user(user) and not assigned_uk and not unit_key:
+        return []
+    restrict = unit_key or (
+        assigned_uk
+        if (
+            assigned_uk
+            and not is_system_admin(user)
+            and not chief
+            and not can_access_chief_judge_hub(user)
+        )
+        else None
+    )
+    selected_phase = normalize_exercise_phase(
+        (request.args.get("phase") or "").strip() or default_exercise_phase_key()
+    )
+    day_options, groups_per_day = _judge_action_eval_groups_for_all_flow_days(
+        db,
+        ex,
+        phase_key=selected_phase,
+        restrict_unit_key=restrict,
+    )
+    day_filter = (request.args.get("day") or "").strip()
+    grouped: dict[str, dict] = {}
+    phase_seq: list[str] = []
+    seen_slots: set[int] = set()
+    fallback = None if chief else user
+    for day, groups in zip(day_options, groups_per_day):
+        if day_filter and str(day.get("id") or "") != day_filter:
+            continue
+        pk = (day.get("phase_key") or "").strip()
+        plabel = (day.get("phase_label") or "").strip() or (_phase_label_ar(pk) if pk else "بدون مرحلة")
+        pkey = pk or f"label:{plabel}"
+        if pkey not in grouped:
+            grouped[pkey] = {
+                "phase_label": plabel or "بدون مرحلة",
+                "blocks_map": {},
+                "block_order": [],
+            }
+            phase_seq.append(pkey)
+        for group in groups:
+            uk = (group.get("unit_key") or "").strip()
+            if unit_key and uk != unit_key:
+                continue
+            unit_label = (
+                (group.get("unit_label") or "").strip()
+                or (label_for_unit_level_key(uk) or uk or "—").strip()
+                or "—"
+            )
+            for folder in group.get("list_folder_groups") or []:
+                for row in folder.get("rows") or []:
+                    slot_id = int(row.get("slot_id") or 0)
+                    if slot_id and slot_id in seen_slots:
+                        continue
+                    if slot_id:
+                        seen_slots.add(slot_id)
+                    saved = (
+                        _planner_bundle_eval_canonical_saved(db, ex.id, slot_id) if slot_id else None
+                    )
+                    judge = _eval_sheet_judge_display_name(
+                        db,
+                        exercise_id=int(ex.id),
+                        unit_key=uk,
+                        phase_key=pk,
+                        saved=saved,
+                        fallback_user=fallback,
+                    )
+                    title = (
+                        str(row.get("item_title") or row.get("title") or "قائمة تقييم معضلة").strip()
+                        or "قائمة تقييم معضلة"
+                    )
+                    bkey = (uk, judge)
+                    blockmap = grouped[pkey]["blocks_map"]
+                    if bkey not in blockmap:
+                        blockmap[bkey] = {
+                            "unit_label": unit_label,
+                            "judge_name": judge,
+                            "lists": [],
+                        }
+                        grouped[pkey]["block_order"].append(bkey)
+                    blockmap[bkey]["lists"].append({"title": title, **list_result_fields(saved)})
+    out: list[dict] = []
+    for pkey in phase_seq:
+        g = grouped[pkey]
+        blocks = [g["blocks_map"][k] for k in g["block_order"] if g["blocks_map"][k]["lists"]]
+        if blocks:
+            out.append({"phase_label": g["phase_label"], "blocks": blocks})
+    return out
+
+
+def _procedure_results_xlsx_response(db, user: User, *, chief: bool):
+    from app.judge_eval_results_export import KIND_PROCEDURE, build_judge_results_xlsx
+
+    ex = _current_workspace_exercise(db, user)
+    home = (
+        "views.chief_judge_evaluation_lists_home"
+        if chief
+        else "views.judge_evaluation_lists_home"
+    )
+    if ex is None:
+        return redirect(url_for(home))
+    if not chief:
+        _ensure_judge_roster_synced(db, user, ex)
+    unit_key = (request.args.get("unit_key") or "").strip()
+    phase_key = (request.args.get("phase") or "").strip() or None
+    if unit_key:
+        _require_unit_level_row(unit_key)
+        if not chief:
+            _enforce_judge_unit_scope(db, user, ex, unit_key)
+    phases = _procedure_results_phases(
+        db,
+        user,
+        ex,
+        unit_key=unit_key or None,
+        phase_key=phase_key,
+        chief=chief,
+    )
+    return _send_judge_results_xlsx(
+        build_judge_results_xlsx(kind_label=KIND_PROCEDURE, phases=phases),
+        "نتائج_قوائم_تقييم_الإجراءات.xlsx",
+    )
+
+
+def _dilemma_results_xlsx_response(db, user: User, *, chief: bool):
+    from app.judge_eval_results_export import KIND_DILEMMA, build_judge_results_xlsx
+
+    ex = _current_workspace_exercise(db, user)
+    home = (
+        "views.chief_judge_action_eval_lists_home"
+        if chief
+        else "views.judge_dilemmas_home"
+    )
+    if ex is None:
+        return redirect(url_for(home))
+    if not chief:
+        _ensure_judge_roster_synced(db, user, ex)
+    unit_key = (request.args.get("unit_key") or "").strip()
+    if unit_key:
+        _require_unit_level_row(unit_key)
+        if not chief:
+            _enforce_judge_unit_scope(db, user, ex, unit_key)
+    phases = _dilemma_results_phases(db, user, ex, unit_key=unit_key or None, chief=chief)
+    return _send_judge_results_xlsx(
+        build_judge_results_xlsx(kind_label=KIND_DILEMMA, phases=phases),
+        "نتائج_قوائم_تقييم_المعاضل.xlsx",
+    )
+
+
 @bp.route("/judge/evaluation-lists", methods=["GET"])
 def judge_evaluation_lists_home():
     user = get_current_user_optional()
@@ -16212,6 +16479,11 @@ def judge_evaluation_lists_home():
                 if ex is not None and units
                 else ""
             ),
+            results_export_href=(
+                url_for("views.judge_evaluation_lists_export_results")
+                if ex is not None
+                else ""
+            ),
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -16242,6 +16514,18 @@ def judge_evaluation_lists_export_pending():
     )
 
 
+@bp.route("/judge/evaluation-lists/export-results.xlsx", methods=["GET"])
+def judge_evaluation_lists_export_results():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/judge/evaluation-lists/export-results.xlsx")
+    if not can_access_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    return _procedure_results_xlsx_response(g.db, user, chief=False)
+
+
 @bp.route("/judge/dilemmas", methods=["GET"])
 def judge_dilemmas_home():
     user = get_current_user_optional()
@@ -16263,6 +16547,18 @@ def judge_dilemmas_home():
             )
         )
     return _render_judge_action_eval_lists_workspace(g.db, user)
+
+
+@bp.route("/judge/dilemmas/export-results.xlsx", methods=["GET"])
+def judge_dilemmas_export_results():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/judge/dilemmas/export-results.xlsx")
+    if not can_access_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    return _dilemma_results_xlsx_response(g.db, user, chief=False)
 
 
 @bp.route("/judge/dilemmas/<unit_key>", methods=["GET"])
@@ -16417,6 +16713,11 @@ def judge_evaluation_lists(unit_key: str):
             subpage_close_fallback=list_close_href,
             phase_key=phase_key,
             phase_label=_phase_label_ar(phase_key) if phase_key else "",
+            results_export_href=url_for(
+                "views.judge_evaluation_lists_export_results",
+                unit_key=unit_key,
+                **_evaluation_list_phase_url_kwargs(phase_key),
+            ),
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -16971,6 +17272,18 @@ def chief_judge_action_eval_lists_home():
     )
 
 
+@bp.route("/chief-judge/action-eval-lists/export-results.xlsx", methods=["GET"])
+def chief_judge_action_eval_lists_export_results():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/chief-judge/action-eval-lists/export-results.xlsx")
+    if not can_access_chief_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    return _dilemma_results_xlsx_response(g.db, user, chief=True)
+
+
 @bp.route("/chief-judge/action-eval-lists/<unit_key>", methods=["GET"])
 def chief_judge_action_eval_lists(unit_key: str):
     """قوائم تقييم الإجراءات لوحدة — اعتماد/إعادة كبير المحكمين."""
@@ -17011,6 +17324,11 @@ def chief_judge_evaluation_lists_home():
             unit_list_endpoint="views.chief_judge_evaluation_lists",
             page_title="قوائم تقييم الإجراءات — اعتماد كبير المحكمين",
             pending_export_href=url_for("views.chief_judge_evaluation_lists_export_pending") if ex is not None else "",
+            results_export_href=(
+                url_for("views.chief_judge_evaluation_lists_export_results")
+                if ex is not None
+                else ""
+            ),
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -17032,6 +17350,18 @@ def chief_judge_evaluation_lists_export_pending():
         current_exercise=ex,
         redirect_url=url_for("views.chief_judge_evaluation_lists_home"),
     )
+
+
+@bp.route("/chief-judge/evaluation-lists/export-results.xlsx", methods=["GET"])
+def chief_judge_evaluation_lists_export_results():
+    user = get_current_user_optional()
+    if not user:
+        return redirect("/login?next=/chief-judge/evaluation-lists/export-results.xlsx")
+    if not can_access_chief_judge_hub(user):
+        abort(403)
+    from flask import g
+
+    return _procedure_results_xlsx_response(g.db, user, chief=True)
 
 
 @bp.route("/chief-judge/evaluation-lists/<unit_key>", methods=["GET"])
@@ -17099,6 +17429,11 @@ def chief_judge_evaluation_lists(unit_key: str):
             subpage_close_fallback=list_close_href,
             phase_key=phase_key,
             phase_label=_phase_label_ar(phase_key) if phase_key else "",
+            results_export_href=url_for(
+                "views.chief_judge_evaluation_lists_export_results",
+                unit_key=unit_key,
+                **_evaluation_list_phase_url_kwargs(phase_key),
+            ),
             **_hub_back_ctx_for_request_path(),
         ),
     )

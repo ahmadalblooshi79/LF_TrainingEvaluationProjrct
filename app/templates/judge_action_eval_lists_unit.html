@@ -8,6 +8,14 @@
 
 <div class="page-header page-header--judge-eval-lists">
   <h1><i class="fa-solid fa-clipboard-list fa-icon-title" aria-hidden="true"></i> {{ page_title | default('قوائم تقييم المعاضل') }} — {{ unit.label }}{% if day_label %} — {{ day_label }}{% endif %}</h1>
+  {% if results_export_href %}
+  <div class="page-header__tools">
+    <a class="btn btn--eval-export" href="{{ results_export_href }}" title="تصدير النتائج والنسب والموقف إلى Excel">
+      <i class="fa-solid fa-file-excel" aria-hidden="true"></i>
+      تصدير النتائج إلى Excel
+    </a>
+  </div>
+  {% endif %}
   <div class="page-header__nav">
     {% include 'partials/subpage_close.html' %}
   </div>
@@ -73,7 +81,7 @@
           <td>{% if r.total_pct is not none %}{{ (r.total_pct | round(2)) }}%{% else %}—{% endif %}</td>
           <td>{{ r.grade_label or "—" }}</td>
           <td>{% if r.delivery_dt %}{{ r.delivery_dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
-          <td>{% if r.status_done %}<span class="badge badge--done">ينجز</span>{% else %}<span class="badge badge--not-done">لم ينجز</span>{% endif %}</td>
+          <td>{% if r.status_all_na %}<span class="badge badge--na">لا ينطبق</span>{% elif r.status_done %}<span class="badge badge--done">ينجز</span>{% else %}<span class="badge badge--not-done">لم ينجز</span>{% endif %}</td>
           <td>
             <span class="judge-eval-dispatch-badge judge-eval-dispatch-badge--{{ r.row_tone | default('none') }}">{{ r.dispatch_label or "—" }}</span>
           </td>

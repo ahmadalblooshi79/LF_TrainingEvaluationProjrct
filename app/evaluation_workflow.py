@@ -1,6 +1,7 @@
 """مسار اعتماد قوائم التقييم: محكم → كبير محكمين → سيطرة."""
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from app.evaluation_list_columns import display_grade_label
@@ -44,8 +45,43 @@ def eval_status_done(saved: SavedRow | None) -> bool:
     return eval_judge_approved(saved)
 
 
+def _acquired_value_is_na(acq) -> bool:
+    s = ("" if acq is None else str(acq)).strip().lower()
+    return s in {"na", "n/a", "لا ينطبق"}
+
+
+def payload_rows_all_na(rows) -> bool:
+    """كل بنود التقييم (غير صفوف الأقسام) مكتسبتها «لا ينطبق»."""
+    if not isinstance(rows, list):
+        return False
+    score_rows = [
+        r
+        for r in rows
+        if isinstance(r, dict) and str(r.get("row_kind") or "").strip().lower() != "section"
+    ]
+    if not score_rows:
+        return False
+    return all(_acquired_value_is_na(r.get("acquired")) for r in score_rows)
+
+
+def saved_results_all_na(saved: SavedRow | None) -> bool:
+    if saved is None:
+        return False
+    raw = (getattr(saved, "payload_json", None) or "").strip()
+    if not raw:
+        return False
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return False
+    rows = data.get("rows") if isinstance(data, dict) else None
+    return payload_rows_all_na(rows)
+
+
 def eval_status_label_ar(saved: SavedRow | None) -> str:
     """تسمية عمود الموقف للقوائم."""
+    if saved_results_all_na(saved):
+        return "لا ينطبق"
     if saved is not None and eval_reopened_for_judge(saved):
         return "معاد للتقييم"
     if eval_status_done(saved):
@@ -457,6 +493,7 @@ def build_planner_flow_eval_row(
         ),
         "status_label": eval_status_label_ar(saved),
         "status_done": is_done,
+        "status_all_na": saved_results_all_na(saved),
         "grade_label": display_grade_label(getattr(saved, "grade_label", "") if saved else "") if saved else "",
         "dispatch_label": dispatch_label,
         "row_tone": row_tone,
@@ -497,6 +534,7 @@ def build_evaluation_list_row(
         ),
         "status_label": eval_status_label_ar(saved),
         "status_done": is_done,
+        "status_all_na": saved_results_all_na(saved),
         "grade_label": display_grade_label(getattr(saved, "grade_label", "") if saved else "") if saved else "",
         "dispatch_label": dispatch_label,
         "row_tone": row_tone,

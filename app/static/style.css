@@ -1835,6 +1835,12 @@ form.inline .btn-ghost {
   border-color: #fecaca;
 }
 
+.badge--na {
+  background: #ece7df;
+  color: #5c4033;
+  border-color: #d4cbbd;
+}
+
 /* شارات: الأولوية */
 .badge--prio-high {
   background: #fee2e2;
@@ -15230,4 +15236,57 @@ body.wrm-page-body main {
     background: transparent;
     padding: 0.35rem 0;
   }
+}
+.lf-export-dock {
+  position: fixed;
+  z-index: 1400;
+  bottom: 1rem;
+  left: 1rem;
+  width: min(26rem, calc(100vw - 2rem));
+  background: #fff;
+  border: 1px solid #d9cdb8;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(60, 40, 20, 0.16);
+  padding: 0.7rem 0.85rem;
+  direction: rtl;
+}
+.lf-export-dock[hidden] { display: none !important; }
+.lf-export-dock__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.lf-export-dock__title { font-size: 0.92rem; }
+.lf-export-dock__close {
+  border: none;
+  background: transparent;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #6b6258;
+}
+.lf-export-dock__track {
+  height: 0.45rem;
+  margin-top: 0.45rem;
+  background: #efe8e1;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.lf-export-dock__fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(180deg, #bca998 0%, #9e8a79 100%);
+}
+.lf-export-dock__meta,
+.lf-export-dock__name,
+.lf-export-dock__msg {
+  margin: 0.35rem 0 0;
+  font-size: 0.82rem;
+}
+.lf-export-dock__name { font-weight: 700; }
+.lf-export-dock__msg:empty { display: none; }
+.lf-export-dock__resume { margin-top: 0.5rem; }
+@media print {
+  .lf-export-dock { display: none !important; }
 }

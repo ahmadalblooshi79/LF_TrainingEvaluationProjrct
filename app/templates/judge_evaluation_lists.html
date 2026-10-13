@@ -10,6 +10,14 @@
 
   <h1><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> قوائم تقييم الإجراءات — {{ unit.label }}{% if phase_label %} — {{ phase_label }}{% endif %}</h1>
 
+  {% if results_export_href %}
+  <div class="page-header__tools">
+    <a class="btn btn--eval-export" href="{{ results_export_href }}" title="تصدير النتائج والنسب والموقف إلى Excel">
+      <i class="fa-solid fa-file-excel" aria-hidden="true"></i>
+      تصدير النتائج إلى Excel
+    </a>
+  </div>
+  {% endif %}
   <div class="page-header__nav">
 
     {% include 'partials/subpage_close.html' %}
@@ -85,7 +93,7 @@
 
           <td>{% if r.delivery_dt %}{{ r.delivery_dt.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
 
-          <td>{% if r.status_done %}<span class="badge badge--done">ينجز</span>{% else %}<span class="badge badge--not-done">لم ينجز</span>{% endif %}</td>
+          <td>{% if r.status_all_na %}<span class="badge badge--na">لا ينطبق</span>{% elif r.status_done %}<span class="badge badge--done">ينجز</span>{% else %}<span class="badge badge--not-done">لم ينجز</span>{% endif %}</td>
 
           <td>
 
