@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lf_training_evaluation/models/eval_sheet.dart';
 import 'package:lf_training_evaluation/screens/device_admin_hub_screen.dart';
+import 'package:lf_training_evaluation/services/device_eval_manager_excel.dart';
 import 'package:lf_training_evaluation/services/device_eval_manager_models.dart';
 import 'package:lf_training_evaluation/services/device_eval_manager_paths.dart';
+import 'package:lf_training_evaluation/services/device_eval_manager_zip.dart';
 import 'package:lf_training_evaluation/services/offline_store.dart';
 import 'package:lf_training_evaluation/services/scoped_backup_io.dart';
 import 'package:lf_training_evaluation/services/scoped_backup_paths.dart';
@@ -359,10 +361,13 @@ void main() {
     final service = readFlutter('lib/services/device_eval_manager_service.dart');
     expect(service.contains('/export.xlsx'), isTrue);
     expect(service.contains('downloadToFile'), isTrue);
-    expect(service.contains('buildSimpleXlsx'), isFalse);
+    expect(service.contains('buildLocalEvalListXlsx'), isTrue);
+    expect(service.contains('_publishZippedStaging'), isTrue);
     expect(service.contains('buildEvaluationListXlsx'), isFalse);
     expect(service.contains('SmartArbitration_Backups'), isFalse);
     expect(service.contains('copyExportToPublicDownloads'), isTrue);
+    final excel = readFlutter('lib/services/device_eval_manager_excel.dart');
+    expect(excel.contains('buildSimpleXlsx'), isTrue);
     final native = readFlutter(
       'android/app/src/main/kotlin/ae/lf/training/lf_training_evaluation/MainActivity.kt',
     );
@@ -380,10 +385,28 @@ void main() {
     expect(loc.attachmentsRelativeDir.endsWith('/المرفقات'), isTrue);
   });
 
-  test('41-51 reopen uses server authority and stays offline-safe', () {
-    expect(reopenOfflineMessage(online: false), kDeviceEvalReopenNeedsServer);
+  test('41-51 reopen is local-first and optional on server', () {
+    expect(reopenOfflineMessage(online: false), isEmpty);
     expect(reopenOfflineMessage(online: true), isEmpty);
+    final reopened = applyLocalReopenToDetail(
+      sheetJson(
+        itemId: 11,
+        acquired: '9',
+        notes: 'م',
+        canEdit: false,
+        approved: true,
+        status: 'معتمد',
+      ),
+    );
+    expect(reopened['can_edit'], isTrue);
+    expect(reopened['can_approve'], isTrue);
+    expect(reopened['is_approved'], isFalse);
+    expect(reopened['locally_approved'], isFalse);
+    expect(reopened['device_manager_reopened'], isTrue);
+    expect(EvalSheetDetail.fromJson(reopened).canEdit, isTrue);
+    expect(EvalSheetDetail.fromJson(reopened).isApproved, isFalse);
     final service = readFlutter('lib/services/device_eval_manager_service.dart');
+    expect(service.contains('_applyLocalReopenToCaches'), isTrue);
     expect(service.contains('/api/tablet/device/eval/chief-reopen'), isTrue);
     expect(service.contains('withDeviceAuth'), isTrue);
     final api = File(p.join('..', 'app', 'tablet_api.py')).existsSync()
@@ -395,6 +418,61 @@ void main() {
     final inspect = readFlutter('lib/screens/device_eval_inspect_screen.dart');
     expect(inspect.contains('هل تريد إعادة فتح هذه القائمة؟'), isTrue);
     expect(inspect.contains('معاينة للقراءة فقط'), isTrue);
+  });
+
+  test('excel and attachments download as zip', () async {
+    final summary = DeviceEvalListSummary(
+      kind: DeviceEvalKind.procedure,
+      userId: userA,
+      exerciseId: exerciseA,
+      listId: 11,
+      unitKey: 'snipers',
+      unitLabel: 'القناصة',
+      phaseKey: 'opening',
+      title: 'قائمة الرماية',
+      statusLabel: 'معتمد',
+    );
+    final bytes = buildLocalEvalListXlsx(
+      summary: summary,
+      user: DeviceEvalUser.fromLocalRow({
+        'user_id': userA,
+        'username': 'judge.a',
+        'display_name': 'أحمد البلوشي',
+      }),
+      exerciseName: 'تمرين رياح الصحراء',
+      rows: [
+        EvalRowInput.fromEvalRow(
+          EvalRow.fromJson({
+            'row_kind': 'score',
+            'element': 'بند تجريبي',
+            'max_val': '10',
+            'acquired_raw': '8',
+            'acquired_initial': '8',
+            'notes_initial': 'ملاحظة',
+          }),
+        ),
+      ],
+    );
+    expect(bytes.length, greaterThan(100));
+    expect(bytes[0], 0x50);
+    expect(bytes[1], 0x4b);
+
+    final dir = await Directory.systemTemp.createTemp('phase_d_zip');
+    final xlsx = File(p.join(dir.path, 'list.xlsx'));
+    await xlsx.writeAsBytes(bytes, flush: true);
+    final photo = File(p.join(dir.path, 'shot.jpg'));
+    await photo.writeAsBytes(List<int>.filled(64, 9), flush: true);
+    final zip = File(p.join(dir.parent.path, 'list_export.zip'));
+    await zipExportDirectory(source: dir, destZip: zip);
+    expect(zip.existsSync(), isTrue);
+    expect(zip.lengthSync(), greaterThan(0));
+    expect(zip.readAsBytesSync().sublist(0, 2), [0x50, 0x4b]);
+  });
+
+  test('settings screen no longer offers local recovery', () {
+    final src = readFlutter('lib/screens/settings_screen.dart');
+    expect(src.contains('استعادة البيانات المحلية'), isFalse);
+    expect(src.contains("push('/recovery')"), isFalse);
   });
 
   test('52-63 regression: judge home, schema, backup, C.2.1 not in Phase D', () {

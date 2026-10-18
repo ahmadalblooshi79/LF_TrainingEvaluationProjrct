@@ -608,6 +608,16 @@ class AuthService extends ChangeNotifier {
     }
   }
 
+  /// مسح الجلسة من الذاكرة دون طلبات للسيرفر — لإعادة ضبط الجهاز محلياً.
+  void forgetLocalSession() {
+    identityLog('LOGOUT user_id=${_session?.user.id} source=device_reset');
+    _session = null;
+    serverSessionUsable.value = false;
+    _lastLoginWasOffline = false;
+    _offlineCredsAvailable = false;
+    notifyListeners();
+  }
+
   /// إنهاء الجلسة الحالية فقط — لا يمسح قاعدة البيانات المحلية ولا بيانات الدخول offline.
   Future<void> logout() async {
     try {

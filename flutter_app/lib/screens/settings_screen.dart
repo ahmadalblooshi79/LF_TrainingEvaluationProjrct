@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/device_reset_service.dart';
 import '../services/sync_preferences.dart';
 import '../services/sync_service.dart';
 import '../theme/app_theme.dart';
@@ -51,6 +52,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _confirmDeviceReset(BuildContext context) async {
+    final preview = await DeviceResetService.instance.preview();
+    if (!context.mounted) return;
+    final pendingNote = preview.hasUnsyncedWork
+        ? '\n\nيوجد على الجهاز أعمال لم تتم مزامنتها مع السيرفر.\n'
+            'إعادة ضبط الجهاز ستؤدي إلى حذف هذه الأعمال المحلية.'
+        : '';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('إعادة ضبط بيانات الجهاز'),
+        content: Text(
+          'سيتم حذف جميع البيانات المحلية الخاصة بالنظام من هذا الجهاز،\n'
+          'بما في ذلك المستخدمون والبيانات المحفوظة وبيانات المزامنة المحلية.\n\n'
+          'لن يتم حذف البيانات الموجودة على السيرفر أو النسخ الاحتياطية\n'
+          'المحفوظة في Downloads.$pendingNote',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              'إعادة ضبط الجهاز',
+              style: AppTextStyles.small.copyWith(
+                color: AppColors.notDoneRed,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    final result = await DeviceResetService.instance.resetLocalDevice();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(result.message)),
+    );
+    if (result.ok) context.go('/login');
+  }
+
   Future<void> _save() async {
     await _applyServerUrl();
     if (!mounted) return;
@@ -87,7 +132,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppHeader(
         pageTitle: 'الإعدادات',
         showSettings: false,
-        showLogout: true,
+        showLogout: false,
         onBack: () => Navigator.of(context).maybePop(),
       ),
       backgroundColor: AppColors.background,
@@ -226,19 +271,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 28),
-            Text('استعادة البيانات المحلية', style: AppTextStyles.subtitle),
-            const SizedBox(height: 8),
-            Text(
-              'فحص مخزن الجهاز دون مزامنة أو تعديل.',
-              style: AppTextStyles.small,
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: () => context.push('/recovery'),
-              icon: const Icon(Icons.restore),
-              label: const Text('استعادة البيانات المحلية'),
-            ),
-            const SizedBox(height: 28),
             Text('النسخ الاحتياطي والاستعادة', style: AppTextStyles.subtitle),
             const SizedBox(height: 8),
             Text(
@@ -250,6 +282,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onPressed: () => context.push('/scoped-backup'),
               icon: const Icon(Icons.backup_outlined),
               label: const Text('النسخ الاحتياطي والاستعادة'),
+            ),
+            const SizedBox(height: 28),
+            Text('إعادة ضبط بيانات الجهاز', style: AppTextStyles.subtitle),
+            const SizedBox(height: 8),
+            Text(
+              'حذف البيانات المحلية لهذا الجهاز فقط. لا يُحذف شيء من السيرفر ولا من Downloads.',
+              style: AppTextStyles.small,
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              key: const Key('device_reset_button'),
+              onPressed: () => _confirmDeviceReset(context),
+              icon: const Icon(Icons.restart_alt),
+              label: const Text('إعادة ضبط بيانات الجهاز'),
             ),
             const SizedBox(height: 28),
             if (auth.session != null) ...[

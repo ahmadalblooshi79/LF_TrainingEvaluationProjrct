@@ -13,12 +13,14 @@ const String kDeviceEvalEmptyLists = 'لا توجد قوائم لهذا المس
 const String kDeviceEvalNeedsServer = 'يتطلب هذا الإجراء الاتصال بالسيرفر';
 const String kDeviceEvalReopenNeedsServer =
     'يتطلب إعادة فتح القائمة الاتصال بالسيرفر';
+const String kDeviceEvalReopenLocalOk = 'تم إعادة فتح القائمة على الجهاز';
 const String kDeviceEvalDownloadFailed = 'تعذر تنزيل الملف';
 const String kDeviceEvalDownloadOk = 'تم تنزيل القائمة بنجاح';
 const String kDeviceEvalExcelOffline =
     'تنزيل Excel غير متوفر على الجهاز ويتطلب الاتصال بالسيرفر';
 const String kDeviceEvalExcelUnsupported =
     'لا يوجد ملف Excel أصلي لهذه القائمة على الجهاز';
+const String kDeviceEvalReopenStatus = 'معاد للتقييم';
 
 enum DeviceEvalKind { procedure, dilemma }
 
@@ -91,6 +93,9 @@ class DeviceEvalListSummary {
 
   bool get isApproved {
     final s = statusLabel.trim();
+    if (s.contains('بإنتظار') || s.contains('بانتظار') || s.contains('معاد')) {
+      return false;
+    }
     return s == 'معتمد' || s == 'منجز' || s == 'ينجز';
   }
 
@@ -353,6 +358,21 @@ EvalSheetDetail inspectOnlyDetail(EvalSheetDetail detail) {
   return detail.copyWith(canEdit: false, canApprove: false);
 }
 
+Map<String, dynamic> applyLocalReopenToDetail(Map<String, dynamic> cached) {
+  final next = Map<String, dynamic>.from(cached);
+  next['can_edit'] = true;
+  next['can_approve'] = true;
+  next['is_approved'] = false;
+  next['locally_approved'] = false;
+  next['status_label'] = kDeviceEvalReopenStatus;
+  next['device_manager_reopened'] = true;
+  next['workflow'] = {
+    'label': kDeviceEvalReopenStatus,
+    'reopened': true,
+  };
+  return next;
+}
+
 bool inspectOpenMutatesDetail(EvalSheetDetail before, EvalSheetDetail after) {
   return before.canEdit != after.canEdit ||
       before.canApprove != after.canApprove ||
@@ -381,8 +401,8 @@ String uniqueDownloadFileName(String name, Set<String> existing) {
 }
 
 String reopenOfflineMessage({required bool online}) {
-  if (online) return '';
-  return kDeviceEvalReopenNeedsServer;
+  // إعادة الفتح محلية على الجهاز ولا تتطلب السيرفر.
+  return '';
 }
 
 bool reopenButtonVisible({

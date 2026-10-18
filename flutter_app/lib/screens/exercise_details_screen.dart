@@ -11,7 +11,9 @@ import '../widgets/figma_ui.dart';
 
 /// معلومات التمرين — قراءة فقط، شبكة المربعات مطابقة لصفحة النظام.
 class ExerciseDetailsScreen extends StatefulWidget {
-  const ExerciseDetailsScreen({super.key});
+  const ExerciseDetailsScreen({super.key, this.initialTab});
+
+  final String? initialTab;
 
   @override
   State<ExerciseDetailsScreen> createState() => _ExerciseDetailsScreenState();
@@ -57,7 +59,9 @@ class _ExerciseDetailsScreenState extends State<ExerciseDetailsScreen> {
             .where((t) => t.key.isNotEmpty)
             .toList();
         _ex = ex;
-        _tab = _tabs.isNotEmpty ? _tabs.first.key : 'info';
+        _tab = (widget.initialTab != null && widget.initialTab!.isNotEmpty)
+            ? widget.initialTab!
+            : (_tabs.isNotEmpty ? _tabs.first.key : 'info');
         _loading = false;
       });
     } on ApiException catch (e) {

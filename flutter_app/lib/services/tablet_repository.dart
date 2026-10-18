@@ -14,10 +14,13 @@ import '../models/polarity_note.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
 import 'eval_cache_merge.dart';
+import 'eval_status.dart';
 import 'health_service.dart';
+import 'home_progress.dart';
 import 'library_pdf_cache.dart';
 import 'media_upload_service.dart';
 import 'offline_store.dart';
+import 'scoped_backup_inventory.dart';
 import 'sync_service.dart';
 
 /// يغلّف قيمة مع علم يوضح إن كانت من القاعدة المحلية أم بعد مزامنة حيّة.
@@ -375,10 +378,13 @@ class TabletRepository {
     String cacheKey, {
     Map<String, dynamic>? query,
   }) async {
+    final existing = await _cacheGetScoped(cacheKey);
+    if (existing != null && existing['device_manager_reopened'] == true) {
+      return Map<String, dynamic>.from(existing);
+    }
     final data = await ApiClient.instance.get(path, query: query);
     final scopedKey = _scoped(cacheKey);
     final status = await OfflineStore.instance.cacheSyncStatus(scopedKey);
-    final existing = await _cacheGetScoped(cacheKey);
     Map<String, dynamic> toStore;
     var syncStatus = SyncStatuses.synced;
     if (existing != null && cacheHasLocalJudgeWork(existing, status)) {
@@ -436,8 +442,11 @@ class TabletRepository {
     bool writeUnscoped = false,
   }) async {
     final scopedKey = OfflineStore.userKey(userId, cacheKey);
-    final status = await OfflineStore.instance.cacheSyncStatus(scopedKey);
     final existing = await OfflineStore.instance.cacheGet(scopedKey);
+    if (existing != null && existing['device_manager_reopened'] == true) {
+      return;
+    }
+    final status = await OfflineStore.instance.cacheSyncStatus(scopedKey);
     Map<String, dynamic> toStore;
     var syncStatus = SyncStatuses.synced;
     if (existing != null && cacheHasLocalJudgeWork(existing, status)) {
@@ -655,21 +664,90 @@ class TabletRepository {
 
   Future<Fetched<HomeData>> fetchHome() async {
     final reachable = await HealthService.instance.check();
+    Map<String, dynamic>? raw;
+    var fromCache = true;
     if (reachable) {
       try {
-        final data = await _downloadAndStore('/api/tablet/home', 'home');
-        final overlaid =
-            await _overlayApprovedStatuses(Map<String, dynamic>.from(data));
-        await _cacheSetScoped('home', overlaid);
-        return Fetched(HomeData.fromJson(overlaid), false);
-      } catch (_) {
-        // fall through to local
+        raw = await _downloadAndStore('/api/tablet/home', 'home');
+        fromCache = false;
+      } catch (_) {}
+    }
+    raw ??= (await _readLocalFirst('/api/tablet/home', 'home')).data;
+    var overlaid =
+        await _overlayApprovedStatuses(Map<String, dynamic>.from(raw));
+    overlaid = await _applyAuthoritativeHomeProgress(overlaid);
+    await _cacheSetScoped('home', overlaid);
+    return Fetched(HomeData.fromJson(overlaid), fromCache);
+  }
+
+  Future<HomeWorkSnapshot> loadHomeWorkSnapshot() async {
+    await OfflineStore.instance.init();
+    final uid = AuthService.instance.currentUserId;
+    final exId = AuthService.instance.session?.exercise?.id;
+    final procedure = <Map<String, dynamic>>[];
+    final dilemma = <Map<String, dynamic>>[];
+    final keys = uid != null && uid > 0
+        ? await OfflineStore.instance.cacheKeysLike('u$uid:')
+        : await OfflineStore.instance.cacheKeysLike('evaluation');
+    for (final full in keys) {
+      if (uid != null && uid > 0 && cacheKeyUserId(full) != uid) continue;
+      final bare = cacheKeyBare(full);
+      final isProc = bare == 'evaluation_lists' ||
+          bare == 'evaluation_lists::' ||
+          bare.startsWith('evaluation_lists:');
+      final isDil = bare == 'action_eval_lists' ||
+          bare == 'action_eval_lists:' ||
+          bare.startsWith('action_eval_lists:');
+      if (!isProc && !isDil) continue;
+      final payload = await OfflineStore.instance.cacheGet(full);
+      if (payload == null) continue;
+      if (exId != null && exId > 0) {
+        final pid = int.tryParse('${payload['exercise_id'] ?? ''}');
+        if (pid != null && pid > 0 && pid != exId) continue;
+      }
+      final raw = payload['lists'] ?? payload['rows'];
+      if (raw is! List) continue;
+      for (final item in raw.whereType<Map>()) {
+        final row = Map<String, dynamic>.from(item);
+        final lt = '${row['list_type'] ?? row['list_type_kind'] ?? ''}'.toLowerCase();
+        if (isProc) {
+          if (lt.contains('planner') || lt.contains('action')) continue;
+          procedure.add(row);
+        } else {
+          dilemma.add(row);
+        }
       }
     }
-    final r = await _readLocalFirst('/api/tablet/home', 'home');
-    final overlaid =
-        await _overlayApprovedStatuses(Map<String, dynamic>.from(r.data));
-    return Fetched(HomeData.fromJson(overlaid), r.fromCache);
+    return snapshotFromRows(procedureRows: procedure, dilemmaRows: dilemma);
+  }
+
+  Future<Map<String, dynamic>> _applyAuthoritativeHomeProgress(
+    Map<String, dynamic> payload,
+  ) async {
+    final snap = await loadHomeWorkSnapshot();
+    if (snap.totalCount > 0) {
+      return applyStatsToHomePayload(payload, snap);
+    }
+    final tasks = ((payload['incomplete_tasks'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    final unique = uniqueEvalRows(tasks);
+    final copy = Map<String, dynamic>.from(payload);
+    copy['incomplete_tasks'] = unique;
+    final stats = Map<String, dynamic>.from((copy['stats'] as Map?) ?? {});
+    final total = (stats['total_count'] as num?)?.toInt() ?? unique.length;
+    final incompleteLen = unique.length;
+    final completed = total > incompleteLen ? total - incompleteLen : 0;
+    stats['total_count'] = total;
+    stats['completed_count'] = completed;
+    stats['incomplete_count'] = incompleteLen;
+    stats['completed_lists'] = completed;
+    stats['incomplete_lists'] = incompleteLen;
+    stats['completion_pct'] =
+        total == 0 ? 0 : ((completed * 100.0 / total).round()).clamp(0, 100);
+    copy['stats'] = stats;
+    return copy;
   }
 
   Future<Fetched<FlowData>> fetchFlow({String? day}) async {
@@ -720,6 +798,11 @@ class TabletRepository {
     final aid = actionEvalId ?? slot;
     q['action_eval_id'] = aid;
 
+    final localReopened = await _deviceManagerReopenedCache(key);
+    if (localReopened != null) {
+      return Fetched(EvalSheetDetail.fromJson(localReopened), true);
+    }
+
     final reachable = await HealthService.instance.check();
     if (reachable) {
       try {
@@ -746,6 +829,10 @@ class TabletRepository {
     int itemId,
   ) async {
     final key = 'evaluation_list_detail:$unitKey:$itemId';
+    final localReopened = await _deviceManagerReopenedCache(key);
+    if (localReopened != null) {
+      return Fetched(EvalSheetDetail.fromJson(localReopened), true);
+    }
     final reachable = await HealthService.instance.check();
     if (reachable) {
       try {
@@ -763,6 +850,14 @@ class TabletRepository {
     return Fetched(EvalSheetDetail.fromJson(r.data), r.fromCache);
   }
 
+  Future<Map<String, dynamic>?> _deviceManagerReopenedCache(String cacheKey) async {
+    final cached = await _cacheGetScoped(cacheKey);
+    if (cached != null && cached['device_manager_reopened'] == true) {
+      return cached;
+    }
+    return null;
+  }
+
   Future<bool> saveActionEvalResults(
     int slot,
     List<EvalRowInput> rows, {
@@ -776,6 +871,11 @@ class TabletRepository {
       syncStatus: SyncStatuses.pending,
       dilemmaDescription: dilemmaDescription,
       dilemmaRequirements: dilemmaRequirements,
+    );
+    await _propagateListRowStatus(
+      matchActionSlot: slot,
+      approved: false,
+      statusLabel: kEvalStatusWaiting,
     );
     await SyncService.instance.enqueueLocalFirst(
       id: newClientOpId('save-ae-$slot'),
@@ -899,6 +999,12 @@ class TabletRepository {
       dilemmaDescription: dilemmaDescription,
       dilemmaRequirements: dilemmaRequirements,
     );
+    await _propagateListRowStatus(
+      matchItemId: itemId,
+      matchUnitKey: unitKey,
+      approved: false,
+      statusLabel: kEvalStatusWaiting,
+    );
     await SyncService.instance.enqueueLocalFirst(
       id: newClientOpId('save-el-$itemId'),
       method: 'PUT',
@@ -980,6 +1086,16 @@ class TabletRepository {
     cached['locally_modified'] = true;
     cached['can_approve'] = true;
     cached['can_edit'] = true;
+    cached['is_approved'] = false;
+    cached['locally_approved'] = false;
+    cached['status_label'] = kEvalStatusWaiting;
+    cached['workflow'] = {
+      ...(cached['workflow'] is Map
+          ? Map<String, dynamic>.from(cached['workflow'] as Map)
+          : <String, dynamic>{}),
+      'label': kEvalStatusWaiting,
+      'reopened': false,
+    };
     await _cacheSetScoped(
       cacheKey,
       cached,
@@ -999,6 +1115,7 @@ class TabletRepository {
     cached['can_edit'] = false;
     cached['can_approve'] = false;
     cached['locally_approved'] = true;
+    cached['device_manager_reopened'] = false;
     cached['approval_sync_status'] = SyncStatuses.pending;
     if (signaturePngB64 != null &&
         signaturePngB64.isNotEmpty &&
@@ -1010,11 +1127,13 @@ class TabletRepository {
         'approved_at': DateTime.now().toUtc().toIso8601String(),
       };
     }
+    cached['status_label'] = kEvalStatusApproved;
     cached['workflow'] = {
       ...(cached['workflow'] is Map
           ? Map<String, dynamic>.from(cached['workflow'] as Map)
           : <String, dynamic>{}),
-      'label': 'معتمد محلياً – بانتظار المزامنة',
+      'label': kEvalStatusApproved,
+      'reopened': false,
     };
     await _cacheSetScoped(
       cacheKey,
@@ -1229,6 +1348,13 @@ class TabletRepository {
   }
 
   Future<Fetched<List<ListRow>>> fetchIncomplete() async {
+    final snap = await loadHomeWorkSnapshot();
+    if (snap.totalCount > 0) {
+      return Fetched(
+        [for (final e in snap.incomplete) e.toListRow()],
+        true,
+      );
+    }
     final reachable = await HealthService.instance.check();
     if (reachable) {
       try {
@@ -1236,11 +1362,20 @@ class TabletRepository {
         final overlaid =
             await _overlayApprovedStatuses(Map<String, dynamic>.from(data));
         await _cacheSetScoped('incomplete', overlaid);
-        final tasks = ((overlaid['tasks'] as List?) ??
-                overlaid['incomplete_tasks'] as List? ??
-                [])
-            .whereType<Map>()
-            .map((e) => ListRow.fromJson(e.cast<String, dynamic>()))
+        final tasks = uniqueEvalRows(
+          ((overlaid['tasks'] as List?) ??
+                  overlaid['incomplete_tasks'] as List? ??
+                  [])
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e)),
+        )
+            .map(ListRow.fromJson)
+            .where(
+              (r) => evalStatusIsIncomplete(
+                statusLabel: r.statusLabel,
+                statusDone: r.statusDone,
+              ),
+            )
             .toList();
         return Fetched(tasks, false);
       } catch (_) {}
@@ -1248,10 +1383,20 @@ class TabletRepository {
     final r = await _readLocalFirst('/api/tablet/incomplete', 'incomplete');
     final overlaid =
         await _overlayApprovedStatuses(Map<String, dynamic>.from(r.data));
-    final tasks =
-        ((overlaid['tasks'] as List?) ?? overlaid['incomplete_tasks'] as List? ?? [])
-        .whereType<Map>()
-        .map((e) => ListRow.fromJson(e.cast<String, dynamic>()))
+    final tasks = uniqueEvalRows(
+      ((overlaid['tasks'] as List?) ??
+              overlaid['incomplete_tasks'] as List? ??
+              [])
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e)),
+    )
+        .map(ListRow.fromJson)
+        .where(
+          (r) => evalStatusIsIncomplete(
+            statusLabel: r.statusLabel,
+            statusDone: r.statusDone,
+          ),
+        )
         .toList();
     return Fetched(tasks, r.fromCache);
   }
@@ -1534,6 +1679,10 @@ class TabletRepository {
 
     final approvedSlots = <int, String>{};
     final approvedItems = <String, String>{};
+    final reopenedSlots = <int>{};
+    final reopenedItems = <String>{};
+    final waitingSlots = <int>{};
+    final waitingItems = <String>{};
     final uid = forUserId ?? AuthService.instance.currentUserId;
 
     for (final pattern in ['action_eval_detail:', 'evaluation_list_detail:']) {
@@ -1546,10 +1695,33 @@ class TabletRepository {
             : await _cacheGetScoped(localKey);
         if (sheet == null) continue;
         final wf = sheet['workflow'];
-        final reopened = wf is Map && wf['reopened'] == true;
-        if (reopened) continue;
+        final reopened = (wf is Map && wf['reopened'] == true) ||
+            sheet['device_manager_reopened'] == true;
+        if (reopened) {
+          if (pattern.startsWith('action_eval_detail')) {
+            final slot = int.tryParse(localKey.split(':').last);
+            if (slot != null) reopenedSlots.add(slot);
+          } else {
+            final rest = localKey.substring('evaluation_list_detail:'.length);
+            reopenedItems.add(rest);
+          }
+          continue;
+        }
         final approved = sheet['is_approved'] == true ||
             sheet['locally_approved'] == true;
+        final waiting = !approved &&
+            (sheet['locally_modified'] == true ||
+                evalStatusFromSheet(sheet) == kEvalStatusWaiting);
+        if (waiting) {
+          if (pattern.startsWith('action_eval_detail')) {
+            final slot = int.tryParse(localKey.split(':').last);
+            if (slot != null) waitingSlots.add(slot);
+          } else {
+            final rest = localKey.substring('evaluation_list_detail:'.length);
+            waitingItems.add(rest);
+          }
+          continue;
+        }
         if (!approved) continue;
         final grade = (sheet['grade_label'] ??
                 (sheet['summary'] is Map
@@ -1597,20 +1769,63 @@ class TabletRepository {
         continue;
       }
       final row = Map<String, dynamic>.from(rawRow);
+      final slot = row['slot_index'] ?? row['slot_id'] ?? row['id'];
+      final slotInt = int.tryParse('$slot');
+      final itemId = row['item_id'] ?? row['id'];
+      final uk = (row['unit_key'] ?? '').toString();
+      var locallyReopened = false;
+      if ((row.containsKey('slot_id') || row.containsKey('slot_index')) &&
+          slotInt != null &&
+          reopenedSlots.contains(slotInt)) {
+        locallyReopened = true;
+      } else if (itemId != null) {
+        final keys = <String>[
+          if (uk.isNotEmpty) '$uk:$itemId',
+          '_:$itemId',
+          '$itemId',
+        ];
+        locallyReopened = keys.any(reopenedItems.contains);
+      }
+      if (locallyReopened) {
+        row['status_done'] = false;
+        row['status_label'] = kEvalStatusReopened;
+        row['workflow_label'] = kEvalStatusReopened;
+        row['row_tone'] = 'returned';
+        changed = true;
+        kept.add(row);
+        continue;
+      }
+      var locallyWaiting = false;
+      if ((row.containsKey('slot_id') || row.containsKey('slot_index')) &&
+          slotInt != null &&
+          waitingSlots.contains(slotInt)) {
+        locallyWaiting = true;
+      } else if (itemId != null) {
+        final keys = <String>[
+          if (uk.isNotEmpty) '$uk:$itemId',
+          '_:$itemId',
+          '$itemId',
+        ];
+        locallyWaiting = keys.any(waitingItems.contains);
+      }
+      if (locallyWaiting) {
+        row['status_done'] = false;
+        row['status_label'] = kEvalStatusWaiting;
+        row['row_tone'] = 'pending';
+        changed = true;
+        kept.add(row);
+        continue;
+      }
       final returned = rowIsReturned(row);
       final alreadyDone = rowIsTrulyDone(row);
 
       String? grade;
       var matched = false;
       if (!returned) {
-        final slot = row['slot_index'] ?? row['slot_id'] ?? row['id'];
-        final slotInt = int.tryParse('$slot');
         if (slotInt != null && approvedSlots.containsKey(slotInt)) {
           grade = approvedSlots[slotInt];
           matched = true;
         } else {
-          final itemId = row['item_id'] ?? row['id'];
-          final uk = (row['unit_key'] ?? '').toString();
           if (itemId != null) {
             final keys = <String>[
               if (uk.isNotEmpty) '$uk:$itemId',
@@ -1691,9 +1906,11 @@ class TabletRepository {
     int? matchItemId,
     String? matchUnitKey,
     required bool approved,
+    String? statusLabel,
     String? gradeLabel,
   }) async {
-    final statusLabel = approved ? 'معتمد' : 'لم ينجز';
+    final label = statusLabel ??
+        (approved ? kEvalStatusApproved : kEvalStatusNotDone);
     final delivery = approved ? DateTime.now().toIso8601String() : '';
 
     bool patchRows(List<dynamic> lists) {
@@ -1711,7 +1928,10 @@ class TabletRepository {
           continue;
         }
         m['status_done'] = approved;
-        m['status_label'] = statusLabel;
+        m['status_label'] = label;
+        if (!approved) {
+          m['row_tone'] = evalStatusIsWaitingLabel(label) ? 'pending' : 'none';
+        }
         if (gradeLabel != null && gradeLabel.isNotEmpty) {
           m['grade_label'] = gradeLabel;
         }

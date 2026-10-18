@@ -85,7 +85,9 @@ class ListRow {
     final isReturned = tone == 'returned' ||
         rawLabel.contains('معاد') ||
         (json['workflow_label'] ?? '').toString().contains('معاد');
+    final waiting = rawLabel.contains('بإنتظار') || rawLabel.contains('بانتظار');
     final done = !isReturned &&
+        !waiting &&
         (json['status_done'] == true ||
             rawLabel == 'معتمد' ||
             rawLabel == 'منجز' ||

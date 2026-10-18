@@ -524,12 +524,14 @@ class SyncService with WidgetsBindingObserver {
     cached['can_edit'] = false;
     cached['can_approve'] = false;
     cached['locally_approved'] = false;
+    cached['status_label'] = 'معتمد';
     cached['approval_sync_status'] = SyncStatuses.synced;
     cached['workflow'] = {
       ...(cached['workflow'] is Map
           ? Map<String, dynamic>.from(cached['workflow'] as Map)
           : <String, dynamic>{}),
-      'label': 'معتمد ومتزامن',
+      'label': 'معتمد',
+      'reopened': false,
     };
     await OfflineStore.instance.cacheSet(
       key,

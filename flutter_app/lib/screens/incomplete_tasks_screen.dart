@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/list_row.dart';
 import '../services/api_client.dart';
+import '../services/eval_status.dart';
 import '../services/tablet_repository.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_header.dart';
@@ -31,11 +32,10 @@ class _IncompleteTasksScreenState extends State<IncompleteTasksScreen> {
   List<ListRow> _onlyIncomplete(List<ListRow> rows) {
     return rows
         .where(
-          (r) =>
-              !r.statusDone &&
-              !r.statusLabel.contains('معتمد') &&
-              r.statusLabel != 'منجز' &&
-              r.statusLabel != 'ينجز',
+          (r) => evalStatusIsIncomplete(
+            statusLabel: r.statusLabel,
+            statusDone: r.statusDone,
+          ),
         )
         .toList();
   }

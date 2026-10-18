@@ -7,7 +7,7 @@ import '../services/api_client.dart';
 import '../services/device_admin_service.dart';
 import '../services/device_eval_manager_models.dart';
 import '../services/health_service.dart';
-import '../services/media_upload_service.dart';
+import '../services/device_reset_service.dart';
 import '../services/offline_store.dart';
 import '../services/package_sync_service.dart';
 import '../theme/app_theme.dart';
@@ -73,13 +73,21 @@ class _DeviceAdminHubScreenState extends State<DeviceAdminHubScreen> {
   }
 
   Future<void> _resetDevice() async {
+    final preview = await DeviceResetService.instance.preview();
+    if (!mounted) return;
+    final pendingNote = preview.hasUnsyncedWork
+        ? '\n\nيوجد على الجهاز أعمال لم تتم مزامنتها مع السيرفر.\n'
+            'إعادة ضبط الجهاز ستؤدي إلى حذف هذه الأعمال المحلية.'
+        : '';
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('إعادة ضبط بيانات الجهاز'),
-        content: const Text(
-          'سيتم مسح كل البيانات المحلية (المستخدمون، القوائم، الطابور، '
-          'وحالة التهيئة). لا يمكن التراجع.',
+        content: Text(
+          'سيتم حذف جميع البيانات المحلية الخاصة بالنظام من هذا الجهاز،\n'
+          'بما في ذلك المستخدمون والبيانات المحفوظة وبيانات المزامنة المحلية.\n\n'
+          'لن يتم حذف البيانات الموجودة على السيرفر أو النسخ الاحتياطية\n'
+          'المحفوظة في Downloads.$pendingNote',
         ),
         actions: [
           TextButton(
@@ -89,7 +97,7 @@ class _DeviceAdminHubScreenState extends State<DeviceAdminHubScreen> {
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: Text(
-              'مسح الكل',
+              'إعادة ضبط الجهاز',
               style: AppTextStyles.small.copyWith(
                 color: AppColors.notDoneRed,
                 fontWeight: FontWeight.w700,
@@ -100,14 +108,14 @@ class _DeviceAdminHubScreenState extends State<DeviceAdminHubScreen> {
       ),
     );
     if (ok != true || !mounted) return;
-    await OfflineStore.instance.clearAll();
-    await DeviceAdminService.instance.clearDeviceReady();
-    await DeviceAdminService.instance.ensureDefaultAdmin();
-    await _reload();
+    setState(() => _busy = true);
+    final result = await DeviceResetService.instance.resetLocalDevice();
     if (!mounted) return;
+    setState(() => _busy = false);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تم إعادة ضبط بيانات الجهاز')),
+      SnackBar(content: Text(result.message)),
     );
+    if (result.ok) context.go('/login');
   }
 
   @override
@@ -270,62 +278,6 @@ class _DeviceAdminHubScreenState extends State<DeviceAdminHubScreen> {
               'إعادة ضبط بيانات الجهاز',
               style: AppTextStyles.small.copyWith(color: AppColors.notDoneRed),
             ),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: _busy
-                ? null
-                : () async {
-                    final stats =
-                        await OfflineStore.instance.mediaStorageStats();
-                    final free =
-                        await MediaUploadService.instance.freeDiskBytes();
-                    if (!mounted) return;
-                    String fmt(int b) {
-                      if (b < 1024 * 1024) {
-                        return '${(b / 1024).toStringAsFixed(1)} KB';
-                      }
-                      if (b < 1024 * 1024 * 1024) {
-                        return '${(b / (1024 * 1024)).toStringAsFixed(1)} MB';
-                      }
-                      return '${(b / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
-                    }
-                    await showDialog<void>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('Manage Local Storage'),
-                        content: Text(
-                          'Pending Media: ${fmt(stats['pending_bytes'] ?? 0)}\n'
-                          'Synced Media: ${fmt(stats['synced_bytes'] ?? 0)}\n'
-                          'Available Storage: ${free == null ? '—' : fmt(free)}',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx),
-                            child: const Text('إغلاق'),
-                          ),
-                          TextButton(
-                            onPressed: () async {
-                              final n = await OfflineStore.instance
-                                  .deleteSyncedMediaFiles();
-                              if (ctx.mounted) Navigator.pop(ctx);
-                              if (!mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    'تم حذف $n ملفاً متزامناً من الجهاز',
-                                  ),
-                                ),
-                              );
-                            },
-                            child: const Text('Delete Synced Media'),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-            icon: const Icon(Icons.storage_outlined),
-            label: const Text('Manage Local Storage'),
           ),
           const SizedBox(height: 8),
           OutlinedButton.icon(

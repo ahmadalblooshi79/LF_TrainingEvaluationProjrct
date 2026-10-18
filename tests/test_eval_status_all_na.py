@@ -81,6 +81,11 @@ class EvalStatusAllNaTests(unittest.TestCase):
         saved = _saved([{"row_kind": "score", "acquired": "4"}], approved=True)
         self.assertEqual(eval_status_label_ar(saved), "معتمد")
 
+    def test_saved_unapproved_is_waiting_not_approved(self):
+        saved = _saved([{"row_kind": "score", "acquired": "4"}], approved=False)
+        self.assertEqual(eval_status_label_ar(saved), "بإنتظار الإعتماد")
+        self.assertFalse(saved.is_approved)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -402,6 +402,27 @@ def _tablet_phase_scope_error(user: User, ex: Exercise | None, item_phase: str |
     return None
 
 
+def _dedupe_tablet_eval_status_rows(rows: list) -> list:
+    """هوية مستقرة: إجراءات = item_id، معاضل = slot/id — بلا تكرار اسم."""
+    seen: set[tuple] = set()
+    out: list = []
+    for r in rows:
+        kind = str(r.get("list_type_kind") or r.get("list_type") or "").strip()
+        item_id = r.get("item_id") or r.get("id")
+        slot = r.get("slot_id") or r.get("slot_index")
+        if kind in {"planner_flow_action", "action"} or (
+            slot is not None and kind != "judge_eval"
+        ):
+            key = ("d", int(slot or item_id or 0))
+        else:
+            key = ("p", int(item_id or 0))
+        if key[1] <= 0 or key in seen:
+            continue
+        seen.add(key)
+        out.append(r)
+    return out
+
+
 def _tablet_scoped_eval_status_rows(user: User, ex: Exercise | None) -> list:
     """صفوف موقف التقييم بنفس نطاق وحدة المحكم المستخدم في القوائم."""
     from app.views import (
@@ -431,7 +452,9 @@ def _tablet_home_payload(user: User) -> dict:
 
     ex = _exercise_for(user)
     bundle = _serialize_user_bundle(user, ex)
-    all_rows = _tablet_scoped_eval_status_rows(user, ex)
+    all_rows = _dedupe_tablet_eval_status_rows(
+        _tablet_scoped_eval_status_rows(user, ex)
+    )
     incomplete_src = [r for r in all_rows if not r.get("status_done")]
     incomplete_src.sort(key=_incomplete_eval_started_at_sort_key)
     incomplete_rows = [_safe_row(r) for r in incomplete_src]

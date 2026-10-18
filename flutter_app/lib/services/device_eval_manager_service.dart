@@ -6,9 +6,12 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/eval_sheet.dart';
+import '../models/list_row.dart';
 import 'api_client.dart';
+import 'device_eval_manager_excel.dart';
 import 'device_eval_manager_models.dart';
 import 'device_eval_manager_paths.dart';
+import 'device_eval_manager_zip.dart';
 import 'health_service.dart';
 import 'offline_store.dart';
 import 'scoped_backup_inventory.dart';
@@ -223,8 +226,34 @@ class DeviceEvalManagerService {
       listId: summary.listId,
     );
     _overlayMediaOnRows(rows, media);
+    var nextSummary = summary;
+    if (raw != null) {
+      final status = '${raw['status_label'] ?? ''}'.trim();
+      final wf = raw['workflow'];
+      var workflow = summary.workflowLabel;
+      if (wf is Map) {
+        workflow = '${wf['label'] ?? workflow}'.trim();
+      }
+      if (status.isNotEmpty || workflow.isNotEmpty) {
+        nextSummary = DeviceEvalListSummary(
+          kind: summary.kind,
+          userId: summary.userId,
+          exerciseId: summary.exerciseId,
+          listId: summary.listId,
+          unitKey: summary.unitKey,
+          unitLabel: summary.unitLabel,
+          phaseKey: summary.phaseKey,
+          title: summary.title,
+          statusLabel: status.isNotEmpty ? status : summary.statusLabel,
+          workflowLabel: workflow,
+          lastUpdated: summary.lastUpdated,
+          imageCount: summary.imageCount,
+          videoCount: summary.videoCount,
+        );
+      }
+    }
     return DeviceEvalInspectData(
-      summary: summary,
+      summary: nextSummary,
       user: user,
       exerciseName: exerciseName,
       detail: detail,
@@ -238,36 +267,41 @@ class DeviceEvalManagerService {
     required DeviceEvalUser user,
     required DeviceEvalListSummary summary,
     required String exerciseName,
-    required bool online,
+    bool online = false,
     void Function(DeviceEvalDownloadProgress progress)? onProgress,
   }) async {
-    if (!online) {
-      return const DeviceEvalDownloadResult(
-        ok: false,
-        message: kDeviceEvalExcelOffline,
-      );
-    }
     resetCancel();
-    final staging = await _prepareStaging(user, summary, exerciseName);
-    final xlsxName = uniqueDownloadFileName(
-      '${summary.title}.xlsx',
-      <String>{},
+    final inspect = await loadInspect(
+      user: user,
+      summary: summary,
+      exerciseName: exerciseName,
     );
-    final dest = File(p.join(staging.path, xlsxName));
-    onProgress?.call(DeviceEvalDownloadProgress(
-      currentFile: xlsxName,
+    final staging = await _prepareStaging(user, summary, exerciseName);
+    onProgress?.call(const DeviceEvalDownloadProgress(
+      currentFile: 'Excel',
       copiedFiles: 0,
       totalFiles: 1,
-      message: 'جارٍ تنزيل Excel',
+      message: 'جارٍ تجهيز Excel',
     ));
-    final ok = await _downloadExcelTo(dest, summary);
-    if (!ok || !dest.existsSync()) {
+    final ok = await _writeExcelToStaging(
+      staging: staging,
+      user: user,
+      summary: summary,
+      exerciseName: exerciseName,
+      inspect: inspect,
+      online: online,
+    );
+    if (!ok) {
       return const DeviceEvalDownloadResult(
         ok: false,
         message: kDeviceEvalExcelUnsupported,
       );
     }
-    return _publishStaging(staging: staging, summary: summary, user: user);
+    return _publishZippedStaging(
+      staging: staging,
+      summary: summary,
+      user: user,
+    );
   }
 
   Future<DeviceEvalDownloadResult> downloadAttachments({
@@ -301,14 +335,18 @@ class DeviceEvalManagerService {
         message: kDeviceEvalDownloadFailed,
       );
     }
-    return _publishStaging(staging: staging, summary: summary, user: user);
+    return _publishZippedStaging(
+      staging: staging,
+      summary: summary,
+      user: user,
+    );
   }
 
   Future<DeviceEvalDownloadResult> downloadListWithAttachments({
     required DeviceEvalUser user,
     required DeviceEvalListSummary summary,
     required String exerciseName,
-    required bool online,
+    bool online = false,
     void Function(DeviceEvalDownloadProgress progress)? onProgress,
   }) async {
     resetCancel();
@@ -318,44 +356,33 @@ class DeviceEvalManagerService {
       exerciseName: exerciseName,
     );
     final staging = await _prepareStaging(user, summary, exerciseName);
-    final warnings = <String>[];
-    if (online) {
-      final xlsxName = uniqueDownloadFileName(
-        '${summary.title}.xlsx',
-        <String>{},
-      );
-      final dest = File(p.join(staging.path, xlsxName));
-      onProgress?.call(DeviceEvalDownloadProgress(
-        currentFile: xlsxName,
-        copiedFiles: 0,
-        totalFiles: inspect.media.length + 1,
-        message: 'جارٍ تنزيل Excel',
-      ));
-      final ok = await _downloadExcelTo(dest, summary);
-      if (!ok) {
-        warnings.add(kDeviceEvalExcelUnsupported);
-      }
-    } else {
-      warnings.add(kDeviceEvalExcelOffline);
-    }
+    onProgress?.call(DeviceEvalDownloadProgress(
+      currentFile: 'Excel',
+      copiedFiles: 0,
+      totalFiles: inspect.media.length + 1,
+      message: 'جارٍ تجهيز Excel',
+    ));
+    final excelOk = await _writeExcelToStaging(
+      staging: staging,
+      user: user,
+      summary: summary,
+      exerciseName: exerciseName,
+      inspect: inspect,
+      online: online,
+    );
     final copiedMedia = await _copyMediaToStaging(
       staging: staging,
       media: inspect.media,
       intoAttachments: true,
       onProgress: onProgress,
     );
-    final hasExcel = Directory(staging.path)
-        .listSync()
-        .whereType<File>()
-        .any((f) => f.path.toLowerCase().endsWith('.xlsx'));
-    if (!hasExcel && copiedMedia <= 0) {
-      return DeviceEvalDownloadResult(
+    if (!excelOk && copiedMedia <= 0) {
+      return const DeviceEvalDownloadResult(
         ok: false,
         message: kDeviceEvalDownloadFailed,
-        warnings: warnings,
       );
     }
-    final published = await _publishStaging(
+    final published = await _publishZippedStaging(
       staging: staging,
       summary: summary,
       user: user,
@@ -365,18 +392,22 @@ class DeviceEvalManagerService {
       message: published.ok ? kDeviceEvalDownloadOk : published.message,
       displayPath: published.displayPath,
       fileCount: published.fileCount,
-      warnings: [...warnings, ...published.warnings],
+      warnings: [
+        if (!excelOk) kDeviceEvalExcelUnsupported,
+        ...published.warnings,
+      ],
     );
   }
 
   Future<DeviceEvalReopenResult> reopenApprovedList({
     required DeviceEvalListSummary summary,
-    required bool online,
+    bool online = false,
   }) async {
+    await _applyLocalReopenToCaches(summary);
     if (!online) {
       return const DeviceEvalReopenResult(
-        ok: false,
-        message: kDeviceEvalReopenNeedsServer,
+        ok: true,
+        message: kDeviceEvalReopenLocalOk,
       );
     }
     try {
@@ -399,42 +430,19 @@ class DeviceEvalManagerService {
           },
         );
       });
-      if (payload['ok'] != true) {
+      if (payload['ok'] == true) {
+        await _applyServerReopenToCache(summary, payload);
         return DeviceEvalReopenResult(
-          ok: false,
-          message: '${payload['error'] ?? 'رُفض طلب إعادة الفتح'}',
+          ok: true,
+          message: '$kDeviceEvalReopenLocalOk وعلى السيرفر',
+          serverPayload: payload,
         );
       }
-      await _applyServerReopenToCache(summary, payload);
-      return DeviceEvalReopenResult(
-        ok: true,
-        message: 'تم إعادة فتح القائمة',
-        serverPayload: payload,
-      );
-    } on ApiOfflineException {
-      return const DeviceEvalReopenResult(
-        ok: false,
-        message: kDeviceEvalReopenNeedsServer,
-      );
-    } on ApiException catch (e) {
-      if (e.status == 401 || e.status == 403) {
-        return DeviceEvalReopenResult(
-          ok: false,
-          message: e.message.isNotEmpty
-              ? e.message
-              : 'لا صلاحية لإعادة فتح القائمة',
-        );
-      }
-      return DeviceEvalReopenResult(
-        ok: false,
-        message: e.message.isNotEmpty ? e.message : 'تعذر إعادة فتح القائمة',
-      );
-    } catch (_) {
-      return const DeviceEvalReopenResult(
-        ok: false,
-        message: 'تعذر إعادة فتح القائمة',
-      );
-    }
+    } catch (_) {}
+    return const DeviceEvalReopenResult(
+      ok: true,
+      message: kDeviceEvalReopenLocalOk,
+    );
   }
 
   Future<bool> serverReachable() {
@@ -542,6 +550,36 @@ class DeviceEvalManagerService {
     return dir;
   }
 
+  Future<bool> _writeExcelToStaging({
+    required Directory staging,
+    required DeviceEvalUser user,
+    required DeviceEvalListSummary summary,
+    required String exerciseName,
+    required DeviceEvalInspectData inspect,
+    required bool online,
+  }) async {
+    final xlsxName = uniqueDownloadFileName(
+      '${summary.title}.xlsx',
+      <String>{},
+    );
+    final dest = File(p.join(staging.path, xlsxName));
+    final bytes = buildLocalEvalListXlsx(
+      summary: summary,
+      user: user,
+      exerciseName: exerciseName,
+      rows: inspect.rows,
+      detail: inspect.detail,
+    );
+    await dest.writeAsBytes(bytes, flush: true);
+    if (dest.existsSync() && dest.lengthSync() > 0) {
+      return true;
+    }
+    if (online) {
+      return _downloadExcelTo(dest, summary);
+    }
+    return false;
+  }
+
   Future<bool> _downloadExcelTo(
     File dest,
     DeviceEvalListSummary summary,
@@ -611,6 +649,34 @@ class DeviceEvalManagerService {
       }
     }
     return copied;
+  }
+
+  Future<DeviceEvalDownloadResult> _publishZippedStaging({
+    required Directory staging,
+    required DeviceEvalListSummary summary,
+    required DeviceEvalUser user,
+  }) async {
+    final zipName = uniqueDownloadFileName('${summary.title}.zip', <String>{});
+    final zipFile = File(p.join(staging.parent.path, zipName));
+    try {
+      await zipExportDirectory(source: staging, destZip: zipFile);
+    } catch (_) {
+      return const DeviceEvalDownloadResult(
+        ok: false,
+        message: kDeviceEvalDownloadFailed,
+      );
+    }
+    final publishDir = Directory(p.join(staging.parent.path, 'publish_$zipName'));
+    if (publishDir.existsSync()) {
+      publishDir.deleteSync(recursive: true);
+    }
+    await publishDir.create(recursive: true);
+    await zipFile.copy(p.join(publishDir.path, zipName));
+    return _publishStaging(
+      staging: publishDir,
+      summary: summary,
+      user: user,
+    );
   }
 
   Future<DeviceEvalDownloadResult> _publishStaging({
@@ -683,23 +749,77 @@ class DeviceEvalManagerService {
     }
   }
 
+  Future<void> _applyLocalReopenToCaches(DeviceEvalListSummary summary) async {
+    final cached = await _detailCache(summary) ?? <String, dynamic>{
+      'item_id': summary.listId,
+      'id': summary.listId,
+      'slot': summary.listId,
+      'slot_id': summary.listId,
+      'title': summary.title,
+      'unit_key': summary.unitKey,
+      'unit_label': summary.unitLabel,
+      'phase_key': summary.phaseKey,
+      'exercise_id': summary.exerciseId,
+    };
+    final next = applyLocalReopenToDetail(cached);
+    final key = summary.kind == DeviceEvalKind.procedure
+        ? 'evaluation_list_detail:${summary.unitKey}:${summary.listId}'
+        : 'action_eval_detail:${summary.listId}';
+    await OfflineStore.instance.cacheSetForUser(summary.userId, key, next);
+    final keys = await OfflineStore.instance.cacheKeysLike('u${summary.userId}:');
+    for (final cacheKey in keys) {
+      if (cacheKeyUserId(cacheKey) != summary.userId) continue;
+      final bare = cacheKeyBare(cacheKey);
+      final isList = summary.kind == DeviceEvalKind.procedure
+          ? cacheKeyIsProcedureLists(bare)
+          : cacheKeyIsDilemmaLists(bare);
+      if (!isList) continue;
+      final payload = await OfflineStore.instance.cacheGet(cacheKey);
+      if (payload == null) continue;
+      final field = payload.containsKey('lists') ? 'lists' : 'rows';
+      final raw = payload[field];
+      if (raw is! List) continue;
+      var changed = false;
+      final updated = <dynamic>[];
+      for (final item in raw) {
+        if (item is! Map) {
+          updated.add(item);
+          continue;
+        }
+        final row = Map<String, dynamic>.from(item);
+        final id = stableListId(ListRow.fromJson(row), summary.kind);
+        if (id == summary.listId) {
+          row['status_label'] = kDeviceEvalReopenStatus;
+          row['workflow_label'] = kDeviceEvalReopenStatus;
+          row['dispatch_label'] = kDeviceEvalReopenStatus;
+          row['row_tone'] = 'returned';
+          row['status_done'] = false;
+          changed = true;
+        }
+        updated.add(row);
+      }
+      if (changed) {
+        payload[field] = updated;
+        await OfflineStore.instance.cacheSet(cacheKey, payload);
+      }
+    }
+  }
+
   Future<void> _applyServerReopenToCache(
     DeviceEvalListSummary summary,
     Map<String, dynamic> payload,
   ) async {
     final cached = await _detailCache(summary);
     if (cached == null) return;
-    final next = Map<String, dynamic>.from(cached);
+    final next = applyLocalReopenToDetail(cached);
     if (payload['can_edit'] != null) next['can_edit'] = payload['can_edit'];
     if (payload['can_approve'] != null) {
       next['can_approve'] = payload['can_approve'];
     }
-    if (payload['is_approved'] != null) {
-      next['is_approved'] = payload['is_approved'];
-    }
     if (payload['workflow'] is Map) {
       next['workflow'] = Map<String, dynamic>.from(payload['workflow'] as Map);
     }
+    next['device_manager_reopened'] = true;
     final key = summary.kind == DeviceEvalKind.procedure
         ? 'evaluation_list_detail:${summary.unitKey}:${summary.listId}'
         : 'action_eval_detail:${summary.listId}';

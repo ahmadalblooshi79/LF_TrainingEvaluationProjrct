@@ -86,6 +86,8 @@ def eval_status_label_ar(saved: SavedRow | None) -> str:
         return "معاد للتقييم"
     if eval_status_done(saved):
         return "معتمد"
+    if saved is not None and (getattr(saved, "payload_json", None) or "").strip():
+        return "بإنتظار الإعتماد"
     return "لم ينجز"
 
 

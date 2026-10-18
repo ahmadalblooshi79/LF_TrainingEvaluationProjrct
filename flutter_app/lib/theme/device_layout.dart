@@ -12,12 +12,12 @@ class DeviceLayout {
 
   static const String appVersion = String.fromEnvironment(
     'LF_APP_VERSION',
-    defaultValue: '2.7.41',
+    defaultValue: '2.7.43',
   );
 
   static const int appVersionCode = int.fromEnvironment(
     'LF_APP_VERSION_CODE',
-    defaultValue: 55,
+    defaultValue: 57,
   );
 
   static const double phoneDesignWidth = 480;

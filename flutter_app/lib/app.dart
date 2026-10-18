@@ -100,7 +100,9 @@ final GoRouter _router = GoRouter(
     ),
     GoRoute(
       path: '/exercise-details',
-      builder: (context, state) => const ExerciseDetailsScreen(),
+      builder: (context, state) => ExerciseDetailsScreen(
+        initialTab: state.uri.queryParameters['tab'],
+      ),
     ),
     GoRoute(path: '/library', builder: (context, state) => const LibraryScreen()),
     GoRoute(

@@ -41,6 +41,14 @@ Map<String, dynamic> mergeServerCacheWithLocal({
     merged['locally_modified'] = local['locally_modified'] == true;
     merged['locally_approved'] = local['locally_approved'] == true;
     _copySavedWork(local, merged);
+    if (local['locally_approved'] == true) {
+      merged['is_approved'] = true;
+      merged['can_edit'] = false;
+      merged['status_label'] = 'معتمد';
+    } else if (local['locally_modified'] == true) {
+      merged['is_approved'] = false;
+      merged['status_label'] = 'بإنتظار الإعتماد';
+    }
   }
   return merged;
 }

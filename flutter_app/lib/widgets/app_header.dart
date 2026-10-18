@@ -10,7 +10,7 @@ import '../theme/device_layout.dart';
 import 'online_status_chip.dart';
 
 /// ترويسة التطبيق — الأدوات دائماً أقصى اليسار:
-/// خروج | Home | Back | إعدادات | مكتبة | تنبيهات | رسائل
+/// خروج | Home | Back | إعدادات | تنبيهات | رسائل
 class AppHeader extends StatelessWidget implements PreferredSizeWidget {
   const AppHeader({
     super.key,
@@ -40,12 +40,16 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final session = context.watch<AuthService>().session;
-    final unit = (pageSubtitle ?? session?.unitLabel ?? '').trim();
-    final line3 = (brandLine3 ?? session?.exercise?.name ?? '').trim();
+    final unit = (session?.unitLabel ?? '').trim();
+    final exerciseName = (brandLine3 ?? session?.exercise?.name ?? '').trim();
     final judgeName = (session?.user.judgeDisplayName.trim().isNotEmpty == true
             ? session!.user.judgeDisplayName
             : (session?.user.fullName ?? ''))
         .trim();
+    final identityLine = [
+      if (judgeName.isNotEmpty) judgeName,
+      if (unit.isNotEmpty) unit,
+    ].join(' – ');
 
     final canPop = onBack != null || Navigator.of(context).canPop();
     final loc = GoRouterState.of(context).matchedLocation;
@@ -105,7 +109,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'التحكيم الذكي',
+                                'نظام التحكيم الذكي',
                                 style: AppTextStyles.cairo(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w800,
@@ -114,22 +118,20 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
-                              Text(
-                                pageTitle,
-                                style: AppTextStyles.cairo(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.olive,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              if (judgeName.isNotEmpty || unit.isNotEmpty)
+                              if (identityLine.isNotEmpty)
                                 Text(
-                                  [
-                                    if (judgeName.isNotEmpty) judgeName,
-                                    if (unit.isNotEmpty) unit,
-                                  ].join(' — '),
+                                  identityLine,
+                                  style: AppTextStyles.cairo(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.olive,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              if (exerciseName.isNotEmpty)
+                                Text(
+                                  exerciseName,
                                   style: AppTextStyles.cairo(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w600,
@@ -170,46 +172,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                             ),
                           ),
                         ),
-                        Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              pageTitle,
-                              style: AppTextStyles.cairo(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.olive,
-                              ),
-                              textAlign: TextAlign.center,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            if (judgeName.isNotEmpty)
-                              Text(
-                                judgeName,
-                                style: AppTextStyles.cairo(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.goldDark,
-                                ),
-                                textAlign: TextAlign.center,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            if (unit.isNotEmpty)
-                              Text(
-                                unit,
-                                style: AppTextStyles.cairo(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.goldDark,
-                                ),
-                                textAlign: TextAlign.center,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                          ],
-                        ),
+                        const SizedBox.shrink(),
                         Align(
                           alignment: Alignment.centerRight,
                           child: Padding(
@@ -222,7 +185,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
                                     Text(
-                                      'التحكيم الذكي',
+                                      'نظام التحكيم الذكي',
                                       style: AppTextStyles.cairo(
                                         fontSize: 18,
                                         fontWeight: FontWeight.w800,
@@ -232,22 +195,24 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                                       overflow: TextOverflow.ellipsis,
                                       textAlign: TextAlign.right,
                                     ),
-                                    Text(
-                                      'نظام إدارة التمارين',
-                                      style: AppTextStyles.cairo(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: AppColors.olive,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      textAlign: TextAlign.right,
-                                    ),
-                                    if (line3.isNotEmpty)
+                                    if (identityLine.isNotEmpty)
                                       Text(
-                                        line3,
+                                        identityLine,
                                         style: AppTextStyles.cairo(
-                                          fontSize: 10,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.olive,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        textAlign: TextAlign.right,
+                                      ),
+                                    if (exerciseName.isNotEmpty)
+                                      Text(
+                                        exerciseName,
+                                        style: AppTextStyles.cairo(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
                                           color: AppColors.muted,
                                         ),
                                         maxLines: 1,
@@ -280,7 +245,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
     );
   }
 
-  /// ترتيب العرض من أقصى اليسار: خروج | Home | Back | إعدادات | مكتبة | تنبيهات | رسائل | مزامنة | اتصال
+  /// ترتيب العرض من أقصى اليسار: خروج | Home | Back | إعدادات | تنبيهات | رسائل | مزامنة | اتصال
   List<Widget> _buildActionsLeftToRight(
     BuildContext context, {
     required bool phone,
@@ -350,12 +315,6 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
           onTap: () => context.push('/settings'),
         ),
       if (showUtilityActions) ...[
-        _SqIcon(
-          icon: Icons.menu_book_outlined,
-          tooltip: 'المكتبة',
-          compact: phone,
-          onTap: () => context.push('/library'),
-        ),
         ValueListenableBuilder<int>(
           valueListenable: NotificationsBadgeService.instance.unreadCount,
           builder: (_, unread, __) {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../services/api_client.dart';
 import '../services/device_eval_manager_models.dart';
 import '../services/device_eval_manager_service.dart';
 import '../services/scoped_backup_models.dart';
@@ -363,8 +364,7 @@ class _DeviceEvalManagerScreenState extends State<DeviceEvalManagerScreen> {
     Future<DeviceEvalDownloadResult> Function(bool online) action,
   ) async {
     if (_selectedUser == null) return;
-    final online = await DeviceEvalManagerService.instance.serverReachable();
-    final result = await action(online);
+    final result = await action(ApiClient.instance.online.value);
     if (!mounted) return;
     final path = result.displayPath;
     final text = [

@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../models/home_data.dart';
-import '../models/list_row.dart';
 import '../services/api_client.dart';
-import '../services/auth_service.dart';
+import '../services/home_progress.dart';
 import '../services/tablet_repository.dart';
 import '../theme/app_theme.dart';
 import '../theme/device_layout.dart';
@@ -27,12 +26,16 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _error;
 
   static const _icons = <String, IconData>{
-    'flow': Icons.timeline,
-    'action_eval': Icons.fact_check_outlined,
     'evaluation_lists': Icons.checklist_rtl,
+    'action_eval': Icons.fact_check_outlined,
+    'flow': Icons.timeline,
     'positives_negatives': Icons.thumbs_up_down_outlined,
-    'exercise_papers': Icons.folder_copy_outlined,
+    'incomplete': Icons.assignment_late_outlined,
     'objectives': Icons.flag_outlined,
+    'exercise_papers': Icons.folder_copy_outlined,
+    'program': Icons.event_note_outlined,
+    'map': Icons.map_outlined,
+    'library': Icons.menu_book_outlined,
   };
 
   @override
@@ -61,15 +64,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final session = AuthService.instance.session;
-    final ex = session?.exercise;
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppHeader(
-        pageTitle: 'التمرين',
-        pageSubtitle: session?.unitLabel.isNotEmpty == true
-            ? session!.unitLabel
-            : (ex?.name ?? 'القائمة الرئيسية'),
+      appBar: const AppHeader(
+        pageTitle: 'الصفحة الرئيسية',
         showLogout: false,
         showOnlineChip: false,
       ),
@@ -92,65 +90,49 @@ class _HomeScreenState extends State<HomeScreen> {
             MediaQuery.orientationOf(context) == Orientation.portrait;
         final sidebar = _Sidebar(data: data, portraitRow: portrait && !wide);
         final pad = DeviceLayout.pagePadding(context);
-        final incompleteRows = data.incompleteTasks
-            .where(
-              (r) =>
-                  !r.statusDone &&
-                  !r.statusLabel.contains('معتمد') &&
-                  r.statusLabel != 'منجز' &&
-                  r.statusLabel != 'ينجز',
-            )
-            .toList();
-
         final menuBlock = _MainMenuBlock(
-          data: data,
           fromCache: _fromCache,
           icons: _icons,
         );
-        final table = _IncompleteTable(
-          rows: incompleteRows,
-          onRefresh: _load,
-          scrollable: true,
-        );
 
+        Widget content;
         if (!wide) {
-          return Padding(
+          content = Padding(
             padding: pad,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 sidebar,
                 SizedBox(height: DeviceLayout.listSpacing(context) + 4),
-                menuBlock,
-                const SizedBox(height: 10),
-                Expanded(child: FigmaPanel(child: table)),
+                Expanded(child: SingleChildScrollView(child: menuBlock)),
+              ],
+            ),
+          );
+        } else {
+          content = Padding(
+            padding: pad,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  width: 300,
+                  child: SingleChildScrollView(child: sidebar),
+                ),
+                const SizedBox(width: 16),
+                Expanded(child: SingleChildScrollView(child: menuBlock)),
               ],
             ),
           );
         }
-
-        return Padding(
-          padding: pad,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SizedBox(
-                width: 300,
-                child: SingleChildScrollView(child: sidebar),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    menuBlock,
-                    const SizedBox(height: 10),
-                    Expanded(child: FigmaPanel(child: table)),
-                  ],
-                ),
-              ),
-            ],
-          ),
+        return Stack(
+          children: [
+            content,
+            const Positioned(
+              right: 16,
+              bottom: 16,
+              child: _HomeSettingsButton(),
+            ),
+          ],
         );
       },
     );
@@ -372,17 +354,14 @@ class _InfoLine extends StatelessWidget {
 
 class _MainMenuBlock extends StatelessWidget {
   const _MainMenuBlock({
-    required this.data,
     required this.fromCache,
     required this.icons,
   });
-  final HomeData data;
   final bool fromCache;
   final Map<String, IconData> icons;
 
   @override
   Widget build(BuildContext context) {
-    final menu = data.menu;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -401,30 +380,54 @@ class _MainMenuBlock extends StatelessWidget {
         const SizedBox(height: 12),
         OrientationBuilder(
           builder: (context, orientation) {
-            final cards = menu
-                .map(
-                  (m) => _MenuCard(
-                    title: m.id == 'evaluation_lists' ? 'قوائم تقييم الإجراءات' : m.title,
-                    icon: icons[m.id] ?? Icons.apps,
-                    onTap: () => context.push(m.route),
-                  ),
-                )
-                .toList();
+            final cards = [
+              for (final m in kHomeFunctionsExact)
+                _MenuCard(
+                  title: m.title,
+                  icon: icons[m.id] ?? Icons.apps,
+                  onTap: () {
+                    if (m.tab != null && m.tab!.isNotEmpty) {
+                      context.push('${m.route}?tab=${m.tab}');
+                    } else {
+                      context.push(m.route);
+                    }
+                  },
+                ),
+            ];
             return _MenuGrid(cards: cards, portrait: orientation == Orientation.portrait);
           },
         ),
-        const SizedBox(height: 14),
-        Row(
-          children: [
-            const Icon(Icons.schedule, color: AppColors.goldDark, size: 18),
-            const SizedBox(width: 6),
-            Text(
-              'المهام غير المكتملة',
-              style: AppTextStyles.cairo(fontSize: 16, fontWeight: FontWeight.w800),
-            ),
-          ],
-        ),
+        const SizedBox(height: 88),
       ],
+    );
+  }
+}
+
+class _HomeSettingsButton extends StatelessWidget {
+  const _HomeSettingsButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.headerCream,
+      borderRadius: BorderRadius.circular(12),
+      elevation: 2,
+      shadowColor: AppColors.cardShadow,
+      child: InkWell(
+        key: const Key('home_settings_button'),
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => context.push('/settings'),
+        child: Container(
+          width: 80,
+          height: 80,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.divider),
+          ),
+          child: const Icon(Icons.settings_outlined, size: 40, color: AppColors.olive),
+        ),
+      ),
     );
   }
 }
@@ -529,142 +532,4 @@ class _MenuCard extends StatelessWidget {
   }
 }
 
-class _IncompleteTable extends StatelessWidget {
-  const _IncompleteTable({
-    required this.rows,
-    this.onRefresh,
-    this.scrollable = false,
-  });
-  final List<ListRow> rows;
-  final Future<void> Function()? onRefresh;
-  final bool scrollable;
-
-  @override
-  Widget build(BuildContext context) {
-    final header = Container(
-      color: AppColors.headerCream,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-      child: Row(
-        children: [
-          Expanded(flex: 1, child: Text('ت', style: _h, textAlign: TextAlign.center)),
-          Expanded(flex: 4, child: Text('مسمى التقييم', style: _h, textAlign: TextAlign.right)),
-          Expanded(flex: 2, child: Text('نوع القائمة', style: _h, textAlign: TextAlign.center)),
-          Expanded(flex: 2, child: Text('الموقف', style: _h, textAlign: TextAlign.center)),
-        ],
-      ),
-    );
-
-    final footer = Align(
-      alignment: Alignment.centerRight,
-      child: Padding(
-        padding: const EdgeInsets.all(10),
-        child: TextButton(
-          onPressed: () => context.push('/incomplete'),
-          child: Text(
-            'عرض جميع المهام',
-            style: AppTextStyles.cairo(
-              color: AppColors.goldDark,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ),
-    );
-
-    Widget rowAt(int i) {
-      final r = rows[i];
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-        decoration: const BoxDecoration(
-          border: Border(top: BorderSide(color: AppColors.divider)),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              flex: 1,
-              child: Text('${i + 1}', textAlign: TextAlign.center, style: AppTextStyles.small),
-            ),
-            Expanded(
-              flex: 4,
-              child: Text(
-                r.title,
-                style: AppTextStyles.body,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            Expanded(
-              flex: 2,
-              child: Text(
-                r.displayListType,
-                textAlign: TextAlign.center,
-                style: AppTextStyles.cairo(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.olive,
-                ),
-              ),
-            ),
-            Expanded(
-              flex: 2,
-              child: Center(
-                child: FigmaStatusPill(
-                  done: false,
-                  label: r.statusLabel.isNotEmpty ? r.statusLabel : 'لم ينجز',
-                  outlineOnly: true,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (!scrollable) {
-      return Column(
-        children: [
-          header,
-          if (rows.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(28),
-              child: Text('لا توجد مهام غير مكتملة'),
-            )
-          else
-            ...List.generate(rows.length, rowAt),
-          footer,
-        ],
-      );
-    }
-
-    return Column(
-      children: [
-        header,
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: onRefresh ?? () async {},
-            color: AppColors.gold,
-            child: rows.isEmpty
-                ? ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    children: const [
-                      Padding(
-                        padding: EdgeInsets.all(28),
-                        child: Center(child: Text('لا توجد مهام غير مكتملة')),
-                      ),
-                    ],
-                  )
-                : ListView.builder(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: rows.length,
-                    itemBuilder: (context, i) => rowAt(i),
-                  ),
-          ),
-        ),
-        footer,
-      ],
-    );
-  }
-
-  static final _h = AppTextStyles.cairo(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.olive);
-}
 

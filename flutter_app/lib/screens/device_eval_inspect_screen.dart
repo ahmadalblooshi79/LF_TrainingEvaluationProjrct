@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/eval_sheet.dart';
+import '../services/api_client.dart';
 import '../services/device_eval_manager_models.dart';
 import '../services/device_eval_manager_service.dart';
 import '../theme/app_theme.dart';
@@ -69,8 +70,7 @@ class _DeviceEvalInspectScreenState extends State<DeviceEvalInspectScreen> {
       _busy = true;
       _msg = null;
     });
-    final online = await DeviceEvalManagerService.instance.serverReachable();
-    final result = await action(online);
+    final result = await action(ApiClient.instance.online.value);
     if (!mounted) return;
     setState(() {
       _busy = false;
@@ -112,10 +112,9 @@ class _DeviceEvalInspectScreenState extends State<DeviceEvalInspectScreen> {
       _busy = true;
       _msg = null;
     });
-    final online = await DeviceEvalManagerService.instance.serverReachable();
     final result = await DeviceEvalManagerService.instance.reopenApprovedList(
       summary: summary,
-      online: online,
+      online: ApiClient.instance.online.value,
     );
     if (!mounted) return;
     setState(() {
