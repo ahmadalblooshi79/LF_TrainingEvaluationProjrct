@@ -15290,3 +15290,114 @@ body.wrm-page-body main {
 @media print {
   .lf-export-dock { display: none !important; }
 }
+
+.reports-center-page main {
+  overflow: auto;
+  display: block;
+  padding-bottom: 2rem;
+}
+.reports-center-page #reports-center {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.reports-card {
+  margin-bottom: 0.85rem;
+}
+.reports-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  margin: 0.45rem 0;
+}
+.reports-field span {
+  font-weight: 700;
+}
+.reports-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 1rem;
+}
+.reports-quick,
+.reports-ratings,
+.reports-notes-opts,
+.reports-organize,
+.reports-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.85rem;
+  align-items: center;
+}
+.reports-actions {
+  justify-content: flex-start;
+  margin: 0.35rem 0 1rem;
+}
+.reports-actions-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 6;
+  background: #fff;
+  border: 1px solid #d9cdb8;
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+  margin: 0.5rem 0 1rem;
+  box-shadow: 0 -4px 12px rgba(80, 65, 55, 0.08);
+}
+.reports-actions-bar .btn {
+  min-height: 2.4rem;
+  padding: 0.45rem 1.1rem;
+  font-weight: 700;
+}
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.reports-scope-note {
+  margin: 0.35rem 0 0.7rem;
+}
+.reports-summary {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+.reports-summary__card {
+  border: 1px solid #d9cdb8;
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  background: #fbf6f0;
+  text-align: center;
+}
+.reports-summary__label {
+  font-weight: 700;
+  margin-bottom: 0.2rem;
+}
+.reports-summary__value {
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+.reports-summary__pct {
+  color: #6b5c4c;
+  font-size: 0.85rem;
+}
+.reports-match-count {
+  font-weight: 700;
+  margin: 0.4rem 0;
+}
+.reports-preview-table td,
+.reports-preview-table th {
+  vertical-align: top;
+}
+.reports-rating--weak,
+.reports-summary__card.reports-rating--weak {
+  background: #fff4e5;
+}
+.reports-rating--fail,
+.reports-summary__card.reports-rating--fail {
+  background: #fdecea;
+}
+@media (max-width: 1100px) {
+  .reports-summary,
+  .reports-filters {
+    grid-template-columns: 1fr;
+  }
+}

@@ -22,4 +22,10 @@ class LibraryPdfCache {
   static Future<List<int>?> getNamed(String name) => backend.getNamedPdf(name);
 
   static Future<bool> hasNamed(String name) => backend.hasNamedPdf(name);
+
+  static Future<String?> nativePdfPath(int nodeId) =>
+      backend.libraryPdfPath(nodeId);
+
+  static Future<String?> nativeNamedPdfPath(String name) =>
+      backend.namedPdfPath(name);
 }

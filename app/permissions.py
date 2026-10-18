@@ -123,6 +123,17 @@ def can_approve_evaluation_results(user: User) -> bool:
     return is_system_admin(user) or is_judge(user) or is_chief_judge(user)
 
 
+# مؤقت: إيقاف شرط التوقيع الإلكتروني عند الاعتماد. أعد القيمة إلى False لإرجاع الشرط.
+EVAL_APPROVAL_SIGNATURE_TEMPORARILY_DISABLED = True
+
+
+def eval_approval_skips_signature(user: User) -> bool:
+    """تجاوز التوقيع عند الاعتماد — مؤقت لكل المعتمدين، ودائماً لكبير المحكمين."""
+    if EVAL_APPROVAL_SIGNATURE_TEMPORARILY_DISABLED:
+        return True
+    return is_chief_judge(user)
+
+
 def can_chief_approve_evaluation_results(user: User) -> bool:
     """اعتماد كبير المحكمين (المرحلة الثانية)."""
     return is_system_admin(user) or is_chief_judge(user)

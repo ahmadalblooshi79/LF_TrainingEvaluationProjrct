@@ -65,6 +65,10 @@ def create_app() -> Flask:
         template_folder=os.path.join(os.path.dirname(__file__), "templates"),
     )
     app.config["SECRET_KEY"] = SECRET_KEY
+    from datetime import timedelta
+
+    # جلسات التابلت قد تبقى Offline أسابيع داخل التمرين
+    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=180)
     # رفع مجلدات بنك المعلومات قد يشمل مئات الملفات — بلا حد طلب عملي
     app.config["MAX_CONTENT_LENGTH"] = None
     app.config["TEMPLATES_AUTO_RELOAD"] = os.getenv("FLASK_DEBUG", "0").strip().lower() in (
@@ -143,6 +147,7 @@ def create_app() -> Flask:
                 "/api/tablet/health",
                 "/api/tablet/auth/login",
                 "/api/tablet/auth/logout",
+                "/api/tablet/auth/reconnect",
                 "/api/tablet/device/setup-login",
                 "/api/tablet/device/package",
                 "/api/tablet/signature",

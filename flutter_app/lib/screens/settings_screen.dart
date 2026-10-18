@@ -239,17 +239,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
               label: const Text('استعادة البيانات المحلية'),
             ),
             const SizedBox(height: 28),
-            Text('نسخة احتياطية للتمرين الحالي', style: AppTextStyles.subtitle),
+            Text('النسخ الاحتياطي والاستعادة', style: AppTextStyles.subtitle),
             const SizedBox(height: 8),
             Text(
-              'قوائم تقييم الإجراءات والمعاضل لهذا التمرين فقط.',
+              'نسخة احتياطية للتمرين الحالي للمستخدم الحالي فقط.',
               style: AppTextStyles.small,
             ),
             const SizedBox(height: 10),
             OutlinedButton.icon(
-              onPressed: () => context.push('/eval-backup'),
+              onPressed: () => context.push('/scoped-backup'),
               icon: const Icon(Icons.backup_outlined),
-              label: const Text('نسخة احتياطية للتمرين الحالي'),
+              label: const Text('النسخ الاحتياطي والاستعادة'),
             ),
             const SizedBox(height: 28),
             if (auth.session != null) ...[

@@ -105,3 +105,13 @@ Future<bool> hasNamedPdf(String name) async {
   if (f == null) return false;
   return f.exists();
 }
+
+Future<String?> libraryPdfPath(int nodeId) async {
+  if (nodeId <= 0) return null;
+  return (await _file(nodeId)).path;
+}
+
+Future<String?> namedPdfPath(String name) async {
+  final f = await _namedFile(name);
+  return f?.path;
+}

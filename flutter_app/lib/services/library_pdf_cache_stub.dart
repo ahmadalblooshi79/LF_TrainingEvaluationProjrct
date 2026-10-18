@@ -13,3 +13,7 @@ Future<void> putNamedPdf(String name, List<int> bytes) async {}
 Future<List<int>?> getNamedPdf(String name) async => null;
 
 Future<bool> hasNamedPdf(String name) async => false;
+
+Future<String?> libraryPdfPath(int nodeId) async => null;
+
+Future<String?> namedPdfPath(String name) async => null;

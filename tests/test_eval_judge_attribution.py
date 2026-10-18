@@ -21,7 +21,8 @@ from app.models import (
     User,
 )
 from app.models.user import RoleKey
-from app.views import _eval_sheet_judge_display_name
+from app.permissions import eval_approval_skips_signature
+from app.views import _eval_sheet_judge_display_name, _web_signed_judge_approve
 
 
 class EvalJudgeAttributionTests(unittest.TestCase):
@@ -161,6 +162,50 @@ class EvalJudgeAttributionTests(unittest.TestCase):
         self.db.refresh(saved)
         self.assertEqual(int(saved.saved_by_id), int(self.judge.id))
         self.assertEqual(int(saved.approved_by_id), int(self.judge.id))
+
+    def test_chief_judge_approves_without_electronic_signature(self):
+        chief = User(
+            username="chief1",
+            password_hash="x",
+            full_name="كبير المحكمين",
+            role_key=RoleKey.CHIEF_JUDGE.value,
+        )
+        self.db.add(chief)
+        self.db.flush()
+        self.assertTrue(eval_approval_skips_signature(chief))
+        self.assertTrue(eval_approval_skips_signature(self.judge))
+        saved = EvaluationListSavedResult(
+            evaluation_item_id=int(self.item.id),
+            exercise_id=int(self.ex.id),
+            exercise_phase="preparation",
+            unit_level_key=self.uk,
+            payload_json='{"rows":[]}',
+            saved_by_id=int(self.judge.id),
+            is_approved=False,
+        )
+        self.db.add(saved)
+        self.db.flush()
+        _web_signed_judge_approve(self.db, chief, saved)
+        self.assertTrue(saved.is_approved)
+        self.assertEqual(int(saved.approved_by_id), int(chief.id))
+        self.assertIsNone(getattr(saved, "signature_png", None))
+
+    def test_judge_approves_without_electronic_signature(self):
+        saved = EvaluationListSavedResult(
+            evaluation_item_id=int(self.item.id),
+            exercise_id=int(self.ex.id),
+            exercise_phase="preparation",
+            unit_level_key=self.uk,
+            payload_json='{"rows":[]}',
+            saved_by_id=int(self.judge.id),
+            is_approved=False,
+        )
+        self.db.add(saved)
+        self.db.flush()
+        _web_signed_judge_approve(self.db, self.judge, saved)
+        self.assertTrue(saved.is_approved)
+        self.assertEqual(int(saved.approved_by_id), int(self.judge.id))
+        self.assertIsNone(getattr(saved, "signature_png", None))
 
 
 if __name__ == "__main__":

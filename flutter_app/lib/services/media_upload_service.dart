@@ -290,42 +290,70 @@ class MediaUploadService extends ChangeNotifier {
       // للمقاطع الكبيرة نفضّل streaming في الطلب؛ نحسب checksum من البايتات
       final chunkCs = sha256.convert(chunkBytes).toString();
 
-      try {
-        final resp = await ApiClient.instance.uploadMediaChunk(
-          uploadSessionId: sessionId,
-          clientUuid: rec.id,
-          chunkNumber: nextChunk,
-          totalChunks: totalChunks,
-          chunkChecksum: chunkCs,
-          chunkBytes: chunkBytes,
-        );
-        nextChunk = (resp['next_chunk'] as num?)?.toInt() ?? (nextChunk + 1);
-        final uploaded = nextChunk * chunkSize > size ? size : nextChunk * chunkSize;
-        await OfflineStore.instance.patchMedia(
-          rec.id,
-          uploadedBytes: uploaded,
-          uploadSessionId: sessionId,
-          syncStatus: MediaSyncStatuses.uploading,
-          attemptCount: (rec.attemptCount) + 0,
-        );
-        _setProgress(MediaUploadProgress(
-          mediaId: rec.id,
-          label: '$label ${p.basename(path)}',
-          uploadedBytes: uploaded,
-          totalBytes: size,
-          status: MediaSyncStatuses.uploading,
-        ));
-        await refreshOverallFromDb();
-      } on ApiOfflineException {
-        await OfflineStore.instance.patchMedia(
-          rec.id,
-          syncStatus: MediaSyncStatuses.pausedNetwork,
-          uploadSessionId: sessionId,
-          lastError: 'انقطع الاتصال — يمكن الاستئناف لاحقاً',
-          uploadedBytes:
-              nextChunk * chunkSize > size ? size : nextChunk * chunkSize,
-        );
-        rethrow;
+      var chunkAttempts = 0;
+      while (true) {
+        try {
+          final resp = await ApiClient.instance.uploadMediaChunk(
+            uploadSessionId: sessionId,
+            clientUuid: rec.id,
+            chunkNumber: nextChunk,
+            totalChunks: totalChunks,
+            chunkChecksum: chunkCs,
+            chunkBytes: chunkBytes,
+          );
+          nextChunk = (resp['next_chunk'] as num?)?.toInt() ?? (nextChunk + 1);
+          final uploaded =
+              nextChunk * chunkSize > size ? size : nextChunk * chunkSize;
+          await OfflineStore.instance.patchMedia(
+            rec.id,
+            uploadedBytes: uploaded,
+            uploadSessionId: sessionId,
+            syncStatus: MediaSyncStatuses.uploading,
+            attemptCount: (rec.attemptCount) + 0,
+          );
+          _setProgress(MediaUploadProgress(
+            mediaId: rec.id,
+            label: '$label ${p.basename(path)}',
+            uploadedBytes: uploaded,
+            totalBytes: size,
+            status: MediaSyncStatuses.uploading,
+          ));
+          await refreshOverallFromDb();
+          break;
+        } on ApiOfflineException {
+          await OfflineStore.instance.patchMedia(
+            rec.id,
+            syncStatus: MediaSyncStatuses.pausedNetwork,
+            uploadSessionId: sessionId,
+            lastError: 'انقطع الاتصال — يمكن الاستئناف لاحقاً',
+            uploadedBytes:
+                nextChunk * chunkSize > size ? size : nextChunk * chunkSize,
+          );
+          rethrow;
+        } on ApiException catch (e) {
+          if (e.status == 401 || e.status == 403) {
+            await OfflineStore.instance.patchMedia(
+              rec.id,
+              syncStatus: MediaSyncStatuses.pausedNetwork,
+              uploadSessionId: sessionId,
+              lastError: 'جلسة السيرفر غير صالحة — الملف لم يُحذف',
+              uploadedBytes:
+                  nextChunk * chunkSize > size ? size : nextChunk * chunkSize,
+            );
+            rethrow;
+          }
+          chunkAttempts += 1;
+          await OfflineStore.instance.patchMedia(
+            rec.id,
+            syncStatus: MediaSyncStatuses.failed,
+            uploadSessionId: sessionId,
+            lastError: e.toString(),
+            uploadedBytes:
+                nextChunk * chunkSize > size ? size : nextChunk * chunkSize,
+          );
+          if (chunkAttempts >= 3) rethrow;
+          await Future<void>.delayed(Duration(seconds: chunkAttempts * 2));
+        }
       }
     }
 

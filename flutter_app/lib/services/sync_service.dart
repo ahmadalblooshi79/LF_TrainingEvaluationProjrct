@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import 'api_client.dart';
 import 'auth_service.dart';
@@ -21,10 +22,34 @@ enum SyncUiState {
   syncing,
   synced,
   failed,
+  connecting,
+}
+
+SyncUiState resolveSyncUiState({
+  required bool syncing,
+  required bool healthReachable,
+  required bool authenticated,
+  required bool connecting,
+  required int pending,
+  required bool hasLastError,
+  required bool hasLastSuccess,
+}) {
+  if (syncing) return SyncUiState.syncing;
+  if (!healthReachable) {
+    return pending > 0 ? SyncUiState.pending : SyncUiState.offline;
+  }
+  if (!authenticated) {
+    if (connecting) return SyncUiState.connecting;
+    return pending > 0 ? SyncUiState.pending : SyncUiState.offline;
+  }
+  if (pending > 0) {
+    return hasLastError ? SyncUiState.failed : SyncUiState.pending;
+  }
+  return hasLastSuccess ? SyncUiState.synced : SyncUiState.online;
 }
 
 /// محرك المزامنة: طابور دائم + إرسال مرتب + Idempotency عبر client_op_id.
-class SyncService {
+class SyncService with WidgetsBindingObserver {
   SyncService._internal();
   static final SyncService instance = SyncService._internal();
 
@@ -42,12 +67,17 @@ class SyncService {
   bool _wasReachable = false;
   bool _wasLocalNetwork = false;
   bool _autoFullSyncRunning = false;
+  bool _reconnectSyncInFlight = false;
+  int _restoreHold = 0;
   DateTime? _lastAutoFullSyncAt;
+  DateTime? _lastReconnectSyncAt;
   static const _autoFullSyncCooldown = Duration(minutes: 3);
+  static const _reconnectSyncDebounce = Duration(seconds: 4);
 
   Future<void> start() async {
     if (_started) return;
     _started = true;
+    WidgetsBinding.instance.addObserver(this);
     await SyncPreferences.instance.init();
     await HealthService.instance.start();
     await refreshPendingCount();
@@ -56,6 +86,9 @@ class SyncService {
     _wasLocalNetwork = ConnectivityService.instance.isLocalNetwork.value;
     _updateUiState();
     HealthService.instance.serverReachable.addListener(_onConnectivityChanged);
+    HealthService.instance.connecting.addListener(_updateUiState);
+    AuthService.instance.serverSessionUsable.addListener(_updateUiState);
+    AuthService.instance.recoveringServerSession.addListener(_updateUiState);
     ConnectivityService.instance.isLocalNetwork
         .addListener(_onConnectivityChanged);
     _retryTimer = Timer.periodic(const Duration(seconds: 20), (_) {
@@ -76,8 +109,28 @@ class SyncService {
     unawaited(_maybeAutoFullSync(force: false));
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_onAppResumed());
+    }
+  }
+
+  Future<void> _onAppResumed() async {
+    await HealthService.instance.check(force: true);
+    if (HealthService.instance.serverReachable.value &&
+        AuthService.instance.isLoggedIn &&
+        !AuthService.instance.serverSessionUsable.value) {
+      await _onServerBecameReachable();
+    }
+  }
+
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     HealthService.instance.serverReachable.removeListener(_onConnectivityChanged);
+    HealthService.instance.connecting.removeListener(_updateUiState);
+    AuthService.instance.serverSessionUsable.removeListener(_updateUiState);
+    AuthService.instance.recoveringServerSession.removeListener(_updateUiState);
     ConnectivityService.instance.isLocalNetwork
         .removeListener(_onConnectivityChanged);
     _retryTimer?.cancel();
@@ -85,10 +138,26 @@ class SyncService {
 
   bool _shouldAutoUpload() => SyncPreferences.instance.isAutomatic;
 
+  bool get isRestoreHeld => _restoreHold > 0;
+
+  /// Phase C: block flush / reconnect auto-sync while a restore is mutating scoped data.
+  void beginRestoreHold() => _restoreHold++;
+
+  void endRestoreHold() {
+    if (_restoreHold > 0) _restoreHold--;
+  }
+
   void _onConnectivityChanged() {
     final online = HealthService.instance.serverReachable.value;
     final local = ConnectivityService.instance.isLocalNetwork.value;
+    final risingReachable = online && !_wasReachable;
     _updateUiState();
+
+    if (!online) {
+      AuthService.instance.markServerSessionUnusable();
+    } else if (risingReachable && AuthService.instance.isLoggedIn) {
+      unawaited(_onServerBecameReachable());
+    }
 
     if (_shouldAutoUpload()) {
       if (online && !_wasReachable && pendingCount.value > 0 && !syncing.value) {
@@ -107,13 +176,38 @@ class SyncService {
     _wasLocalNetwork = local;
   }
 
+  /// Requirement 15: one reconnect sync even when global mode is manual.
+  Future<void> _onServerBecameReachable() async {
+    if (isRestoreHeld) return;
+    if (_reconnectSyncInFlight || _autoFullSyncRunning || syncing.value) return;
+    if (_lastReconnectSyncAt != null &&
+        DateTime.now().difference(_lastReconnectSyncAt!) <
+            _reconnectSyncDebounce) {
+      return;
+    }
+    _reconnectSyncInFlight = true;
+    _updateUiState();
+    try {
+      final recovered = await AuthService.instance.recoverServerSession();
+      if (!recovered) return;
+      if (!AuthService.instance.isLoggedIn) return;
+      if (syncing.value || _autoFullSyncRunning) return;
+      _lastReconnectSyncAt = DateTime.now();
+      await runFullSync(silent: true);
+    } finally {
+      _reconnectSyncInFlight = false;
+      _updateUiState();
+    }
+  }
+
   Future<void> _maybeAutoFullSync({required bool force}) async {
+    if (isRestoreHeld) return;
     if (!_shouldAutoUpload()) return;
     if (!AuthService.instance.isLoggedIn) return;
     if (!ConnectivityService.instance.isLocalNetwork.value) return;
     if (!HealthService.instance.serverReachable.value) return;
     if (!ApiClient.instance.isConfigured) return;
-    if (_autoFullSyncRunning || syncing.value) return;
+    if (_autoFullSyncRunning || syncing.value || _reconnectSyncInFlight) return;
     if (!force && _lastAutoFullSyncAt != null) {
       final elapsed = DateTime.now().difference(_lastAutoFullSyncAt!);
       if (elapsed < _autoFullSyncCooldown) return;
@@ -135,6 +229,9 @@ class SyncService {
 
   /// مزامنة كاملة: رفع المعلّق ثم تنزيل «تحديث بياناتي».
   Future<({bool ok, String? message})> runFullSync({bool silent = false}) async {
+    if (isRestoreHeld) {
+      return (ok: false, message: 'restore_in_progress');
+    }
     final expectedId = AuthService.instance.currentUserId;
     identityLog('SYNC START user_id=$expectedId source=runFullSync');
     final reachable = await HealthService.instance.ensureReachableForSync();
@@ -209,24 +306,17 @@ class SyncService {
   }
 
   void _updateUiState() {
-    final online = HealthService.instance.serverReachable.value;
-    final pending = pendingCount.value;
-    if (syncing.value) {
-      uiState.value = SyncUiState.syncing;
-      return;
-    }
-    if (!online) {
-      uiState.value = pending > 0 ? SyncUiState.pending : SyncUiState.offline;
-      return;
-    }
-    if (pending > 0) {
-      uiState.value =
-          lastError.value != null ? SyncUiState.failed : SyncUiState.pending;
-      return;
-    }
-    uiState.value = lastSuccessAt.value != null
-        ? SyncUiState.synced
-        : SyncUiState.online;
+    uiState.value = resolveSyncUiState(
+      syncing: syncing.value,
+      healthReachable: HealthService.instance.serverReachable.value,
+      authenticated: AuthService.instance.serverSessionUsable.value,
+      connecting: HealthService.instance.connecting.value ||
+          AuthService.instance.recoveringServerSession.value ||
+          _reconnectSyncInFlight,
+      pending: pendingCount.value,
+      hasLastError: lastError.value != null,
+      hasLastSuccess: lastSuccessAt.value != null,
+    );
   }
 
   Map<String, dynamic> _sessionMeta() {
@@ -280,6 +370,7 @@ class SyncService {
   }
 
   Future<void> flush({bool mediaOnly = false}) async {
+    if (isRestoreHeld) return;
     if (syncing.value) return;
     final reachable = await HealthService.instance.ensureReachableForSync();
     if (!reachable) {
@@ -341,11 +432,53 @@ class SyncService {
           );
           break;
         } catch (e) {
-          await OfflineStore.instance.markOpFailed(op.id, e.toString());
-          lastError.value = e.toString();
           if (e is ApiException && (e.status == 401 || e.status == 403)) {
+            await OfflineStore.instance.updateOp(
+              op.copyWith(syncStatus: SyncStatuses.pending),
+            );
+            AuthService.instance.markServerSessionUnusable();
+            final recovered =
+                await AuthService.instance.recoverServerSession(force: true);
+            if (recovered) {
+              try {
+                if (op.opType == 'media_upload') {
+                  await _sendMedia(op);
+                } else if (op.method == 'PUT') {
+                  await ApiClient.instance.put(
+                    op.path,
+                    body: op.body,
+                    idempotencyKey: op.id,
+                  );
+                } else if (op.method == 'DELETE') {
+                  await ApiClient.instance.delete(
+                    op.path,
+                    idempotencyKey: op.id,
+                  );
+                } else {
+                  await ApiClient.instance.post(
+                    op.path,
+                    body: op.body,
+                    idempotencyKey: op.id,
+                  );
+                }
+                await OfflineStore.instance.removeOp(op.id);
+                successCount++;
+                lastSuccessAt.value = DateTime.now();
+                lastError.value = null;
+                continue;
+              } catch (_) {
+                await OfflineStore.instance.updateOp(
+                  op.copyWith(syncStatus: SyncStatuses.pending),
+                );
+                lastError.value = e.toString();
+                break;
+              }
+            }
+            lastError.value = e.toString();
             break;
           }
+          await OfflineStore.instance.markOpFailed(op.id, e.toString());
+          lastError.value = e.toString();
         }
       }
       await refreshPendingCount();

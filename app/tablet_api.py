@@ -10,14 +10,17 @@ from functools import wraps
 from flask import Blueprint, g, jsonify, request, session
 
 from app.auth import get_current_user_optional, verify_password
+from app.tablet_reconnect import issue_reconnect_ticket, verify_reconnect_ticket
 from app.models import Exercise, ExerciseObjective, User
 from app.models.user import RoleKey
 from app.permissions import (
     can_access_chief_judge_hub,
     can_access_control_hub,
     can_access_judge_hub,
+    can_chief_reopen_evaluation_for_judge,
     can_plan_exercises,
     can_view_notifications_log,
+    eval_approval_skips_signature,
     is_judge,
     is_system_admin,
 )
@@ -109,6 +112,25 @@ def _signed_judge_approve(user: User, saved, data: dict):
         attach_signature_snapshot,
         resolve_approval_png,
     )
+
+    if eval_approval_skips_signature(user):
+        png = None
+        version = None
+        try:
+            png, version = resolve_approval_png(
+                g.db,
+                user,
+                request_png_b64=data.get("signature_png_b64") or data.get("png_b64"),
+                request_user_id=data.get("signature_user_id") or data.get("user_id"),
+            )
+        except JudgeSignatureError:
+            png, version = None, None
+        apply_judge_approve(saved, getattr(user, "id", None))
+        if png and version is not None:
+            attach_signature_snapshot(
+                saved, user_id=int(user.id), png_bytes=png, version=version
+            )
+        return
 
     png, version = resolve_approval_png(
         g.db,
@@ -585,6 +607,14 @@ def tablet_health():
     )
 
 
+def _request_device_id() -> str:
+    return (request.headers.get("X-LF-Device-Id") or "").strip()
+
+
+def _ticket_for_user(user: User) -> str:
+    return issue_reconnect_ticket(int(user.id), _request_device_id())
+
+
 @bp.post("/auth/login")
 def tablet_login():
     data = request.get_json(silent=True) or {}
@@ -606,13 +636,58 @@ def tablet_login():
     session.permanent = True
     _touch_connected_device(user, is_login=True)
     ex = _exercise_for(user)
-    return jsonify({"ok": True, **_serialize_user_bundle(user, ex)})
+    return jsonify(
+        {
+            "ok": True,
+            "reconnect_ticket": _ticket_for_user(user),
+            **_serialize_user_bundle(user, ex),
+        }
+    )
 
 
 @bp.post("/auth/logout")
 def tablet_logout():
     session.clear()
     return jsonify({"ok": True})
+
+
+@bp.post("/auth/reconnect")
+def tablet_auth_reconnect():
+    """Restore a Flask judge session from a server-issued HMAC ticket.
+
+    Does not accept local password hashes or Device Manager credentials.
+    """
+    data = request.get_json(silent=True) or {}
+    ticket = (data.get("reconnect_ticket") or data.get("ticket") or "").strip()
+    username = (data.get("username") or "").strip()
+    try:
+        claimed_id = int(data.get("user_id") or 0)
+    except (TypeError, ValueError):
+        claimed_id = 0
+    if not ticket or claimed_id <= 0:
+        return _json_error("تعذر استعادة الجلسة", 401)
+    user = g.db.get(User, claimed_id)
+    if user is None or not bool(user.is_active):
+        return _json_error("الحساب غير متاح", 403)
+    if username and (user.username or "").strip().lower() != username.lower():
+        return _json_error("تعذر استعادة الجلسة", 401)
+    if not verify_reconnect_ticket(ticket, int(user.id), _request_device_id()):
+        return _json_error("تعذر استعادة الجلسة", 401)
+    if not can_access_judge_hub(user):
+        return _json_error("هذا الحساب لا يملك صلاحية تطبيق المحكمين", 403)
+    session.clear()
+    session["user_id"] = int(user.id)
+    session.permanent = True
+    _touch_connected_device(user, is_login=True)
+    ex = _exercise_for(user)
+    return jsonify(
+        {
+            "ok": True,
+            "reconnected": True,
+            "reconnect_ticket": _ticket_for_user(user),
+            **_serialize_user_bundle(user, ex),
+        }
+    )
 
 
 @bp.get("/me")
@@ -909,6 +984,7 @@ def tablet_action_eval_lists(user: User):
     return jsonify(
         {
             "ok": True,
+            "exercise_id": int(ex.id),
             "day_id": day_id,
             "day_tabs": day_tabs,
             "phase_key": phase,
@@ -972,6 +1048,8 @@ def tablet_action_eval_detail(user: User, slot: int):
         {
             "ok": True,
             "kind": "action_eval",
+            "exercise_id": int(ex.id),
+            "id": int(action_row.id),
             "slot": int(action_row.slot_index or slot),
             "slot_id": int(action_row.id),
             "title": title,
@@ -988,6 +1066,7 @@ def tablet_action_eval_detail(user: User, slot: int):
             "eval_dilemma_requirements": nar_req,
             "can_edit": bool(wf.get("eval_can_edit")),
             "can_approve": bool(wf.get("show_eval_approve")),
+            "skip_signature": bool(wf.get("eval_skip_signature")),
             "is_approved": bool(wf.get("saved_is_approved")),
             "approval_signature": _approval_signature_payload(canon),
             "workflow": {
@@ -1332,6 +1411,7 @@ def tablet_evaluation_list_detail(user: User, unit_key: str, item_id: int):
             "eval_dilemma_requirements": nar_req,
             "can_edit": bool(wf.get("eval_can_edit")),
             "can_approve": bool(wf.get("show_eval_approve")),
+            "skip_signature": bool(wf.get("eval_skip_signature")),
             "is_approved": bool(wf.get("saved_is_approved")),
             "approval_signature": _approval_signature_payload(saved),
             "workflow": {
@@ -2222,6 +2302,10 @@ def tablet_device_package():
     for ju in _iter_device_provision_judges():
         me = _serialize_user_bundle(ju, ex)
         mil, seed = _judge_local_password_seed(ju, ex)
+        me = dict(me)
+        me["reconnect_ticket"] = issue_reconnect_ticket(
+            int(ju.id), _request_device_id()
+        )
         home_payload = _tablet_home_payload(ju)
         incomplete_rows = list(home_payload.get("incomplete_tasks") or [])
         uk = me.get("unit_key") or ""
@@ -2494,6 +2578,10 @@ def tablet_device_manifest():
     for ju in _iter_device_provision_judges():
         me = _serialize_user_bundle(ju, ex)
         mil, seed = _judge_local_password_seed(ju, ex)
+        session_out = dict(me)
+        session_out["reconnect_ticket"] = issue_reconnect_ticket(
+            int(ju.id), _request_device_id()
+        )
         judges_out.append(
             {
                 "user_id": int(ju.id),
@@ -2502,7 +2590,7 @@ def tablet_device_manifest():
                 "local_password_seed": seed,
                 "role_key": (ju.role_key or "").strip(),
                 "unit_key": me.get("unit_key") or "",
-                "session": me,
+                "session": session_out,
             }
         )
     return jsonify(
@@ -2634,3 +2722,253 @@ def tablet_device_flow_day_file(day_id: str):
             actor = ju
     assert actor is not None
     return tablet_flow_day_pdf.__wrapped__(actor, day_id)
+
+
+def _device_current_exercise(setup_user: User, judge: User | None = None):
+    ex = _exercise_for(setup_user)
+    if ex is None and judge is not None:
+        ex = _exercise_for(judge)
+    return ex
+
+
+@bp.get("/device/judge/<int:judge_id>/evaluation-lists/<unit_key>/<int:item_id>/export.xlsx")
+def tablet_device_judge_evaluation_list_export_xlsx(
+    judge_id: int, unit_key: str, item_id: int
+):
+    """يبث ملف Excel الأصلي للقائمة عبر مسار التصدير الحالي — بدون توليد مصنّف جديد."""
+    setup_user, err = _require_device_setup_user()
+    if err is not None:
+        return err
+    ju, jerr = _provision_judge_user(judge_id)
+    if jerr is not None:
+        return jerr
+    from app.views import _send_evaluation_list_export_xlsx
+
+    ex = _device_current_exercise(setup_user, ju)
+    if ex is None:
+        return _json_error("لا يوجد تمرين حالي", 404)
+    return _send_evaluation_list_export_xlsx(
+        db=g.db,
+        user=setup_user,
+        unit_key=unit_key,
+        item_id=int(item_id),
+        current_exercise=ex,
+        enforce_judge_scope=False,
+        as_pdf=False,
+    )
+
+
+@bp.get("/device/judge/<int:judge_id>/action-eval/<int:slot>/export.xlsx")
+def tablet_device_judge_action_eval_export_xlsx(judge_id: int, slot: int):
+    """يبث ملف Excel الأصلي لقائمة المعاضل عبر مسار التصدير الحالي."""
+    setup_user, err = _require_device_setup_user()
+    if err is not None:
+        return err
+    ju, jerr = _provision_judge_user(judge_id)
+    if jerr is not None:
+        return jerr
+    from app.views import (
+        _evaluation_sheet_view_context,
+        _planner_blob_display_filename,
+        _planner_bundle_eval_canonical_saved,
+        _planner_bundle_file_abspath,
+        _saved_payload_aligned_with_eval_rows,
+        _send_eval_xlsx_file,
+    )
+
+    ex = _device_current_exercise(setup_user, ju)
+    if ex is None:
+        return _json_error("لا يوجد تمرين حالي", 404)
+    pair = _resolve_planner_action_eval_pair(ju, ex, int(slot))
+    if pair is None:
+        return _json_error("القائمة غير موجودة", 404)
+    bundle, action_row = pair
+    path = _planner_bundle_file_abspath(action_row.file_relpath)
+    if path is None:
+        return _json_error("ملف القائمة غير موجود على السيرفر", 404)
+    ev = _evaluation_sheet_view_context(path, exercise=ex)
+    canon = _planner_bundle_eval_canonical_saved(g.db, ex.id, action_row.id)
+    saved_payload: dict = {}
+    if canon is not None and (canon.payload_json or "").strip():
+        try:
+            parsed = json.loads(canon.payload_json)
+            if isinstance(parsed, dict):
+                saved_payload = parsed
+        except Exception:
+            saved_payload = {}
+    saved_payload = _saved_payload_aligned_with_eval_rows(
+        saved_payload, ev.get("eval_rows")
+    )
+    item_title = _planner_blob_display_filename(
+        stored_title=action_row.title or "",
+        relpath=action_row.file_relpath or "",
+        fallback=f"قائمة تقييم إجراءات — {slot}",
+    ).strip()
+    return _send_eval_xlsx_file(
+        db=g.db,
+        source_path=path,
+        item_title=item_title,
+        unit_key=bundle.unit_level_key or "",
+        current_exercise=ex,
+        saved_payload=saved_payload,
+        ev=ev,
+        saved_row=canon,
+    )
+
+
+@bp.post("/device/eval/chief-reopen")
+def tablet_device_eval_chief_reopen():
+    """إعادة فتح قائمة معتمدة عبر صلاحية كبير المحكمين الحالية. السيرفر مصدر السلطة."""
+    setup_user, err = _require_device_setup_user()
+    if err is not None:
+        return err
+    if not can_chief_reopen_evaluation_for_judge(setup_user):
+        return _json_error("لا صلاحية لإعادة فتح القائمة", 403)
+
+    from app.evaluation_workflow import apply_chief_reopen, eval_chief_can_reopen
+    from app.models.domain import EvaluationListPdfItem
+    from app.views import (
+        _eval_list_viewer_ctx,
+        _evaluation_canonical_saved_row,
+        _planner_blob_display_filename,
+        _planner_bundle_eval_canonical_saved,
+        _planner_flow_eval_list_viewer_ctx,
+    )
+
+    body = request.get_json(silent=True) or {}
+    kind = str(body.get("kind") or "").strip().lower()
+    judge_id = body.get("judge_id")
+    try:
+        judge_id = int(judge_id)
+    except (TypeError, ValueError):
+        return _json_error("معرّف المحكم غير صالح", 400)
+    ju, jerr = _provision_judge_user(judge_id)
+    if jerr is not None:
+        return jerr
+    ex = _device_current_exercise(setup_user, ju)
+    if ex is None:
+        return _json_error("لا يوجد تمرين حالي", 404)
+    req_ex = body.get("exercise_id")
+    if req_ex not in (None, "", 0, "0"):
+        try:
+            if int(req_ex) != int(ex.id):
+                return _json_error("التمرين المطلوب ليس التمرين الحالي", 409)
+        except (TypeError, ValueError):
+            return _json_error("معرّف التمرين غير صالح", 400)
+
+    if kind in ("procedure", "evaluation_list", "eval"):
+        unit_key = str(body.get("unit_key") or "").strip()
+        try:
+            item_id = int(body.get("item_id"))
+        except (TypeError, ValueError):
+            return _json_error("معرّف القائمة غير صالح", 400)
+        item = g.db.get(EvaluationListPdfItem, item_id)
+        if (
+            item is None
+            or int(item.exercise_id) != int(ex.id)
+            or (
+                unit_key
+                and unit_key not in ("", "_")
+                and (item.unit_level_key or "").strip()
+                and unit_key != (item.unit_level_key or "").strip()
+            )
+        ):
+            return _json_error("القائمة غير موجودة في التمرين الحالي", 404)
+        saved = _evaluation_canonical_saved_row(g.db, ex.id, item.id)
+        if saved is None or not eval_chief_can_reopen(saved):
+            return _json_error("لا يمكن إعادة فتح هذه القائمة", 400)
+        apply_chief_reopen(saved)
+        from app.notifications_service import notify_evaluation_reopened_by_chief_judge
+
+        unit_label = label_for_unit_level_key(
+            item.unit_level_key or unit_key, db=g.db
+        )
+        notify_evaluation_reopened_by_chief_judge(
+            g.db,
+            exercise_id=int(ex.id),
+            unit_key=item.unit_level_key or unit_key,
+            unit_label=unit_label or unit_key,
+            item_title=(item.text or "قائمة التقييم").strip(),
+            item_id=int(item.id),
+            saved_by_user_id=getattr(saved, "saved_by_id", None),
+            exclude_user_id=getattr(setup_user, "id", None),
+        )
+        g.db.commit()
+        wf = _eval_list_viewer_ctx(ju, saved)
+        return jsonify(
+            {
+                "ok": True,
+                "kind": "procedure",
+                "judge_id": int(ju.id),
+                "exercise_id": int(ex.id),
+                "item_id": int(item.id),
+                "unit_key": item.unit_level_key or unit_key,
+                "can_edit": bool(wf.get("eval_can_edit")),
+                "can_approve": bool(wf.get("show_eval_approve")),
+                "is_approved": bool(wf.get("saved_is_approved")),
+                "workflow": {
+                    "label": (
+                        wf.get("eval_workflow_label") or wf.get("workflow_label") or ""
+                    ),
+                    "reopened": True,
+                },
+            }
+        )
+
+    if kind in ("dilemma", "action_eval", "action"):
+        try:
+            slot = int(body.get("slot") or body.get("item_id"))
+        except (TypeError, ValueError):
+            return _json_error("معرّف قائمة المعاضل غير صالح", 400)
+        pair = _resolve_planner_action_eval_pair(ju, ex, slot)
+        if pair is None:
+            return _json_error("القائمة غير موجودة في التمرين الحالي", 404)
+        bundle, action_row = pair
+        saved = _planner_bundle_eval_canonical_saved(g.db, ex.id, action_row.id)
+        if saved is None or not eval_chief_can_reopen(saved):
+            return _json_error("لا يمكن إعادة فتح هذه القائمة", 400)
+        apply_chief_reopen(saved)
+        from app.notifications_service import notify_evaluation_reopened_by_chief_judge
+
+        unit_key = bundle.unit_level_key or ""
+        unit_label = (bundle.unit_level_label or "").strip() or label_for_unit_level_key(
+            unit_key, db=g.db
+        )
+        item_title = _planner_blob_display_filename(
+            stored_title=action_row.title or "",
+            relpath=action_row.file_relpath or "",
+            fallback=f"قائمة {action_row.slot_index}",
+        )
+        notify_evaluation_reopened_by_chief_judge(
+            g.db,
+            exercise_id=int(ex.id),
+            unit_key=unit_key,
+            unit_label=unit_label or unit_key,
+            item_title=item_title,
+            item_id=int(action_row.id),
+            saved_by_user_id=getattr(saved, "saved_by_id", None),
+            exclude_user_id=getattr(setup_user, "id", None),
+        )
+        g.db.commit()
+        wf = _planner_flow_eval_list_viewer_ctx(ju, saved)
+        return jsonify(
+            {
+                "ok": True,
+                "kind": "dilemma",
+                "judge_id": int(ju.id),
+                "exercise_id": int(ex.id),
+                "slot": int(action_row.id),
+                "unit_key": unit_key,
+                "can_edit": bool(wf.get("eval_can_edit")),
+                "can_approve": bool(wf.get("show_eval_approve")),
+                "is_approved": bool(wf.get("saved_is_approved")),
+                "workflow": {
+                    "label": (
+                        wf.get("eval_workflow_label") or wf.get("workflow_label") or ""
+                    ),
+                    "reopened": True,
+                },
+            }
+        )
+
+    return _json_error("نوع القائمة غير صالح", 400)

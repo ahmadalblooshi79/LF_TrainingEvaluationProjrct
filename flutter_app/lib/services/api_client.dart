@@ -321,6 +321,36 @@ class ApiClient {
     }
   }
 
+  /// Stream a file to [destPath]. Leaves an existing valid file untouched on failure.
+  Future<bool> downloadToFile(
+    String path,
+    String destPath, {
+    Map<String, dynamic>? query,
+    Duration? timeout,
+  }) async {
+    await init();
+    final uri = _uri(path, query);
+    final headers = await _headersFor(uri, jsonBody: false);
+    headers['Accept'] = '*/*';
+    final effectiveTimeout = timeout ?? const Duration(seconds: 120);
+    try {
+      final ok = await io_env.downloadToFile(
+        uri: uri,
+        headers: headers,
+        destPath: destPath,
+        timeout: effectiveTimeout,
+        cookieJar: kIsWeb ? null : _activeJar,
+      );
+      if (ok) online.value = true;
+      return ok;
+    } on TimeoutException {
+      online.value = false;
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// مسار مطلق لملف على السيرفر (للعرض عبر iframe في الويب).
   String absoluteUrl(String path) {
     final base = _baseUrl.isEmpty ? Uri.base.origin : _baseUrl;

@@ -4,22 +4,7 @@
 {% block content %}
 <div class="page-header page-header--judge-eval-lists">
   <h1><i class="fa-solid fa-file-excel fa-icon-title" aria-hidden="true"></i> {{ page_title | default('قوائم تقييم الإجراءات') }}</h1>
-  {% if pending_export_href or results_export_href %}
-  <div class="page-header__tools">
-    {% if results_export_href %}
-    <a class="btn btn--eval-export" href="{{ results_export_href }}" title="تصدير النتائج والنسب والموقف إلى Excel">
-      <i class="fa-solid fa-file-excel" aria-hidden="true"></i>
-      تصدير النتائج إلى Excel
-    </a>
-    {% endif %}
-    {% if pending_export_href %}
-    <a class="btn btn--eval-export" href="{{ pending_export_href }}" title="تصدير Excel لكل قوائم تقييم الإجراءات بانتظار الاعتماد">
-      <i class="fa-solid fa-file-zipper" aria-hidden="true"></i>
-      تصدير قوائم بانتظار الاعتماد
-    </a>
-    {% endif %}
-  </div>
-  {% endif %}
+  {% include 'partials/eval_lists_page_tools.html' %}
   <div class="page-header__nav">
     {% include 'partials/control_hub_back.html' %}
   </div>

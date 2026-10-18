@@ -19,6 +19,8 @@ const String kWasLoggedInPrefKey = 'was_logged_in';
 const String kLastSyncAtPrefKey = 'last_sync_at';
 const String kCredentialSaltPrefKey = 'local_auth_salt_v2';
 
+String reconnectTicketPrefKey(int userId) => 'reconnect_ticket_u$userId';
+
 /// بصمة محلية لكلمة المرور (SHA-256 + ملح الجهاز) — بدون حفظ النص الصريح.
 Future<String> credentialDigest(String username, String password) async {
   final prefs = await SharedPreferences.getInstance();
@@ -46,6 +48,26 @@ String _legacyCredentialDigest(String username, String password) {
   return '${h1.toRadixString(16).padLeft(8, '0')}${h2.toRadixString(16).padLeft(8, '0')}';
 }
 
+/// Reconstruct Device-Sync seed in memory only when it matches the stored hash.
+/// Never persists the returned secret.
+Future<String?> matchingProvisionPassword({
+  required String storedHash,
+  required String username,
+  required String militaryNumber,
+}) async {
+  if (storedHash.isEmpty) return null;
+  final candidates = <String>[];
+  final mil = militaryNumber.trim();
+  if (mil.isNotEmpty) candidates.add(mil);
+  final u = username.trim();
+  if (u.isNotEmpty && !candidates.contains(u)) candidates.add(u);
+  for (final c in candidates) {
+    if (storedHash == await credentialDigest(username, c)) return c;
+    if (storedHash == _legacyCredentialDigest(username, c)) return c;
+  }
+  return null;
+}
+
 /// Holds the current judge session (or lack thereof) and exposes
 /// login/logout against `/api/tablet/auth/*` مع دعم Offline-First.
 class AuthService extends ChangeNotifier {
@@ -58,6 +80,11 @@ class AuthService extends ChangeNotifier {
   bool _lastLoginWasOffline = false;
   String? _savedUsernameHint;
   bool _offlineCredsAvailable = false;
+  final ValueNotifier<bool> serverSessionUsable = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> recoveringServerSession = ValueNotifier<bool>(false);
+  Completer<bool>? _recoverInFlight;
+  int _recoverFailCount = 0;
+  DateTime? _recoverBackoffUntil;
 
   SessionBundle? get session => _session;
   bool get isLoggedIn => _session != null;
@@ -66,10 +93,201 @@ class AuthService extends ChangeNotifier {
   bool get lastLoginWasOffline => _lastLoginWasOffline;
   String? get savedUsernameHint => _savedUsernameHint;
   bool get offlineCredsAvailable => _offlineCredsAvailable;
+  bool get isRecoveringServerSession => recoveringServerSession.value;
+
+  void markServerSessionUnusable() {
+    if (serverSessionUsable.value) {
+      serverSessionUsable.value = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> persistReconnectTicket(int userId, String? ticket) async {
+    if (userId <= 0) return;
+    final t = (ticket ?? '').trim();
+    if (t.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(reconnectTicketPrefKey(userId), t);
+    try {
+      final row = await OfflineStore.instance.localUserByUsername(
+        _session?.user.username ?? '',
+      );
+      Map<String, dynamic> sessionMap = {};
+      if (row != null) {
+        final raw = row['session_json'];
+        if (raw is String && raw.isNotEmpty) {
+          try {
+            sessionMap = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+          } catch (_) {}
+        }
+      }
+      sessionMap['reconnect_ticket'] = t;
+      final hash = (row?['password_hash'] ?? '').toString();
+      if (_session != null && hash.isNotEmpty) {
+        await OfflineStore.instance.upsertLocalUser(
+          userId: userId,
+          username: _session!.user.username,
+          passwordHash: hash,
+          session: sessionMap.isEmpty
+              ? {..._session!.toJson(), 'reconnect_ticket': t}
+              : sessionMap,
+          militaryNumber: (row?['military_number'] ?? '').toString(),
+        );
+      }
+    } catch (_) {}
+  }
+
+  Future<String?> loadReconnectTicket(int userId) async {
+    if (userId <= 0) return null;
+    final prefs = await SharedPreferences.getInstance();
+    final fromPrefs = (prefs.getString(reconnectTicketPrefKey(userId)) ?? '').trim();
+    if (fromPrefs.isNotEmpty) return fromPrefs;
+    try {
+      final username = _session?.user.username ?? '';
+      if (username.isEmpty) return null;
+      final row = await OfflineStore.instance.localUserByUsername(username);
+      if (row == null) return null;
+      final raw = row['session_json'];
+      Map<String, dynamic>? sessionMap;
+      if (raw is String && raw.isNotEmpty) {
+        sessionMap = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      } else if (raw is Map) {
+        sessionMap = Map<String, dynamic>.from(raw);
+      }
+      final t = (sessionMap?['reconnect_ticket'] ?? '').toString().trim();
+      return t.isEmpty ? null : t;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Restore a legitimate Flask session for the currently logged-in local judge.
+  /// Never logs out locally. Never deletes pending/media/users.
+  Future<bool> recoverServerSession({bool force = false}) async {
+    if (_session == null) return false;
+    if (_recoverInFlight != null) return _recoverInFlight!.future;
+    if (!force &&
+        _recoverBackoffUntil != null &&
+        DateTime.now().isBefore(_recoverBackoffUntil!)) {
+      return serverSessionUsable.value;
+    }
+    final pending = Completer<bool>();
+    _recoverInFlight = pending;
+    recoveringServerSession.value = true;
+    notifyListeners();
+    try {
+      final uid = _session!.user.id;
+      final username = _session!.user.username;
+
+      try {
+        final me = await ApiClient.instance.get(
+          '/api/tablet/me',
+          timeout: const Duration(seconds: 8),
+        );
+        if (serverPayloadMatchesSession(me) && applySessionJson(me, source: 'recover.me')) {
+          await persistReconnectTicket(uid, me['reconnect_ticket']?.toString());
+          serverSessionUsable.value = true;
+          _recoverFailCount = 0;
+          pending.complete(true);
+          return true;
+        }
+      } on ApiException catch (e) {
+        if (e.status != 401 && e.status != 403) {
+          serverSessionUsable.value = false;
+          pending.complete(false);
+          return false;
+        }
+      } on ApiOfflineException {
+        serverSessionUsable.value = false;
+        pending.complete(false);
+        return false;
+      }
+
+      final ticket = await loadReconnectTicket(uid);
+      if (ticket != null && ticket.isNotEmpty) {
+        try {
+          final data = await ApiClient.instance.post(
+            '/api/tablet/auth/reconnect',
+            body: {
+              'user_id': uid,
+              'username': username,
+              'reconnect_ticket': ticket,
+            },
+            timeout: const Duration(seconds: 12),
+          );
+          if (serverPayloadMatchesSession(data) &&
+              applySessionJson(data, source: 'recover.ticket')) {
+            await persistReconnectTicket(
+              uid,
+              data['reconnect_ticket']?.toString() ?? ticket,
+            );
+            serverSessionUsable.value = true;
+            _recoverFailCount = 0;
+            pending.complete(true);
+            return true;
+          }
+        } on ApiException catch (e) {
+          if (e.status != 401 && e.status != 403) {
+            serverSessionUsable.value = false;
+            pending.complete(false);
+            return false;
+          }
+        } on ApiOfflineException {
+          serverSessionUsable.value = false;
+          pending.complete(false);
+          return false;
+        }
+      }
+
+      final row = await OfflineStore.instance.localUserByUsername(username);
+      final storedHash = (row?['password_hash'] ?? '').toString();
+      final mil = (row?['military_number'] ?? '').toString();
+      final seed = await matchingProvisionPassword(
+        storedHash: storedHash,
+        username: username,
+        militaryNumber: mil,
+      );
+      if (seed != null) {
+        try {
+          final data = await ApiClient.instance.post(
+            '/api/tablet/auth/login',
+            body: {'username': username, 'password': seed},
+            timeout: const Duration(seconds: 12),
+          );
+          if (serverPayloadMatchesSession(data) &&
+              applySessionJson(data, source: 'recover.seed')) {
+            await persistReconnectTicket(uid, data['reconnect_ticket']?.toString());
+            serverSessionUsable.value = true;
+            _recoverFailCount = 0;
+            pending.complete(true);
+            return true;
+          }
+        } on ApiException catch (_) {
+          // fall through to fail closed
+        } on ApiOfflineException {
+          serverSessionUsable.value = false;
+          pending.complete(false);
+          return false;
+        }
+      }
+
+      serverSessionUsable.value = false;
+      _recoverFailCount += 1;
+      final waitSec = _recoverFailCount >= 3 ? 30 : (_recoverFailCount == 2 ? 8 : 2);
+      _recoverBackoffUntil = DateTime.now().add(Duration(seconds: waitSec));
+      pending.complete(false);
+      return false;
+    } finally {
+      recoveringServerSession.value = false;
+      _recoverInFlight = null;
+      notifyListeners();
+    }
+  }
 
   /// عند الإقلاع: نقرأ بيانات الدخول المحلية دون فتح جلسة تلقائياً.
   Future<void> prepareLocalAuth() async {
     _session = null;
+    serverSessionUsable.value = false;
     _lastLoginWasOffline = false;
     final users = await OfflineStore.instance.allLocalUsers();
     _offlineCredsAvailable = users.isNotEmpty;
@@ -184,8 +402,9 @@ class AuthService extends ChangeNotifier {
     } on ApiOfflineException {
       return false;
     } catch (e) {
-      // 401 من كوكي منتهٍ: نُبقي الجلسة المحلية للعمل Offline.
+      // 401: جلسة السيرفر غير صالحة — لا تُسقط الجلسة المحلية ولا تُحذف البيانات.
       if (e is ApiException && e.status == 401) {
+        serverSessionUsable.value = false;
         try {
           await ApiClient.instance.clearCookies();
         } catch (_) {}
@@ -250,6 +469,7 @@ class AuthService extends ChangeNotifier {
           'LOGIN SUCCESS user_id=${_session?.user.id} source=offline_local_user',
         );
         _lastLoginWasOffline = true;
+        serverSessionUsable.value = false;
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool(kWasLoggedInPrefKey, true);
         return true;
@@ -282,6 +502,7 @@ class AuthService extends ChangeNotifier {
         'LOGIN SUCCESS user_id=${_session?.user.id} source=offline_legacy',
       );
       _lastLoginWasOffline = true;
+      serverSessionUsable.value = false;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(kWasLoggedInPrefKey, true);
       return true;
@@ -351,7 +572,9 @@ class AuthService extends ChangeNotifier {
             session: data,
           );
           await OfflineStore.instance.cacheSetForUser(uid, 'session_bundle', data);
+          await persistReconnectTicket(uid, data['reconnect_ticket']?.toString());
         }
+        serverSessionUsable.value = true;
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool(kWasLoggedInPrefKey, true);
         _lastLoginWasOffline = false;
@@ -397,6 +620,7 @@ class AuthService extends ChangeNotifier {
     }
     identityLog('LOGOUT user_id=${_session?.user.id} source=explicit');
     _session = null;
+    serverSessionUsable.value = false;
     _lastLoginWasOffline = false;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(kWasLoggedInPrefKey, false);

@@ -146,3 +146,7 @@ Future<bool> hasNamedPdf(String name) async {
   await tx.completed;
   return result != null;
 }
+
+Future<String?> libraryPdfPath(int nodeId) async => null;
+
+Future<String?> namedPdfPath(String name) async => null;

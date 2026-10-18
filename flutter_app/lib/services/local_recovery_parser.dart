@@ -294,7 +294,7 @@ _CacheIds _idsFromCacheKey(String key) {
     return _CacheIds(asInt, last);
   }
   if (key.contains('action_eval_detail')) {
-    return _CacheIds(null, 'action:$last');
+    return _CacheIds(asInt, 'action:$last');
   }
   return _CacheIds(asInt, last.isEmpty ? null : last);
 }

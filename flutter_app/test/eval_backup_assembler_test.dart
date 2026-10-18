@@ -398,4 +398,74 @@ void main() {
     expect(paths.any((p) => p.endsWith('/قائمة مشتركة.xlsx')), isTrue);
     expect(paths.any((p) => p.contains('_11.xlsx') || p.contains('_12.xlsx')), isTrue);
   });
+
+  test('dilemma action_eval_detail without exercise_id or catalog is included', () {
+    final pkg = assembleEvalBackup(
+      scope: _currentB,
+      pendingRows: const [],
+      cacheRows: [
+        {
+          'cache_key': 'u3:action_eval_detail:77',
+          'json_body': jsonEncode({
+            'kind': 'action_eval',
+            'slot_id': 77,
+            'title': 'تقييم المعاضلة الأولى',
+            'eval_rows': [
+              {
+                'row_kind': 'score',
+                'element': 'إجراء',
+                'max_val': '10',
+                'acquired_initial': '',
+              }
+            ],
+            'saved_payload': {
+              'rows': [
+                {
+                  'row_kind': 'score',
+                  'element': 'إجراء',
+                  'max_val': '10',
+                  'acquired': '8',
+                  'notes': 'محلي',
+                }
+              ],
+            },
+          }),
+          'sync_status': 'pending',
+          'updated_at': '2026-10-17T12:00:00Z',
+        },
+        {
+          'cache_key': 'u9:action_eval_detail:77',
+          'json_body': jsonEncode({
+            'slot_id': 77,
+            'title': 'معضلة محكم آخر',
+            'saved_payload': {
+              'rows': [
+                {'element': 'x', 'acquired': '1', 'notes': 'nope'},
+              ],
+            },
+          }),
+        },
+        {
+          'cache_key': 'u3:action_eval_detail:88',
+          'json_body': jsonEncode({
+            'slot_id': 88,
+            'exercise_id': 1,
+            'title': 'معضلة تمرين آخر',
+            'saved_payload': {
+              'rows': [
+                {'element': 'x', 'acquired': '1', 'notes': 'nope'},
+              ],
+            },
+          }),
+        },
+      ],
+      mediaRows: const [],
+      includeTemplateRowsIfUnsaved: true,
+    );
+    expect(pkg.dilemmaLists, hasLength(1));
+    expect(pkg.dilemmaLists.single.evalItemId, 77);
+    expect(pkg.dilemmaLists.single.listName, 'تقييم المعاضلة الأولى');
+    expect(pkg.dilemmaLists.single.exerciseId, 2);
+    expect(pkg.actionLists, isEmpty);
+  });
 }

@@ -799,9 +799,9 @@ class TabletRepository {
   Future<bool> approveActionEval(
     int slot, {
     String? gradeLabel,
-    required int signatureUserId,
-    required int signatureVersion,
-    required String signaturePngB64,
+    int signatureUserId = 0,
+    int signatureVersion = 0,
+    String signaturePngB64 = '',
   }) async {
     final key = 'action_eval_detail:$slot';
     await _markLocallyApproved(
@@ -820,9 +820,9 @@ class TabletRepository {
       method: 'POST',
       path: '/api/tablet/action-eval/$slot/approve',
       body: {
-        'signature_user_id': signatureUserId,
-        'signature_version': signatureVersion,
-        'signature_png_b64': signaturePngB64,
+        if (signatureUserId > 0) 'signature_user_id': signatureUserId,
+        if (signatureVersion > 0) 'signature_version': signatureVersion,
+        if (signaturePngB64.isNotEmpty) 'signature_png_b64': signaturePngB64,
       },
       kind: 'اعتماد تقييم إجراءات #$slot',
       opType: 'approve',
@@ -922,9 +922,9 @@ class TabletRepository {
     String unitKey,
     int itemId, {
     String? gradeLabel,
-    required int signatureUserId,
-    required int signatureVersion,
-    required String signaturePngB64,
+    int signatureUserId = 0,
+    int signatureVersion = 0,
+    String signaturePngB64 = '',
   }) async {
     final key = 'evaluation_list_detail:$unitKey:$itemId';
     await _markLocallyApproved(
@@ -944,9 +944,9 @@ class TabletRepository {
       method: 'POST',
       path: '/api/tablet/evaluation-lists/$unitKey/$itemId/approve',
       body: {
-        'signature_user_id': signatureUserId,
-        'signature_version': signatureVersion,
-        'signature_png_b64': signaturePngB64,
+        if (signatureUserId > 0) 'signature_user_id': signatureUserId,
+        if (signatureVersion > 0) 'signature_version': signatureVersion,
+        if (signaturePngB64.isNotEmpty) 'signature_png_b64': signaturePngB64,
       },
       kind: 'اعتماد قائمة تقييم #$itemId',
       opType: 'approve',

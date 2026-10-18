@@ -8,14 +8,7 @@
 
 <div class="page-header page-header--judge-eval-lists">
   <h1><i class="fa-solid fa-clipboard-list fa-icon-title" aria-hidden="true"></i> {{ page_title | default('قوائم تقييم المعاضل') }} — {{ unit.label }}{% if day_label %} — {{ day_label }}{% endif %}</h1>
-  {% if results_export_href %}
-  <div class="page-header__tools">
-    <a class="btn btn--eval-export" href="{{ results_export_href }}" title="تصدير النتائج والنسب والموقف إلى Excel">
-      <i class="fa-solid fa-file-excel" aria-hidden="true"></i>
-      تصدير النتائج إلى Excel
-    </a>
-  </div>
-  {% endif %}
+  {% include 'partials/eval_lists_page_tools.html' %}
   <div class="page-header__nav">
     {% include 'partials/subpage_close.html' %}
   </div>

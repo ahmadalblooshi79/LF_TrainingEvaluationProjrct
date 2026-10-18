@@ -1,0 +1,16 @@
+{% if reports_href or pending_export_href %}
+<div class="page-header__tools">
+  {% if reports_href %}
+  <a class="btn btn--eval-export" href="{{ reports_href }}" title="مركز التقارير">
+    <i class="fa-solid fa-chart-column" aria-hidden="true"></i>
+    التقارير
+  </a>
+  {% endif %}
+  {% if pending_export_href %}
+  <a class="btn btn--eval-export" href="{{ pending_export_href }}" title="تصدير Excel لكل قوائم تقييم الإجراءات بانتظار الاعتماد">
+    <i class="fa-solid fa-file-zipper" aria-hidden="true"></i>
+    تصدير قوائم بانتظار الاعتماد
+  </a>
+  {% endif %}
+</div>
+{% endif %}

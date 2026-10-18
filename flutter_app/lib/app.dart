@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 
 import 'screens/action_eval_lists_screen.dart';
 import 'screens/device_admin_hub_screen.dart';
+import 'screens/device_eval_inspect_screen.dart';
+import 'screens/device_eval_manager_screen.dart';
 import 'screens/device_setup_screen.dart';
 import 'screens/eval_backup_screen.dart';
 import 'screens/eval_sheet_screen.dart';
@@ -20,6 +22,7 @@ import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/positives_negatives_screen.dart';
 import 'screens/objectives_screen.dart';
+import 'screens/scoped_backup_screen.dart';
 import 'screens/server_connect_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/signature_screen.dart';
@@ -58,7 +61,12 @@ final GoRouter _router = GoRouter(
 
     if (admin) {
       if (loc == '/login') return '/device-admin';
-      if (deviceOnly || loc == '/server-connect' || loc == '/recovery') {
+      if (deviceOnly ||
+          loc == '/server-connect' ||
+          loc == '/recovery' ||
+          loc == '/scoped-backup' ||
+          loc == '/device-eval-manager' ||
+          loc == '/device-eval-inspect') {
         return null;
       }
       return '/device-admin';
@@ -165,6 +173,26 @@ final GoRouter _router = GoRouter(
     GoRoute(
       path: '/eval-backup',
       builder: (context, state) => const EvalBackupScreen(),
+    ),
+    GoRoute(
+      path: '/scoped-backup',
+      builder: (context, state) => ScopedBackupScreen(
+        deviceManager: DeviceAdminService.instance.isLocalAdminSession,
+      ),
+    ),
+    GoRoute(
+      path: '/device-eval-manager',
+      builder: (context, state) => const DeviceEvalManagerScreen(),
+    ),
+    GoRoute(
+      path: '/device-eval-inspect',
+      builder: (context, state) {
+        final extra = state.extra;
+        if (extra is DeviceEvalInspectArgs) {
+          return DeviceEvalInspectScreen(args: extra);
+        }
+        return const DeviceEvalManagerScreen();
+      },
     ),
   ],
 );

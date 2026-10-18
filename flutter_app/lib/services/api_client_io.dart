@@ -127,6 +127,74 @@ Future<http.Response> sendHttp({
   }
 }
 
+/// Stream a GET body to [destPath] via a `.part` file. Existing dest is kept if the transfer fails.
+Future<bool> downloadToFile({
+  required Uri uri,
+  required Map<String, String> headers,
+  required String destPath,
+  required Duration timeout,
+  CookieJar? cookieJar,
+}) async {
+  final dest = File(destPath);
+  final part = File('$destPath.part');
+  if (await part.exists()) {
+    try {
+      await part.delete();
+    } catch (_) {}
+  }
+  final client = HttpClient()
+    ..connectionTimeout = timeout
+    ..idleTimeout = const Duration(seconds: 30)
+    ..autoUncompress = true
+    ..maxConnectionsPerHost = 4;
+  try {
+    final req = await client.getUrl(uri).timeout(timeout);
+    headers.forEach((k, v) {
+      if (k.toLowerCase() == 'content-length') return;
+      req.headers.set(k, v);
+    });
+    req.headers.set(HttpHeaders.connectionHeader, 'close');
+    final resp = await req.close().timeout(timeout);
+    if (cookieJar != null && resp.cookies.isNotEmpty) {
+      try {
+        await cookieJar.saveFromResponse(uri, resp.cookies);
+      } catch (_) {}
+    }
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      return false;
+    }
+    final sink = part.openWrite();
+    try {
+      await for (final chunk in resp.timeout(timeout)) {
+        sink.add(chunk);
+      }
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
+    if (!await part.exists() || await part.length() <= 0) {
+      try {
+        await part.delete();
+      } catch (_) {}
+      return false;
+    }
+    if (await dest.exists()) {
+      try {
+        await dest.delete();
+      } catch (_) {}
+    }
+    await part.rename(dest.path);
+    return await dest.exists();
+  } catch (_) {
+    try {
+      if (await part.exists()) await part.delete();
+    } catch (_) {}
+    return false;
+  } finally {
+    client.close(force: true);
+  }
+}
+
 /// فحص وصول مباشر بدون كوكيز.
 Future<({bool ok, String detail})> probeServer(
   String baseUrl, {

@@ -230,6 +230,7 @@ EvalBackupPackage assembleEvalBackup({
   required List<Map<String, dynamic>> cacheRows,
   required List<Map<String, dynamic>> mediaRows,
   Set<String> existingFilePaths = const {},
+  bool includeTemplateRowsIfUnsaved = false,
 }) {
   final warnings = <String>[];
   if (scope.exerciseId <= 0) {
@@ -252,7 +253,13 @@ EvalBackupPackage assembleEvalBackup({
     byId[draft.evalItemId] = draft;
   }
   for (final row in cacheRows) {
-    final draft = _draftFromCache(row, scope, catalog, warnings);
+    final draft = _draftFromCache(
+      row,
+      scope,
+      catalog,
+      warnings,
+      includeTemplateRowsIfUnsaved: includeTemplateRowsIfUnsaved,
+    );
     if (draft == null) continue;
     final existing = byId[draft.evalItemId];
     if (existing != null) {
@@ -306,7 +313,7 @@ EvalBackupPackage assembleEvalBackup({
         excelRelPath: excelRel,
         rows: draft.rows,
         media: media,
-        xlsxBytes: _buildListXlsx(draft, scope),
+        xlsxBytes: buildEvaluationListXlsx(draft: draft, scope: scope),
       ),
     );
   }
@@ -522,8 +529,9 @@ _Draft? _draftFromCache(
   Map<String, dynamic> row,
   EvalBackupScope scope,
   _OpenCatalog catalog,
-  List<String> warnings,
-) {
+  List<String> warnings, {
+  bool includeTemplateRowsIfUnsaved = false,
+}) {
   final key = recoveryAsString(row['cache_key']);
   final bare = _bareKey(key);
   if (!bare.contains('evaluation_list_detail') &&
@@ -533,24 +541,30 @@ _Draft? _draftFromCache(
   final keyUser = _userIdFromKey(key);
   if (keyUser != null && keyUser != scope.userId) return null;
   final parsed = parseCacheEvaluationRow(row);
-  final id = parsed.evalItemId ??
-      (bare.startsWith('action_eval_detail:')
-          ? int.tryParse(bare.split(':').last)
-          : null) ??
-      0;
-  if (id <= 0) return null;
   final kind = _kindFromPathOrKey('', key);
   final decoded = _decodeMap(parsed.jsonBodyRaw) ?? {};
+  final id = kind == EvalBackupKind.dilemma
+      ? (recoveryAsInt(decoded['slot_id']) ??
+          recoveryAsInt(decoded['id']) ??
+          parsed.evalItemId ??
+          int.tryParse(bare.split(':').last) ??
+          0)
+      : (parsed.evalItemId ??
+          recoveryAsInt(decoded['item_id']) ??
+          recoveryAsInt(decoded['id']) ??
+          0);
+  if (id <= 0) return null;
   final jsonEx = recoveryAsInt(decoded['exercise_id']);
   if (jsonEx != null && jsonEx != scope.exerciseId) {
     warnings.add('skipped_cache_other_exercise:$id');
     return null;
   }
-  if (jsonEx == null) {
-    final open = kind == EvalBackupKind.action
-        ? catalog.actionIds
-        : catalog.dilemmaIds;
-    if (!open.contains(id)) {
+  // Dilemma sheets are current-exercise backups of this user's
+  // action_eval_detail cache. Do not drop them when production JSON omits
+  // exercise_id or when action_eval_lists catalog is missing/incomplete.
+  // Procedure lists still require catalog membership when exercise_id is absent.
+  if (jsonEx == null && kind != EvalBackupKind.dilemma) {
+    if (!catalog.actionIds.contains(id)) {
       warnings.add('skipped_cache_unknown_exercise:$id');
       return null;
     }
@@ -562,8 +576,7 @@ _Draft? _draftFromCache(
       return null;
     }
   }
-  if (!parsed.savedPayloadExists && parsed.savedRows.isEmpty) return null;
-  final rows = [
+  var rows = [
     for (final r in parsed.savedRows)
       EvalBackupRow(
         rowKind: r.rowKind,
@@ -573,6 +586,14 @@ _Draft? _draftFromCache(
         notes: r.notes,
       ),
   ];
+  if (rows.isEmpty && includeTemplateRowsIfUnsaved) {
+    rows = _rowsFromEvalTemplate(decoded);
+  }
+  if (!parsed.savedPayloadExists &&
+      parsed.savedRows.isEmpty &&
+      !includeTemplateRowsIfUnsaved) {
+    return null;
+  }
   if (rows.isEmpty) return null;
   return _Draft(
     evalItemId: id,
@@ -618,7 +639,16 @@ List<EvalBackupMediaRef> _mediaForList(
   for (final row in mediaRows) {
     final evalId = recoveryAsInt(row['evaluation_list_item_id']);
     final slotId = recoveryAsInt(row['bundle_action_eval_id']);
-    if (evalId != draft.evalItemId && slotId != draft.evalItemId) continue;
+    final sheetMatch = draft.kind == EvalBackupKind.dilemma &&
+        _sheetCacheKeyMatchesDilemma(
+          '${row['sheet_cache_key'] ?? ''}',
+          draft.evalItemId,
+        );
+    if (evalId != draft.evalItemId &&
+        slotId != draft.evalItemId &&
+        !sheetMatch) {
+      continue;
+    }
     final mediaEx = recoveryAsInt(row['exercise_id']);
     if (mediaEx != null && mediaEx != 0 && mediaEx != scope.exerciseId) {
       warnings.add('skipped_media_other_exercise:${row['id']}');
@@ -670,7 +700,26 @@ String _excelRelPath(_Draft draft, Set<String> used) {
   return '$kEvalBackupListsRoot/$folder/${name}_${draft.evalItemId}.xlsx';
 }
 
-List<int> _buildListXlsx(_Draft draft, EvalBackupScope scope) {
+List<EvalBackupRow> _rowsFromEvalTemplate(Map<String, dynamic> decoded) {
+  final raw = decoded['eval_rows'];
+  if (raw is! List) return const [];
+  return [
+    for (final item in raw)
+      if (item is Map)
+        EvalBackupRow(
+          rowKind: '${item['row_kind'] ?? 'score'}',
+          element: '${item['element'] ?? ''}',
+          maxVal: '${item['max_val'] ?? ''}',
+          acquired: '${item['acquired_initial'] ?? item['acquired'] ?? ''}',
+          notes: '${item['notes_initial'] ?? item['notes'] ?? ''}',
+        ),
+  ];
+}
+
+List<int> buildEvaluationListXlsx({
+  required _Draft draft,
+  required EvalBackupScope scope,
+}) {
   var totalMax = 0.0;
   var totalAcquired = 0.0;
   var i = 1;
@@ -760,6 +809,14 @@ String _bareKey(String key) {
   final m = RegExp(r'^u\d+:').firstMatch(key);
   if (m == null) return key;
   return key.substring(m.end);
+}
+
+bool _sheetCacheKeyMatchesDilemma(String sheetKey, int slotId) {
+  if (sheetKey.isEmpty || slotId <= 0) return false;
+  final bare = _bareKey(sheetKey);
+  if (!bare.startsWith('action_eval_detail:')) return false;
+  final n = int.tryParse(bare.split(':').last);
+  return n != null && n == slotId;
 }
 
 int? _userIdFromKey(String key) {

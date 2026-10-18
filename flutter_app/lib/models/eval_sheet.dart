@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+/// Temporary: skip electronic signature on judge approval. Set false to restore.
+const kEvalApprovalSkipSignatureTemporarily = true;
+
 /// One row of a structured evaluation sheet (rubric layout parsed from the
 /// original Excel template on the server).
 class EvalRow {
@@ -201,6 +204,7 @@ class EvalSheetDetail {
   final List<EvalRowInput> savedRows;
   final bool canEdit;
   final bool canApprove;
+  final bool skipSignature;
   final bool isApproved;
   final bool locallyApproved;
   final String approvalSyncStatus;
@@ -229,6 +233,7 @@ class EvalSheetDetail {
     required this.savedRows,
     required this.canEdit,
     required this.canApprove,
+    this.skipSignature = kEvalApprovalSkipSignatureTemporarily,
     required this.isApproved,
     this.locallyApproved = false,
     this.approvalSyncStatus = '',
@@ -344,6 +349,8 @@ class EvalSheetDetail {
       savedRows: editable,
       canEdit: canEdit,
       canApprove: canApprove,
+      skipSignature: json['skip_signature'] == true ||
+          kEvalApprovalSkipSignatureTemporarily,
       isApproved: isApproved,
       locallyApproved: locallyApproved,
       approvalSyncStatus: (json['approval_sync_status'] ?? '').toString(),
@@ -361,6 +368,7 @@ class EvalSheetDetail {
     List<EvalRowInput>? savedRows,
     bool? canEdit,
     bool? canApprove,
+    bool? skipSignature,
     bool? isApproved,
     bool? locallyApproved,
     String? approvalSyncStatus,
@@ -389,6 +397,7 @@ class EvalSheetDetail {
       savedRows: savedRows ?? this.savedRows,
       canEdit: canEdit ?? this.canEdit,
       canApprove: canApprove ?? this.canApprove,
+      skipSignature: skipSignature ?? this.skipSignature,
       isApproved: isApproved ?? this.isApproved,
       locallyApproved: locallyApproved ?? this.locallyApproved,
       approvalSyncStatus: approvalSyncStatus ?? this.approvalSyncStatus,

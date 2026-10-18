@@ -347,37 +347,45 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
       setState(() => _hint = 'تعذّر التحقق من الحساب الحالي.');
       return;
     }
-    final rec = await SignatureStore.instance.loadForUser(uid);
-    if (!mounted) return;
-    if (rec == null || !rec.isRegistered || rec.userId != uid || rec.pngB64.isEmpty) {
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('لا يوجد توقيع إلكتروني'),
-          content: const Text(
-            'لا يوجد توقيع إلكتروني مسجل لهذا الحساب.\nيرجى تسجيل التوقيع قبل اعتماد القائمة.',
+    final skipSig = detail.skipSignature || kEvalApprovalSkipSignatureTemporarily;
+    int sigUid = uid;
+    int sigVer = 0;
+    String sigPng = '';
+    if (!skipSig) {
+      final rec = await SignatureStore.instance.loadForUser(uid);
+      if (!mounted) return;
+      if (rec == null || !rec.isRegistered || rec.userId != uid || rec.pngB64.isEmpty) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('لا يوجد توقيع إلكتروني'),
+            content: const Text(
+              'لا يوجد توقيع إلكتروني مسجل لهذا الحساب.\nيرجى تسجيل التوقيع قبل اعتماد القائمة.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('إلغاء'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  context.push('/signature');
+                },
+                child: const Text('تسجيل التوقيع'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('إلغاء'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-                context.push('/signature');
-              },
-              child: const Text('تسجيل التوقيع'),
-            ),
-          ],
-        ),
-      );
-      return;
+        );
+        return;
+      }
+      sigVer = rec.version;
+      sigPng = rec.pngB64;
     }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('اعتماد وتوقيع قائمة التقييم'),
+        title: Text(skipSig ? 'اعتماد قائمة التقييم' : 'اعتماد وتوقيع قائمة التقييم'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -398,20 +406,24 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('توقيع واعتماد'),
+            child: Text(skipSig ? 'اعتماد' : 'توقيع واعتماد'),
           ),
         ],
       ),
     );
     if (confirmed != true || !mounted) return;
-    final recAgain = await SignatureStore.instance.loadForUser(uid);
-    if (!mounted) return;
-    if (recAgain == null ||
-        recAgain.userId != uid ||
-        !recAgain.isRegistered ||
-        recAgain.pngB64.isEmpty) {
-      setState(() => _hint = 'تعذّر الاعتماد: التوقيع لا يخص الحساب الحالي.');
-      return;
+    if (!skipSig) {
+      final recAgain = await SignatureStore.instance.loadForUser(uid);
+      if (!mounted) return;
+      if (recAgain == null ||
+          recAgain.userId != uid ||
+          !recAgain.isRegistered ||
+          recAgain.pngB64.isEmpty) {
+        setState(() => _hint = 'تعذّر الاعتماد: التوقيع لا يخص الحساب الحالي.');
+        return;
+      }
+      sigVer = recAgain.version;
+      sigPng = recAgain.pngB64;
     }
 
     setState(() {
@@ -440,17 +452,17 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
           ? TabletRepository.instance.approveActionEval(
               widget.slot!,
               gradeLabel: grade == 'غير محسوب' ? null : grade,
-              signatureUserId: uid,
-              signatureVersion: recAgain.version,
-              signaturePngB64: recAgain.pngB64,
+              signatureUserId: sigUid,
+              signatureVersion: sigVer,
+              signaturePngB64: sigPng,
             )
           : TabletRepository.instance.approveEvaluationList(
               widget.unitKey!,
               widget.itemId!,
               gradeLabel: grade == 'غير محسوب' ? null : grade,
-              signatureUserId: uid,
-              signatureVersion: recAgain.version,
-              signaturePngB64: recAgain.pngB64,
+              signatureUserId: sigUid,
+              signatureVersion: sigVer,
+              signaturePngB64: sigPng,
             ));
       if (!mounted) return;
       setState(() {
@@ -467,8 +479,7 @@ class _EvalSheetScreenState extends State<EvalSheetScreen> {
             label: 'معتمد محلياً – بانتظار المزامنة',
             reopened: false,
           ),
-          approvalSignaturePng: recAgain.pngBytes,
-          approvalSignatureVersion: recAgain.version,
+          approvalSignatureVersion: sigVer > 0 ? sigVer : null,
           approvalSignatureAt: DateTime.now().toIso8601String(),
           approvalSignatureUserId: uid,
           dilemmaDescription: _dilemmaDescCtrl.text,

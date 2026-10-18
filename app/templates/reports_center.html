@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}التقارير{% endblock %}
+{% block body_class %}reports-center-page{% endblock %}
+{% block content %}
+<div class="page-header page-header--judge-eval-lists">
+  <h1><i class="fa-solid fa-chart-column fa-icon-title" aria-hidden="true"></i> التقارير</h1>
+  <p class="muted" style="margin:0;">{{ context_title }}</p>
+  {% if has_exercise %}
+  <div class="page-header__tools">
+    <button type="button" class="btn js-reports-preview" title="عرض النتائج حسب الفلاتر المحددة">
+      <i class="fa-solid fa-table" aria-hidden="true"></i>
+      عرض النتائج
+    </button>
+  </div>
+  {% endif %}
+  <div class="page-header__nav">
+    {% include 'partials/control_hub_back.html' %}
+  </div>
+</div>
+
+{% if not has_exercise %}
+<section class="card judge-eval-lists-fill-card">
+  <p class="muted" dir="rtl" style="margin:0;">لا يوجد تمرين حالي في مساحة العمل لهذا المستخدم. افتح/أنشئ تمريناً أولاً.</p>
+</section>
+{% else %}
+<div id="reports-center" dir="rtl"
+     data-preview-url="{{ preview_url }}"
+     data-export-url="{{ export_url }}"
+     data-kind="{{ kind }}">
+
+  <section class="card reports-card">
+    <h2 class="h2-in-card">نوع التقرير</h2>
+    <label class="reports-field">
+      <span>نوع التقرير</span>
+      <select id="report-type" class="unit-level-select">
+        <option value="existing_excel">تصدير النتائج إلى Excel</option>
+        <option value="detailed" selected>تقرير نتائج التقييم التفصيلي</option>
+        <option value="weakness">تقرير نقاط الضعف</option>
+        <option value="high_performance">تقرير الأداء العالي</option>
+        <option value="full">التقرير الشامل</option>
+      </select>
+    </label>
+    <p class="muted reports-scope-note">{{ catalog.scope_note }}</p>
+    <div id="existing-export-panel" class="reports-existing" hidden>
+      {% if results_export_href %}
+      <a class="btn btn--eval-export" href="{{ results_export_href }}" title="التصدير الحالي دون تغيير المنطق أو الملف">
+        <i class="fa-solid fa-file-excel" aria-hidden="true"></i>
+        التصدير الحالي إلى Excel
+      </a>
+      {% else %}
+      <p class="muted">لا يتوفر التصدير الحالي في هذا السياق.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <div id="detailed-report-panel">
+    <section class="card reports-card">
+      <h2 class="h2-in-card">تقارير سريعة</h2>
+      <div class="reports-quick">
+        <button type="button" class="btn" data-preset="full">التقرير الشامل</button>
+        <button type="button" class="btn btn-ghost" data-preset="weakness">نقاط الضعف</button>
+        <button type="button" class="btn btn-ghost" data-preset="high_performance">الأداء العالي</button>
+      </div>
+    </section>
+
+    <section class="card reports-card">
+      <h2 class="h2-in-card">نطاق التقرير</h2>
+      <div class="reports-filters">
+        <label class="reports-field">
+          <span>المرحلة</span>
+          <select id="filter-phase" class="unit-level-select">
+            <option value="">جميع المراحل</option>
+          </select>
+        </label>
+        <label class="reports-field">
+          <span>الوحدة</span>
+          <select id="filter-unit" class="unit-level-select">
+            <option value="">جميع الوحدات</option>
+          </select>
+        </label>
+        <label class="reports-field">
+          <span>المحكم</span>
+          <select id="filter-judge" class="unit-level-select">
+            <option value="">جميع المحكمين</option>
+          </select>
+        </label>
+        <label class="reports-field">
+          <span>قائمة التقييم</span>
+          <input type="search" id="filter-list-search" class="unit-level-select" placeholder="البحث باسم القائمة">
+          <select id="filter-list" class="unit-level-select">
+            <option value="">جميع القوائم</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section class="card reports-card">
+      <h2 class="h2-in-card">نتائج التقييم</h2>
+      <div class="reports-ratings" id="rating-boxes">
+        <label class="checkbox-label"><input type="checkbox" id="rating-all" checked> تحديد الكل</label>
+        <label class="checkbox-label"><input type="checkbox" class="rating-box" value="ممتاز" checked> ممتاز</label>
+        <label class="checkbox-label"><input type="checkbox" class="rating-box" value="جيد جدا" checked> جيد جدا</label>
+        <label class="checkbox-label"><input type="checkbox" class="rating-box" value="جيد" checked> جيد</label>
+        <label class="checkbox-label"><input type="checkbox" class="rating-box" value="مقبول" checked> مقبول</label>
+        <label class="checkbox-label"><input type="checkbox" class="rating-box" value="راسب" checked> راسب</label>
+      </div>
+      <div class="reports-notes-opts">
+        <label class="checkbox-label"><input type="checkbox" id="show-notes" checked> إظهار الملاحظات</label>
+        <label class="checkbox-label"><input type="checkbox" id="notes-only"> عرض العناصر التي تحتوي على ملاحظات فقط</label>
+      </div>
+    </section>
+
+    <section class="card reports-card">
+      <h2 class="h2-in-card">طريقة تنظيم التقرير</h2>
+      <div class="reports-organize">
+        <label><input type="radio" name="organize" value="unified" checked> جدول موحد</label>
+        <label><input type="radio" name="organize" value="unit"> حسب الوحدة</label>
+        <label><input type="radio" name="organize" value="judge"> حسب المحكم</label>
+        <label><input type="radio" name="organize" value="list"> حسب قائمة التقييم</label>
+      </div>
+    </section>
+
+    <div class="reports-actions reports-actions-bar">
+      <button type="button" class="btn btn-ghost js-reports-reset" id="btn-reset">مسح الفلاتر</button>
+      <button type="button" class="btn js-reports-preview" id="btn-preview">
+        <i class="fa-solid fa-table" aria-hidden="true"></i>
+        عرض النتائج
+      </button>
+    </div>
+
+    <section class="card reports-card" id="summary-wrap" hidden>
+      <div class="reports-summary" id="summary-cards"></div>
+    </section>
+
+    <section class="card reports-card" id="preview-wrap" hidden>
+      <label class="reports-field">
+        <span>البحث في النتائج</span>
+        <input type="search" id="preview-search" class="unit-level-select" placeholder="الوحدة، المحكم، القائمة، العنصر، الملاحظات">
+      </label>
+      <p class="reports-match-count" id="match-count">النتائج المطابقة: 0</p>
+      <p class="muted" id="empty-msg" hidden>لا توجد نتائج مطابقة للفلاتر المحددة</p>
+      <div class="table-wrap">
+        <table class="judge-eval-units-table reports-preview-table" id="preview-table" dir="rtl">
+          <thead>
+            <tr>
+              <th scope="col">ت</th>
+              <th scope="col" data-sort="phase">المرحلة</th>
+              <th scope="col" data-sort="unit">الوحدة</th>
+              <th scope="col" data-sort="judge">المحكم</th>
+              <th scope="col" data-sort="list_title">اسم قائمة التقييم</th>
+              <th scope="col">عنصر التقييم</th>
+              <th scope="col" data-sort="rating">النتيجة</th>
+              <th scope="col">الملاحظات</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="reports-actions">
+        <button type="button" class="btn btn--eval-export" id="btn-export" disabled>
+          <i class="fa-solid fa-file-excel" aria-hidden="true"></i>
+          تصدير التقرير إلى Excel
+        </button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script type="application/json" id="reports-catalog-json">{{ catalog | tojson }}</script>
+<script src="{{ url_for('static', filename='reports_center.js') }}?v=reports-center-v2"></script>
+{% endif %}
+{% endblock %}

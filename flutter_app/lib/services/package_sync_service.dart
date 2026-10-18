@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../models/list_row.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
@@ -10,6 +12,9 @@ import 'offline_store.dart';
 import 'tablet_repository.dart';
 
 typedef ProvisionProgress = void Function(String message, {double? progress});
+
+/// Conservative parallel GETs (independent details/PDFs only).
+const int kDeviceSyncConcurrency = 4;
 
 /// تنزيل وتخزين حزمة التمرين مع عزل كل محكم في Local DB.
 class PackageSyncService {
@@ -76,6 +81,25 @@ class PackageSyncService {
     return b != null && b.isNotEmpty;
   }
 
+  static Future<void> runBounded(
+    List<Future<void> Function()> jobs, {
+    int limit = kDeviceSyncConcurrency,
+  }) async {
+    if (jobs.isEmpty) return;
+    var next = 0;
+    Future<void> worker() async {
+      while (true) {
+        final i = next;
+        next += 1;
+        if (i >= jobs.length) return;
+        await jobs[i]();
+      }
+    }
+
+    final n = math.min(limit, jobs.length);
+    await Future.wait(List.generate(n, (_) => worker()));
+  }
+
   Future<void> _provisionActionDetails(
     int userId,
     Map<String, dynamic> listsPayload,
@@ -84,19 +108,23 @@ class PackageSyncService {
         .whereType<Map>()
         .map((e) => ListRow.fromJson(e.cast<String, dynamic>()))
         .toList();
+    final jobs = <Future<void> Function()>[];
     for (final row in lists) {
       final slot = TabletRepository.instance.actionEvalOpenId(row);
       if (slot == null) continue;
       final q = <String, dynamic>{};
       if (row.slotId != null) q['action_eval_id'] = row.slotId;
-      try {
-        final detail = await _get(
-          '/api/tablet/device/judge/$userId/action-eval/$slot',
-          query: q.isEmpty ? null : q,
-        );
-        await _putJudge(userId, 'action_eval_detail:$slot', detail);
-      } catch (_) {}
+      jobs.add(() async {
+        try {
+          final detail = await _get(
+            '/api/tablet/device/judge/$userId/action-eval/$slot',
+            query: q.isEmpty ? null : q,
+          );
+          await _putJudge(userId, 'action_eval_detail:$slot', detail);
+        } catch (_) {}
+      });
     }
+    await runBounded(jobs);
   }
 
   Future<void> _provisionEvalDetails(
@@ -108,19 +136,23 @@ class PackageSyncService {
         .whereType<Map>()
         .map((e) => ListRow.fromJson(e.cast<String, dynamic>()))
         .toList();
+    final jobs = <Future<void> Function()>[];
     for (final row in lists) {
       final id =
           row.itemId ?? (row.id is int ? row.id as int : int.tryParse('${row.id}'));
       if (id == null) continue;
       final uk = row.unitKey.isNotEmpty ? row.unitKey : unitKey;
       if (uk.isEmpty) continue;
-      try {
-        final detail = await _get(
-          '/api/tablet/device/judge/$userId/evaluation-lists/$uk/$id',
-        );
-        await _putJudge(userId, 'evaluation_list_detail:$uk:$id', detail);
-      } catch (_) {}
+      jobs.add(() async {
+        try {
+          final detail = await _get(
+            '/api/tablet/device/judge/$userId/evaluation-lists/$uk/$id',
+          );
+          await _putJudge(userId, 'evaluation_list_detail:$uk:$id', detail);
+        } catch (_) {}
+      });
     }
+    await runBounded(jobs);
   }
 
   Future<bool> _verifyJudgeReady(int userId) async {
@@ -186,6 +218,10 @@ class PackageSyncService {
           session: sessionPayload,
           militaryNumber: (j['military_number'] ?? '').toString(),
         );
+        final ticket = (sessionPayload['reconnect_ticket'] ?? '').toString().trim();
+        if (ticket.isNotEmpty) {
+          await AuthService.instance.persistReconnectTicket(userId, ticket);
+        }
         await _putJudge(userId, 'session_bundle', sessionPayload);
         judgeIds.add(userId);
       }
@@ -437,41 +473,74 @@ class PackageSyncService {
 
       onProgress?.call('تنزيل ملفات PDF', progress: 0.80);
       final missingPdfs = <String>[];
+      final pdfJobs = <Future<void> Function()>[];
       for (final id in pdfIds) {
-        try {
-          if (await _pdfBytesReady(id)) continue;
-          final bytes = await ApiClient.instance.getBytes(
-            '/api/tablet/device/files/library/$id',
-            timeout: const Duration(seconds: 120),
-          );
-          if (bytes.isNotEmpty) {
-            await LibraryPdfCache.put(id, bytes);
-          } else {
-            missingPdfs.add('مكتبة $id');
+        pdfJobs.add(() async {
+          try {
+            if (await _pdfBytesReady(id)) return;
+            final dest = await LibraryPdfCache.nativePdfPath(id);
+            var ok = false;
+            if (dest != null && dest.isNotEmpty) {
+              ok = await ApiClient.instance.downloadToFile(
+                '/api/tablet/device/files/library/$id',
+                dest,
+                timeout: const Duration(seconds: 120),
+              );
+            }
+            if (!ok) {
+              final bytes = await ApiClient.instance.getBytes(
+                '/api/tablet/device/files/library/$id',
+                timeout: const Duration(seconds: 120),
+              );
+              if (bytes.isNotEmpty) {
+                await LibraryPdfCache.put(id, bytes);
+                ok = true;
+              }
+            }
+            if (!ok) missingPdfs.add('مكتبة $id');
+          } catch (e) {
+            missingPdfs.add('مكتبة $id ($e)');
           }
-        } catch (e) {
-          missingPdfs.add('مكتبة $id ($e)');
-        }
+        });
       }
+      await runBounded(pdfJobs);
       var flowJudgeHint = judgeIds.isEmpty ? 0 : judgeIds.first;
+      final dayJobs = <Future<void> Function()>[];
       for (final dayId in flowDayIds) {
-        try {
-          if (await _namedPdfReady(dayId)) continue;
-          final bytes = await ApiClient.instance.getBytes(
-            '/api/tablet/device/files/flow-days/$dayId',
-            query: flowJudgeHint > 0 ? {'judge_id': flowJudgeHint} : null,
-            timeout: const Duration(seconds: 120),
-          );
-          if (bytes.isNotEmpty) {
-            await LibraryPdfCache.putNamed(dayId, bytes);
+        dayJobs.add(() async {
+          try {
+            if (await _namedPdfReady(dayId)) return;
+            final dest = await LibraryPdfCache.nativeNamedPdfPath(dayId);
+            var ok = false;
+            if (dest != null && dest.isNotEmpty) {
+              ok = await ApiClient.instance.downloadToFile(
+                '/api/tablet/device/files/flow-days/$dayId',
+                dest,
+                query: flowJudgeHint > 0 ? {'judge_id': flowJudgeHint} : null,
+                timeout: const Duration(seconds: 120),
+              );
+            }
+            if (!ok) {
+              final bytes = await ApiClient.instance.getBytes(
+                '/api/tablet/device/files/flow-days/$dayId',
+                query: flowJudgeHint > 0 ? {'judge_id': flowJudgeHint} : null,
+                timeout: const Duration(seconds: 120),
+              );
+              if (bytes.isNotEmpty) {
+                await LibraryPdfCache.putNamed(dayId, bytes);
+                ok = true;
+              }
+            }
+            if (!ok) missingPdfs.add('مجرى $dayId');
+          } on ApiException catch (e) {
+            if (e.status == 404) return;
+            missingPdfs.add('مجرى $dayId');
+          } catch (e) {
+            missingPdfs.add('مجرى $dayId ($e)');
           }
-        } on ApiException catch (e) {
-          if (e.status == 404) continue;
-          missingPdfs.add('مجرى $dayId');
-        } catch (e) {
-          missingPdfs.add('مجرى $dayId ($e)');
-        }
+        });
       }
+      await runBounded(dayJobs);
       if (missingPdfs.isNotEmpty) {
         failures.add('ملفات PDF ناقصة: ${missingPdfs.length}');
       }

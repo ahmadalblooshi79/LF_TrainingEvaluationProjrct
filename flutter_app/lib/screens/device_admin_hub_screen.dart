@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../services/api_client.dart';
 import '../services/device_admin_service.dart';
+import '../services/device_eval_manager_models.dart';
 import '../services/health_service.dart';
 import '../services/media_upload_service.dart';
 import '../services/offline_store.dart';
@@ -236,10 +237,31 @@ class _DeviceAdminHubScreenState extends State<DeviceAdminHubScreen> {
             label: const Text('استعادة البيانات المحلية'),
           ),
           const SizedBox(height: 24),
+          Text('النسخ الاحتياطي والاستعادة', style: AppTextStyles.subtitle),
+          const SizedBox(height: 8),
           Text(
-            'مدير الجهاز لا يستطيع فتح تقييمات المحكمين أو تعديلها.',
+            'نسخة احتياطية للتمرين الحالي لمستخدم واحد. لا تُصدَّر أسرار الدخول.',
             style: AppTextStyles.cairo(fontSize: 12, color: AppColors.muted),
-            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _busy ? null : () => context.push('/scoped-backup'),
+            icon: const Icon(Icons.backup_outlined),
+            label: const Text('النسخ الاحتياطي والاستعادة'),
+          ),
+          const SizedBox(height: 24),
+          Text(kDeviceEvalManagerTitle, style: AppTextStyles.subtitle),
+          const SizedBox(height: 8),
+          Text(
+            'معاينة قوائم تقييم الإجراءات والمعاضل لجميع المحكمين المهيأين على الجهاز للتمرين الحالي. الفتح للعرض فقط.',
+            style: AppTextStyles.cairo(fontSize: 12, color: AppColors.muted),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            key: const Key('device_eval_manager_entry'),
+            onPressed: _busy ? null : () => context.push('/device-eval-manager'),
+            icon: const Icon(Icons.fact_check_outlined),
+            label: const Text(kDeviceEvalManagerTitle),
           ),
           const SizedBox(height: 12),
           TextButton(

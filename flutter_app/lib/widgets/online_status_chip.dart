@@ -31,7 +31,8 @@ class OnlineStatusChip extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (state == SyncUiState.syncing)
+                    if (state == SyncUiState.syncing ||
+                        state == SyncUiState.connecting)
                       SizedBox(
                         width: 10,
                         height: 10,
@@ -71,7 +72,9 @@ class OnlineStatusChip extends StatelessWidget {
       case SyncUiState.online:
         return ('متصل بالسيرفر', AppColors.doneGreen);
       case SyncUiState.offline:
-        return ('Offline Mode', AppColors.goldDark);
+        return ('غير متصل بالسيرفر', AppColors.goldDark);
+      case SyncUiState.connecting:
+        return ('جاري الاتصال بالسيرفر', AppColors.olive);
       case SyncUiState.pending:
         return ('بانتظار المزامنة • $pending', AppColors.goldDark);
       case SyncUiState.syncing:

@@ -11,6 +11,7 @@ class HealthService with WidgetsBindingObserver {
   static final HealthService instance = HealthService._internal();
 
   final ValueNotifier<bool> serverReachable = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> connecting = ValueNotifier<bool>(false);
   final ValueNotifier<DateTime?> lastCheckedAt = ValueNotifier<DateTime?>(null);
 
   Timer? _timer;
@@ -53,6 +54,7 @@ class HealthService with WidgetsBindingObserver {
     }
     final pending = Completer<bool>();
     _inFlight = pending;
+    connecting.value = true;
     try {
       if (!ApiClient.instance.isConfigured) {
         serverReachable.value = false;
@@ -76,6 +78,7 @@ class HealthService with WidgetsBindingObserver {
       pending.complete(false);
       return false;
     } finally {
+      connecting.value = false;
       _inFlight = null;
     }
   }

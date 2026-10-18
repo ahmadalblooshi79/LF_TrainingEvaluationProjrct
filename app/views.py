@@ -8992,13 +8992,13 @@ def _render_judge_action_eval_lists_workspace(
     else:
         parent_href = parent_home
 
-    results_export_endpoint = (
-        "views.chief_judge_action_eval_lists_export_results"
-        if chief_mode
-        else "views.judge_dilemmas_export_results"
+    reports_kw: dict[str, str] = {"kind": "dilemma"}
+    if unit_key:
+        reports_kw["unit_key"] = unit_key
+    reports_href = url_for(
+        "views.chief_judge_reports_center" if chief_mode else "views.judge_reports_center",
+        **reports_kw,
     )
-    results_export_kw: dict[str, str] = {"unit_key": unit_key} if unit_key else {}
-    results_export_href = url_for(results_export_endpoint, **results_export_kw)
 
     if unit_key is None:
         return render_template(
@@ -9013,7 +9013,7 @@ def _render_judge_action_eval_lists_workspace(
                 unit_list_endpoint=unit_endpoint,
                 subpage_close_fallback=parent_href,
                 page_title=page_title,
-                results_export_href=results_export_href,
+                reports_href=reports_href,
                 **_hub_back_ctx_for_request_path(),
             ),
         )
@@ -9054,7 +9054,7 @@ def _render_judge_action_eval_lists_workspace(
             subpage_close_fallback=list_close_href,
             pf_reopened=request.args.get("pf_reopened", type=int) == 1,
             pf_chief_approved=request.args.get("pf_chief_approved", type=int) == 1,
-            results_export_href=results_export_href,
+            reports_href=reports_href,
             **_hub_back_ctx_for_request_path(),
         ),
     )
@@ -16432,6 +16432,231 @@ def _dilemma_results_xlsx_response(db, user: User, *, chief: bool):
     )
 
 
+def _normalize_reports_kind(kind: str) -> str:
+    from app.reports_center import KIND_DILEMMA, KIND_PROCEDURE
+
+    k = (kind or "").strip()
+    if k == KIND_PROCEDURE:
+        return KIND_PROCEDURE
+    if k == KIND_DILEMMA:
+        return KIND_DILEMMA
+    abort(404)
+
+
+def _reports_existing_export_href(kind: str, *, chief: bool) -> str:
+    from app.reports_center import KIND_PROCEDURE
+
+    args = {}
+    unit_key = (request.args.get("unit_key") or "").strip()
+    if unit_key:
+        args["unit_key"] = unit_key
+    if kind == KIND_PROCEDURE:
+        phase = (request.args.get("phase") or "").strip()
+        if phase:
+            args["phase"] = phase
+        endpoint = (
+            "views.chief_judge_evaluation_lists_export_results"
+            if chief
+            else "views.judge_evaluation_lists_export_results"
+        )
+    else:
+        endpoint = (
+            "views.chief_judge_action_eval_lists_export_results"
+            if chief
+            else "views.judge_dilemmas_export_results"
+        )
+    return url_for(endpoint, **args)
+
+
+def _reports_scope_for(db, user: User, ex: Exercise, kind: str, *, chief: bool):
+    from app.reports_center import KIND_PROCEDURE, ReportScope
+
+    name = ((ex.title or "").strip() or (ex.code or "").strip() or "تمرين")
+    if kind == KIND_PROCEDURE:
+        if chief:
+            allow = None
+            owned = None
+            assigned_pk = None
+        else:
+            units = _judge_evaluation_list_unit_levels(db, user, ex)
+            allow = {(u.get("key") or "").strip() for u in units if (u.get("key") or "").strip()}
+            if not _is_individual_judge_user(user):
+                allow = None
+            owned = _eval_item_ids_owned_by_judge(db, user, ex)
+            assigned_pk = (
+                _judge_assigned_phase_key(db, user, ex) if _is_individual_judge_user(user) else None
+            )
+        return ReportScope(
+            exercise_id=int(ex.id),
+            exercise_name=name,
+            kind=kind,
+            allow_unit_keys=allow,
+            allow_phase_key=assigned_pk or None,
+            owned_item_ids=owned,
+        )
+    assigned_uk = None if chief else _judge_assigned_unit_key(db, user, ex)
+    if (not chief) and _is_individual_judge_user(user) and not assigned_uk:
+        restrict: set[str] | None = set()
+    elif (
+        assigned_uk
+        and not is_system_admin(user)
+        and not chief
+        and not can_access_chief_judge_hub(user)
+    ):
+        restrict = {assigned_uk}
+    else:
+        restrict = None
+    return ReportScope(
+        exercise_id=int(ex.id),
+        exercise_name=name,
+        kind=kind,
+        allow_unit_keys=restrict,
+        allow_phase_key=None,
+        owned_item_ids=None,
+    )
+
+
+def _require_reports_user(*, chief: bool):
+    next_path = request.path or ("/chief-judge/reports" if chief else "/judge/reports")
+    user = get_current_user_optional()
+    if not user:
+        return None, redirect(f"/login?next={next_path}")
+    if chief:
+        if not can_access_chief_judge_hub(user):
+            abort(403)
+    elif not can_access_judge_hub(user):
+        abort(403)
+    return user, None
+
+
+def _render_reports_center(kind: str, *, chief: bool):
+    from app.reports_center import CONTEXT_TITLES, collect_report_lists, filter_catalog
+
+    kind = _normalize_reports_kind(kind)
+    user, bounced = _require_reports_user(chief=chief)
+    if bounced is not None:
+        return bounced
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    if ex is not None and not chief:
+        _ensure_judge_roster_synced(db, user, ex)
+    catalog = {
+        "phases": [],
+        "units": [],
+        "judges": [],
+        "lists": [],
+        "ratings": [],
+        "scope_note": "",
+    }
+    if ex is not None:
+        scope = _reports_scope_for(db, user, ex, kind, chief=chief)
+        catalog = filter_catalog(collect_report_lists(db, ex, scope))
+    prefix = "/chief-judge" if chief else "/judge"
+    return render_template(
+        "reports_center.html",
+        **_ctx(
+            user,
+            has_exercise=ex is not None,
+            exercise=ex,
+            kind=kind,
+            context_title=CONTEXT_TITLES.get(kind, "التقارير"),
+            catalog=catalog,
+            results_export_href=(
+                _reports_existing_export_href(kind, chief=chief) if ex is not None else ""
+            ),
+            preview_url=f"{prefix}/reports/{kind}/preview",
+            export_url=f"{prefix}/reports/{kind}/export.xlsx",
+            **_hub_back_ctx_for_request_path(),
+        ),
+    )
+
+
+def _reports_json_body():
+    data = request.get_json(silent=True)
+    if isinstance(data, dict):
+        return data
+    return dict(request.form)
+
+
+def _run_reports_request(kind: str, *, chief: bool):
+    from app.reports_center import parse_report_filters, run_report
+
+    kind = _normalize_reports_kind(kind)
+    user, bounced = _require_reports_user(chief=chief)
+    if bounced is not None:
+        return bounced, None, None
+    from flask import g
+
+    db = g.db
+    ex = _current_workspace_exercise(db, user)
+    if ex is None:
+        abort(404)
+    if not chief:
+        _ensure_judge_roster_synced(db, user, ex)
+    scope = _reports_scope_for(db, user, ex, kind, chief=chief)
+    filters = parse_report_filters(_reports_json_body())
+    payload = run_report(db, ex, scope, filters)
+    return None, payload, filters
+
+
+@bp.route("/judge/reports/<kind>", methods=["GET"])
+def judge_reports_center(kind: str):
+    return _render_reports_center(kind, chief=False)
+
+
+@bp.route("/chief-judge/reports/<kind>", methods=["GET"])
+def chief_judge_reports_center(kind: str):
+    return _render_reports_center(kind, chief=True)
+
+
+@bp.route("/judge/reports/<kind>/preview", methods=["POST"])
+def judge_reports_preview(kind: str):
+    bounced, payload, _filters = _run_reports_request(kind, chief=False)
+    if bounced is not None:
+        return bounced
+    public = {k: v for k, v in payload.items() if k != "items"}
+    return jsonify(public)
+
+
+@bp.route("/chief-judge/reports/<kind>/preview", methods=["POST"])
+def chief_judge_reports_preview(kind: str):
+    bounced, payload, _filters = _run_reports_request(kind, chief=True)
+    if bounced is not None:
+        return bounced
+    public = {k: v for k, v in payload.items() if k != "items"}
+    return jsonify(public)
+
+
+@bp.route("/judge/reports/<kind>/export.xlsx", methods=["POST"])
+def judge_reports_export(kind: str):
+    return _send_reports_xlsx(kind, chief=False)
+
+
+@bp.route("/chief-judge/reports/<kind>/export.xlsx", methods=["POST"])
+def chief_judge_reports_export(kind: str):
+    return _send_reports_xlsx(kind, chief=True)
+
+
+def _send_reports_xlsx(kind: str, *, chief: bool):
+    from app.reports_center import report_filename
+    from app.reports_center_excel import build_detailed_report_xlsx
+
+    bounced, payload, filters = _run_reports_request(kind, chief=chief)
+    if bounced is not None:
+        return bounced
+    if not payload.get("items"):
+        abort(400)
+    data = build_detailed_report_xlsx(payload)
+    return send_file(
+        io.BytesIO(data),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=report_filename(payload["kind"], filters.report_type),
+    )
+
+
 @bp.route("/judge/evaluation-lists", methods=["GET"])
 def judge_evaluation_lists_home():
     user = get_current_user_optional()
@@ -16479,8 +16704,8 @@ def judge_evaluation_lists_home():
                 if ex is not None and units
                 else ""
             ),
-            results_export_href=(
-                url_for("views.judge_evaluation_lists_export_results")
+            reports_href=(
+                url_for("views.judge_reports_center", kind="procedure")
                 if ex is not None
                 else ""
             ),
@@ -16713,8 +16938,9 @@ def judge_evaluation_lists(unit_key: str):
             subpage_close_fallback=list_close_href,
             phase_key=phase_key,
             phase_label=_phase_label_ar(phase_key) if phase_key else "",
-            results_export_href=url_for(
-                "views.judge_evaluation_lists_export_results",
+            reports_href=url_for(
+                "views.judge_reports_center",
+                kind="procedure",
                 unit_key=unit_key,
                 **_evaluation_list_phase_url_kwargs(phase_key),
             ),
@@ -17324,8 +17550,8 @@ def chief_judge_evaluation_lists_home():
             unit_list_endpoint="views.chief_judge_evaluation_lists",
             page_title="قوائم تقييم الإجراءات — اعتماد كبير المحكمين",
             pending_export_href=url_for("views.chief_judge_evaluation_lists_export_pending") if ex is not None else "",
-            results_export_href=(
-                url_for("views.chief_judge_evaluation_lists_export_results")
+            reports_href=(
+                url_for("views.chief_judge_reports_center", kind="procedure")
                 if ex is not None
                 else ""
             ),
@@ -17429,8 +17655,9 @@ def chief_judge_evaluation_lists(unit_key: str):
             subpage_close_fallback=list_close_href,
             phase_key=phase_key,
             phase_label=_phase_label_ar(phase_key) if phase_key else "",
-            results_export_href=url_for(
-                "views.chief_judge_evaluation_lists_export_results",
+            reports_href=url_for(
+                "views.chief_judge_reports_center",
+                kind="procedure",
                 unit_key=unit_key,
                 **_evaluation_list_phase_url_kwargs(phase_key),
             ),

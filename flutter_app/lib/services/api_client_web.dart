@@ -45,6 +45,16 @@ Future<http.Response> sendHttp({
   }
 }
 
+Future<bool> downloadToFile({
+  required Uri uri,
+  required Map<String, String> headers,
+  required String destPath,
+  required Duration timeout,
+  CookieJar? cookieJar,
+}) async {
+  return false;
+}
+
 Future<({bool ok, String detail})> probeServer(
   String baseUrl, {
   Duration timeout = const Duration(seconds: 10),

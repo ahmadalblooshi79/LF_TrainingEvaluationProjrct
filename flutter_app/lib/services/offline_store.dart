@@ -104,8 +104,13 @@ class PendingOp {
   factory PendingOp.fromRow(Map<String, dynamic> row) {
     Map<String, dynamic> body = {};
     try {
-      final decoded = jsonDecode((row['body'] as String?) ?? '{}');
-      if (decoded is Map) body = Map<String, dynamic>.from(decoded);
+      final rawBody = row['body'];
+      if (rawBody is Map) {
+        body = Map<String, dynamic>.from(rawBody);
+      } else {
+        final decoded = jsonDecode((rawBody as String?) ?? '{}');
+        if (decoded is Map) body = Map<String, dynamic>.from(decoded);
+      }
     } catch (_) {}
     return PendingOp(
       id: row['id'] as String,
@@ -316,6 +321,51 @@ class OfflineStore {
 
   /// Current tablet_offline.db schema version. Recovery reports this; it does not migrate.
   static const int databaseSchemaVersion = 4;
+
+  /// Backup bulk cache query MUST NOT include json_body (sqflite encodes the
+  /// whole result in one Android ByteArrayOutputStream).
+  static const List<String> backupCacheMetadataColumns = [
+    'cache_key',
+    'updated_at',
+    'sync_status',
+  ];
+
+  static const List<String> backupPendingIdColumns = ['id'];
+
+  static const List<String> backupMediaMetadataColumns = [
+    'id',
+    'local_path',
+    'row_index',
+    'media_kind',
+    'evaluation_list_item_id',
+    'bundle_action_eval_id',
+    'sync_status',
+    'server_confirmed',
+    'created_at',
+    'last_error',
+    'sheet_cache_key',
+    'client_uuid',
+    'user_id',
+    'military_number',
+    'exercise_id',
+    'original_filename',
+    'local_filename',
+    'mime_type',
+    'file_size',
+    'checksum',
+    'updated_at',
+    'uploaded_bytes',
+    'total_bytes',
+    'upload_session_id',
+    'attempt_count',
+    'last_attempt_at',
+    'server_media_id',
+  ];
+
+  /// Bind/read TEXT in chunks so sqflite never materializes a ~60MB column.
+  static const int backupSqliteTextChunkChars = 256 * 1024;
+
+  static const int backupJsonInlineMaxChars = 2 * 1024 * 1024;
 
   Future<void> init() async {
     if (kIsWeb) {
@@ -1404,5 +1454,477 @@ class OfflineStore {
       if (seen.add('${m['id']}')) out.add(m);
     }
     return out;
+  }
+
+  Future<Map<String, dynamic>?> localUserById(int userId) async {
+    if (kIsWeb) {
+      final raw = await pwa_kv.pwaKvGet('local_user_$userId');
+      if (raw == null || raw.isEmpty) return null;
+      try {
+        return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      } catch (_) {
+        return null;
+      }
+    }
+    final db = await _database;
+    final rows = await db.query(
+      'local_users',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : Map<String, dynamic>.from(rows.first);
+  }
+
+  Future<int> _sqliteTextLength(String table, String column, String where, List<Object?> args) async {
+    final db = await _database;
+    final rows = await db.rawQuery(
+      'SELECT length($column) AS n FROM $table WHERE $where LIMIT 1',
+      args,
+    );
+    if (rows.isEmpty) return 0;
+    final n = rows.first['n'];
+    if (n is int) return n;
+    if (n is num) return n.toInt();
+    return int.tryParse('$n') ?? 0;
+  }
+
+  Future<String> _readSqliteTextChunked({
+    required String table,
+    required String column,
+    required String where,
+    required List<Object?> args,
+  }) async {
+    final len = await _sqliteTextLength(table, column, where, args);
+    if (len <= 0) return '';
+    if (len <= backupSqliteTextChunkChars) {
+      final db = await _database;
+      final rows = await db.query(
+        table,
+        columns: [column],
+        where: where,
+        whereArgs: args,
+        limit: 1,
+      );
+      if (rows.isEmpty) return '';
+      return '${rows.first[column] ?? ''}';
+    }
+    final db = await _database;
+    final buf = StringBuffer();
+    var offset = 1;
+    while (offset <= len) {
+      final rows = await db.rawQuery(
+        'SELECT substr($column, ?, ?) AS c FROM $table WHERE $where LIMIT 1',
+        [offset, backupSqliteTextChunkChars, ...args],
+      );
+      if (rows.isEmpty) break;
+      final part = '${rows.first['c'] ?? ''}';
+      if (part.isEmpty) break;
+      buf.write(part);
+      offset += part.length;
+    }
+    return buf.toString();
+  }
+
+  Future<void> _streamSqliteTextToFile({
+    required String table,
+    required String column,
+    required String where,
+    required List<Object?> args,
+    required File dest,
+  }) async {
+    final len = await _sqliteTextLength(table, column, where, args);
+    await dest.parent.create(recursive: true);
+    if (dest.existsSync()) await dest.delete();
+    final sink = dest.openWrite();
+    try {
+      final db = await _database;
+      var offset = 1;
+      while (offset <= len) {
+        final rows = await db.rawQuery(
+          'SELECT substr($column, ?, ?) AS c FROM $table WHERE $where LIMIT 1',
+          [offset, backupSqliteTextChunkChars, ...args],
+        );
+        if (rows.isEmpty) break;
+        final part = '${rows.first['c'] ?? ''}';
+        if (part.isEmpty) break;
+        sink.write(part);
+        offset += part.length;
+      }
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
+  }
+
+  /// Scoped backup cache: metadata first, json_body one key at a time.
+  /// Never `SELECT * FROM cache`.
+  Future<List<Map<String, dynamic>>> backupSelectScopedCacheForUser({
+    required int userId,
+    required int exerciseId,
+    Directory? largeBodyDir,
+  }) async {
+    final prefix = 'u$userId:';
+    if (kIsWeb) {
+      final all = await recoverySelectCache();
+      return all.where((row) {
+        final key = '${row['cache_key'] ?? ''}';
+        if (!key.startsWith(prefix)) return false;
+        return true;
+      }).toList();
+    }
+    final db = await _database;
+    final meta = await db.query(
+      'cache',
+      columns: backupCacheMetadataColumns,
+      where: 'cache_key LIKE ?',
+      whereArgs: ['$prefix%'],
+      orderBy: 'cache_key ASC',
+    );
+    final out = <Map<String, dynamic>>[];
+    for (final row in meta) {
+      final key = '${row['cache_key'] ?? ''}';
+      if (key.isEmpty) continue;
+      final len = await _sqliteTextLength(
+        'cache',
+        'json_body',
+        'cache_key = ?',
+        [key],
+      );
+      String jsonBody = '';
+      String? bodyRel;
+      if (largeBodyDir != null && len > backupJsonInlineMaxChars) {
+        final safe = key.replaceAll(RegExp(r'[^a-zA-Z0-9._-]+'), '_');
+        final dest = File(p.join(largeBodyDir.path, '$safe.json'));
+        await _streamSqliteTextToFile(
+          table: 'cache',
+          column: 'json_body',
+          where: 'cache_key = ?',
+          args: [key],
+          dest: dest,
+        );
+        bodyRel = dest.path;
+        jsonBody = '{}';
+      } else {
+        jsonBody = await _readSqliteTextChunked(
+          table: 'cache',
+          column: 'json_body',
+          where: 'cache_key = ?',
+          args: [key],
+        );
+      }
+      out.add({
+        'cache_key': key,
+        'json_body': jsonBody,
+        'updated_at': '${row['updated_at'] ?? ''}',
+        'sync_status': '${row['sync_status'] ?? ''}',
+        if (bodyRel != null) 'json_body_file': bodyRel,
+        'json_body_length': len,
+      });
+    }
+    return out;
+  }
+
+  /// Media metadata only. media_files has no BLOB; still avoid SELECT *.
+  Future<List<Map<String, dynamic>>> backupSelectMediaMetadataForUserExercise({
+    required int userId,
+    required int exerciseId,
+  }) async {
+    if (kIsWeb) {
+      return recoverySelectMedia();
+    }
+    final db = await _database;
+    final byUser = await db.query(
+      'media_files',
+      columns: backupMediaMetadataColumns,
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'created_at ASC',
+    );
+    final unscoped = await db.query(
+      'media_files',
+      columns: backupMediaMetadataColumns,
+      where:
+          '(user_id IS NULL OR user_id = 0) AND (exercise_id = ? OR exercise_id IS NULL OR exercise_id = 0)',
+      whereArgs: [exerciseId],
+      orderBy: 'created_at ASC',
+    );
+    final seen = <String>{};
+    final out = <Map<String, dynamic>>[];
+    for (final r in [...byUser, ...unscoped]) {
+      final m = Map<String, dynamic>.from(r);
+      if (seen.add('${m['id']}')) out.add(m);
+    }
+    return out;
+  }
+
+  /// All pending_ops for one user + exercise. Read-only. Does not filter op_type.
+  /// Loads ids first, then one row at a time so sqflite never encodes the
+  /// whole table (or a giant body list) in one platform-channel buffer.
+  Future<List<Map<String, dynamic>>> backupSelectPendingForUserExercise({
+    required int exerciseId,
+    required int userId,
+  }) async {
+    if (kIsWeb) {
+      final all = await recoverySelectPendingOps();
+      return all
+          .where(
+            (row) =>
+                _sameInt(row['exercise_id'], exerciseId) &&
+                _sameInt(row['user_id'], userId),
+          )
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList();
+    }
+    final db = await _database;
+    final ids = await db.query(
+      'pending_ops',
+      columns: backupPendingIdColumns,
+      where: 'exercise_id = ? AND user_id = ?',
+      whereArgs: [exerciseId, userId],
+      orderBy: 'created_at ASC',
+    );
+    final out = <Map<String, dynamic>>[];
+    for (final idRow in ids) {
+      final id = '${idRow['id'] ?? ''}';
+      if (id.isEmpty) continue;
+      final body = await _readSqliteTextChunked(
+        table: 'pending_ops',
+        column: 'body',
+        where: 'id = ?',
+        args: [id],
+      );
+      final rows = await db.query(
+        'pending_ops',
+        columns: const [
+          'id',
+          'method',
+          'path',
+          'kind',
+          'op_type',
+          'created_at',
+          'attempts',
+          'last_error',
+          'sync_status',
+          'judge_id',
+          'user_id',
+          'exercise_id',
+          'list_id',
+          'eval_item_id',
+          'media_local_path',
+        ],
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (rows.isEmpty) continue;
+      final m = Map<String, dynamic>.from(rows.first);
+      m['body'] = body;
+      out.add(m);
+    }
+    return out;
+  }
+
+  Future<PendingOp?> pendingOpById(String id) async {
+    if (id.isEmpty) return null;
+    if (kIsWeb) {
+      final all = await recoverySelectPendingOps();
+      for (final row in all) {
+        if ('${row['id']}' == id) return PendingOp.fromRow(row);
+      }
+      return null;
+    }
+    final db = await _database;
+    final rows = await db.query(
+      'pending_ops',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return PendingOp.fromRow(Map<String, dynamic>.from(rows.first));
+  }
+
+  Future<bool> insertPendingIfAbsent(PendingOp op) async {
+    final existing = await pendingOpById(op.id);
+    if (existing != null) return false;
+    await enqueueOp(op);
+    return true;
+  }
+
+  Future<Map<String, dynamic>?> cacheRowRaw(String key) async {
+    if (kIsWeb) {
+      final raw = await pwa_kv.pwaKvGet('$_cachePrefix$key');
+      if (raw == null) return null;
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          final root = Map<String, dynamic>.from(decoded);
+          final body = root['body'];
+          return {
+            'cache_key': key,
+            'json_body': body is Map || body is List
+                ? jsonEncode(body)
+                : (body is String ? body : jsonEncode(root)),
+            'updated_at': '${root['updated_at'] ?? ''}',
+            'sync_status': '${root['sync_status'] ?? ''}',
+          };
+        }
+      } catch (_) {}
+      return {
+        'cache_key': key,
+        'json_body': raw,
+        'updated_at': '',
+        'sync_status': '',
+      };
+    }
+    final db = await _database;
+    final rows = await db.query(
+      'cache',
+      where: 'cache_key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return Map<String, dynamic>.from(rows.first);
+  }
+
+  Future<void> cacheSetExact({
+    required String key,
+    required String jsonBody,
+    required String updatedAt,
+    required String syncStatus,
+  }) async {
+    if (kIsWeb) {
+      dynamic body;
+      try {
+        body = jsonDecode(jsonBody);
+      } catch (_) {
+        body = jsonBody;
+      }
+      await pwa_kv.pwaKvPut(
+        '$_cachePrefix$key',
+        jsonEncode({
+          'body': body,
+          'updated_at': updatedAt,
+          'sync_status': syncStatus,
+        }),
+      );
+      return;
+    }
+    final db = await _database;
+    await db.insert(
+      'cache',
+      {
+        'cache_key': key,
+        'json_body': jsonBody,
+        'updated_at': updatedAt.isEmpty
+            ? DateTime.now().toIso8601String()
+            : updatedAt,
+        'sync_status': syncStatus.isEmpty ? SyncStatuses.synced : syncStatus,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Insert/replace cache json_body from a file without loading the whole file.
+  Future<void> cacheSetExactFromFile({
+    required String key,
+    required File source,
+    required String updatedAt,
+    required String syncStatus,
+  }) async {
+    await cacheSetExact(
+      key: key,
+      jsonBody: '',
+      updatedAt: updatedAt,
+      syncStatus: syncStatus,
+    );
+    if (kIsWeb) {
+      await cacheSetExact(
+        key: key,
+        jsonBody: await source.readAsString(),
+        updatedAt: updatedAt,
+        syncStatus: syncStatus,
+      );
+      return;
+    }
+    final db = await _database;
+    final stream = source.openRead().transform(utf8.decoder);
+    final buf = StringBuffer();
+    Future<void> flush() async {
+      final part = buf.toString();
+      buf.clear();
+      if (part.isEmpty) return;
+      await db.rawUpdate(
+        'UPDATE cache SET json_body = json_body || ? WHERE cache_key = ?',
+        [part, key],
+      );
+    }
+
+    await for (final chunk in stream) {
+      buf.write(chunk);
+      if (buf.length >= backupSqliteTextChunkChars) {
+        await flush();
+      }
+    }
+    await flush();
+  }
+
+  /// Scoped restore writes. Never deletes other users or whole tables.
+  Future<void> restoreApplyScopedRows({
+    required List<Map<String, dynamic>> cacheRows,
+    required List<PendingOp> pendingToInsert,
+    required List<LocalMediaRecord> mediaToUpsert,
+  }) async {
+    if (kIsWeb) {
+      for (final row in cacheRows) {
+        await cacheSetExact(
+          key: '${row['cache_key'] ?? ''}',
+          jsonBody: '${row['json_body'] ?? '{}'}',
+          updatedAt: '${row['updated_at'] ?? ''}',
+          syncStatus: '${row['sync_status'] ?? SyncStatuses.pending}',
+        );
+      }
+      for (final op in pendingToInsert) {
+        await insertPendingIfAbsent(op);
+      }
+      for (final m in mediaToUpsert) {
+        await upsertMedia(m);
+      }
+      return;
+    }
+    final db = await _database;
+    await db.transaction((txn) async {
+      for (final row in cacheRows) {
+        final key = '${row['cache_key'] ?? ''}';
+        if (key.isEmpty) continue;
+        await txn.insert(
+          'cache',
+          {
+            'cache_key': key,
+            'json_body': '${row['json_body'] ?? '{}'}',
+            'updated_at': '${row['updated_at'] ?? DateTime.now().toIso8601String()}',
+            'sync_status':
+                '${row['sync_status'] ?? SyncStatuses.pending}',
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      for (final op in pendingToInsert) {
+        await txn.insert(
+          'pending_ops',
+          op.toRow(),
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
+      for (final m in mediaToUpsert) {
+        await txn.insert(
+          'media_files',
+          m.toRow(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+    });
   }
 }
